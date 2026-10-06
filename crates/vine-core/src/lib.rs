@@ -6,6 +6,7 @@ mod callbacks;
 mod com;
 mod d3d9;
 mod dinput8;
+pub mod directshow;
 mod dll;
 mod dsound;
 mod dynamic_exports;
@@ -29,559 +30,204 @@ mod win32;
 mod winmm;
 
 pub use api::{
-    API_GUEST_WRITE_INLINE_SERIALIZATION_MAX_BYTES, AbiSchema, ApiArgumentSchema, ApiBehavior,
-    ApiCallFrame, ApiContract, ApiDeferredCall, ApiDirection, ApiDispatcher,
-    ApiDynamicPointerConstraint, ApiEndpointBinding, ApiEndpointIdentity, ApiFault, ApiFaultClass,
-    ApiGuestCallbackCall, ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate,
-    ApiImmediateCompletion, ApiOwnedTrap, ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema,
-    ApiReturnValue, ApiScalarOrPointerConstraint, ApiStringEncoding, ApiSymbol, ApiTrap,
-    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, DecodedApiArgument,
-    DispatchOutcome, ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy,
-    GuestCallbackRequest, GuestCallbackScratchPointerRelocation, HostCompletion, HostRequest,
-    LastErrorPolicy, PreparedGuestCallback, ReentrancyPolicy, RegisterUpdate,
-    RuntimeGuestCallbackSemanticAction, StackCleanup, X86CpuContext,
+    ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall,
+    ApiImmediate, ApiImmediateCompletion, ApiOwnedTrap, ApiSourceLookup, DispatchOutcome,
+    GuestCallbackReturn, HostCompletion, X86CpuContext,
 };
-
-pub use bootstrap::{
-    CONTROLLED_INITIAL_STACK_BASE, CONTROLLED_INITIAL_STACK_SIZE, CONTROLLED_INITIAL_STACK_TOP,
-    InitialThreadStack, install_controlled_initial_stack, install_initial_thread_stack,
-    install_thread_stack_at,
-};
-pub use callbacks::{
-    CALLBACK_RETURN_ARENA_BASE, CALLBACK_RETURN_ARENA_SIZE, CALLBACK_RETURN_SLOT_SIZE,
-    CALLBACK_SCRATCH_ARENA_BASE, CALLBACK_SCRATCH_ARENA_SIZE, CALLBACK_SCRATCH_SLOT_SIZE,
-    CallbackReturnSentinel, CallbackReturnSentinelId, PROCESS_ENTRY_RETURN_SENTINEL_ADDRESS,
-    ProcessEntryReturnSentinel, ProcessEntryReturnSentinelId, RuntimeReturnSentinels,
-    install_callback_return_sentinel, install_runtime_return_sentinels,
-};
-pub use com::{
-    COM_E_NOINTERFACE, COM_E_POINTER, COM_RPC_E_CHANGED_MODE, COM_S_FALSE, COM_S_OK,
-    ComCallCompletion, ComCallFrame, ComCallTrap, ComDispatchOutcome, ComFault, ComFaultClass,
-    ComFaultTarget, ComGuestWriteReceipt, ComHResult, ComInterfaceSpec, ComMethodSpec,
-    ComObjectSpec, ComReturnValue, InstalledComObject, RUNTIME_COM_BACKING_BYTES,
-    RUNTIME_COM_ENDPOINT_SLOT_SIZE, RUNTIME_COM_MAX_ENDPOINTS_PER_OBJECT, dispatch_com_call,
-    install_com_object,
-};
-pub use d3d9::{
-    D3D9_COMPATIBILITY_POLICY_SCHEMA, D3D9_COMPATIBILITY_POLICY_VERSION,
-    D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH,
-    D3D9_D3DBLEND_INVSRCALPHA, D3D9_D3DBLEND_SRCALPHA, D3D9_D3DBLENDOP_ADD,
-    D3D9_D3DCAPS_READ_SCANLINE, D3D9_D3DCAPS2_DYNAMICTEXTURES, D3D9_D3DCAPS9_BYTE_LENGTH,
-    D3D9_D3DCLEAR_TARGET, D3D9_D3DCULL_NONE, D3D9_D3DDEVTYPE_HAL, D3D9_D3DDISPLAYMODE_BYTE_LENGTH,
-    D3D9_D3DENUM_WHQL_LEVEL, D3D9_D3DERR_INVALIDCALL, D3D9_D3DERR_NOTAVAILABLE, D3D9_D3DFMT_D16,
-    D3D9_D3DFMT_UNKNOWN, D3D9_D3DFMT_X8R8G8B8, D3D9_D3DFVF_DIFFUSE, D3D9_D3DFVF_TEX1,
-    D3D9_D3DFVF_XYZRHW, D3D9_D3DLOCK_NO_DIRTY_UPDATE, D3D9_D3DMULTISAMPLE_NONE,
-    D3D9_D3DPOOL_DEFAULT, D3D9_D3DPOOL_MANAGED, D3D9_D3DPOOL_SYSTEMMEM,
-    D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH, D3D9_D3DPS_VERSION_3_0, D3D9_D3DPT_TRIANGLESTRIP,
-    D3D9_D3DRASTER_STATUS_BYTE_LENGTH, D3D9_D3DRS_ALPHABLENDENABLE, D3D9_D3DRS_BLENDOP,
-    D3D9_D3DRS_CULLMODE, D3D9_D3DRS_DESTBLEND, D3D9_D3DRS_LIGHTING, D3D9_D3DRS_SRCBLEND,
-    D3D9_D3DRS_ZENABLE, D3D9_D3DRTYPE_TEXTURE, D3D9_D3DSAMP_MAGFILTER, D3D9_D3DSAMP_MINFILTER,
-    D3D9_D3DSWAPEFFECT_DISCARD, D3D9_D3DTA_DIFFUSE, D3D9_D3DTA_TEXTURE, D3D9_D3DTEXF_LINEAR,
-    D3D9_D3DTOP_MODULATE, D3D9_D3DTOP_SELECTARG1, D3D9_D3DTSS_ALPHAARG1, D3D9_D3DTSS_ALPHAARG2,
-    D3D9_D3DTSS_ALPHAOP, D3D9_D3DTSS_COLORARG1, D3D9_D3DTSS_COLORARG2, D3D9_D3DTSS_COLOROP,
-    D3D9_D3DUSAGE_DYNAMIC, D3D9_D3DUSAGE_WRITEONLY, D3D9_DIRECT3D_CREATE9_IMPLEMENTATION,
-    D3D9_IDIRECT3D9_CLASS_IDENTITY, D3D9_IDIRECT3D9_IID, D3D9_IDIRECT3DDEVICE9_CLASS_IDENTITY,
-    D3D9_IDIRECT3DDEVICE9_IID, D3D9_IDIRECT3DSURFACE9_CLASS_IDENTITY, D3D9_IDIRECT3DSURFACE9_IID,
-    D3D9_IDIRECT3DTEXTURE9_CLASS_IDENTITY, D3D9_IDIRECT3DTEXTURE9_IID,
-    D3D9_IDIRECT3DVERTEXBUFFER9_CLASS_IDENTITY, D3D9_IDIRECT3DVERTEXBUFFER9_IID, D3D9_SDK_VERSION,
-    D3D9_VIRTUAL_DESCRIPTION, D3D9_VIRTUAL_DEVICE_IDENTIFIER_WINDOWS_BYTES,
-    D3D9_VIRTUAL_DEVICE_NAME, D3D9_VIRTUAL_DRIVER, D3D9_VIRTUAL_DRIVER_VERSION,
-    D3d9AdapterCountPolicy, D3d9AdapterDisplayModePolicy, D3d9AdapterIdentifier,
-    D3d9AdapterIdentifierPolicy, D3d9AdapterMonitorPolicy, D3d9AddDirtyRectPolicy,
-    D3d9CheckDeviceFormatPolicy, D3d9CheckDeviceTypePolicy, D3d9ClearPolicy,
-    D3d9CompatibilityPolicy, D3d9CreateDevicePolicy, D3d9CreateTexturePolicy,
-    D3d9CreateTextureVariant, D3d9DeviceCaps, D3d9DeviceCapsPolicy, D3d9DisplayMode,
-    D3d9DrawPrimitivePolicy, D3d9FlexibleVertexFormatPolicy, D3d9GetSurfaceLevelPolicy,
-    D3d9InitialRenderStatePolicy, D3d9InitialSamplerStatePolicy,
-    D3d9InitialTextureStageStatePolicy, D3d9InitialVertexBufferPolicy, D3d9PresentParameters,
-    D3d9PresentPolicy, D3d9RasterStatus, D3d9RasterStatusPolicy, D3d9RenderStateSetting,
-    D3d9SamplerStateSetting, D3d9StreamSourcePolicy, D3d9SurfaceDcPolicy,
-    D3d9TestCooperativeLevelPolicy, D3d9TextureStageStateSetting, D3d9UpdateTexturePolicy,
-    d3d9_contract_for_endpoint, direct3d_create9_contract, direct3d9_object_spec,
-    direct3ddevice9_object_spec, direct3dsurface9_object_spec, direct3dtexture9_object_spec,
-    direct3dvertexbuffer9_object_spec, dispatch_d3d9_api, dispatch_d3d9_com_call,
-};
-pub use dinput8::{
-    DINPUT8_CLASS_E_NOAGGREGATION, DINPUT8_DI8DEVCLASS_ALL, DINPUT8_DI8DEVCLASS_DEVICE,
-    DINPUT8_DI8DEVCLASS_GAMECTRL, DINPUT8_DI8DEVCLASS_KEYBOARD, DINPUT8_DI8DEVCLASS_POINTER,
-    DINPUT8_DIEDFL_ATTACHEDONLY, DINPUT8_DIEDFL_VALID_MASK, DINPUT8_DIERR_BETADIRECTINPUTVERSION,
-    DINPUT8_DIERR_OLDDIRECTINPUTVERSION, DINPUT8_DIRECT_INPUT_8_CREATE_IMPLEMENTATION,
-    DINPUT8_E_INVALIDARG, DINPUT8_IDIRECTINPUT8A_CLASS_IDENTITY, DINPUT8_IDIRECTINPUT8A_IID,
-    DINPUT8_VERSION, Dinput8CompatibilityPolicy, Dinput8EnumDevicesPolicy,
-    dinput8_contract_for_endpoint, direct_input_8_create_contract, direct_input8a_object_spec,
-    dispatch_dinput8_api, dispatch_dinput8_com_call,
-};
-pub use dsound::{
-    DSOUND_CLASS_E_NOAGGREGATION, DSOUND_COMPATIBILITY_POLICY_SCHEMA,
-    DSOUND_COMPATIBILITY_POLICY_VERSION, DSOUND_DIRECT_SOUND_CREATE_8_IMPLEMENTATION,
-    DSOUND_DIRECT_SOUND_CREATE_8_ORDINAL, DSOUND_DSBCAPS_CTRLFREQUENCY, DSOUND_DSBCAPS_CTRLPAN,
-    DSOUND_DSBCAPS_CTRLPOSITIONNOTIFY, DSOUND_DSBCAPS_CTRLVOLUME, DSOUND_DSBCAPS_PRIMARYBUFFER,
-    DSOUND_DSBFREQUENCY_ORIGINAL, DSOUND_DSBPLAY_LOOPING, DSOUND_DSBUFFERDESC_BYTES,
-    DSOUND_DSERR_CONTROLUNAVAIL, DSOUND_DSERR_INVALIDCALL, DSOUND_DSSCL_EXCLUSIVE,
-    DSOUND_DSSCL_NORMAL, DSOUND_DSSCL_PRIORITY, DSOUND_DSSCL_WRITEPRIMARY, DSOUND_E_INVALIDARG,
-    DSOUND_IDIRECTSOUND_IID, DSOUND_IDIRECTSOUND8_CLASS_IDENTITY, DSOUND_IDIRECTSOUND8_IID,
-    DSOUND_IDIRECTSOUNDBUFFER_IID, DSOUND_IDIRECTSOUNDBUFFER8_CLASS_IDENTITY,
-    DSOUND_IDIRECTSOUNDBUFFER8_IID, DSOUND_IDIRECTSOUNDNOTIFY_IID, DSOUND_PRIMARY_BUFFER_FLAGS,
-    DSOUND_SECONDARY_BUFFER_BYTES, DSOUND_SECONDARY_BUFFER_FLAGS,
-    DSOUND_SECONDARY_BUFFER_FORWARD_FLAGS, DSOUND_WAVE_FORMAT_PCM, DsoundBufferTransferPolicy,
-    DsoundCompatibilityPolicy, DsoundCooperativeLevelPolicy, DsoundInitialBuffersPolicy,
-    direct_sound_buffer8_object_spec, direct_sound_create_8_contract, direct_sound8_object_spec,
-    dispatch_dsound_api, dispatch_dsound_com_call, dsound_contract_for_endpoint,
-};
-pub use dynamic_exports::{
-    DYNAMIC_EXPORT_ARENA_BASE, DYNAMIC_EXPORT_ARENA_SIZE, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
-    DYNAMIC_EXPORT_SLOT_SIZE, DynamicExportThunk, DynamicExportThunkId,
-    install_dynamic_export_thunk, install_dynamic_export_thunks,
-};
-pub use environment::{
-    CONTROLLED_ANSI_COMMAND_LINE_ENCODING, CONTROLLED_COMMAND_LINE, CONTROLLED_COMMAND_LINE_BASE,
-    CONTROLLED_ENVIRONMENT_PAGE_SIZE, CONTROLLED_PEB_BASE, CONTROLLED_PROCESS_PARAMETERS_BASE,
-    CONTROLLED_TEB_BASE, CONTROLLED_WIDE_ENVIRONMENT_ENCODING, InitialAnsiCommandLine,
-    InitialProcessEnvironment, InitialProcessParameters, InitialWideEnvironmentStrings,
-    PEB_PROCESS_PARAMETERS_POINTER_OFFSET, PROCESS_PARAMETERS_COMMAND_LINE_OFFSET,
-    PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, TEB_PEB_POINTER_OFFSET, TEB_SELF_POINTER_OFFSET,
-    UNICODE_STRING_BUFFER_OFFSET, controlled_process_environment_allocation_request,
-    install_controlled_process_environment,
-    install_controlled_process_environment_with_command_line,
-    install_controlled_process_environment_with_command_line_and_ansi,
-    install_controlled_process_environment_with_command_line_ansi_and_environment_strings,
-    install_controlled_process_environment_with_parameters,
+#[cfg(test)]
+pub(crate) use api::{ApiEndpointBinding, ApiSymbol, HostRequest, PreparedGuestCallback};
+pub use bootstrap::install_initial_thread_stack;
+pub use callbacks::install_runtime_return_sentinels;
+#[cfg(test)]
+pub(crate) use callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_SCRATCH_ARENA_BASE};
+#[cfg(test)]
+pub(crate) use com::{COM_E_NOINTERFACE, COM_E_POINTER, COM_S_OK, ComCallCompletion, ComFault};
+pub use com::{ComAudioDeferred, ComCallTrap, ComDispatchOutcome};
+pub use dynamic_exports::DynamicExportThunk;
+#[cfg(test)]
+pub(crate) use environment::{
+    CONTROLLED_COMMAND_LINE_BASE, PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET,
 };
 pub use gdi32::{
-    CREATE_COMPATIBLE_DC_IMPLEMENTATION, CREATE_DIB_SECTION_IMPLEMENTATION,
-    CREATE_FONT_A_IMPLEMENTATION, DELETE_DC_IMPLEMENTATION, DELETE_OBJECT_IMPLEMENTATION,
-    ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION, GDI32_COMPATIBILITY_POLICY_SCHEMA,
-    GDI32_COMPATIBILITY_POLICY_VERSION, GET_OBJECT_A_IMPLEMENTATION,
-    GET_OUTLINE_TEXT_METRICS_A_IMPLEMENTATION, GET_STOCK_OBJECT_IMPLEMENTATION,
-    Gdi32CompatibilityPolicy, Gdi32CompatibleDcPolicy, Gdi32DibSectionPolicy,
-    Gdi32DibSectionProfile, Gdi32FontCreationPolicy, Gdi32FontCreationProfile,
-    Gdi32FontEnumerationPolicy, Gdi32FontRecordPolicy, Gdi32OutlineTextMetricsPolicy,
-    Gdi32OutlineTextMetricsProfile, Gdi32TextOutAPolicy, Gdi32TextRasterHostResponse,
-    RUNTIME_GDI_TEXT_RASTER_SERVICE, SELECT_OBJECT_IMPLEMENTATION, TEXT_OUT_A_IMPLEMENTATION,
-    X86_BITMAP_BYTE_LENGTH, X86_BITMAPINFOHEADER_BYTE_LENGTH, X86_DIB_BITMAPINFO_BYTE_LENGTH,
-    X86_DIB_RGBQUAD_COUNT, X86_ENUMLOGFONTEXA_BYTE_LENGTH, X86_LOGFONTA_BYTE_LENGTH,
-    X86_NEWTEXTMETRICEXA_BYTE_LENGTH, X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH,
-    X86_OUTLINE_TEXT_METRIC_A_FIXED_BYTE_LENGTH, complete_gdi32_text_raster,
-    create_compatible_dc_contract, create_dib_section_contract, create_font_a_contract,
-    delete_dc_contract, delete_object_contract, dispatch_gdi32_api, dispatch_gdi32_api_with_policy,
-    enum_font_families_ex_a_contract, gdi32_contract_for_endpoint, get_object_a_contract,
-    get_outline_text_metrics_a_contract, get_stock_object_contract, select_object_contract,
-    text_out_a_contract,
+    Gdi32TextRasterHostResponse, RUNTIME_GDI_TEXT_RASTER_SERVICE, complete_gdi32_text_raster,
 };
-pub use gdiplus::{
-    GDIPLUS_COMPATIBILITY_POLICY_SCHEMA, GDIPLUS_COMPATIBILITY_POLICY_VERSION,
-    GDIPLUS_SHUTDOWN_IMPLEMENTATION, GDIPLUS_STARTUP_IMPLEMENTATION, GDIPLUS_STATUS_OK,
-    GDIPLUS_STATUS_OUT_OF_MEMORY, GDIPLUS_STATUS_UNSUPPORTED_GDIPLUS_VERSION,
-    GdiplusCompatibilityPolicy, GdiplusStartupPolicy, X86_GDIPLUS_STARTUP_INPUT_BYTE_LENGTH,
-    X86_GDIPLUS_STARTUP_OUTPUT_BYTE_LENGTH, dispatch_gdiplus_api_with_policy,
-    gdiplus_contract_for_endpoint, gdiplus_shutdown_contract, gdiplus_startup_contract,
+#[cfg(test)]
+pub(crate) use imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+pub use imports::{RuntimeExport, RuntimeExportCatalog};
+pub use materialize::{ImageMaterialization, materialize_pe32_image};
+#[cfg(test)]
+pub(crate) use memory::{
+    CacheEffects, GuestMemoryError, MappingOperation, MemoryAccess, MemoryDelta, MemoryFaultReason,
+    MemoryReflection,
 };
-pub use imm32::{
-    IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION, IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION,
-    IMM32_COMPATIBILITY_POLICY_SCHEMA, IMM32_COMPATIBILITY_POLICY_VERSION,
-    Imm32AssociateContextPolicy, Imm32CompatibilityPolicy, Imm32GetDefaultImeWindowPolicy,
-    dispatch_imm32_api_with_policy, imm_associate_context_contract,
-    imm_get_default_ime_wnd_contract, imm32_contract_for_endpoint,
-};
-pub use imports::{
-    IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE, IMPORT_THUNK_SLOT_SIZE, ImportBinding,
-    ImportBindingPlan, ImportBindingPolicy, ImportPlanDisposition, ImportThunk, ImportThunkArena,
-    ImportThunkDisposition, ImportThunkId, PlannedImport, RuntimeExport, RuntimeExportCatalog,
-    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, commit_pe32_import_binding,
-    plan_pe32_imports, plan_pe32_imports_with_unsupported_traps,
-};
-pub use materialize::{ImageMaterialization, UnboundImport, materialize_pe32_image};
 pub use memory::{
-    CPU_WRITEBACK_BINARY_VERSION, CacheEffects, CpuWritebackBatch, CpuWritebackBuffers,
-    CpuWritebackFastReceipt, CpuWritebackPage, CpuWritebackReceipt, DirtyPage, GUEST_PAGE_SIZE,
-    GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestMemoryTransaction,
-    GuestPageReconciliation, GuestRange, GuestWriteResult, ImageMemoryLayout,
-    MEMORY_DELTA_BINARY_VERSION, MEMORY_REFLECTION_BINARY_VERSION, MappingOperation, MemoryAccess,
-    MemoryDelta, MemoryDeltaBuffers, MemoryFault, MemoryFaultReason, MemoryInvalidation,
-    MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryReflection, MemoryReflectionBuffers,
-    MemoryReflectionPage, MemoryRegionKind, MemoryRegionSnapshot, MemoryStats,
-    MemorySynchronizationState, MemoryTransactionStats, PageProtection,
+    GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange, MemoryDeltaBuffers, MemoryLimits,
+    MemoryOwnerId, MemoryOwnerKind, MemoryReflectionBuffers, MemoryRegionKind, PageProtection,
 };
-pub use module_graph::{
-    RUNTIME_MODULE_GRAPH_MAX_MODULES, RUNTIME_MODULE_REFERENCE_OWNER_LIMIT, RuntimeModuleClass,
-    RuntimeModuleGraph, RuntimeModuleGraphError, RuntimeModuleGraphErrorClass, RuntimeModuleId,
-    RuntimeModuleLoadState, RuntimeModuleNode, RuntimeModuleReference, RuntimeModuleReferenceOwner,
-    RuntimeModuleRegistration,
+#[cfg(test)]
+pub(crate) use module_graph::{
+    RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleReferenceOwner, RuntimeModuleRegistration,
 };
-pub use module_images::{
-    RUNTIME_EXPORT_FORWARDER_DEPTH_LIMIT, RUNTIME_EXPORT_LOOKUP_NAME_LIMIT,
-    RUNTIME_MODULE_IMAGE_LIMIT, RuntimeExportForwarderHop, RuntimeModuleImage,
-    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleImageRegistry,
-    RuntimeResolvedExport,
-};
-pub use ole32::{
-    CO_INITIALIZE_IMPLEMENTATION, co_initialize_contract, dispatch_ole32_api,
-    ole32_contract_for_endpoint,
-};
-pub use pe32::{
-    DataDirectoryAddressKind, DataDirectoryPlan, ExportDirectoryPlan, ExportLookup,
-    ExportSymbolPlan, ExportTarget, FeatureInventory, HeaderMappingPlan, ImageKind, ImagePlan,
-    ImportModulePlan, ImportSymbolPlan, ImportTarget, LoaderError, LoaderErrorClass,
-    LoaderIngressReport, MappingProtection, Pe32Limits, Pe32LoadPlan, RelocationBlockPlan,
-    RelocationOperation, RelocationPlan, ResourceDataEntryPlan, ResourceDirectoryPlan,
-    ResourceIdentifier, Rva, SectionMappingPlan, UnsupportedPoint, build_pe32_load_plan,
+pub use module_graph::{RuntimeModuleId, RuntimeModuleLoadState};
+pub(crate) use pe32::MappingProtection;
+#[cfg(test)]
+pub(crate) use pe32::{ExportLookup, ExportTarget, ResourceIdentifier};
+pub use pe32::{ImageKind, ImportTarget, Pe32Limits, Pe32LoadPlan, Rva, build_pe32_load_plan};
+pub(crate) use runtime::RuntimePathResolution;
+#[cfg(test)]
+pub(crate) use runtime::{
+    ProcessAddressAllocationClassification, ProcessAddressAllocationReleasePolicy,
+    ProcessAddressSpaceAllocator, RUNTIME_API_BOUNDARY_QUANTUM, RUNTIME_COM_IUNKNOWN_IID,
+    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_GDIPLUS_SESSION_LIMIT,
+    RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RUNTIME_MENU_HANDLE_BASE, RUNTIME_PRIMARY_MONITOR_HANDLE,
+    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PRIVATE_HEAP_ARENA_BASE,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
+    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
+    RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
+    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
+    RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeAddressRange, RuntimeCallbackFrameId,
+    RuntimeComApartmentModel, RuntimeComIid, RuntimeCursorSource, RuntimeDeviceContextTarget,
+    RuntimeDynamicEndpoint, RuntimeGdiObjectKind, RuntimeGuestImportResolution, RuntimeHandle,
+    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeHostCompletion,
+    RuntimeImeStatusWindowRequest, RuntimeMutexId, RuntimeMutexNameA, RuntimeObjectKey,
+    RuntimeObjectKind, RuntimeProcessLifecycleState, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosOperation,
+    RuntimeSetWindowPosVariant, RuntimeSystemCursorKind, RuntimeThreadPriority,
+    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWaitRegistrationId, RuntimeWaitState, RuntimeWaitableTimerArm,
+    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 pub use runtime::{
-    DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_PROCESS_STATIC_RESERVED, FLS_OUT_OF_INDEXES,
-    LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_FLS_INDEX_NAMESPACE,
-    LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE,
-    LOGICAL_IME_CONTEXT_HANDLE_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_MENU_HANDLE_NAMESPACE, LOGICAL_MONITOR_HANDLE_NAMESPACE,
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE, LOGICAL_TLS_INDEX_NAMESPACE,
-    LOGICAL_WINDOW_CLASS_ATOM_NAMESPACE, LOGICAL_WINDOW_HANDLE_NAMESPACE,
-    ProcessAddressAllocationClassification, ProcessAddressAllocationId,
-    ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressAllocationReleasePolicy,
-    ProcessAddressAllocationRequest, ProcessAddressMappingRequirements,
-    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RUNTIME_API_BOUNDARY_QUANTUM,
-    RUNTIME_AUDIO_BUFFER_ID_NAMESPACE, RUNTIME_AUDIO_BUFFER_LIMIT,
-    RUNTIME_AUDIO_DEVICE_ID_NAMESPACE, RUNTIME_AUDIO_DEVICE_LIMIT,
-    RUNTIME_AUDIO_NOTIFICATION_LIMIT, RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE,
-    RUNTIME_AUDIO_PAN_MAX_HUNDREDTHS_DB, RUNTIME_AUDIO_PAN_MIN_HUNDREDTHS_DB,
-    RUNTIME_AUDIO_PCM_MAX_CHANNELS, RUNTIME_AUDIO_PCM_MAX_SAMPLES_PER_SECOND,
-    RUNTIME_AUDIO_PCM_MIN_SAMPLES_PER_SECOND, RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MAX_HZ,
-    RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MIN_HZ, RUNTIME_AUDIO_RESOURCE_ARENA_BASE,
-    RUNTIME_AUDIO_RESOURCE_ARENA_SIZE, RUNTIME_AUDIO_VOLUME_MAX_HUNDREDTHS_DB,
-    RUNTIME_AUDIO_VOLUME_MIN_HUNDREDTHS_DB, RUNTIME_BROWSER_RENDERER_ID_NAMESPACE,
-    RUNTIME_CLOCK_PROFILE_SCHEMA, RUNTIME_CLOCK_PROFILE_VERSION, RUNTIME_COM_IUNKNOWN_IID,
-    RUNTIME_COM_MAX_INTERFACES_PER_OBJECT, RUNTIME_COM_MAX_METHODS_PER_INTERFACE,
-    RUNTIME_CRITICAL_SECTION_LIMIT, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE,
-    RUNTIME_CURSOR_HANDLE_BASE, RUNTIME_DEFAULT_IME_WINDOW_LIMIT,
-    RUNTIME_DEVICE_CONTEXT_HANDLE_BASE, RUNTIME_EVENT_OBJECT_NAMESPACE, RUNTIME_FILE_SEARCH_LIMIT,
-    RUNTIME_FILE_SEARCH_NAMESPACE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_GDI_BITMAP_BYTE_LENGTH,
-    RUNTIME_GDI_BLACK_BRUSH_INDEX, RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
-    RUNTIME_GDI_DEVICE_CONTEXT_LIMIT, RUNTIME_GDI_DIB_BI_RGB, RUNTIME_GDI_DIB_RGB_COLORS,
-    RUNTIME_GDI_OBJECT_HANDLE_BASE, RUNTIME_GDI_OBJECT_LIMIT, RUNTIME_GDI_RESOURCE_ADDRESS_OWNER,
-    RUNTIME_GDI_SURFACE_FILL_LIMIT, RUNTIME_GDI_SURFACE_LIMIT, RUNTIME_GDI_SYSTEM_FONT_INDEX,
-    RUNTIME_GDIPLUS_SESSION_LIMIT, RUNTIME_GDIPLUS_SESSION_TOKEN_NAMESPACE,
-    RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE,
-    RUNTIME_GRAPHICS_DEVICE_LIMIT, RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT,
-    RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE,
-    RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE, RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT,
-    RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE, RUNTIME_GRAPHICS_SURFACE_LIMIT,
-    RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE, RUNTIME_GRAPHICS_TEXTURE_LIMIT,
-    RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE, RUNTIME_GRAPHICS_VERTEX_BUFFER_ID_NAMESPACE,
-    RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT, RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE,
-    RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE, RUNTIME_GUEST_THREAD_LIMIT,
-    RUNTIME_GUEST_THREAD_STACK_ARENA_BASE, RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
-    RUNTIME_ICON_HANDLE_BASE, RUNTIME_IME_CONTEXT_HANDLE_PREFIX, RUNTIME_IME_CONTEXT_LIMIT,
-    RUNTIME_MENU_HANDLE_BASE, RUNTIME_MUTEX_LIMIT, RUNTIME_MUTEX_OBJECT_NAMESPACE,
-    RUNTIME_PRIMARY_MONITOR_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
-    RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_LIMIT,
-    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS,
-    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,
-    RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES, RUNTIME_PROCESS_OBJECT_NAMESPACE,
-    RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND, RUNTIME_SCHEDULED_SHARED_CLOCK_PROFILE_ID,
-    RUNTIME_SHARED_CURSOR_LIMIT, RUNTIME_SHARED_ICON_LIMIT, RUNTIME_SOURCE_FILE_LIMIT,
-    RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES,
-    RUNTIME_SOURCE_READ_REQUEST_BYTES, RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES,
-    RUNTIME_SOURCE_READ_SERVICE, RUNTIME_SOURCE_READ_TRANSPORT_VERSION,
-    RUNTIME_SOURCE_SNAPSHOT_SCHEMA, RUNTIME_SOURCE_SNAPSHOT_VERSION, RUNTIME_STANDARD_ERROR_HANDLE,
-    RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
-    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
-    RUNTIME_SYSTEM_MENU_LIMIT, RUNTIME_THREAD_OBJECT_NAMESPACE,
-    RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_VIRTUAL_MEMORY_ADDRESS_OWNER,
-    RUNTIME_WAITABLE_TIMER_LIMIT, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
-    RUNTIME_WAITABLE_TIMER_PACING_PAYLOAD_VERSION, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
-    RUNTIME_WINDOW_CLASS_ATOM_BASE, RUNTIME_WINDOW_CLASS_LIMIT,
-    RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
-    RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES, RUNTIME_WINDOW_HANDLE_BASE, RUNTIME_WINDOW_LIMIT,
-    RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
-    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_MINIMIZED,
-    RUNTIME_WINDOW_STYLE_VISIBLE, RUNTIME_WINDOW_TIMER_ID_NAMESPACE, RUNTIME_WINDOW_TIMER_LIMIT,
-    RUNTIME_WRITABLE_COMMIT_REQUEST_BYTES, RUNTIME_WRITABLE_COMMIT_RESPONSE_BYTES,
-    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_COMMIT_TRANSPORT_VERSION,
-    RUNTIME_WRITABLE_DELETE_REQUEST_BYTES, RUNTIME_WRITABLE_DELETE_SERVICE,
-    RUNTIME_WRITABLE_DELETE_TRANSPORT_VERSION, RUNTIME_WRITABLE_DIRECTORY_CREATE_REQUEST_BYTES,
-    RUNTIME_WRITABLE_DIRECTORY_CREATE_RESPONSE_BYTES, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE,
-    RUNTIME_WRITABLE_DIRECTORY_CREATE_TRANSPORT_VERSION, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
-    RUNTIME_WRITABLE_PROFILE_DIRECTORY_LIMIT, RUNTIME_WRITABLE_PROFILE_FILE_LIMIT,
-    RUNTIME_WRITABLE_PROFILE_MAX_BYTES, RUNTIME_WRITABLE_PROFILE_SCHEMA,
-    RUNTIME_WRITABLE_PROFILE_VERSION, RUNTIME_WRITABLE_READ_SERVICE,
-    RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeAddressRange, RuntimeApiBoundaryDisposition,
-    RuntimeAsyncKeyStateResult, RuntimeAudioBuffer, RuntimeAudioBufferBacking,
-    RuntimeAudioBufferControlResult, RuntimeAudioBufferControls, RuntimeAudioBufferDescriptor,
-    RuntimeAudioBufferFormatResult, RuntimeAudioBufferId, RuntimeAudioBufferKind,
-    RuntimeAudioBufferLock, RuntimeAudioBufferPlayResult, RuntimeAudioBufferSegment,
-    RuntimeAudioBufferUnlockResult, RuntimeAudioCooperativeLevel,
-    RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeState, RuntimeAudioDevice,
-    RuntimeAudioDeviceId, RuntimeAudioDeviceSelector, RuntimeAudioFrontend,
-    RuntimeAudioNotification, RuntimeAudioNotificationWaitBegin, RuntimeAudioPcmFormat,
-    RuntimeAudioPlaybackState, RuntimeBeginPaintRequest, RuntimeBootstrap,
-    RuntimeBrowserRendererResourceId, RuntimeCallbackFrame, RuntimeCallbackFrameId,
-    RuntimeCallbackScratch, RuntimeCancellation, RuntimeClockProfile, RuntimeClockProgression,
-    RuntimeClockState, RuntimeCom, RuntimeComApartmentModel, RuntimeComApartmentState,
-    RuntimeComBacking, RuntimeComIid, RuntimeComInitializationDisposition,
-    RuntimeComInitializationOutcome, RuntimeComInterfaceId, RuntimeComInterfaceRecord,
-    RuntimeComMethodImplementation, RuntimeComMethodRecord, RuntimeComMethodTarget,
-    RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComReturnKind,
-    RuntimeComUninitializationOutcome, RuntimeCommandLine, RuntimeCreateCompatibleDcResult,
-    RuntimeCreateDibSectionResult, RuntimeCreateFontAResult, RuntimeCreateMutexAResult,
-    RuntimeCreateThreadRequest, RuntimeCreateThreadResult, RuntimeCreateWaitableTimerAResult,
-    RuntimeCreateWindowExAResult, RuntimeCriticalSection, RuntimeCurrentDirectoryA,
-    RuntimeCurrentThreadPseudoHandleResolution, RuntimeCursor, RuntimeCursorId,
-    RuntimeCursorPosition, RuntimeCursorPositionProfile, RuntimeCursorResource,
-    RuntimeCursorSource, RuntimeDefaultImeWindowResult, RuntimeDeviceContext,
-    RuntimeDeviceContextId, RuntimeDeviceContextTarget, RuntimeDisplayProfile,
-    RuntimeDllAttachFailure, RuntimeDllCallbackReason, RuntimeDllCallbackRequest,
-    RuntimeDllLifecycleAction, RuntimeDllLifecycleCompletion, RuntimeDllLifecyclePhase,
-    RuntimeDynamicEndpoint, RuntimeEnableMenuItemResult, RuntimeEncodedPointer,
-    RuntimeEndPaintRequest, RuntimeEnvironmentStringCopy, RuntimeEnvironmentStrings, RuntimeEvent,
-    RuntimeFileBacking, RuntimeFileSearch, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind,
-    RuntimeFileSearchId, RuntimeFillRectResult, RuntimeFindFirstFileResult, RuntimeFlsSlot,
-    RuntimeGdiDibSectionBacking, RuntimeGdiDibSectionDescriptor, RuntimeGdiObject,
-    RuntimeGdiObjectId, RuntimeGdiObjectKind, RuntimeGdiRgbQuad, RuntimeGdiSurface,
-    RuntimeGdiSurfaceFill, RuntimeGdiSurfaceId, RuntimeGdiTextRasterResult,
-    RuntimeGdiTextRasterTarget, RuntimeGdiplusSession, RuntimeGdiplusSessionId,
-    RuntimeGdiplusStartupRequest, RuntimeGetDcResult, RuntimeGetGraphicsSurfaceDcResult,
-    RuntimeGetStockObjectResult, RuntimeGetSystemMenuResult, RuntimeGraphicsBackBuffer,
-    RuntimeGraphicsBackBufferClear, RuntimeGraphicsBackBufferClearResult,
-    RuntimeGraphicsBlendFactor, RuntimeGraphicsBlendOperation, RuntimeGraphicsColorFormat,
-    RuntimeGraphicsCullMode, RuntimeGraphicsDevice, RuntimeGraphicsDeviceId,
-    RuntimeGraphicsDrawSubmission, RuntimeGraphicsDrawSubmissionResult,
-    RuntimeGraphicsDrawTextureSnapshot, RuntimeGraphicsFlexibleVertexFormat,
-    RuntimeGraphicsFlexibleVertexFormatUpdateResult, RuntimeGraphicsFrontend,
-    RuntimeGraphicsPresentMode, RuntimeGraphicsPresentResult, RuntimeGraphicsPresentation,
-    RuntimeGraphicsPresentedFrame, RuntimeGraphicsPrimitiveTopology,
-    RuntimeGraphicsRenderStateUpdate, RuntimeGraphicsRenderStateUpdateResult,
-    RuntimeGraphicsRenderStates, RuntimeGraphicsRendererAssociation,
-    RuntimeGraphicsRendererOwnership, RuntimeGraphicsSamplerState,
-    RuntimeGraphicsSamplerStateUpdate, RuntimeGraphicsSamplerStateUpdateResult,
-    RuntimeGraphicsSamplerStates, RuntimeGraphicsScene, RuntimeGraphicsSceneBeginResult,
-    RuntimeGraphicsSceneEndResult, RuntimeGraphicsStreamSourceBinding,
-    RuntimeGraphicsStreamSourceUpdateResult, RuntimeGraphicsStreamSources, RuntimeGraphicsSurface,
-    RuntimeGraphicsSurfaceDescriptor, RuntimeGraphicsSurfaceFill, RuntimeGraphicsSurfaceId,
-    RuntimeGraphicsTexture, RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureBacking,
-    RuntimeGraphicsTextureBindingUpdateResult, RuntimeGraphicsTextureBindings,
-    RuntimeGraphicsTextureContent, RuntimeGraphicsTextureDescriptor,
-    RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureDirtyRegionMarkResult,
-    RuntimeGraphicsTextureFilter, RuntimeGraphicsTextureId, RuntimeGraphicsTextureLock,
-    RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePixelSource, RuntimeGraphicsTexturePool,
-    RuntimeGraphicsTextureStageState, RuntimeGraphicsTextureStageStateUpdate,
-    RuntimeGraphicsTextureStageStateUpdateResult, RuntimeGraphicsTextureStageStates,
-    RuntimeGraphicsTextureUnlockResult, RuntimeGraphicsTextureUpdate,
-    RuntimeGraphicsTextureUpdateResult, RuntimeGraphicsTextureUsage, RuntimeGraphicsVertexBuffer,
-    RuntimeGraphicsVertexBufferBacking, RuntimeGraphicsVertexBufferDescriptor,
-    RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBufferLock,
-    RuntimeGraphicsVertexBufferPool, RuntimeGraphicsVertexBufferUnlockResult,
-    RuntimeGraphicsVertexBufferUsage, RuntimeGuestImport, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeGuestThreadBootstrap, RuntimeHandle,
-    RuntimeHandleClosePolicy, RuntimeHandleEntry, RuntimeHeap, RuntimeHeapAllocation,
-    RuntimeHeapAllocationId, RuntimeHeapBacking, RuntimeHeapInitialization,
-    RuntimeHeapPageMaterialization, RuntimeHeapTeardown, RuntimeHostCompletion, RuntimeHostRequest,
-    RuntimeIcon, RuntimeIconId, RuntimeIconResource, RuntimeImeAssociationResult,
-    RuntimeImeContext, RuntimeImeContextAssociation, RuntimeImeContextId,
-    RuntimeImeContextReference, RuntimeImeStatusWindowRequest, RuntimeImeWindow,
-    RuntimeImeWindowId, RuntimeInputProfile, RuntimeKernel, RuntimeKeyboardEventReceipt,
-    RuntimeKeyboardProfile, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
-    RuntimeKeyboardState, RuntimeLargeHeapAllocationBacking, RuntimeLoadCursorAResult,
-    RuntimeLoadIconAResult, RuntimeLogFontA, RuntimeLogicalMonitor, RuntimeLogicalMouseButton,
-    RuntimeMenuId, RuntimeMessageId, RuntimeMessagePeekDisposition,
-    RuntimeMessageReceiveDisposition, RuntimeMessageSource, RuntimeMessageWake, RuntimeModule,
-    RuntimeModuleDependencyEdge, RuntimeMouseButtonMapping, RuntimeMutex, RuntimeMutexId,
-    RuntimeMutexNameA, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
-    RuntimeObjectTable, RuntimeOpenSourceFileResult, RuntimePageFaultResolution,
-    RuntimePaintSession, RuntimePathResolution, RuntimePointerButton,
-    RuntimePointerButtonEventReceipt, RuntimePointerButtonIngressReceipt,
-    RuntimePointerButtonMessageProfile, RuntimePointerButtonSourceEvent,
-    RuntimePointerButtonSourceEventKind, RuntimePointerPositionEventReceipt,
-    RuntimePointerPositionIngressReceipt, RuntimePointerPositionSourceEvent,
-    RuntimePointerPositionSourceEventKind, RuntimeProcessCancellation, RuntimeProcessEnvironment,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeProcessLifecycleState, RuntimeProcessState,
-    RuntimeProcessView, RuntimeRect, RuntimeRegisterClassExAResult, RuntimeRegistries,
-    RuntimeResumeThreadResult, RuntimeScheduledExecutionClockState, RuntimeScheduler,
-    RuntimeSchedulerEvent, RuntimeSelectGdiObjectResult, RuntimeSetCurrentDirectoryAPlan,
-    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
-    RuntimeSetWindowPosVariant, RuntimeSetWindowStyleResult, RuntimeSourceFile,
-    RuntimeSourceFileDescriptor, RuntimeSourceFileId, RuntimeSourceFileManifest,
-    RuntimeSourceMountManifest, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
-    RuntimeSourceReadRequest, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
-    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeSwapMouseButtonResult, RuntimeSystemCursorKind,
-    RuntimeSystemExportEndpoint, RuntimeSystemExportTable, RuntimeSystemMenu,
-    RuntimeSystemModuleLoad, RuntimeThreadEnvironment, RuntimeThreadExecutionSelection,
-    RuntimeThreadId, RuntimeThreadLifecycleState, RuntimeThreadMessage, RuntimeThreadPriority,
-    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerClockState,
-    RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeTlsValue,
-    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest,
-    RuntimeVirtualKeyState, RuntimeVirtualMemoryCommit, RuntimeVirtualMemoryCommitRequest,
-    RuntimeVirtualMemoryDecommit, RuntimeVirtualMemoryDecommitRequest,
-    RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest, RuntimeWaitCompletion,
-    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
-    RuntimeWaitForSingleObjectExResult, RuntimeWaitRegistration, RuntimeWaitRegistrationId,
-    RuntimeWaitState, RuntimeWaitableTimer, RuntimeWaitableTimerArm,
-    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, RuntimeWaitableTimerPacing,
-    RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassCursorReference,
-    RuntimeWindowClassIconReference, RuntimeWindowClassId, RuntimeWindowClassModule,
-    RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
-    RuntimeWindowCreationRequest, RuntimeWindowFileDropAcceptanceResult, RuntimeWindowGeometry,
-    RuntimeWindowIconReference, RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA,
-    RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention, RuntimeWindowTimer,
-    RuntimeWindowTimerDelivery, RuntimeWindowTimerDeliveryState, RuntimeWindowTimerId,
-    RuntimeWindowTimerRegistrationResult, RuntimeWritableCommitCompletion,
-    RuntimeWritableCommitHostResponse, RuntimeWritableCommitRequest, RuntimeWritableDirectory,
-    RuntimeWritableDirectoryCreateCompletion, RuntimeWritableDirectoryCreateHostResponse,
-    RuntimeWritableDirectoryCreateRequest, RuntimeWritableDirectoryManifest, RuntimeWritableFile,
-    RuntimeWritableFileManifest, RuntimeWritableProfile, RuntimeWritableProfileManifest,
-    RuntimeWritableReadResult, RuntimeWritableWriteResult, SchedulerThreadState,
-    TLS_OUT_OF_INDEXES, X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
-    validate_process_address_mapping_allocation,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
+    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_GUEST_THREAD_STACK_ARENA_BASE,
+    RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE, RUNTIME_MESSAGE_BOX_SERVICE, RUNTIME_OPFS_READ_SERVICE,
+    RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES, RUNTIME_SOURCE_FILE_LIMIT,
+    RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, Runtime, RuntimeApiBoundaryDisposition,
+    RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeCursorPositionProfile,
+    RuntimeDisplayProfile, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeGuestImportBinding, RuntimeInputProfile, RuntimeKeyboardSourceEvent,
+    RuntimeKeyboardSourceEventKind, RuntimeMessageBox, RuntimeMessageBoxButton,
+    RuntimeMessageBoxIcon, RuntimeModule, RuntimePointerButton, RuntimePointerButtonSourceEvent,
+    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent, RuntimeProcessId,
+    RuntimeProcessImagePathA, RuntimeRect, RuntimeSchedulerEvent, RuntimeSourceFileManifest,
+    RuntimeSourceMountManifest, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
+    RuntimeStartupInfo, RuntimeThreadId, RuntimeThreadLifecycleState, SchedulerThreadState,
 };
-pub use runtime::{RuntimeWritableDeleteCompletion, RuntimeWritableDeleteRequest};
-pub use shell32::{
-    DRAG_ACCEPT_FILES_IMPLEMENTATION, dispatch_shell32_api, drag_accept_files_contract,
-    shell32_contract_for_endpoint,
-};
-pub use snapshot::{ModuleIdentity, ModuleSnapshot};
-pub use user32::{
-    BEGIN_PAINT_IMPLEMENTATION, CREATE_WINDOW_EX_A_IMPLEMENTATION,
-    DEF_WINDOW_PROC_A_IMPLEMENTATION, DISPATCH_MESSAGE_A_IMPLEMENTATION,
-    ENABLE_MENU_ITEM_IMPLEMENTATION, END_PAINT_IMPLEMENTATION,
-    ENUM_DISPLAY_MONITORS_IMPLEMENTATION, FILL_RECT_IMPLEMENTATION,
-    GET_ASYNC_KEY_STATE_IMPLEMENTATION, GET_CLIENT_RECT_IMPLEMENTATION,
-    GET_CURSOR_INFO_IMPLEMENTATION, GET_CURSOR_POS_IMPLEMENTATION, GET_DC_IMPLEMENTATION,
-    GET_FOREGROUND_WINDOW_IMPLEMENTATION, GET_MONITOR_INFO_A_IMPLEMENTATION,
-    GET_SYSTEM_MENU_IMPLEMENTATION, GET_SYSTEM_METRICS_IMPLEMENTATION,
-    GET_WINDOW_RECT_IMPLEMENTATION, IS_ICONIC_IMPLEMENTATION, LOAD_CURSOR_A_IMPLEMENTATION,
-    LOAD_ICON_A_IMPLEMENTATION, LOAD_IMAGE_A_IMPLEMENTATION, MONITOR_FROM_WINDOW_IMPLEMENTATION,
-    PEEK_MESSAGE_A_IMPLEMENTATION, REGISTER_CLASS_EX_A_IMPLEMENTATION, RELEASE_DC_IMPLEMENTATION,
-    SEND_MESSAGE_A_IMPLEMENTATION, SET_CURSOR_IMPLEMENTATION, SET_CURSOR_POS_IMPLEMENTATION,
-    SET_FOCUS_IMPLEMENTATION, SET_RECT_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION,
-    SET_WINDOW_LONG_A_IMPLEMENTATION, SET_WINDOW_POS_IMPLEMENTATION,
-    SET_WINDOW_TEXT_A_IMPLEMENTATION, SHOW_CURSOR_IMPLEMENTATION, SHOW_WINDOW_IMPLEMENTATION,
-    SWAP_MOUSE_BUTTON_IMPLEMENTATION, TRANSLATE_MESSAGE_IMPLEMENTATION,
-    UPDATE_WINDOW_IMPLEMENTATION, USER32_COMPATIBILITY_POLICY_SCHEMA,
-    USER32_COMPATIBILITY_POLICY_VERSION, USER32_IMC_CLOSESTATUSWINDOW, USER32_IMC_OPENSTATUSWINDOW,
-    USER32_WM_IME_CONTROL, User32CompatibilityPolicy, User32CreateWindowExAPolicy,
-    User32DefWindowProcAPointerDownPolicy, User32DefWindowProcAPointerReleasePolicy,
-    User32GetAsyncKeyStatePolicy, User32GetMonitorInfoAPolicy, User32GetSystemMetricsPolicy,
-    User32IsIconicPolicy, User32LoadCursorAPolicy, User32LoadIconAPolicy, User32LoadImageAPolicy,
-    User32MonitorFromWindowPolicy, User32PeekMessageAPolicy, User32RegisterClassExAPolicy,
-    User32ScreenDcPolicy, User32SendMessageAImeControlPolicy, User32SendMessageAPolicy,
-    User32SetFocusPolicy, User32SetTimerPolicy, User32SetWindowLongAPolicy,
-    User32SetWindowPosPolicy, User32SetWindowTextAPolicy, User32ShowWindowPolicy,
-    User32SwapMouseButtonPolicy, User32SystemMenuPolicy, User32UpdateWindowPolicy,
-    User32WindowTimerDeliveryPolicy, begin_paint_contract, create_window_ex_a_contract,
-    def_window_proc_a_contract, dispatch_message_a_contract, dispatch_user32_api_with_policy,
-    dispatch_user32_api_with_prevalidated_policy, enable_menu_item_contract, end_paint_contract,
-    enum_display_monitors_contract, fill_rect_contract, get_async_key_state_contract,
-    get_client_rect_contract, get_cursor_info_contract, get_cursor_pos_contract, get_dc_contract,
-    get_foreground_window_contract, get_monitor_info_a_contract, get_system_menu_contract,
-    get_system_metrics_contract, get_window_rect_contract, is_iconic_contract,
-    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract,
-    monitor_from_window_contract, peek_message_a_contract, register_class_ex_a_contract,
-    release_dc_contract, send_message_a_contract, set_cursor_contract, set_cursor_pos_contract,
-    set_focus_contract, set_rect_contract, set_timer_contract, set_window_long_a_contract,
-    set_window_pos_contract, set_window_text_a_contract, show_cursor_contract,
-    show_window_contract, swap_mouse_button_contract, translate_message_contract,
-    update_window_contract, user32_contract_for_endpoint,
-};
-pub use win32::complete_kernel32_writable_delete;
+pub(crate) use snapshot::ModuleIdentity;
+pub use snapshot::ModuleSnapshot;
+pub use user32::complete_user32_message_box;
 pub use win32::{
-    CLOSE_HANDLE_IMPLEMENTATION, CREATE_DIRECTORY_A_IMPLEMENTATION, CREATE_EVENT_A_IMPLEMENTATION,
-    CREATE_FILE_A_IMPLEMENTATION, CREATE_MUTEX_A_IMPLEMENTATION, CREATE_THREAD_IMPLEMENTATION,
-    CREATE_WAITABLE_TIMER_A_IMPLEMENTATION, DECODE_POINTER_IMPLEMENTATION,
-    DELETE_CRITICAL_SECTION_IMPLEMENTATION, DELETE_FILE_A_IMPLEMENTATION,
-    ENCODE_POINTER_IMPLEMENTATION, ENTER_CRITICAL_SECTION_IMPLEMENTATION,
-    EXIT_THREAD_IMPLEMENTATION, FIND_CLOSE_IMPLEMENTATION, FIND_FIRST_FILE_A_IMPLEMENTATION,
-    FIND_NEXT_FILE_A_IMPLEMENTATION, FLS_ALLOC_IMPLEMENTATION, FLS_GET_VALUE_IMPLEMENTATION,
-    FLS_SET_VALUE_IMPLEMENTATION, FLUSH_FILE_BUFFERS_IMPLEMENTATION,
-    FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
-    GET_COMMAND_LINE_A_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
-    GET_CURRENT_PROCESS_ID_IMPLEMENTATION, GET_CURRENT_THREAD_ID_IMPLEMENTATION,
-    GET_CURRENT_THREAD_IMPLEMENTATION, GET_DRIVE_TYPE_A_IMPLEMENTATION,
-    GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION, GET_FILE_ATTRIBUTES_A_IMPLEMENTATION,
-    GET_FILE_SIZE_IMPLEMENTATION, GET_FILE_TYPE_IMPLEMENTATION, GET_LAST_ERROR_IMPLEMENTATION,
-    GET_LOCAL_TIME_IMPLEMENTATION, GET_MODULE_FILE_NAME_A_IMPLEMENTATION,
-    GET_MODULE_HANDLE_W_IMPLEMENTATION, GET_PROC_ADDRESS_IMPLEMENTATION,
-    GET_STARTUP_INFO_W_IMPLEMENTATION, GET_STD_HANDLE_IMPLEMENTATION,
-    GET_STRING_TYPE_W_IMPLEMENTATION, GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION,
-    GET_SYSTEM_INFO_IMPLEMENTATION, GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION,
-    GET_SYSTEM_TIME_IMPLEMENTATION, GET_TICK_COUNT_IMPLEMENTATION, GET_VERSION_EX_A_IMPLEMENTATION,
-    GLOBAL_MEMORY_STATUS_IMPLEMENTATION, HEAP_ALLOC_IMPLEMENTATION, HEAP_CREATE_IMPLEMENTATION,
-    HEAP_FREE_IMPLEMENTATION, HEAP_REALLOC_IMPLEMENTATION, HEAP_SET_INFORMATION_IMPLEMENTATION,
-    HEAP_SIZE_IMPLEMENTATION, INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION,
-    INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
-    KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
-    Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32CreateMutexAPolicy, Kernel32CreateThreadPolicy, Kernel32CreateWaitableTimerAPolicy,
-    Kernel32DeleteFileAPolicy, Kernel32FindFileAPolicy, Kernel32GetDriveTypeAPolicy,
-    Kernel32GetFileAttributesAPolicy, Kernel32GetModuleFileNameAPolicy,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
-    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32LoadLibraryAPolicy, Kernel32MemoryStatusPolicy, Kernel32MultiByteToWideCharPolicy,
-    Kernel32OsVersionInfoAPolicy, Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
-    Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
-    Kernel32SetWaitableTimerPolicy, Kernel32SourceFilePolicy, Kernel32StandardHandleFileType,
-    Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy,
-    Kernel32TickCountPolicy, Kernel32VirtualAllocPolicy, Kernel32WaitForSingleObjectExPolicy,
-    Kernel32WideCharToMultiBytePolicy, LC_MAP_STRING_W_IMPLEMENTATION,
-    LEAVE_CRITICAL_SECTION_IMPLEMENTATION, LOAD_LIBRARY_A_IMPLEMENTATION, MEM_COMMIT, MEM_DECOMMIT,
-    MEM_RESERVE, MEM_TOP_DOWN, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION, PAGE_READWRITE,
-    QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION, QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION,
-    RAISE_EXCEPTION_IMPLEMENTATION, READ_FILE_IMPLEMENTATION, RESET_EVENT_IMPLEMENTATION,
-    RESUME_THREAD_IMPLEMENTATION, RTL_UNWIND_IMPLEMENTATION, RUNTIME_SLEEP_DELAY_SERVICE,
-    SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_EVENT_IMPLEMENTATION,
-    SET_FILE_POINTER_IMPLEMENTATION, SET_HANDLE_COUNT_IMPLEMENTATION,
-    SET_LAST_ERROR_IMPLEMENTATION, SET_THREAD_AFFINITY_MASK_IMPLEMENTATION,
-    SET_THREAD_PRIORITY_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
-    SET_WAITABLE_TIMER_IMPLEMENTATION, SLEEP_ZERO_IMPLEMENTATION, TLS_ALLOC_IMPLEMENTATION,
-    TLS_GET_VALUE_IMPLEMENTATION, TLS_SET_VALUE_IMPLEMENTATION, VIRTUAL_ALLOC_IMPLEMENTATION,
-    VIRTUAL_FREE_IMPLEMENTATION, WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION,
-    WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION, WAIT_FOR_SINGLE_OBJECT_IMPLEMENTATION,
-    WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION, WRITE_FILE_IMPLEMENTATION, close_handle_contract,
-    complete_kernel32_audio_notification_wait, complete_kernel32_source_read,
-    complete_kernel32_waitable_timer_pacing, complete_kernel32_writable_commit,
-    complete_kernel32_writable_directory_create, create_directory_a_contract,
-    create_event_a_contract, create_file_a_contract, create_mutex_a_contract,
-    create_thread_contract, create_waitable_timer_a_contract, decode_pointer_contract,
-    delete_critical_section_contract, delete_file_a_contract, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, dispatch_kernel32_api_with_prevalidated_policy,
-    encode_pointer_contract, enter_critical_section_contract, exit_thread_contract,
-    find_close_contract, find_first_file_a_contract, find_next_file_a_contract, fls_alloc_contract,
-    fls_get_value_contract, fls_set_value_contract, flush_file_buffers_contract,
-    free_environment_strings_w_contract, get_acp_contract, get_command_line_a_contract,
-    get_cp_info_contract, get_current_process_id_contract, get_current_thread_contract,
-    get_current_thread_id_contract, get_drive_type_a_contract, get_environment_strings_w_contract,
-    get_file_attributes_a_contract, get_file_size_contract, get_file_type_contract,
-    get_local_time_contract, get_module_file_name_a_contract, get_module_handle_w_contract,
-    get_proc_address_contract, get_startup_info_w_contract, get_std_handle_contract,
-    get_string_type_w_contract, get_system_default_lang_id_contract, get_system_info_contract,
-    get_system_time_as_file_time_contract, get_system_time_contract, get_tick_count_contract,
-    get_version_ex_a_contract, global_memory_status_contract, heap_alloc_contract,
-    heap_create_contract, heap_free_contract, heap_realloc_contract, heap_set_information_contract,
-    heap_size_contract, initialize_critical_section_and_spin_count_contract,
-    initialize_critical_section_contract, is_processor_feature_present_contract,
-    kernel32_contract_for_endpoint, lc_map_string_w_contract, leave_critical_section_contract,
-    load_library_a_contract, multi_byte_to_wide_char_contract, query_performance_counter_contract,
-    query_performance_frequency_contract, raise_exception_contract, read_file_contract,
-    reset_event_contract, resume_thread_contract, rtl_unwind_contract,
-    set_current_directory_a_contract, set_event_contract, set_file_pointer_contract,
-    set_handle_count_contract, set_last_error_contract, set_thread_affinity_mask_contract,
-    set_thread_priority_contract, set_unhandled_exception_filter_contract,
-    set_waitable_timer_contract, sleep_contract, tls_alloc_contract, tls_get_value_contract,
-    tls_set_value_contract, virtual_alloc_contract, virtual_free_contract,
-    wait_for_multiple_objects_contract, wait_for_single_object_contract,
-    wait_for_single_object_ex_contract, wide_char_to_multi_byte_contract, write_file_contract,
+    OpfsFileOperation, RUNTIME_SLEEP_DELAY_SERVICE, complete_kernel32_audio_notification_wait,
+    complete_kernel32_opfs_open, complete_kernel32_opfs_write, complete_kernel32_source_read,
+    complete_kernel32_waitable_timer_pacing, complete_opfs_file_operation,
 };
-pub use winmm::{
-    TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
-    TIME_GET_DEV_CAPS_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION, TIMERR_NOCANDO, TIMERR_NOERROR,
-    WINMM_COMPATIBILITY_POLICY_SCHEMA, WINMM_COMPATIBILITY_POLICY_VERSION,
-    WinmmCompatibilityPolicy, WinmmTimeCapabilitiesPolicy, WinmmTimeGetTimePolicy,
-    WinmmTimerResolutionPolicy, X86_TIMECAPS_BYTE_LENGTH, dispatch_winmm_api_with_policy,
-    time_begin_period_contract, time_end_period_contract, time_get_dev_caps_contract,
-    time_get_time_contract, winmm_contract_for_endpoint,
-};
+
+#[cfg(test)]
+mod address_allocation_mapping_tests;
+#[cfg(test)]
+mod guest_memory_ingress_tests;
+#[cfg(test)]
+mod guest_memory_property_tests;
+#[cfg(test)]
+mod module_graph_tests;
+#[cfg(test)]
+mod pe32_load_plan_tests;
+#[cfg(test)]
+mod pe32_resources_tests;
+#[cfg(test)]
+mod runtime_dll_lifecycle_tests;
+#[cfg(test)]
+mod runtime_module_images_tests;
+#[cfg(test)]
+mod source_file_gateway_tests;
+
+#[cfg(test)]
+mod process_environment_transaction_tests;
+
+#[cfg(test)]
+use environment::controlled_process_environment_allocation_request;
+
+#[cfg(test)]
+mod com_iunknown_foundation_tests;
+#[cfg(test)]
+mod dinput8_dispatcher_tests;
+
+#[cfg(test)]
+mod d3d9_dispatcher_tests;
+
+#[cfg(test)]
+mod dsound_dispatcher_tests;
+
+#[cfg(test)]
+mod gdi32_dispatcher_tests;
+
+#[cfg(test)]
+mod gdiplus_dispatcher_tests;
+
+#[cfg(test)]
+mod kernel32_thread_dispatcher_tests;
+
+#[cfg(test)]
+mod kernel32_virtual_memory_dispatcher_tests;
+
+#[cfg(test)]
+mod directshow_dispatcher_tests;
+#[cfg(test)]
+mod ole32_dispatcher_tests;
+
+#[cfg(test)]
+mod user32_dispatcher_tests;
+
+#[cfg(test)]
+mod winmm_dispatcher_tests;
+
+#[cfg(test)]
+pub(crate) use runtime::{RuntimeComClass, RuntimeComInterfaceRecord};
+
+#[cfg(test)]
+pub(crate) use runtime::RuntimeMessageReceiveDisposition;
+#[cfg(test)]
+mod runtime_message_queue_tests;
+
+#[cfg(test)]
+mod runtime_synchronization_tests;
+
+#[cfg(test)]
+mod memory_writeback_tests;
+
+#[cfg(test)]
+mod memory_delta_tests;
+
+#[cfg(test)]
+mod pe32_materialization_tests;
+
+#[cfg(test)]
+pub(crate) use memory::GuestMemoryErrorClass;
+
+#[cfg(test)]
+mod runtime_initial_thread_stack_tests;
+
+#[cfg(test)]
+mod runtime_lifecycle_tests;
+
+#[cfg(test)]
+mod runtime_mutex_tests;
+
+#[cfg(test)]
+mod runtime_objects_tests;
+
+#[cfg(test)]
+mod runtime_registries_tests;
+
+#[cfg(test)]
+mod runtime_thread_registry_tests;
+
+#[cfg(test)]
+mod runtime_waitable_timer_tests;
+
+#[cfg(test)]
+mod runtime_wait_queue_tests;

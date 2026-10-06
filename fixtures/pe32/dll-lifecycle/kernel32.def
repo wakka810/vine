@@ -1,3 +1,4 @@
 LIBRARY kernel32.dll
 EXPORTS
   GetCurrentProcessId@0
+  LoadLibraryA@4

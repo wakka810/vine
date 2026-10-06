@@ -1,5 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
-import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -43,74 +42,6 @@ const run = (command, args, options = {}) => {
   return `${result.stdout}${result.stderr}`.trim();
 };
 
-const runNativeFixtureOnce = (executable, { timeoutMs, windowsHide }) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(executable, [], {
-      cwd: root,
-      stdio: "ignore",
-      windowsHide,
-    });
-    let settled = false;
-    const finish = (callback, value) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      callback(value);
-    };
-    const timer = setTimeout(() => {
-      const error = new Error(`${executable} timed out after ${timeoutMs} ms`);
-      error.code = "ETIMEDOUT";
-      finish(reject, error);
-      child.kill();
-    }, timeoutMs);
-    child.once("error", (error) => {
-      finish(reject, new Error(`${executable} could not start: ${error.message}`));
-    });
-    child.once("exit", (code, signal) => {
-      if (code === 0) {
-        finish(resolve);
-        return;
-      }
-      finish(
-        reject,
-        new Error(
-          signal === null
-            ? `${executable} failed with exit code ${code}`
-            : `${executable} terminated by signal ${signal}`,
-        ),
-      );
-    });
-  });
-
-const runNativeFixture = async (
-  executable,
-  { timeoutMs = 30_000, timeoutRetries = 0, windowsHide = true } = {},
-) => {
-  for (let attempt = 1; attempt <= timeoutRetries + 1; attempt += 1) {
-    try {
-      await runNativeFixtureOnce(executable, { timeoutMs, windowsHide });
-      return attempt;
-    } catch (error) {
-      if (error?.code !== "ETIMEDOUT" || attempt > timeoutRetries) {
-        throw error;
-      }
-    }
-  }
-  throw new Error("native fixture retry loop exhausted unexpectedly");
-};
-
-const versionLine = (value) =>
-  value.split(/\r?\n/).find((line) => /version/i.test(line))?.trim() ??
-  value.split(/\r?\n/, 1)[0];
-const sha256 = (file) =>
-  crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
-const artifact = (file) => ({
-  path: path.relative(root, file),
-  bytes: fs.statSync(file).size,
-  sha256: sha256(file),
-});
 const parseCoffImports = (inspection) => {
   const imports = [];
   let current = null;
@@ -203,14 +134,6 @@ const buildCursorFile = () => {
 fs.rmSync(outputDirectory, { recursive: true, force: true });
 fs.mkdirSync(outputDirectory, { recursive: true });
 
-const tools = {
-  clang: versionLine(run("clang", ["--version"])),
-  wasmClang: versionLine(run(wasmClang, ["--version"])),
-  lldLink: versionLine(run("lld-link", ["--version"])),
-  llvmReadobj: versionLine(run("llvm-readobj", ["--version"])),
-  node: process.version,
-};
-
 const wasmSource = path.join(root, "spikes", "toolchain", "wasm-smoke.c");
 const wasmModule = path.join(outputDirectory, "wasm-smoke.wasm");
 run(wasmClang, [
@@ -256,6 +179,40 @@ const sourceReadFixtureDirectory = path.join(root, "fixtures", "pe32", "source-r
 const sourceReadObject = path.join(outputDirectory, "fixture-source-read.obj");
 const sourceReadExe = path.join(outputDirectory, "source-read.exe");
 const sourceReadKernel32Library = path.join(outputDirectory, "source-read-kernel32.lib");
+const keyboardFixtureDirectory = path.join(root, "fixtures", "pe32", "keyboard-input");
+const keyboardObject = path.join(outputDirectory, "fixture-keyboard.obj");
+const keyboardExe = path.join(outputDirectory, "keyboard-input.exe");
+const keyboardLibrary = path.join(outputDirectory, "keyboard-user32.lib");
+const messageBoxFixtureDirectory = path.join(root, "fixtures", "pe32", "message-box");
+const messageBoxObject = path.join(outputDirectory, "fixture-message-box.obj");
+const messageBoxExe = path.join(outputDirectory, "message-box.exe");
+const heapGrowthObject = path.join(outputDirectory, "fixture-heap-growth.obj");
+const heapGrowthExe = path.join(outputDirectory, "heap-growth.exe");
+const heapGrowthLibrary = path.join(outputDirectory, "heap-growth-kernel32.lib");
+const directshowFixtureDirectory = path.join(root, "fixtures", "pe32", "directshow");
+const directshowObject = path.join(outputDirectory, "fixture-directshow.obj");
+const directshowExe = path.join(outputDirectory, "directshow.exe");
+const directshowOle32Library = path.join(outputDirectory, "directshow-ole32.lib");
+const directshowKernel32Library = path.join(outputDirectory, "directshow-kernel32.lib");
+const sleepFixtureDirectory = path.join(root, "fixtures", "pe32", "sleep-delay");
+const sleepObject = path.join(outputDirectory, "fixture-sleep.obj");
+const sleepExe = path.join(outputDirectory, "sleep-delay.exe");
+const sleepLibrary = path.join(outputDirectory, "sleep-kernel32.lib");
+const timerWaitFixtureDirectory = path.join(root, "fixtures", "pe32", "timer-wait");
+const timerWaitObject = path.join(outputDirectory, "fixture-timer-wait.obj");
+const timerWaitExe = path.join(outputDirectory, "timer-wait.exe");
+const timerWaitLibrary = path.join(outputDirectory, "timer-wait-kernel32.lib");
+const timerThreadsFixtureDirectory = path.join(root, "fixtures", "pe32", "timer-threads");
+const timerThreadsObject = path.join(outputDirectory, "fixture-timer-threads.obj");
+const timerThreadsExe = path.join(outputDirectory, "timer-threads.exe");
+const timerThreadsLibrary = path.join(outputDirectory, "timer-threads-kernel32.lib");
+const cursorFixtureDirectory = path.join(root, "fixtures", "pe32", "cursor-state");
+const cursorObject = path.join(outputDirectory, "fixture-cursor.obj");
+const cursorExe = path.join(outputDirectory, "cursor-state.exe");
+const cursorLibraries = ["kernel32", "user32"].map(name => ({
+  definition: path.join(cursorFixtureDirectory, `${name}.def`),
+  library: path.join(outputDirectory, `cursor-${name}.lib`),
+}));
 const lifecycleFixtureDirectory = path.join(
   root,
   "fixtures",
@@ -345,10 +302,20 @@ const flsGetValueFixtureDirectory = path.join(
 );
 const flsGetValueObject = path.join(outputDirectory, "fixture-fls-get-value.obj");
 const flsGetValueExe = path.join(outputDirectory, "fls-get-value.exe");
+const flsExitThreadObject = path.join(outputDirectory, "fixture-fls-exit-thread.obj");
+const flsExitThreadExe = path.join(outputDirectory, "fls-exit-thread.exe");
 const flsGetValueKernel32Library = path.join(
   outputDirectory,
   "fls-get-value-kernel32.lib",
 );
+const monitorFixtureDirectory = path.join(root, "fixtures", "pe32", "enum-display-monitors");
+const monitorObject = path.join(outputDirectory, "fixture-enum.obj");
+const monitorExe = path.join(outputDirectory, "enum-display-monitors.exe");
+const monitorLibrary = path.join(outputDirectory, "enum-display-user32.lib");
+const d3dDisplayObject = path.join(outputDirectory, "fixture-d3d9-display.obj");
+const d3dDisplayExe = path.join(outputDirectory, "d3d9-display.exe");
+const pointerObject = path.join(outputDirectory, "fixture-pointer-input.obj");
+const pointerExe = path.join(outputDirectory, "pointer-input.exe");
 const windowImportLibraries = ["kernel32", "user32", "gdi32"].map(
   (name) => ({
     definition: path.join(windowFixtureDirectory, `${name}.def`),
@@ -356,7 +323,7 @@ const windowImportLibraries = ["kernel32", "user32", "gdi32"].map(
   }),
 );
 
-const compilePeObject = (source, output) => {
+const compilePeObject = (source, output, flags = []) => {
   run("clang", [
     "--target=i686-pc-windows-msvc",
     "-O1",
@@ -366,6 +333,7 @@ const compilePeObject = (source, output) => {
     "-ffreestanding",
     "-fno-builtin",
     "-fno-stack-protector",
+    ...flags,
     "-c",
     source,
     "-o",
@@ -387,6 +355,14 @@ compilePeObject(
   path.join(sourceReadFixtureDirectory, "fixture-source-read.c"),
   sourceReadObject,
 );
+compilePeObject(path.join(keyboardFixtureDirectory, "fixture-keyboard.c"), keyboardObject);
+compilePeObject(path.join(messageBoxFixtureDirectory, "fixture-message-box.c"), messageBoxObject);
+compilePeObject(path.join(root, "fixtures", "pe32", "heap-growth.c"), heapGrowthObject);
+compilePeObject(path.join(directshowFixtureDirectory, "fixture-directshow.c"), directshowObject);
+compilePeObject(path.join(sleepFixtureDirectory, "fixture-sleep.c"), sleepObject);
+compilePeObject(path.join(timerWaitFixtureDirectory, "fixture-timer-wait.c"), timerWaitObject);
+compilePeObject(path.join(timerThreadsFixtureDirectory, "fixture-timer-threads.c"), timerThreadsObject);
+compilePeObject(path.join(cursorFixtureDirectory, "fixture-cursor.c"), cursorObject);
 compilePeObject(
   path.join(lifecycleFixtureDirectory, "codec.c"),
   lifecycleCodecObject,
@@ -427,6 +403,15 @@ compilePeObject(
   path.join(flsGetValueFixtureDirectory, "fixture-fls.c"),
   flsGetValueObject,
 );
+compilePeObject(
+  path.join(flsGetValueFixtureDirectory, "fixture-fls.c"),
+  flsExitThreadObject,
+  ["-DVINE_FIXTURE_EXIT_THREAD"],
+);
+compilePeObject(path.join(monitorFixtureDirectory, "fixture-enum.c"), monitorObject);
+compilePeObject(path.join(root, "fixtures", "pe32", "d3d9-display", "fixture-display.c"), d3dDisplayObject);
+compilePeObject(path.join(root, "fixtures", "pe32", "d3d9-display", "fixture-display.c"),
+  pointerObject, ["-DVINE_POINTER_FIXTURE"]);
 
 for (const { definition, library } of windowImportLibraries) {
   run("llvm-dlltool", [
@@ -479,6 +464,10 @@ run("llvm-dlltool", [
   "-l",
   flsGetValueKernel32Library,
 ]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
+  path.join(monitorFixtureDirectory, "user32.def"), "-l", monitorLibrary,
+]);
 
 run("llvm-dlltool", [
   "-m",
@@ -488,6 +477,67 @@ run("llvm-dlltool", [
   path.join(sourceReadFixtureDirectory, "kernel32.def"),
   "-l",
   sourceReadKernel32Library,
+]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
+  path.join(keyboardFixtureDirectory, "user32.def"), "-l", keyboardLibrary,
+]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
+  path.join(root, "fixtures", "pe32", "heap-growth.def"), "-l", heapGrowthLibrary,
+]);
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0",
+  "/entry:fixture_entry", "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${heapGrowthExe}`, heapGrowthObject, heapGrowthLibrary,
+]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
+  path.join(directshowFixtureDirectory, "ole32.def"), "-l", directshowOle32Library,
+]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
+  path.join(directshowFixtureDirectory, "kernel32.def"), "-l", directshowKernel32Library,
+]);
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0",
+  "/entry:fixture_entry", "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${directshowExe}`, directshowObject, directshowOle32Library, directshowKernel32Library,
+]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
+  path.join(sleepFixtureDirectory, "kernel32.def"), "-l", sleepLibrary,
+]);
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0",
+  "/entry:fixture_entry", "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${sleepExe}`, sleepObject, sleepLibrary,
+]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
+  path.join(timerWaitFixtureDirectory, "kernel32.def"), "-l", timerWaitLibrary,
+]);
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0",
+  "/entry:fixture_entry", "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${timerWaitExe}`, timerWaitObject, timerWaitLibrary,
+]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
+  path.join(timerThreadsFixtureDirectory, "kernel32.def"), "-l", timerThreadsLibrary,
+]);
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0",
+  "/entry:fixture_entry", "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${timerThreadsExe}`, timerThreadsObject, timerThreadsLibrary,
+]);
+for (const {definition, library} of cursorLibraries) {
+  run("llvm-dlltool", ["-m", "i386", "-k", "-d", definition, "-l", library]);
+}
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0",
+  "/entry:fixture_entry", "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${cursorExe}`, cursorObject, ...cursorLibraries.map(({library}) => library),
 ]);
 
 run("lld-link", [
@@ -560,13 +610,14 @@ run("lld-link", [
 
 run("lld-link", [
   "/dll",
-  "/noentry",
+  "/entry:fixture_dll_entry@12",
   "/nodefaultlib",
   "/machine:x86",
   "/timestamp:0",
   `/out:${browserDllFile}`,
   `/implib:${browserImportLibrary}`,
   browserDllObject,
+  monitorLibrary,
 ]);
 
 run("lld-link", [
@@ -610,6 +661,16 @@ run("lld-link", [
 ]);
 
 fs.writeFileSync(iconFile, buildIconFile());
+const messageBoxLibraries = ["kernel32", "user32"].map(module => {
+  const library = path.join(outputDirectory, `message-box-${module}.lib`);
+  run("llvm-dlltool", ["-m", "i386", "-k", "-d", path.join(messageBoxFixtureDirectory, `${module}.def`), "-l", library]);
+  return library;
+});
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0", "/entry:fixture_entry",
+  "/dynamicbase", "/nxcompat", "/timestamp:0", `/out:${messageBoxExe}`,
+  messageBoxObject, ...messageBoxLibraries,
+]);
 fs.writeFileSync(cursorFile, buildCursorFile());
 const iconFileForResourceScript = path
   .relative(root, iconFile)
@@ -622,6 +683,11 @@ fs.writeFileSync(
   `LANGUAGE 0x11, 0x1\n101 ICON "${iconFileForResourceScript}"\n106 CURSOR "${cursorFileForResourceScript}"\n`,
 );
 run("llvm-rc", ["/nologo", `/fo${iconResource}`, iconResourceScript]);
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0",
+  "/entry:fixture_entry", "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${keyboardExe}`, keyboardObject, keyboardLibrary, iconResource,
+]);
 run("lld-link", [
   "/nodefaultlib",
   "/machine:x86",
@@ -698,43 +764,49 @@ run("lld-link", [
   flsGetValueObject,
   flsGetValueKernel32Library,
 ]);
-
-let nativeAbiExitCode = null;
-let browserVerticalNativeExitCode = null;
-let sourceReadNativeExitCode = null;
-let dllLifecycleNativeExitCode = null;
-let dllLifecycleNativeAttempts = null;
-let windowPixelNativeExitCode = null;
-let bootstrapFsNativeExitCode = null;
-let bootstrapParamsNativeExitCode = null;
-let tlsGetValueNativeExitCode = null;
-let flsGetValueNativeExitCode = null;
-if (process.platform === "win32") {
-  await runNativeFixture(exeFile);
-  nativeAbiExitCode = 0;
-  await runNativeFixture(browserExeFile);
-  browserVerticalNativeExitCode = 0;
-  await runNativeFixture(sourceReadExe);
-  sourceReadNativeExitCode = 0;
-  // A freshly linked multi-DLL image can transiently remain in a zero-CPU host
-  // launch wait while Windows inspects it. This gate checks loader semantics,
-  // not launch latency, so retry one bounded timeout while still rejecting two
-  // consecutive hangs.
-  dllLifecycleNativeAttempts = await runNativeFixture(lifecycleExe, {
-    timeoutRetries: 1,
-  });
-  dllLifecycleNativeExitCode = 0;
-  await runNativeFixture(windowExe, { windowsHide: false });
-  windowPixelNativeExitCode = 0;
-  await runNativeFixture(bootstrapExe);
-  bootstrapFsNativeExitCode = 0;
-  await runNativeFixture(bootstrapParamsExe);
-  bootstrapParamsNativeExitCode = 0;
-  await runNativeFixture(tlsGetValueExe);
-  tlsGetValueNativeExitCode = 0;
-  await runNativeFixture(flsGetValueExe);
-  flsGetValueNativeExitCode = 0;
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0", "/entry:fixture_entry",
+  "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${flsExitThreadExe}`,
+  flsExitThreadObject,
+  flsGetValueKernel32Library,
+]);
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0", "/entry:fixture_entry",
+  "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${monitorExe}`, monitorObject, monitorLibrary,
+]);
+const graphicsUser32 = path.join(outputDirectory, "graphics-user32.lib");
+const graphicsGdi32 = path.join(outputDirectory, "graphics-gdi32.lib");
+const graphicsImm32 = path.join(outputDirectory, "graphics-imm32.lib");
+const graphicsKernel32 = path.join(outputDirectory, "graphics-kernel32.lib");
+const graphicsWinmm = path.join(outputDirectory, "graphics-winmm.lib");
+const graphicsGdiplus = path.join(outputDirectory, "graphics-gdiplus.lib");
+const graphicsDinput8 = path.join(outputDirectory, "graphics-dinput8.lib");
+const graphicsDsound = path.join(outputDirectory, "graphics-dsound.lib");
+const graphicsShell32 = path.join(outputDirectory, "graphics-shell32.lib");
+const graphicsOle32 = path.join(outputDirectory, "graphics-ole32.lib");
+for (const [module, library] of [["user32", graphicsUser32], ["gdi32", graphicsGdi32],
+  ["imm32", graphicsImm32], ["kernel32", graphicsKernel32], ["winmm", graphicsWinmm],
+  ["gdiplus", graphicsGdiplus], ["dinput8", graphicsDinput8], ["dsound", graphicsDsound],
+  ["shell32", graphicsShell32], ["ole32", graphicsOle32]]) {
+  run("llvm-dlltool", ["-m", "i386", "-k", "-d",
+    path.join(root, "fixtures", "pe32", "d3d9-display", `${module}.def`), "-l", library]);
 }
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0", "/entry:fixture_entry",
+  "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${d3dDisplayExe}`, d3dDisplayObject, iconResource, browserD3d9ImportLibrary,
+  graphicsUser32, graphicsGdi32, graphicsImm32, graphicsKernel32, graphicsWinmm, graphicsGdiplus,
+  graphicsDinput8, graphicsDsound, graphicsShell32, graphicsOle32,
+]);
+run("lld-link", [
+  "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0", "/entry:fixture_entry",
+  "/dynamicbase", "/nxcompat", "/timestamp:0",
+  `/out:${pointerExe}`, pointerObject, iconResource, browserD3d9ImportLibrary,
+  graphicsUser32, graphicsGdi32, graphicsImm32, graphicsKernel32, graphicsWinmm, graphicsGdiplus,
+  graphicsDinput8, graphicsDsound, graphicsShell32, graphicsOle32,
+]);
 
 const exeInspection = run("llvm-readobj", [
   "--file-headers",
@@ -756,6 +828,41 @@ const sourceReadInspection = run("llvm-readobj", [
   "--file-headers",
   "--coff-imports",
   sourceReadExe,
+]);
+const keyboardInspection = run("llvm-readobj", [
+  "--file-headers", "--coff-imports", keyboardExe,
+]);
+const sleepInspection = run("llvm-readobj", [
+  "--file-headers", "--coff-imports", sleepExe,
+]);
+const heapGrowthInspection = run("llvm-readobj", [
+  "--file-headers", "--coff-imports", heapGrowthExe,
+]);
+const heapGrowthImports = parseCoffImports(heapGrowthInspection);
+const directshowInspection = run("llvm-readobj", [
+  "--file-headers", "--coff-imports", directshowExe,
+]);
+const directshowImports = parseCoffImports(directshowInspection);
+if (!directshowInspection.includes("Format: COFF-i386") ||
+    !directshowImports.some(module => module.module === "ole32.dll" &&
+      module.symbols.includes("CoCreateInstance")) ||
+    directshowImports.some(module => !["ole32.dll", "kernel32.dll"].includes(module.module))) {
+  throw Error("DirectShow fixture requires PE32 and standard COM/kernel imports without CRT imports");
+}
+if (!heapGrowthInspection.includes("Format: COFF-i386") ||
+    heapGrowthImports.length !== 1 || heapGrowthImports[0].module !== "kernel32.dll" ||
+    heapGrowthImports[0].symbols.length !== 4 ||
+    ["HeapCreate", "HeapAlloc", "HeapFree", "HeapSize"].some(name => !heapGrowthImports[0].symbols.includes(name))) {
+  throw Error("Heap growth fixture requires PE32 and actual kernel32 heap APIs without CRT imports");
+}
+const timerWaitInspection = run("llvm-readobj", [
+  "--file-headers", "--coff-imports", timerWaitExe,
+]);
+const timerThreadsInspection = run("llvm-readobj", [
+  "--file-headers", "--coff-imports", timerThreadsExe,
+]);
+const cursorInspection = run("llvm-readobj", [
+  "--file-headers", "--coff-imports", cursorExe,
 ]);
 const lifecycleExeInspection = run("llvm-readobj", [
   "--file-headers",
@@ -846,6 +953,49 @@ for (const expected of [
 ]) {
   if (!browserExeInspection.includes(expected)) {
     throw new Error(`browser vertical PE32 inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386", "Name: kernel32.dll", "Symbol: CreateThread",
+  "Symbol: WaitForSingleObjectEx",
+]) {
+  if (!timerThreadsInspection.includes(expected)) {
+    throw new Error(`two-thread timer PE32 inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386", "Name: kernel32.dll", "Symbol: WaitForSingleObjectEx",
+  "Symbol: SetWaitableTimer", "Symbol: CreateWaitableTimerA",
+]) {
+  if (!timerWaitInspection.includes(expected)) {
+    throw new Error(`timer wait PE32 inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386", "Name: user32.dll", "Symbol: GetCursorPos",
+  "Symbol: SetCursorPos", "Symbol: GetCursorInfo", "Symbol: ShowCursor",
+]) {
+  if (!cursorInspection.includes(expected)) {
+    throw new Error(`cursor PE32 inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386", "Name: kernel32.dll", "Symbol: Sleep", "Symbol: GetTickCount",
+]) {
+  if (!sleepInspection.includes(expected)) {
+    throw new Error(`Sleep PE32 inspection is missing: ${expected}`);
+  }
+}
+
+for (const expected of [
+  "Format: COFF-i386", "Name: user32.dll", "Symbol: GetAsyncKeyState",
+]) {
+  if (!keyboardInspection.includes(expected)) {
+    throw new Error(`keyboard input PE32 inspection is missing: ${expected}`);
   }
 }
 
@@ -1061,103 +1211,4 @@ if (JSON.stringify(inspectedWindowImports) !== JSON.stringify(windowPixelImports
   );
 }
 
-const report = {
-  schemaVersion: 1,
-  tools,
-  checks: {
-    wasmAddResult: wasmValue,
-    peFormat: "PE32/i386",
-    peImports: ["fixture_add", "fixture_call_callback"],
-    dllExports: ["fixture_add", "fixture_call_callback"],
-    nativeAbiExitCode,
-    browserVerticalFormat: "PE32/i386",
-    browserVerticalImports: [
-      "fixture_call_callback",
-      "fixture_commit_outputs",
-      "fixture_deferred_add",
-      "Direct3DCreate9",
-    ],
-    browserVerticalNativeExitCode,
-    sourceReadNativeExitCode,
-    dllLifecycleFormat: "PE32/i386",
-    dllLifecycleAttachOrder: ["lifecycle_codec.dll", "lifecycle_engine.dll"],
-    dllLifecycleDetachOrder: ["lifecycle_engine.dll", "lifecycle_codec.dll"],
-    dllLifecycleRuntimeImports: ["kernel32.dll!GetCurrentProcessId"],
-    dllLifecycleNativeExitCode,
-    dllLifecycleNativeAttempts,
-    windowPixelFormat: "PE32/i386",
-    windowPixelImports,
-    windowPixelExpectedEvents: ["WM_CREATE", "WM_PAINT", "WM_DESTROY"],
-    windowPixelNativeExitCode,
-    iconResourceFormat: "PE32/i386",
-    iconResourceGroupId: 101,
-    iconResourceLanguageId: 1041,
-    iconResourceDimensions: [48, 32, 16],
-    cursorResourceGroupId: 106,
-    cursorResourceLanguageId: 1041,
-    cursorResourceDimensions: [32, 32],
-    cursorResourceHotspot: [3, 4],
-    highMemoryFormat: "PE32/i386",
-    highMemoryImageBase: "0xf1000000",
-    highMemoryNativeExecution: "not-run",
-    bootstrapFsFormat: "PE32/i386",
-    bootstrapFsOffsets: { tebSelf: "fs:[0x18]", peb: "fs:[0x30]" },
-    bootstrapFsNativeExitCode,
-    bootstrapParamsFormat: "PE32/i386",
-    bootstrapParamsOffsets: {
-      pebProcessParameters: "peb+0x10",
-      commandLine: "process-parameters+0x40",
-    },
-    bootstrapParamsNativeExitCode,
-    tlsGetValueFormat: "PE32/i386",
-    tlsGetValueNativeExitCode,
-    tlsGetValueOracle: {
-      mainValue: "0x12345678",
-      workerInitialValue: "0x00000000",
-      workerValue: "0x23456789",
-      successLastError: 0,
-      invalidIndexLastError: 87,
-    },
-    flsGetValueFormat: "PE32/i386",
-    flsGetValueNativeExitCode,
-    flsGetValueOracle: {
-      mainValue: "0x12345678",
-      workerInitialValue: "0x00000000",
-      workerInitialLastError: 87,
-      workerValue: "0x23456789",
-      successLastError: 0,
-      invalidIndexLastError: 87,
-    },
-  },
-  artifacts: [
-    wasmModule,
-    exeFile,
-    dllFile,
-    importLibrary,
-    browserExeFile,
-    browserDllFile,
-    browserImportLibrary,
-    browserD3d9ImportLibrary,
-    sourceReadExe,
-    sourceReadKernel32Library,
-    lifecycleExe,
-    lifecycleEngineDll,
-    lifecycleEngineLibrary,
-    lifecycleCodecDll,
-    lifecycleCodecLibrary,
-    lifecycleKernel32Library,
-    windowExe,
-    iconExe,
-    memoryExe,
-    bootstrapExe,
-    bootstrapParamsExe,
-    tlsGetValueExe,
-    tlsGetValueKernel32Library,
-    flsGetValueExe,
-    flsGetValueKernel32Library,
-  ].map(artifact),
-};
-
-const reportFile = path.join(outputDirectory, "report.json");
-fs.writeFileSync(reportFile, `${JSON.stringify(report, null, 2)}\n`);
-console.log(JSON.stringify(report, null, 2));
+console.log("PE32 and Wasm toolchain fixtures built and inspected");

@@ -2,45 +2,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::{Deref, DerefMut, Range};
 
-use serde::Serialize;
-use sha2::{Digest, Sha256};
-
 use crate::{MappingProtection, ModuleIdentity, Pe32LoadPlan};
 
 pub const GUEST_PAGE_SIZE: u64 = 4_096;
 const GUEST_PAGE_SIZE_USIZE: usize = GUEST_PAGE_SIZE as usize;
 const GUEST_ADDRESS_SPACE_SIZE: u64 = 1_u64 << 32;
 
-fn count_changed_bytes(current: &[u8], incoming: &[u8]) -> usize {
-    debug_assert_eq!(current.len(), incoming.len());
-    let mut current_chunks = current.chunks_exact(8);
-    let mut incoming_chunks = incoming.chunks_exact(8);
-    let mut changed = 0;
-    for (current, incoming) in current_chunks.by_ref().zip(incoming_chunks.by_ref()) {
-        let mut different = u64::from_ne_bytes(current.try_into().expect("eight-byte chunk"))
-            ^ u64::from_ne_bytes(incoming.try_into().expect("eight-byte chunk"));
-        if different != 0 {
-            different |= different >> 4;
-            different |= different >> 2;
-            different |= different >> 1;
-            changed += (different & 0x0101_0101_0101_0101).count_ones() as usize;
-        }
-    }
-    changed
-        + current_chunks
-            .remainder()
-            .iter()
-            .zip(incoming_chunks.remainder())
-            .filter(|(current, incoming)| current != incoming)
-            .count()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct GuestAddress(pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GuestRange {
     start: GuestAddress,
     byte_length: u64,
@@ -50,22 +21,14 @@ impl GuestRange {
     pub fn new(start: GuestAddress, byte_length: u64) -> Result<Self, GuestMemoryError> {
         if byte_length == 0 {
             return Err(GuestMemoryError::invalid_request(
-                "guest-range",
-                "zero-length-range",
                 "guest range must contain at least one byte",
             ));
         }
         let end = u64::from(start.0).checked_add(byte_length).ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "guest-range",
-                "guest-range-overflow",
-                "guest range end overflowed 64-bit accounting",
-            )
+            GuestMemoryError::invalid_request("guest range end overflowed 64-bit accounting")
         })?;
         if end > GUEST_ADDRESS_SPACE_SIZE {
             return Err(GuestMemoryError::invalid_request(
-                "guest-range",
-                "guest-range-out-of-bounds",
                 "guest range extends beyond the 4 GiB virtual address space",
             ));
         }
@@ -100,8 +63,7 @@ impl GuestRange {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryLimits {
     pub max_physical_pages: usize,
     pub max_regions: usize,
@@ -120,20 +82,17 @@ impl Default for MemoryLimits {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MemoryOwnerId(pub u32);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoryOwnerKind {
     Image { source_sha256: String },
     Anonymous,
     Runtime,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryRegionKind {
     Image,
     Stack,
@@ -150,8 +109,7 @@ pub enum MemoryRegionKind {
     GdiResource,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PageProtection {
     pub read: bool,
     pub write: bool,
@@ -168,16 +126,14 @@ impl From<MappingProtection> for PageProtection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryAccess {
     Read,
     Write,
     Execute,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryFaultReason {
     Unmapped,
     ReadDenied,
@@ -186,8 +142,7 @@ pub enum MemoryFaultReason {
     OwnerUnsealed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryFault {
     pub address: GuestAddress,
     pub access: MemoryAccess,
@@ -195,8 +150,7 @@ pub struct MemoryFault {
     pub page_fault_error_code: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryInvalidation {
     pub generation: u64,
     pub data_tlb: bool,
@@ -204,8 +158,7 @@ pub struct MemoryInvalidation {
     pub generated_code: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CacheEffects {
     pub flush_tlb: bool,
     pub invalidate_instruction_fetch: bool,
@@ -234,47 +187,41 @@ impl From<MemoryInvalidation> for CacheEffects {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "operation", rename_all = "kebab-case")]
-pub enum MappingOperation {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MappingOperation {
     Reserve {
-        #[serde(skip_serializing_if = "Option::is_none")]
         address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         kind: MemoryRegionKind,
         range: GuestRange,
     },
     Commit {
-        #[serde(skip_serializing_if = "Option::is_none")]
         address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         range: GuestRange,
         protection: PageProtection,
     },
     Protect {
-        #[serde(skip_serializing_if = "Option::is_none")]
         address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         range: GuestRange,
         protection: PageProtection,
     },
     Decommit {
-        #[serde(skip_serializing_if = "Option::is_none")]
         address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         range: GuestRange,
     },
     Release {
-        #[serde(skip_serializing_if = "Option::is_none")]
         address_allocation_id: Option<u64>,
         owner: MemoryOwnerId,
         range: GuestRange,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DirtyPage {
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DirtyPage {
     pub address: GuestAddress,
     pub owner: MemoryOwnerId,
     pub owner_sealed: bool,
@@ -282,22 +229,19 @@ pub struct DirtyPage {
     pub bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryDelta {
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MemoryDelta {
     pub from_generation: u64,
     pub generation: u64,
     pub page_size: u64,
     pub mapping_operations: Vec<MappingOperation>,
     pub dirty_pages: Vec<DirtyPage>,
     pub cache_effects: CacheEffects,
-    pub transferred_bytes: usize,
-    pub content_sha256: String,
 }
 
-pub const MEMORY_DELTA_BINARY_VERSION: u32 = 2;
-const MEMORY_DELTA_CONTROL_MAGIC: &[u8; 8] = b"VINEDL01";
-const MEMORY_DELTA_CONTROL_HEADER_BYTES: usize = 56;
+const MEMORY_DELTA_CONTROL_MAGIC: &[u8; 8] = b"VINEDELT";
+const MEMORY_DELTA_CONTROL_HEADER_BYTES: usize = 52;
 const MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES: usize = 40;
 const MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES: usize = 16;
 
@@ -307,12 +251,11 @@ pub struct MemoryDeltaBuffers {
     pub page_bytes: Vec<u8>,
 }
 
+#[cfg(test)]
 impl MemoryDelta {
-    pub fn encode_binary(&self) -> Result<MemoryDeltaBuffers, GuestMemoryError> {
+    pub(crate) fn encode_binary(&self) -> Result<MemoryDeltaBuffers, GuestMemoryError> {
         if self.page_size != GUEST_PAGE_SIZE {
             return Err(GuestMemoryError::invalid_request(
-                "memory-delta-transport",
-                "memory-delta-page-size-unsupported",
                 "binary memory delta requires 4 KiB pages",
             ));
         }
@@ -345,15 +288,11 @@ impl MemoryDeltaBuffers {
     ) -> Result<Self, GuestMemoryError> {
         let mapping_count = u32::try_from(mapping_operations.len()).map_err(|_| {
             GuestMemoryError::resource_limit(
-                "memory-delta-transport",
-                "memory-delta-mapping-count-overflow",
                 "memory delta mapping count does not fit the binary control format",
             )
         })?;
         let dirty_count = u32::try_from(page_count).map_err(|_| {
             GuestMemoryError::resource_limit(
-                "memory-delta-transport",
-                "memory-delta-page-count-overflow",
                 "memory delta page count does not fit the binary control format",
             )
         })?;
@@ -362,8 +301,6 @@ impl MemoryDeltaBuffers {
             .checked_mul(MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "memory-delta-transport",
-                    "memory-delta-control-size-overflow",
                     "memory delta mapping size overflowed host accounting",
                 )
             })?;
@@ -371,8 +308,6 @@ impl MemoryDeltaBuffers {
             .checked_mul(MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "memory-delta-transport",
-                    "memory-delta-control-size-overflow",
                     "memory delta page descriptor size overflowed host accounting",
                 )
             })?;
@@ -380,8 +315,6 @@ impl MemoryDeltaBuffers {
             .checked_mul(GUEST_PAGE_SIZE_USIZE)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "memory-delta-transport",
-                    "memory-delta-payload-size-overflow",
                     "memory delta payload size overflowed host accounting",
                 )
             })?;
@@ -390,14 +323,11 @@ impl MemoryDeltaBuffers {
             .and_then(|bytes| bytes.checked_add(page_descriptor_bytes))
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "memory-delta-transport",
-                    "memory-delta-control-size-overflow",
                     "memory delta control size overflowed host accounting",
                 )
             })?;
         let mut control = Vec::with_capacity(control_bytes);
         control.extend_from_slice(MEMORY_DELTA_CONTROL_MAGIC);
-        control.extend_from_slice(&MEMORY_DELTA_BINARY_VERSION.to_le_bytes());
         control.extend_from_slice(&(GUEST_PAGE_SIZE as u32).to_le_bytes());
         control.extend_from_slice(&from_generation.to_le_bytes());
         control.extend_from_slice(&generation.to_le_bytes());
@@ -490,8 +420,6 @@ impl MemoryDeltaBuffers {
     ) -> Result<(), GuestMemoryError> {
         if bytes.len() != GUEST_PAGE_SIZE_USIZE {
             return Err(GuestMemoryError::runtime_defect(
-                "memory-delta-transport",
-                "memory-delta-page-size-mismatch",
                 "memory delta contains a page with a non-4-KiB payload",
             ));
         }
@@ -504,74 +432,30 @@ impl MemoryDeltaBuffers {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GuestWriteResult {
-    pub bytes_written: usize,
-    pub dirty_pages: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub invalidation: Option<MemoryInvalidation>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GuestPageReconciliation {
-    pub generation: u64,
-    pub address: GuestAddress,
-    pub owner: MemoryOwnerId,
-    pub bytes_reconciled: usize,
-    pub changed_bytes: usize,
-    pub content_sha256: String,
-}
-
-pub const CPU_WRITEBACK_BINARY_VERSION: u32 = 1;
-const CPU_WRITEBACK_CONTROL_MAGIC: &[u8; 8] = b"VINEWB01";
-const CPU_WRITEBACK_CONTROL_HEADER_BYTES: usize = 32;
+const CPU_WRITEBACK_CONTROL_MAGIC: &[u8; 8] = b"VINEWBCK";
+const CPU_WRITEBACK_CONTROL_HEADER_BYTES: usize = 28;
 const CPU_WRITEBACK_DESCRIPTOR_BYTES: usize = 8;
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CpuWritebackPage {
+pub(crate) struct CpuWritebackPage {
     pub address: GuestAddress,
     pub owner: MemoryOwnerId,
     pub bytes: Vec<u8>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CpuWritebackBatch {
+pub(crate) struct CpuWritebackBatch {
     pub base_generation: u64,
     pub pages: Vec<CpuWritebackPage>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CpuWritebackBuffers {
+pub(crate) struct CpuWritebackBuffers {
     pub control: Vec<u8>,
     pub page_bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CpuWritebackReceipt {
-    pub from_generation: u64,
-    pub generation: u64,
-    pub touched_pages: usize,
-    pub changed_pages: usize,
-    pub unchanged_pages: usize,
-    pub executable_pages: usize,
-    pub changed_bytes: u64,
-    pub transferred_bytes: u64,
-    pub content_sha256: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CpuWritebackFastReceipt {
-    pub from_generation: u64,
-    pub generation: u64,
-    pub touched_pages: usize,
-    pub changed_pages: usize,
-    pub unchanged_pages: usize,
-    pub executable_pages: usize,
-    pub changed_bytes: u64,
-    pub transferred_bytes: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -587,54 +471,11 @@ struct CpuWritebackBatchView<'a> {
     pages: Vec<CpuWritebackPageView<'a>>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct CpuWritebackPageInput<'a> {
-    address: GuestAddress,
-    owner: Option<MemoryOwnerId>,
-    bytes: &'a [u8],
-}
-
-enum CpuWritebackPages<'a> {
-    Described(&'a [CpuWritebackPageView<'a>]),
-    CurrentOwner(&'a [(u32, &'a [u8])]),
-}
-
-impl<'a> CpuWritebackPages<'a> {
-    fn len(&self) -> usize {
-        match self {
-            Self::Described(pages) => pages.len(),
-            Self::CurrentOwner(pages) => pages.len(),
-        }
-    }
-
-    fn get(&self, index: usize) -> CpuWritebackPageInput<'a> {
-        match self {
-            Self::Described(pages) => {
-                let page = pages[index];
-                CpuWritebackPageInput {
-                    address: page.address,
-                    owner: Some(page.owner),
-                    bytes: page.bytes,
-                }
-            }
-            Self::CurrentOwner(pages) => {
-                let &(address, bytes) = &pages[index];
-                CpuWritebackPageInput {
-                    address: GuestAddress(address),
-                    owner: None,
-                    bytes,
-                }
-            }
-        }
-    }
-}
-
+#[cfg(test)]
 impl CpuWritebackBatch {
     pub fn encode_binary(&self) -> Result<CpuWritebackBuffers, GuestMemoryError> {
         let page_count = u32::try_from(self.pages.len()).map_err(|_| {
             GuestMemoryError::resource_limit(
-                "cpu-writeback-transport",
-                "cpu-writeback-page-count-overflow",
                 "CPU writeback page count does not fit the binary control format",
             )
         })?;
@@ -645,16 +486,12 @@ impl CpuWritebackBatch {
                     .checked_mul(CPU_WRITEBACK_DESCRIPTOR_BYTES)
                     .ok_or_else(|| {
                         GuestMemoryError::resource_limit(
-                            "cpu-writeback-transport",
-                            "cpu-writeback-control-size-overflow",
                             "CPU writeback control size overflowed host accounting",
                         )
                     })?,
             )
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "cpu-writeback-transport",
-                    "cpu-writeback-control-size-overflow",
                     "CPU writeback control size overflowed host accounting",
                 )
             })?;
@@ -664,14 +501,11 @@ impl CpuWritebackBatch {
             .checked_mul(GUEST_PAGE_SIZE_USIZE)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "cpu-writeback-transport",
-                    "cpu-writeback-payload-size-overflow",
                     "CPU writeback page payload size overflowed host accounting",
                 )
             })?;
         let mut control = Vec::with_capacity(control_bytes);
         control.extend_from_slice(CPU_WRITEBACK_CONTROL_MAGIC);
-        control.extend_from_slice(&CPU_WRITEBACK_BINARY_VERSION.to_le_bytes());
         control.extend_from_slice(&(GUEST_PAGE_SIZE as u32).to_le_bytes());
         control.extend_from_slice(&self.base_generation.to_le_bytes());
         control.extend_from_slice(&page_count.to_le_bytes());
@@ -680,15 +514,11 @@ impl CpuWritebackBatch {
         for page in &self.pages {
             if !page.address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
                 return Err(GuestMemoryError::invalid_request(
-                    "cpu-writeback-transport",
-                    "cpu-writeback-address-not-page-aligned",
                     "CPU writeback page address must be guest-page aligned",
                 ));
             }
             if page.bytes.len() != GUEST_PAGE_SIZE_USIZE {
                 return Err(GuestMemoryError::invalid_request(
-                    "cpu-writeback-transport",
-                    "cpu-writeback-page-size-mismatch",
                     "CPU writeback page payload must contain exactly one guest page",
                 ));
             }
@@ -701,26 +531,6 @@ impl CpuWritebackBatch {
             page_bytes,
         })
     }
-
-    pub fn decode_binary(
-        control: &[u8],
-        page_bytes: &[u8],
-        max_pages: usize,
-    ) -> Result<Self, GuestMemoryError> {
-        let view = decode_cpu_writeback_view(control, page_bytes, max_pages)?;
-        Ok(Self {
-            base_generation: view.base_generation,
-            pages: view
-                .pages
-                .into_iter()
-                .map(|page| CpuWritebackPage {
-                    address: page.address,
-                    owner: page.owner,
-                    bytes: page.bytes.to_vec(),
-                })
-                .collect(),
-        })
-    }
 }
 
 fn decode_cpu_writeback_view<'a>(
@@ -730,71 +540,46 @@ fn decode_cpu_writeback_view<'a>(
 ) -> Result<CpuWritebackBatchView<'a>, GuestMemoryError> {
     if control.len() < CPU_WRITEBACK_CONTROL_HEADER_BYTES {
         return Err(GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            "cpu-writeback-control-truncated",
             "CPU writeback control header is truncated",
         ));
     }
     if control.get(..8) != Some(CPU_WRITEBACK_CONTROL_MAGIC.as_slice()) {
         return Err(GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            "cpu-writeback-control-magic-mismatch",
             "CPU writeback control magic is invalid",
         ));
     }
-    let version = read_binary_u32(control, 8, "cpu-writeback-control-truncated")?;
-    if version != CPU_WRITEBACK_BINARY_VERSION {
-        return Err(GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            "cpu-writeback-version-unsupported",
-            format!("CPU writeback binary version {version} is unsupported"),
-        ));
-    }
-    let page_size = read_binary_u32(control, 12, "cpu-writeback-control-truncated")?;
+    let page_size = read_binary_u32(control, 8)?;
     if page_size != GUEST_PAGE_SIZE as u32 {
         return Err(GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            "cpu-writeback-page-size-unsupported",
             "CPU writeback binary page size is not 4 KiB",
         ));
     }
-    let base_generation = read_binary_u64(control, 16, "cpu-writeback-control-truncated")?;
-    let page_count = read_binary_u32(control, 24, "cpu-writeback-control-truncated")? as usize;
+    let base_generation = read_binary_u64(control, 12)?;
+    let page_count = read_binary_u32(control, 20)? as usize;
     if page_count > max_pages {
-        return Err(GuestMemoryError::resource_limit(
-            "cpu-writeback-transport",
-            "cpu-writeback-page-limit-exceeded",
-            format!("CPU writeback contains {page_count} pages; limit is {max_pages}"),
-        ));
+        return Err(GuestMemoryError::resource_limit(format!(
+            "CPU writeback contains {page_count} pages; limit is {max_pages}"
+        )));
     }
-    let descriptor_bytes =
-        read_binary_u32(control, 28, "cpu-writeback-control-truncated")? as usize;
+    let descriptor_bytes = read_binary_u32(control, 24)? as usize;
     if descriptor_bytes != CPU_WRITEBACK_DESCRIPTOR_BYTES {
         return Err(GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            "cpu-writeback-descriptor-size-unsupported",
             "CPU writeback descriptor size is unsupported",
         ));
     }
     let expected_control = CPU_WRITEBACK_CONTROL_HEADER_BYTES
         .checked_add(page_count.checked_mul(descriptor_bytes).ok_or_else(|| {
             GuestMemoryError::resource_limit(
-                "cpu-writeback-transport",
-                "cpu-writeback-control-size-overflow",
                 "CPU writeback descriptor size overflowed host accounting",
             )
         })?)
         .ok_or_else(|| {
             GuestMemoryError::resource_limit(
-                "cpu-writeback-transport",
-                "cpu-writeback-control-size-overflow",
                 "CPU writeback control size overflowed host accounting",
             )
         })?;
     if control.len() != expected_control {
         return Err(GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            "cpu-writeback-control-length-mismatch",
             "CPU writeback control length does not match its page count",
         ));
     }
@@ -802,15 +587,11 @@ fn decode_cpu_writeback_view<'a>(
         .checked_mul(GUEST_PAGE_SIZE_USIZE)
         .ok_or_else(|| {
             GuestMemoryError::resource_limit(
-                "cpu-writeback-transport",
-                "cpu-writeback-payload-size-overflow",
                 "CPU writeback page payload size overflowed host accounting",
             )
         })?;
     if page_bytes.len() != expected_payload {
         return Err(GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            "cpu-writeback-payload-length-mismatch",
             "CPU writeback page payload length does not match its page count",
         ));
     }
@@ -818,16 +599,8 @@ fn decode_cpu_writeback_view<'a>(
     let mut pages = Vec::with_capacity(page_count);
     for index in 0..page_count {
         let descriptor = CPU_WRITEBACK_CONTROL_HEADER_BYTES + index * descriptor_bytes;
-        let address = GuestAddress(read_binary_u32(
-            control,
-            descriptor,
-            "cpu-writeback-control-truncated",
-        )?);
-        let owner = MemoryOwnerId(read_binary_u32(
-            control,
-            descriptor + 4,
-            "cpu-writeback-control-truncated",
-        )?);
+        let address = GuestAddress(read_binary_u32(control, descriptor)?);
+        let owner = MemoryOwnerId(read_binary_u32(control, descriptor + 4)?);
         let payload = index * GUEST_PAGE_SIZE_USIZE;
         pages.push(CpuWritebackPageView {
             address,
@@ -841,24 +614,14 @@ fn decode_cpu_writeback_view<'a>(
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub struct ImageMemoryLayout {
-    pub source: ModuleIdentity,
     pub owner: MemoryOwnerId,
     pub image_range: GuestRange,
-    pub reserved_pages: usize,
-    pub committed_pages: usize,
-    pub physical_pages: usize,
-    pub readable_pages: usize,
-    pub writable_pages: usize,
-    pub executable_pages: usize,
-    pub owner_sealed: bool,
     pub invalidation: MemoryInvalidation,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryStats {
     pub owners: usize,
     pub image_owners: usize,
@@ -871,34 +634,16 @@ pub struct MemoryStats {
     pub dirty_pages: usize,
     pub generation: u64,
     pub acknowledged_generation: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_invalidation: Option<MemoryInvalidation>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemorySynchronizationState {
     pub generation: u64,
     pub acknowledged_generation: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryTransactionStats {
-    pub baseline_committed_pages: usize,
-    pub baseline_committed_bytes: u64,
-    pub journaled_owner_states: usize,
-    pub journaled_regions: usize,
-    pub journaled_page_states: usize,
-    pub journaled_frame_images: usize,
-    pub journaled_frame_bytes: u64,
-    pub frame_allocator_operations: usize,
-    pub offered_generations: usize,
-    pub peak_journaled_frame_bytes: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryReflectionPage {
     pub address: GuestAddress,
     pub owner: MemoryOwnerId,
@@ -908,28 +653,23 @@ pub struct MemoryReflectionPage {
     pub bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryRegionSnapshot {
-    #[serde(skip_serializing_if = "Option::is_none")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryRegionInfo {
     pub address_allocation_id: Option<u64>,
     pub owner: MemoryOwnerId,
     pub kind: MemoryRegionKind,
     pub range: GuestRange,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryReflection {
     pub invalidation: MemoryInvalidation,
     pub page_size: u64,
     pub pages: Vec<MemoryReflectionPage>,
-    pub content_sha256: String,
 }
 
-pub const MEMORY_REFLECTION_BINARY_VERSION: u32 = 1;
-const MEMORY_REFLECTION_CONTROL_MAGIC: &[u8; 8] = b"VINERF01";
-const MEMORY_REFLECTION_CONTROL_HEADER_BYTES: usize = 40;
+const MEMORY_REFLECTION_CONTROL_MAGIC: &[u8; 8] = b"VINEREFL";
+const MEMORY_REFLECTION_CONTROL_HEADER_BYTES: usize = 36;
 const MEMORY_REFLECTION_DESCRIPTOR_BYTES: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -942,15 +682,11 @@ impl MemoryReflection {
     pub fn encode_binary(&self) -> Result<MemoryReflectionBuffers, GuestMemoryError> {
         if self.page_size != GUEST_PAGE_SIZE {
             return Err(GuestMemoryError::invalid_request(
-                "memory-reflection-transport",
-                "memory-reflection-page-size-unsupported",
                 "binary memory reflection requires 4 KiB pages",
             ));
         }
         let page_count = u32::try_from(self.pages.len()).map_err(|_| {
             GuestMemoryError::resource_limit(
-                "memory-reflection-transport",
-                "memory-reflection-page-count-overflow",
                 "memory reflection page count does not fit the binary control format",
             )
         })?;
@@ -960,8 +696,6 @@ impl MemoryReflection {
             .checked_mul(MEMORY_REFLECTION_DESCRIPTOR_BYTES)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "memory-reflection-transport",
-                    "memory-reflection-control-size-overflow",
                     "memory reflection descriptor size overflowed host accounting",
                 )
             })?;
@@ -971,8 +705,6 @@ impl MemoryReflection {
             .checked_mul(GUEST_PAGE_SIZE_USIZE)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "memory-reflection-transport",
-                    "memory-reflection-payload-size-overflow",
                     "memory reflection payload size overflowed host accounting",
                 )
             })?;
@@ -980,14 +712,11 @@ impl MemoryReflection {
             .checked_add(descriptor_bytes)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    "memory-reflection-transport",
-                    "memory-reflection-control-size-overflow",
                     "memory reflection control size overflowed host accounting",
                 )
             })?;
         let mut control = Vec::with_capacity(control_bytes);
         control.extend_from_slice(MEMORY_REFLECTION_CONTROL_MAGIC);
-        control.extend_from_slice(&MEMORY_REFLECTION_BINARY_VERSION.to_le_bytes());
         control.extend_from_slice(&(GUEST_PAGE_SIZE as u32).to_le_bytes());
         control.extend_from_slice(&self.invalidation.generation.to_le_bytes());
         control.extend_from_slice(&page_count.to_le_bytes());
@@ -1001,8 +730,6 @@ impl MemoryReflection {
         for page in &self.pages {
             if page.bytes.len() != GUEST_PAGE_SIZE_USIZE {
                 return Err(GuestMemoryError::runtime_defect(
-                    "memory-reflection-transport",
-                    "memory-reflection-page-size-mismatch",
                     "memory reflection contains a page with a non-4-KiB payload",
                 ));
             }
@@ -1024,9 +751,8 @@ impl MemoryReflection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum GuestMemoryErrorClass {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GuestMemoryErrorClass {
     InvalidRequest,
     ResourceLimit,
     Conflict,
@@ -1035,55 +761,29 @@ pub enum GuestMemoryErrorClass {
     RuntimeDefect,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuestMemoryError {
-    pub class: GuestMemoryErrorClass,
-    pub stage: &'static str,
-    pub code: &'static str,
+    pub(crate) class: GuestMemoryErrorClass,
     pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub fault: Option<MemoryFault>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_invalidation: Option<MemoryInvalidation>,
 }
 
 impl GuestMemoryError {
-    pub(crate) fn invalid_request(
-        stage: &'static str,
-        code: &'static str,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(GuestMemoryErrorClass::InvalidRequest, stage, code, message)
+    pub(crate) fn invalid_request(message: impl Into<String>) -> Self {
+        Self::new(GuestMemoryErrorClass::InvalidRequest, message)
     }
 
-    pub(crate) fn resource_limit(
-        stage: &'static str,
-        code: &'static str,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(GuestMemoryErrorClass::ResourceLimit, stage, code, message)
+    pub(crate) fn resource_limit(message: impl Into<String>) -> Self {
+        Self::new(GuestMemoryErrorClass::ResourceLimit, message)
     }
 
-    pub(crate) fn conflict(
-        stage: &'static str,
-        code: &'static str,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(GuestMemoryErrorClass::Conflict, stage, code, message)
+    pub(crate) fn conflict(message: impl Into<String>) -> Self {
+        Self::new(GuestMemoryErrorClass::Conflict, message)
     }
 
-    fn synchronization(
-        code: &'static str,
-        message: impl Into<String>,
-        pending: MemoryInvalidation,
-    ) -> Self {
-        let mut error = Self::new(
-            GuestMemoryErrorClass::SynchronizationRequired,
-            "memory-invalidation",
-            code,
-            message,
-        );
+    fn synchronization(message: impl Into<String>, pending: MemoryInvalidation) -> Self {
+        let mut error = Self::new(GuestMemoryErrorClass::SynchronizationRequired, message);
         error.pending_invalidation = Some(pending);
         error
     }
@@ -1091,8 +791,6 @@ impl GuestMemoryError {
     fn fault(fault: MemoryFault) -> Self {
         let mut error = Self::new(
             GuestMemoryErrorClass::Fault,
-            "guest-access",
-            "guest-page-fault",
             format!(
                 "{:?} at {:#010x} failed: {:?}, PFEC {:#x}",
                 fault.access, fault.address.0, fault.reason, fault.page_fault_error_code
@@ -1102,24 +800,13 @@ impl GuestMemoryError {
         error
     }
 
-    pub(crate) fn runtime_defect(
-        stage: &'static str,
-        code: &'static str,
-        message: impl Into<String>,
-    ) -> Self {
-        Self::new(GuestMemoryErrorClass::RuntimeDefect, stage, code, message)
+    pub(crate) fn runtime_defect(message: impl Into<String>) -> Self {
+        Self::new(GuestMemoryErrorClass::RuntimeDefect, message)
     }
 
-    fn new(
-        class: GuestMemoryErrorClass,
-        stage: &'static str,
-        code: &'static str,
-        message: impl Into<String>,
-    ) -> Self {
+    fn new(class: GuestMemoryErrorClass, message: impl Into<String>) -> Self {
         Self {
             class,
-            stage,
-            code,
             message: message.into(),
             fault: None,
             pending_invalidation: None,
@@ -1129,11 +816,7 @@ impl GuestMemoryError {
 
 impl fmt::Display for GuestMemoryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "{} / {}: {}",
-            self.stage, self.code, self.message
-        )
+        formatter.write_str(&self.message)
     }
 }
 
@@ -1165,29 +848,9 @@ struct PageState {
 }
 
 #[derive(Debug)]
-enum FrameBytes {
-    Owned(Box<[u8; GUEST_PAGE_SIZE_USIZE]>),
-    ExecutionArena,
-}
-
-#[derive(Debug)]
-#[repr(align(4096))]
-struct ExecutionPage([u8; GUEST_PAGE_SIZE_USIZE]);
-
-#[derive(Debug)]
-struct ExecutionArena {
-    // Never resized after installation: foreign CPU pointers must remain stable.
-    pages: Vec<ExecutionPage>,
-    reserved_pages: usize,
-}
-
-#[derive(Debug)]
 struct PhysicalFrames {
     limit: usize,
-    frames: Vec<Option<FrameBytes>>,
-    execution_arena: Option<ExecutionArena>,
-    // Reuse in address order so a released contiguous arena range stays borrowable.
-    // ponytail: first-fit can still fragment around live pages; no compaction of pinned backing.
+    frames: Vec<Option<Box<[u8; GUEST_PAGE_SIZE_USIZE]>>>,
     free: BTreeSet<usize>,
     in_use: usize,
 }
@@ -1207,13 +870,18 @@ struct FrameAllocation {
 #[derive(Debug)]
 enum FrameUndo {
     Allocation(FrameAllocation),
-    Release { frame: FrameId, bytes: FrameBytes },
-    Bytes { frame: FrameId, image: usize },
+    Release {
+        frame: FrameId,
+        bytes: Box<[u8; GUEST_PAGE_SIZE_USIZE]>,
+    },
+    Bytes {
+        frame: FrameId,
+        image: usize,
+    },
 }
 
 #[derive(Debug)]
 struct MemoryTransactionJournal {
-    baseline_committed_pages: usize,
     baseline_next_owner: u32,
     baseline_generation: u64,
     baseline_acknowledged_generation: u64,
@@ -1223,19 +891,15 @@ struct MemoryTransactionJournal {
     pages: BTreeMap<u32, Option<PageState>>,
     frame_bytes_recorded: BTreeSet<usize>,
     allocated_frames: BTreeSet<usize>,
-    released_arena_frames: BTreeSet<usize>,
     frame_undo: Vec<FrameUndo>,
     frame_images: Vec<[u8; GUEST_PAGE_SIZE_USIZE]>,
     offered_generations: BTreeSet<u64>,
     offered_full_reflections: BTreeSet<u64>,
-    journaled_frame_bytes: u64,
-    peak_journaled_frame_bytes: u64,
 }
 
 impl MemoryTransactionJournal {
     fn new(memory: &GuestMemory) -> Self {
         Self {
-            baseline_committed_pages: memory.pages.len(),
             baseline_next_owner: memory.next_owner,
             baseline_generation: memory.generation,
             baseline_acknowledged_generation: memory.acknowledged_generation,
@@ -1245,61 +909,10 @@ impl MemoryTransactionJournal {
             pages: BTreeMap::new(),
             frame_bytes_recorded: BTreeSet::new(),
             allocated_frames: BTreeSet::new(),
-            released_arena_frames: BTreeSet::new(),
             frame_undo: Vec::new(),
             frame_images: Vec::new(),
             offered_generations: BTreeSet::new(),
             offered_full_reflections: BTreeSet::new(),
-            journaled_frame_bytes: 0,
-            peak_journaled_frame_bytes: 0,
-        }
-    }
-
-    fn push_frame_undo(&mut self, undo: FrameUndo) {
-        if matches!(
-            undo,
-            FrameUndo::Release {
-                bytes: FrameBytes::Owned(_),
-                ..
-            } | FrameUndo::Bytes { .. }
-        ) {
-            self.journaled_frame_bytes += GUEST_PAGE_SIZE;
-            self.peak_journaled_frame_bytes = self
-                .peak_journaled_frame_bytes
-                .max(self.journaled_frame_bytes);
-        }
-        self.frame_undo.push(undo);
-    }
-
-    fn stats(&self) -> MemoryTransactionStats {
-        MemoryTransactionStats {
-            baseline_committed_pages: self.baseline_committed_pages,
-            baseline_committed_bytes: self.baseline_committed_pages as u64 * GUEST_PAGE_SIZE,
-            journaled_owner_states: self.owners.len(),
-            journaled_regions: self.regions.len(),
-            journaled_page_states: self.pages.len(),
-            journaled_frame_images: self
-                .frame_undo
-                .iter()
-                .filter(|undo| {
-                    matches!(
-                        undo,
-                        FrameUndo::Release {
-                            bytes: FrameBytes::Owned(_),
-                            ..
-                        } | FrameUndo::Bytes { .. }
-                    )
-                })
-                .count(),
-            journaled_frame_bytes: self.journaled_frame_bytes,
-            frame_allocator_operations: self
-                .frame_undo
-                .iter()
-                .filter(|undo| !matches!(undo, FrameUndo::Bytes { .. }))
-                .count(),
-            offered_generations: self.offered_generations.len()
-                + self.offered_full_reflections.len(),
-            peak_journaled_frame_bytes: self.peak_journaled_frame_bytes,
         }
     }
 }
@@ -1316,7 +929,6 @@ impl PhysicalFrames {
         Self {
             limit,
             frames: Vec::new(),
-            execution_arena: None,
             free: BTreeSet::new(),
             in_use: 0,
         }
@@ -1328,29 +940,18 @@ impl PhysicalFrames {
 
     fn allocate_zeroed(&mut self) -> Result<FrameAllocation, GuestMemoryError> {
         if self.in_use >= self.limit {
-            return Err(GuestMemoryError::resource_limit(
-                "physical-allocator",
-                "physical-page-quota-exceeded",
-                format!("physical page quota {} was reached", self.limit),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "physical page quota {} was reached",
+                self.limit
+            )));
         }
-        let bytes = if self.execution_arena.is_some() {
-            FrameBytes::ExecutionArena
-        } else {
-            FrameBytes::Owned(Box::new([0; GUEST_PAGE_SIZE_USIZE]))
-        };
+        let bytes = Box::new([0; GUEST_PAGE_SIZE_USIZE]);
         let (index, source) = if let Some(index) = self.free.pop_first() {
             let slot = self.frames.get_mut(index).ok_or_else(|| {
-                GuestMemoryError::runtime_defect(
-                    "physical-allocator",
-                    "free-frame-index-invalid",
-                    "free frame index is outside the allocator table",
-                )
+                GuestMemoryError::runtime_defect("free frame index is outside the allocator table")
             })?;
             if slot.is_some() {
                 return Err(GuestMemoryError::runtime_defect(
-                    "physical-allocator",
-                    "free-frame-still-owned",
                     "free frame list points to an allocated frame",
                 ));
             }
@@ -1360,9 +961,6 @@ impl PhysicalFrames {
             self.frames.push(Some(bytes));
             (self.frames.len() - 1, FrameAllocationSource::Appended)
         };
-        if let Some(arena) = &mut self.execution_arena {
-            arena.pages[arena.reserved_pages + index].0.fill(0);
-        }
         self.in_use += 1;
         Ok(FrameAllocation {
             frame: FrameId(index),
@@ -1370,28 +968,19 @@ impl PhysicalFrames {
         })
     }
 
-    fn release(&mut self, frame: FrameId) -> Result<FrameBytes, GuestMemoryError> {
+    fn release(
+        &mut self,
+        frame: FrameId,
+    ) -> Result<Box<[u8; GUEST_PAGE_SIZE_USIZE]>, GuestMemoryError> {
         let slot = self.frames.get_mut(frame.0).ok_or_else(|| {
-            GuestMemoryError::runtime_defect(
-                "physical-allocator",
-                "released-frame-index-invalid",
-                "released frame index is outside the allocator table",
-            )
+            GuestMemoryError::runtime_defect("released frame index is outside the allocator table")
         })?;
         let bytes = slot.take().ok_or_else(|| {
-            GuestMemoryError::runtime_defect(
-                "physical-allocator",
-                "physical-frame-double-release",
-                "physical frame was released more than once",
-            )
+            GuestMemoryError::runtime_defect("physical frame was released more than once")
         })?;
         self.free.insert(frame.0);
         self.in_use = self.in_use.checked_sub(1).ok_or_else(|| {
-            GuestMemoryError::runtime_defect(
-                "physical-allocator",
-                "physical-page-accounting-underflow",
-                "physical page usage underflowed during release",
-            )
+            GuestMemoryError::runtime_defect("physical page usage underflowed during release")
         })?;
         Ok(bytes)
     }
@@ -1405,40 +994,24 @@ impl PhysicalFrames {
             FrameUndo::Bytes { frame, image } => {
                 let bytes = images.get(image).ok_or_else(|| {
                     GuestMemoryError::runtime_defect(
-                        "memory-transaction",
-                        "rollback-frame-image-missing",
                         "frame byte journal refers to a missing before-image",
                     )
                 })?;
-                if let Some(arena) = &mut self.execution_arena {
-                    // A released arena frame may have been imaged immediately before reuse.
-                    // Its Release undo is earlier in the journal, so it can still be free here.
-                    arena.pages[arena.reserved_pages + frame.0]
-                        .0
-                        .copy_from_slice(bytes);
-                } else {
-                    self.bytes_mut(frame)?.copy_from_slice(bytes);
-                }
+                self.bytes_mut(frame)?.copy_from_slice(bytes);
             }
             FrameUndo::Release { frame, bytes } => {
                 if !self.free.remove(&frame.0) {
                     return Err(GuestMemoryError::runtime_defect(
-                        "memory-transaction",
-                        "rollback-free-frame-missing",
                         "released frame was missing from the allocator free set",
                     ));
                 }
                 let slot = self.frames.get_mut(frame.0).ok_or_else(|| {
                     GuestMemoryError::runtime_defect(
-                        "memory-transaction",
-                        "rollback-released-frame-missing",
                         "released frame index disappeared during rollback",
                     )
                 })?;
                 if slot.is_some() {
                     return Err(GuestMemoryError::runtime_defect(
-                        "memory-transaction",
-                        "rollback-released-frame-reallocated",
                         "released frame remained allocated during rollback",
                     ));
                 }
@@ -1448,22 +1021,16 @@ impl PhysicalFrames {
             FrameUndo::Allocation(allocation) => {
                 let slot = self.frames.get_mut(allocation.frame.0).ok_or_else(|| {
                     GuestMemoryError::runtime_defect(
-                        "memory-transaction",
-                        "rollback-allocated-frame-missing",
                         "allocated frame index disappeared during rollback",
                     )
                 })?;
                 if slot.take().is_none() {
                     return Err(GuestMemoryError::runtime_defect(
-                        "memory-transaction",
-                        "rollback-allocated-frame-released",
                         "allocated frame was not live during rollback",
                     ));
                 }
                 self.in_use = self.in_use.checked_sub(1).ok_or_else(|| {
                     GuestMemoryError::runtime_defect(
-                        "memory-transaction",
-                        "rollback-physical-page-accounting-underflow",
                         "physical page usage underflowed during rollback",
                     )
                 })?;
@@ -1474,8 +1041,6 @@ impl PhysicalFrames {
                     FrameAllocationSource::Appended => {
                         if allocation.frame.0 + 1 != self.frames.len() {
                             return Err(GuestMemoryError::runtime_defect(
-                                "memory-transaction",
-                                "rollback-appended-frame-order-mismatch",
                                 "appended frame was not the final allocator slot during rollback",
                             ));
                         }
@@ -1491,17 +1056,9 @@ impl PhysicalFrames {
         self.frames
             .get(frame.0)
             .and_then(Option::as_ref)
-            .map(|bytes| match bytes {
-                FrameBytes::Owned(bytes) => &**bytes,
-                FrameBytes::ExecutionArena => {
-                    let arena = self.execution_arena.as_ref().expect("live execution arena");
-                    &arena.pages[arena.reserved_pages + frame.0].0
-                }
-            })
+            .map(|bytes| &**bytes)
             .ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
-                    "physical-allocator",
-                    "physical-frame-not-allocated",
                     "page table references a physical frame that is not allocated",
                 )
             })
@@ -1514,17 +1071,9 @@ impl PhysicalFrames {
         self.frames
             .get_mut(frame.0)
             .and_then(Option::as_mut)
-            .map(|bytes| match bytes {
-                FrameBytes::Owned(bytes) => &mut **bytes,
-                FrameBytes::ExecutionArena => {
-                    let arena = self.execution_arena.as_mut().expect("live execution arena");
-                    &mut arena.pages[arena.reserved_pages + frame.0].0
-                }
-            })
+            .map(|bytes| &mut **bytes)
             .ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
-                    "physical-allocator",
-                    "physical-frame-not-allocated",
                     "page table references a physical frame that is not allocated",
                 )
             })
@@ -1581,14 +1130,6 @@ impl GuestMemoryTransaction<'_> {
         self.memory.commit_active_transaction();
         self.active = false;
     }
-
-    pub fn transaction_stats(&self) -> MemoryTransactionStats {
-        self.memory
-            .transaction
-            .as_ref()
-            .expect("active GuestMemoryTransaction lost its journal")
-            .stats()
-    }
 }
 
 impl Drop for GuestMemoryTransaction<'_> {
@@ -1607,8 +1148,6 @@ impl GuestMemory {
             || limits.max_access_bytes == 0
         {
             return Err(GuestMemoryError::invalid_request(
-                "guest-memory",
-                "zero-memory-limit",
                 "all guest-memory limits must be greater than zero",
             ));
         }
@@ -1767,49 +1306,24 @@ impl GuestMemory {
             let image = journal.frame_images.len();
             journal.frame_images.push(*bytes);
             journal.frame_bytes_recorded.insert(frame.0);
-            journal.push_frame_undo(FrameUndo::Bytes { frame, image });
+            journal.frame_undo.push(FrameUndo::Bytes { frame, image });
         }
         Ok(())
     }
 
     fn allocate_frame_zeroed(&mut self) -> Result<FrameId, GuestMemoryError> {
-        if let (Some(arena), Some(journal), Some(&frame)) = (
-            &self.frames.execution_arena,
-            &mut self.transaction,
-            self.frames.free.first(),
-        ) && journal.released_arena_frames.contains(&frame)
-            && !journal.frame_bytes_recorded.contains(&frame)
-        {
-            let image = journal.frame_images.len();
-            journal
-                .frame_images
-                .push(arena.pages[arena.reserved_pages + frame].0);
-            journal.frame_bytes_recorded.insert(frame);
-            journal.push_frame_undo(FrameUndo::Bytes {
-                frame: FrameId(frame),
-                image,
-            });
-        }
         let allocation = self.frames.allocate_zeroed()?;
         if let Some(journal) = self.transaction.as_mut() {
             journal.allocated_frames.insert(allocation.frame.0);
-            journal.push_frame_undo(FrameUndo::Allocation(allocation));
+            journal.frame_undo.push(FrameUndo::Allocation(allocation));
         }
         Ok(allocation.frame)
     }
 
     fn release_frame(&mut self, frame: FrameId) -> Result<(), GuestMemoryError> {
-        // Released arena bytes stay intact until reuse. Snapshot only if this transaction
-        // actually reuses a baseline frame; ordinary heap destruction needs no byte copy.
-        if self.frames.execution_arena.is_some()
-            && let Some(journal) = &mut self.transaction
-            && !journal.allocated_frames.contains(&frame.0)
-        {
-            journal.released_arena_frames.insert(frame.0);
-        }
         let bytes = self.frames.release(frame)?;
         if let Some(journal) = self.transaction.as_mut() {
-            journal.push_frame_undo(FrameUndo::Release { frame, bytes });
+            journal.frame_undo.push(FrameUndo::Release { frame, bytes });
         }
         Ok(())
     }
@@ -1832,197 +1346,42 @@ impl GuestMemory {
         self.limits
     }
 
-    pub fn has_execution_memory(&self) -> bool {
-        self.frames.execution_arena.is_some()
-    }
-
-    /// Move guest bytes to one page-aligned allocation owned by GuestMemory.
-    /// The prefix is reserved for the execution adapter's page tables, never guest frames.
-    /// The returned pointer is valid until this memory is dropped; foreign access requires
-    /// exclusive, quiescent execution, with no Rust references into the allocation alive.
-    pub fn enable_execution_memory(
-        &mut self,
-        reserved_pages: usize,
-    ) -> Result<(usize, usize), GuestMemoryError> {
-        if self.transaction.is_some() || self.frames.execution_arena.is_some() {
-            return Err(GuestMemoryError::conflict(
-                "execution-memory",
-                "execution-memory-already-active",
-                "execution memory can only be installed once, outside a transaction",
-            ));
-        }
-        let page_count = reserved_pages
-            .checked_add(self.frames.limit)
-            .filter(|count| {
-                reserved_pages > 0 && *count <= isize::MAX as usize / GUEST_PAGE_SIZE_USIZE
-            })
-            .ok_or_else(|| {
-                GuestMemoryError::resource_limit(
-                    "execution-memory",
-                    "execution-memory-size-invalid",
-                    "execution memory prefix and physical quota exceed the host range",
-                )
-            })?;
-        let mut pages = Vec::new();
-        pages.try_reserve_exact(page_count).map_err(|_| {
-            GuestMemoryError::resource_limit(
-                "execution-memory",
-                "execution-memory-allocation-failed",
-                "could not reserve the bounded execution memory allocation",
-            )
-        })?;
-        pages.resize_with(page_count, || ExecutionPage([0; GUEST_PAGE_SIZE_USIZE]));
-        for (index, bytes) in self.frames.frames.iter().enumerate() {
-            if let Some(FrameBytes::Owned(bytes)) = bytes {
-                pages[reserved_pages + index].0.copy_from_slice(&**bytes);
-            }
-        }
-        let base = pages.as_mut_ptr() as usize;
-        let byte_length = page_count * GUEST_PAGE_SIZE_USIZE;
-        for bytes in self.frames.frames.iter_mut().flatten() {
-            *bytes = FrameBytes::ExecutionArena;
-        }
-        self.frames.execution_arena = Some(ExecutionArena {
-            pages,
-            reserved_pages,
-        });
-        Ok((base, byte_length))
-    }
-
-    /// Resolve an authoritative frame; an execution adapter must not allocate a second one.
-    pub fn execution_page_offset(
-        &self,
-        address: GuestAddress,
-        owner: MemoryOwnerId,
-        protection: PageProtection,
-    ) -> Result<usize, GuestMemoryError> {
-        let arena = self.frames.execution_arena.as_ref().ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "execution-memory",
-                "execution-memory-not-enabled",
-                "guest memory has no direct execution backing",
-            )
-        })?;
-        let page = self
-            .pages
-            .get(&(address.0 >> 12))
-            .filter(|page| {
-                address.0.is_multiple_of(GUEST_PAGE_SIZE as u32)
-                    && page.owner == owner
-                    && page.protection == protection
-            })
-            .ok_or_else(|| {
-                GuestMemoryError::conflict(
-                    "execution-memory",
-                    "execution-page-contract-mismatch",
-                    "execution mapping must match the current aligned owner and protection",
-                )
-            })?;
-        self.frames.bytes(page.frame)?;
-        Ok((arena.reserved_pages + page.frame.0) * GUEST_PAGE_SIZE_USIZE)
-    }
-
-    /// Borrow the allocation exclusively for one CPU run. The bridge must keep its runtime
-    /// borrow across this closure, so no host callback can access or remap guest bytes.
-    pub fn with_execution_memory<R>(
-        &mut self,
-        execute: impl FnOnce(*mut u8, usize) -> R,
-    ) -> Result<R, GuestMemoryError> {
-        self.ensure_synchronized()?;
-        self.ensure_generation_available()?;
-        if self.transaction.is_some() || !self.initial_reflection_acknowledged {
-            return Err(GuestMemoryError::conflict(
-                "execution-memory",
-                "execution-memory-not-quiescent",
-                "CPU execution requires acknowledged memory outside a transaction",
-            ));
-        }
-        let arena = self.frames.execution_arena.as_mut().ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "execution-memory",
-                "execution-memory-not-enabled",
-                "guest memory has no direct execution backing",
-            )
-        })?;
-        Ok(execute(
-            arena.pages.as_mut_ptr().cast(),
-            arena.pages.len() * GUEST_PAGE_SIZE_USIZE,
-        ))
-    }
-
-    /// Acknowledge writes already performed in authoritative frames, without comparing or
-    /// copying 4 KiB pages. A dirty PTE observes a write, not an exact changed-byte count.
-    /// Every descriptor is checked before changing the synchronized generation.
-    pub fn acknowledge_execution_writes(
-        &mut self,
-        base_generation: u64,
-        pages: &[(u32, usize)],
-    ) -> Result<u64, GuestMemoryError> {
-        self.ensure_synchronized()?;
-        if self.transaction.is_some()
-            || !self.initial_reflection_acknowledged
-            || base_generation != self.generation
-            || base_generation != self.acknowledged_generation
-        {
-            return Err(GuestMemoryError::conflict(
-                "execution-memory",
-                "execution-write-generation-conflict",
-                "direct writes require the current quiescent synchronized generation",
-            ));
-        }
-        let arena = self.frames.execution_arena.as_ref().ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "execution-memory",
-                "execution-memory-not-enabled",
-                "guest memory has no direct execution backing",
-            )
-        })?;
-        if pages.len() > self.frames.limit {
-            return Err(GuestMemoryError::resource_limit(
-                "execution-memory",
-                "execution-write-page-limit",
-                "direct dirty-page count exceeds the physical quota",
-            ));
-        }
-        let mut large_batch = (pages.len() > 16).then(BTreeSet::new);
-        for (index, &(address, pointer)) in pages.iter().enumerate() {
-            let duplicate = match &mut large_batch {
-                Some(seen) => !seen.insert(address),
-                None => pages[..index]
-                    .iter()
-                    .any(|&(previous, _)| previous == address),
-            };
-            if duplicate || !address.is_multiple_of(GUEST_PAGE_SIZE as u32) {
-                return Err(GuestMemoryError::conflict(
-                    "execution-memory",
-                    "execution-write-page-invalid",
-                    "direct dirty pages must be unique and page aligned",
-                ));
-            }
-            let page = self.preflight_cpu_writeback_page(GuestAddress(address))?;
-            let expected = arena.pages.as_ptr() as usize
-                + (arena.reserved_pages + page.frame.0) * GUEST_PAGE_SIZE_USIZE;
-            if pointer != expected || page.dirty_generation.is_some() {
-                return Err(GuestMemoryError::conflict(
-                    "execution-memory",
-                    "execution-write-backing-mismatch",
-                    "CPU page must point to the current clean authoritative frame",
-                ));
-            }
-        }
-        if !pages.is_empty() {
-            self.generation = self.next_generation()?;
-            self.acknowledged_generation = self.generation;
-        }
-        Ok(self.generation)
-    }
-
-    pub(crate) fn transaction_is_active(&self) -> bool {
-        self.transaction.is_some()
-    }
-
     pub(crate) fn owner_is_sealed(&self, owner: MemoryOwnerId) -> Result<bool, GuestMemoryError> {
         Ok(self.require_owner(owner)?.sealed)
+    }
+
+    pub(crate) fn validate_stack_owner(
+        &self,
+        owner: MemoryOwnerId,
+        reserved: GuestRange,
+        committed: GuestRange,
+    ) -> Result<(), GuestMemoryError> {
+        let state = self.require_owner(owner)?;
+        if !state.sealed || state.kind != MemoryOwnerKind::Anonymous {
+            return Err(GuestMemoryError::conflict(
+                "registered stack requires a sealed anonymous memory owner",
+            ));
+        }
+        if !reserved.is_page_aligned()
+            || !committed.is_page_aligned()
+            || !contains_range(reserved, committed)
+            || !self.regions.values().any(|region| {
+                region.owner == owner
+                    && region.kind == MemoryRegionKind::Stack
+                    && region.range == reserved
+            })
+        {
+            return Err(GuestMemoryError::conflict(
+                "registered stack ranges do not match the owner's live stack reservation",
+            ));
+        }
+        for address in
+            (u64::from(committed.start().0)..committed.end()).step_by(GUEST_PAGE_SIZE as usize)
+        {
+            let virtual_page = (address / GUEST_PAGE_SIZE) as u32;
+            self.require_committed_owner(owner, &[virtual_page])?;
+        }
+        Ok(())
     }
 
     pub(crate) fn validate_sealed_image_owner(
@@ -2052,37 +1411,27 @@ impl GuestMemory {
     ) -> Result<(), GuestMemoryError> {
         if !image_range.is_page_aligned() {
             return Err(GuestMemoryError::invalid_request(
-                "module-image-registration",
-                "module-image-range-not-page-aligned",
                 "registered module image range must use whole guest pages",
             ));
         }
         let owner_state = self.require_owner(owner)?;
         let MemoryOwnerKind::Image { source_sha256 } = &owner_state.kind else {
             return Err(GuestMemoryError::conflict(
-                "module-image-registration",
-                "module-image-owner-kind-mismatch",
                 "registered module image owner is not an image owner",
             ));
         };
         if source_sha256 != &source.sha256 {
             return Err(GuestMemoryError::conflict(
-                "module-image-registration",
-                "module-image-owner-source-mismatch",
                 "registered module source does not match the guest-memory image owner",
             ));
         }
         if expected_sealed && !owner_state.sealed {
             return Err(GuestMemoryError::conflict(
-                "module-image-registration",
-                "module-image-owner-unsealed",
                 "registered module image owner must be sealed",
             ));
         }
         if !expected_sealed && owner_state.sealed {
             return Err(GuestMemoryError::conflict(
-                "module-image-registration",
-                "module-image-owner-already-sealed",
                 "guest import binding requires an unsealed module image owner",
             ));
         }
@@ -2093,8 +1442,6 @@ impl GuestMemory {
         });
         if !exact_region || owner_regions.next().is_some() {
             return Err(GuestMemoryError::conflict(
-                "module-image-registration",
-                "module-image-owner-range-mismatch",
                 "registered module image owner does not own exactly the recorded image range",
             ));
         }
@@ -2110,8 +1457,6 @@ impl GuestMemory {
         });
         if owned_pages.len() != image_range.page_count() || !all_pages_in_range {
             return Err(GuestMemoryError::conflict(
-                "module-image-registration",
-                "module-image-owner-pages-mismatch",
                 "registered module image owner does not own every page in exactly its recorded range",
             ));
         }
@@ -2123,29 +1468,28 @@ impl GuestMemory {
         additional_owners: usize,
         additional_regions: usize,
         additional_physical_pages: usize,
-        stage: &'static str,
     ) -> Result<(), GuestMemoryError> {
+        let owner_ids = u32::try_from(additional_owners).map_err(|_| {
+            GuestMemoryError::resource_limit("required memory owner IDs exceed x86 accounting")
+        })?;
+        self.next_owner.checked_add(owner_ids).ok_or_else(|| {
+            GuestMemoryError::resource_limit("memory owner identifier space was exhausted")
+        })?;
         let owners = self
             .owners
             .len()
             .checked_add(additional_owners)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    stage,
-                    "memory-owner-count-overflow",
                     "required memory owner count overflowed host accounting",
                 )
             })?;
         if owners > self.limits.max_owners {
-            return Err(GuestMemoryError::resource_limit(
-                stage,
-                "memory-owner-limit-exceeded",
-                format!(
-                    "operation needs {additional_owners} additional owners; {} of {} are live",
-                    self.owners.len(),
-                    self.limits.max_owners
-                ),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "operation needs {additional_owners} additional owners; {} of {} are live",
+                self.owners.len(),
+                self.limits.max_owners
+            )));
         }
         let regions = self
             .regions
@@ -2153,31 +1497,21 @@ impl GuestMemory {
             .checked_add(additional_regions)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
-                    stage,
-                    "memory-region-count-overflow",
                     "required memory region count overflowed host accounting",
                 )
             })?;
         if regions > self.limits.max_regions {
-            return Err(GuestMemoryError::resource_limit(
-                stage,
-                "memory-region-limit-exceeded",
-                format!(
-                    "operation needs {additional_regions} additional regions; {} of {} are live",
-                    self.regions.len(),
-                    self.limits.max_regions
-                ),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "operation needs {additional_regions} additional regions; {} of {} are live",
+                self.regions.len(),
+                self.limits.max_regions
+            )));
         }
         if additional_physical_pages > self.frames.available() {
-            return Err(GuestMemoryError::resource_limit(
-                stage,
-                "physical-page-quota-exceeded",
-                format!(
-                    "operation needs {additional_physical_pages} physical pages; {} remain under quota",
-                    self.frames.available()
-                ),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "operation needs {additional_physical_pages} physical pages; {} remain under quota",
+                self.frames.available()
+            )));
         }
         Ok(())
     }
@@ -2186,24 +1520,19 @@ impl GuestMemory {
         &self,
         start: GuestAddress,
         byte_length: u64,
-        stage: &'static str,
     ) -> Result<GuestRange, GuestMemoryError> {
         let range = GuestRange::new(start, byte_length)?;
-        require_page_aligned(range, "reserve-range-not-page-aligned")?;
+        require_page_aligned(range)?;
         if self
             .regions
             .values()
             .any(|region| ranges_overlap(region.range, range))
         {
-            return Err(GuestMemoryError::conflict(
-                stage,
-                "memory-region-overlap",
-                format!(
-                    "requested range [{:#010x}, {:#010x}) overlaps an existing region",
-                    range.start().0,
-                    range.end()
-                ),
-            ));
+            return Err(GuestMemoryError::conflict(format!(
+                "requested range [{:#010x}, {:#010x}) overlaps an existing region",
+                range.start().0,
+                range.end()
+            )));
         }
         Ok(range)
     }
@@ -2213,20 +1542,15 @@ impl GuestMemory {
         kind: MemoryOwnerKind,
     ) -> Result<MemoryOwnerId, GuestMemoryError> {
         if self.owners.len() >= self.limits.max_owners {
-            return Err(GuestMemoryError::resource_limit(
-                "memory-owner",
-                "memory-owner-limit-exceeded",
-                format!("memory owner limit {} was reached", self.limits.max_owners),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "memory owner limit {} was reached",
+                self.limits.max_owners
+            )));
         }
         let owner = MemoryOwnerId(self.next_owner);
         self.journal_owner_before(owner);
         self.next_owner = self.next_owner.checked_add(1).ok_or_else(|| {
-            GuestMemoryError::resource_limit(
-                "memory-owner",
-                "memory-owner-id-exhausted",
-                "memory owner identifier space was exhausted",
-            )
+            GuestMemoryError::resource_limit("memory owner identifier space was exhausted")
         })?;
         self.owners.insert(
             owner,
@@ -2258,8 +1582,6 @@ impl GuestMemory {
     ) -> Result<GuestRange, GuestMemoryError> {
         if address_allocation_id == 0 {
             return Err(GuestMemoryError::invalid_request(
-                "region-table",
-                "address-allocation-id-zero",
                 "an allocation-backed memory region requires a nonzero address allocation ID",
             ));
         }
@@ -2276,25 +1598,19 @@ impl GuestMemory {
     ) -> Result<GuestRange, GuestMemoryError> {
         self.require_owner(owner)?;
         if self.regions.len() >= self.limits.max_regions {
-            return Err(GuestMemoryError::resource_limit(
-                "region-table",
-                "memory-region-limit-exceeded",
-                format!(
-                    "memory region limit {} was reached",
-                    self.limits.max_regions
-                ),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "memory region limit {} was reached",
+                self.limits.max_regions
+            )));
         }
         let range = GuestRange::new(start, byte_length)?;
-        require_page_aligned(range, "reserve-range-not-page-aligned")?;
+        require_page_aligned(range)?;
         if self
             .regions
             .values()
             .any(|region| ranges_overlap(region.range, range))
         {
             return Err(GuestMemoryError::conflict(
-                "region-table",
-                "memory-region-overlap",
                 "reserved guest range overlaps an existing region",
             ));
         }
@@ -2330,8 +1646,6 @@ impl GuestMemory {
             || self.pages.values().any(|page| page.owner == owner)
         {
             return Err(GuestMemoryError::conflict(
-                "memory-owner",
-                "memory-owner-still-has-mappings",
                 "memory owner cannot be destroyed while regions or pages remain live",
             ));
         }
@@ -2341,8 +1655,6 @@ impl GuestMemory {
             .map(|state| state.kind)
             .ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
-                    "memory-owner",
-                    "preflighted-owner-missing",
                     "owner liveness preflight succeeded but owner disappeared",
                 )
             })
@@ -2355,26 +1667,20 @@ impl GuestMemory {
         protection: PageProtection,
     ) -> Result<MemoryInvalidation, GuestMemoryError> {
         self.require_owner(owner)?;
-        require_page_aligned(range, "commit-range-not-page-aligned")?;
+        require_page_aligned(range)?;
         let address_allocation_id = self.require_region_contains(owner, range)?;
         let pages = virtual_pages(range)?;
         if pages.clone().any(|page| self.pages.contains_key(&page)) {
             return Err(GuestMemoryError::conflict(
-                "page-table",
-                "page-already-committed",
                 "commit range contains an already committed page",
             ));
         }
         let page_count = range.page_count();
         if page_count > self.frames.available() {
-            return Err(GuestMemoryError::resource_limit(
-                "physical-allocator",
-                "physical-page-quota-exceeded",
-                format!(
-                    "commit requires {page_count} pages; {} remain under quota",
-                    self.frames.available()
-                ),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "commit requires {page_count} pages; {} remain under quota",
+                self.frames.available()
+            )));
         }
         let generation = self.next_generation()?;
 
@@ -2425,7 +1731,7 @@ impl GuestMemory {
         protection: PageProtection,
     ) -> Result<MemoryInvalidation, GuestMemoryError> {
         self.require_owner(owner)?;
-        require_page_aligned(range, "protect-range-not-page-aligned")?;
+        require_page_aligned(range)?;
         let address_allocation_id = self.require_region_contains(owner, range)?;
         let pages: Vec<u32> = virtual_pages(range)?.collect();
         self.require_committed_owner(owner, &pages)?;
@@ -2434,11 +1740,7 @@ impl GuestMemory {
         for virtual_page in pages {
             self.journal_page_before(virtual_page);
             let page = self.pages.get_mut(&virtual_page).ok_or_else(|| {
-                GuestMemoryError::runtime_defect(
-                    "page-table",
-                    "preflighted-page-missing",
-                    "protect preflight succeeded but page disappeared",
-                )
+                GuestMemoryError::runtime_defect("protect preflight succeeded but page disappeared")
             })?;
             page.protection = protection;
         }
@@ -2463,7 +1765,7 @@ impl GuestMemory {
         range: GuestRange,
     ) -> Result<MemoryInvalidation, GuestMemoryError> {
         self.require_owner(owner)?;
-        require_page_aligned(range, "decommit-range-not-page-aligned")?;
+        require_page_aligned(range)?;
         let address_allocation_id = self.require_region_contains(owner, range)?;
         let pages: Vec<u32> = virtual_pages(range)?.collect();
         self.require_committed_owner(owner, &pages)?;
@@ -2473,8 +1775,6 @@ impl GuestMemory {
             self.journal_page_before(virtual_page);
             let page = self.pages.remove(&virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
-                    "page-table",
-                    "preflighted-page-missing",
                     "decommit preflight succeeded but page disappeared",
                 )
             })?;
@@ -2503,15 +1803,11 @@ impl GuestMemory {
         self.require_owner(owner)?;
         let region = self.regions.get(&start.0).ok_or_else(|| {
             GuestMemoryError::invalid_request(
-                "region-table",
-                "memory-region-not-found",
                 "release requires the exact base of an existing region",
             )
         })?;
         if region.owner != owner {
             return Err(GuestMemoryError::conflict(
-                "region-table",
-                "memory-region-owner-mismatch",
                 "memory region belongs to a different owner",
             ));
         }
@@ -2526,11 +1822,7 @@ impl GuestMemory {
         for virtual_page in &pages {
             self.journal_page_before(*virtual_page);
             let page = self.pages.remove(virtual_page).ok_or_else(|| {
-                GuestMemoryError::runtime_defect(
-                    "page-table",
-                    "preflighted-page-missing",
-                    "release preflight succeeded but page disappeared",
-                )
+                GuestMemoryError::runtime_defect("release preflight succeeded but page disappeared")
             })?;
             self.dirty_pages.remove(virtual_page);
             self.release_frame(page.frame)?;
@@ -2552,36 +1844,14 @@ impl GuestMemory {
         .map(Some)
     }
 
-    pub fn prepare_image_layout(
-        &mut self,
-        source: &ModuleIdentity,
-        plan: &Pe32LoadPlan,
-    ) -> Result<ImageMemoryLayout, GuestMemoryError> {
-        self.prepare_image_layout_at(source, plan, GuestAddress(plan.image.preferred_image_base))
-    }
-
-    pub fn prepare_image_layout_at(
-        &mut self,
-        source: &ModuleIdentity,
-        plan: &Pe32LoadPlan,
-        load_base: GuestAddress,
-    ) -> Result<ImageMemoryLayout, GuestMemoryError> {
-        let mut transaction = self.begin_transaction();
-        let layout = transaction.prepare_image_layout_at_transaction(source, plan, load_base)?;
-        transaction.commit_transaction();
-        Ok(layout)
-    }
-
     pub(crate) fn prepare_image_layout_at_transaction(
         &mut self,
-        source: &ModuleIdentity,
         plan: &Pe32LoadPlan,
         load_base: GuestAddress,
     ) -> Result<ImageMemoryLayout, GuestMemoryError> {
+        let source = &plan.source;
         if !load_base.0.is_multiple_of(0x1_0000) {
             return Err(GuestMemoryError::invalid_request(
-                "image-layout",
-                "image-load-base-not-allocation-aligned",
                 "image load base must be aligned to the 64 KiB Windows allocation granularity",
             ));
         }
@@ -2589,20 +1859,16 @@ impl GuestMemory {
             .checked_add(u64::from(plan.image.size_of_image))
             .ok_or_else(|| {
                 GuestMemoryError::invalid_request(
-                    "image-layout",
-                    "preferred-image-end-overflow",
                     "preferred image base plus SizeOfImage overflowed 64-bit accounting",
                 )
             })?;
         if preferred_end != plan.image.image_end {
             return Err(GuestMemoryError::invalid_request(
-                "image-layout",
-                "image-end-mismatch",
                 "preferred image base plus SizeOfImage does not match the load plan image end",
             ));
         }
         let image_range = GuestRange::new(load_base, u64::from(plan.image.size_of_image))?;
-        require_page_aligned(image_range, "image-range-not-page-aligned")?;
+        require_page_aligned(image_range)?;
 
         let mut page_specs = BTreeMap::new();
         insert_plan_mapping(
@@ -2626,15 +1892,11 @@ impl GuestMemory {
             )?;
         }
         if page_specs.len() > self.frames.available() {
-            return Err(GuestMemoryError::resource_limit(
-                "image-layout",
-                "image-physical-page-quota-exceeded",
-                format!(
-                    "image needs {} committed pages; {} remain under quota",
-                    page_specs.len(),
-                    self.frames.available()
-                ),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "image needs {} committed pages; {} remain under quota",
+                page_specs.len(),
+                self.frames.available()
+            )));
         }
 
         self.ensure_generation_available()?;
@@ -2673,13 +1935,7 @@ impl GuestMemory {
         let committed_pages = allocated.len();
         let generation = self.next_generation()?;
         let mut mapping_operations = Vec::with_capacity(committed_pages);
-        let mut readable_pages = 0;
-        let mut writable_pages = 0;
-        let mut executable_pages = 0;
         for (virtual_page, protection, frame) in allocated {
-            readable_pages += usize::from(protection.read);
-            writable_pages += usize::from(protection.write);
-            executable_pages += usize::from(protection.execute);
             self.journal_page_before(virtual_page);
             self.pages.insert(
                 virtual_page,
@@ -2700,8 +1956,6 @@ impl GuestMemory {
                             .checked_mul(GUEST_PAGE_SIZE as u32)
                             .ok_or_else(|| {
                                 GuestMemoryError::runtime_defect(
-                                    "image-layout",
-                                    "virtual-page-address-overflow",
                                     "planned image virtual page does not fit a guest address",
                                 )
                             })?,
@@ -2720,16 +1974,8 @@ impl GuestMemory {
             },
         )?;
         Ok(ImageMemoryLayout {
-            source: source.clone(),
             owner,
             image_range,
-            reserved_pages: image_range.page_count(),
-            committed_pages,
-            physical_pages: committed_pages,
-            readable_pages,
-            writable_pages,
-            executable_pages,
-            owner_sealed: false,
             invalidation,
         })
     }
@@ -2743,8 +1989,6 @@ impl GuestMemory {
         let owner_state = self.require_owner(owner)?;
         if owner_state.sealed {
             return Err(GuestMemoryError::conflict(
-                "image-initialization",
-                "memory-owner-already-sealed",
                 "owner initialization reads are forbidden after sealing",
             ));
         }
@@ -2757,38 +2001,30 @@ impl GuestMemory {
         owner: MemoryOwnerId,
         address: GuestAddress,
         bytes: &[u8],
-    ) -> Result<GuestWriteResult, GuestMemoryError> {
+    ) -> Result<(), GuestMemoryError> {
         let owner_state = self.require_owner(owner)?;
         if owner_state.sealed {
             return Err(GuestMemoryError::conflict(
-                "image-initialization",
-                "memory-owner-already-sealed",
                 "owner initialization writes are forbidden after sealing",
             ));
         }
         let segments = self.preflight_owner_access(owner, address, bytes.len())?;
         let touches_executable = self.segments_touch_executable(&segments);
-        let invalidation = if self.initial_reflection_acknowledged {
+        if self.initial_reflection_acknowledged {
             let generation = self.next_generation()?;
             self.write_segments(&segments, bytes, generation)?;
-            Some(self.record_change(
+            self.record_change(
                 Vec::new(),
                 CacheEffects {
                     flush_tlb: false,
                     invalidate_instruction_fetch: touches_executable,
                     invalidate_generated_code: touches_executable,
                 },
-            )?)
+            )?;
         } else {
             self.write_segments(&segments, bytes, self.generation)?;
-            None
         };
-        let dirty_pages = unique_segment_pages(&segments);
-        Ok(GuestWriteResult {
-            bytes_written: bytes.len(),
-            dirty_pages,
-            invalidation,
-        })
+        Ok(())
     }
 
     pub fn zero_initialization(
@@ -2796,12 +2032,10 @@ impl GuestMemory {
         owner: MemoryOwnerId,
         address: GuestAddress,
         byte_length: usize,
-    ) -> Result<GuestWriteResult, GuestMemoryError> {
+    ) -> Result<(), GuestMemoryError> {
         let owner_state = self.require_owner(owner)?;
         if owner_state.sealed {
             return Err(GuestMemoryError::conflict(
-                "image-initialization",
-                "memory-owner-already-sealed",
                 "owner initialization zero-fill is forbidden after sealing",
             ));
         }
@@ -2819,8 +2053,6 @@ impl GuestMemory {
                 .get(&segment.virtual_page)
                 .ok_or_else(|| {
                     GuestMemoryError::runtime_defect(
-                        "page-table",
-                        "preflighted-page-missing",
                         "zero-fill preflight succeeded but page disappeared",
                     )
                 })?
@@ -2828,8 +2060,6 @@ impl GuestMemory {
             self.journal_frame_bytes_before(frame)?;
             let page = self.pages.get_mut(&segment.virtual_page).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
-                    "page-table",
-                    "preflighted-page-missing",
                     "zero-fill preflight succeeded but page disappeared",
                 )
             })?;
@@ -2845,23 +2075,17 @@ impl GuestMemory {
             page.dirty_generation = Some(generation);
             self.dirty_pages.insert(segment.virtual_page);
         }
-        let invalidation = if self.initial_reflection_acknowledged {
-            Some(self.record_change(
+        if self.initial_reflection_acknowledged {
+            self.record_change(
                 Vec::new(),
                 CacheEffects {
                     flush_tlb: false,
                     invalidate_instruction_fetch: touches_executable,
                     invalidate_generated_code: touches_executable,
                 },
-            )?)
-        } else {
-            None
-        };
-        Ok(GuestWriteResult {
-            bytes_written: byte_length,
-            dirty_pages: unique_segment_pages(&segments),
-            invalidation,
-        })
+            )?;
+        }
+        Ok(())
     }
 
     pub fn seal_owner(
@@ -2870,8 +2094,6 @@ impl GuestMemory {
     ) -> Result<MemoryInvalidation, GuestMemoryError> {
         if self.require_owner(owner)?.sealed {
             return Err(GuestMemoryError::conflict(
-                "memory-owner",
-                "memory-owner-already-sealed",
                 "memory owner was sealed more than once",
             ));
         }
@@ -2883,8 +2105,6 @@ impl GuestMemory {
         self.journal_owner_before(owner);
         let state = self.owners.get_mut(&owner).ok_or_else(|| {
             GuestMemoryError::runtime_defect(
-                "memory-owner",
-                "preflighted-owner-missing",
                 "owner liveness preflight succeeded but owner disappeared",
             )
         })?;
@@ -2899,54 +2119,31 @@ impl GuestMemory {
         )
     }
 
-    pub fn acknowledge_invalidation(&mut self, generation: u64) -> Result<(), GuestMemoryError> {
-        self.acknowledge_delta(generation)
-    }
-
     pub fn acknowledge_delta(&mut self, generation: u64) -> Result<(), GuestMemoryError> {
         if self.transaction.is_some() {
             return Err(GuestMemoryError::conflict(
-                "memory-transaction",
-                "memory-delta-acknowledgement-before-transaction-commit",
                 "memory deltas cannot be acknowledged before the active transaction commits",
             ));
         }
         if generation > self.generation {
-            return Err(GuestMemoryError::invalid_request(
-                "memory-delta",
-                "memory-delta-acknowledgement-future",
-                format!(
-                    "acknowledged generation {generation}, current generation is {}",
-                    self.generation
-                ),
-            ));
+            return Err(GuestMemoryError::invalid_request(format!(
+                "acknowledged generation {generation}, current generation is {}",
+                self.generation
+            )));
         }
         if generation <= self.acknowledged_generation {
-            let code = if generation == self.acknowledged_generation {
-                "memory-delta-acknowledgement-duplicate"
-            } else {
-                "memory-delta-acknowledgement-stale"
-            };
-            return Err(GuestMemoryError::invalid_request(
-                "memory-delta",
-                code,
-                format!(
-                    "acknowledged generation {generation}, last acknowledged generation is {}",
-                    self.acknowledged_generation
-                ),
-            ));
+            return Err(GuestMemoryError::invalid_request(format!(
+                "acknowledged generation {generation}, last acknowledged generation is {}",
+                self.acknowledged_generation
+            )));
         }
         if !self.offered_generations.contains(&generation) {
             return Err(GuestMemoryError::invalid_request(
-                "memory-delta",
-                "memory-delta-generation-not-offered",
                 "memory generation must be obtained from a reflection or delta before acknowledgement",
             ));
         }
         if self.pending_changes.is_empty() {
             return Err(GuestMemoryError::invalid_request(
-                "memory-delta",
-                "no-memory-delta-pending",
                 "there is no pending memory delta to acknowledge",
             ));
         }
@@ -2982,26 +2179,11 @@ impl GuestMemory {
         Ok(())
     }
 
-    pub fn pending_delta(&mut self) -> Result<MemoryDelta, GuestMemoryError> {
-        let mut delta = self.pending_delta_without_content_hash()?;
-        delta.content_sha256 = hash_delta_content(&delta.mapping_operations, &delta.dirty_pages);
-        Ok(delta)
-    }
-
-    /// Metadata and page payloads for transports that do not consume the diagnostic hash.
-    pub fn pending_delta_without_content_hash(&mut self) -> Result<MemoryDelta, GuestMemoryError> {
+    #[cfg(test)]
+    pub(crate) fn pending_delta(&mut self) -> Result<MemoryDelta, GuestMemoryError> {
         let invalidation = self.require_pending_delta()?;
         let mapping_operations = self.pending_mapping_operations();
         let dirty_pages = self.collect_dirty_pages()?;
-        let transferred_bytes = dirty_pages.iter().try_fold(0usize, |total, page| {
-            total.checked_add(page.bytes.len()).ok_or_else(|| {
-                GuestMemoryError::runtime_defect(
-                    "memory-delta",
-                    "memory-delta-byte-count-overflow",
-                    "dirty page transfer size overflowed host accounting",
-                )
-            })
-        })?;
         self.record_offered_generation(invalidation.generation, false);
         Ok(MemoryDelta {
             from_generation: self.acknowledged_generation,
@@ -3010,8 +2192,6 @@ impl GuestMemory {
             mapping_operations,
             dirty_pages,
             cache_effects: invalidation.into(),
-            transferred_bytes,
-            content_sha256: String::new(),
         })
     }
 
@@ -3029,7 +2209,7 @@ impl GuestMemory {
             let page = self.require_dirty_page(virtual_page)?;
             let owner = self.require_owner(page.owner)?;
             buffers.push_page(
-                virtual_page_address(virtual_page, "memory-delta")?,
+                virtual_page_address(virtual_page)?,
                 page.owner,
                 page_protection_flags(page.protection) | u32::from(owner.sealed) << 3,
                 self.frames.bytes(page.frame)?,
@@ -3042,17 +2222,11 @@ impl GuestMemory {
     fn require_pending_delta(&self) -> Result<MemoryInvalidation, GuestMemoryError> {
         if !self.initial_reflection_acknowledged {
             return Err(GuestMemoryError::invalid_request(
-                "memory-delta",
-                "initial-memory-reflection-required",
                 "a full memory reflection must be acknowledged before incremental deltas",
             ));
         }
         self.pending_invalidation().ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "memory-delta",
-                "no-memory-delta-pending",
-                "there is no pending memory delta to transfer",
-            )
+            GuestMemoryError::invalid_request("there is no pending memory delta to transfer")
         })
     }
 
@@ -3066,26 +2240,23 @@ impl GuestMemory {
     fn require_dirty_page(&self, virtual_page: u32) -> Result<&PageState, GuestMemoryError> {
         let page = self.pages.get(&virtual_page).ok_or_else(|| {
             GuestMemoryError::runtime_defect(
-                "memory-delta",
-                "dirty-page-index-stale",
                 "dirty-page index references an uncommitted guest page",
             )
         })?;
         if page.dirty_generation.is_none() {
             return Err(GuestMemoryError::runtime_defect(
-                "memory-delta",
-                "dirty-page-index-clean",
                 "dirty-page index references a clean guest page",
             ));
         }
         Ok(page)
     }
 
+    #[cfg(test)]
     fn collect_dirty_pages(&self) -> Result<Vec<DirtyPage>, GuestMemoryError> {
         let mut dirty_pages = Vec::with_capacity(self.dirty_pages.len());
         for &virtual_page in &self.dirty_pages {
             let page = self.require_dirty_page(virtual_page)?;
-            let address = virtual_page_address(virtual_page, "memory-delta")?;
+            let address = virtual_page_address(virtual_page)?;
             let owner = self.require_owner(page.owner)?;
             dirty_pages.push(DirtyPage {
                 address,
@@ -3107,6 +2278,36 @@ impl GuestMemory {
         self.read_segments(&segments, byte_length)
     }
 
+    pub(crate) fn read_owned(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+        owner: MemoryOwnerId,
+    ) -> Result<Vec<u8>, GuestMemoryError> {
+        let range = GuestRange::new(address, byte_length as u64)?;
+        self.require_region_contains(owner, range)?;
+        self.read(address, byte_length)
+    }
+
+    /// Internal owner preparation may inspect authoritative bytes after its
+    /// synchronous transaction has published a delta. Guest execution still
+    /// uses synchronized access and must acknowledge that delta first.
+    pub(crate) fn read_owned_host(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+        owner: MemoryOwnerId,
+    ) -> Result<Vec<u8>, GuestMemoryError> {
+        let range = GuestRange::new(address, byte_length as u64)?;
+        self.require_region_contains(owner, range)?;
+        let segments = self.preflight_guest_access_without_synchronization(
+            address,
+            byte_length,
+            MemoryAccess::Read,
+        )?;
+        self.read_segments(&segments, byte_length)
+    }
+
     pub fn validate_access(
         &self,
         address: GuestAddress,
@@ -3115,6 +2316,31 @@ impl GuestMemory {
     ) -> Result<(), GuestMemoryError> {
         self.preflight_guest_access(address, byte_length, access)
             .map(|_| ())
+    }
+
+    pub(crate) fn validate_owned_host_execute(
+        &self,
+        owner: MemoryOwnerId,
+        address: GuestAddress,
+        byte_length: usize,
+    ) -> Result<(), GuestMemoryError> {
+        self.preflight_owner_access(owner, address, byte_length)?;
+        self.validate_host_execute(address, byte_length)
+    }
+
+    pub(crate) fn validate_host_execute(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+    ) -> Result<(), GuestMemoryError> {
+        // Host preparation checks live mappings without reading unsynchronized
+        // guest bytes. CPU execution still requires reflection/delta acknowledgement.
+        self.preflight_guest_access_without_synchronization(
+            address,
+            byte_length,
+            MemoryAccess::Execute,
+        )
+        .map(drop)
     }
 
     pub fn fetch(
@@ -3140,11 +2366,7 @@ impl GuestMemory {
         .map(|_| ())
     }
 
-    pub fn write(
-        &mut self,
-        address: GuestAddress,
-        bytes: &[u8],
-    ) -> Result<GuestWriteResult, GuestMemoryError> {
+    pub fn write(&mut self, address: GuestAddress, bytes: &[u8]) -> Result<(), GuestMemoryError> {
         let segments = self.preflight_guest_access_without_synchronization(
             address,
             bytes.len(),
@@ -3153,256 +2375,61 @@ impl GuestMemory {
         let touches_executable = self.segments_touch_executable(&segments);
         let generation = self.next_generation()?;
         self.write_segments(&segments, bytes, generation)?;
-        let invalidation = Some(self.record_change(
+        self.record_change(
             Vec::new(),
             CacheEffects {
                 flush_tlb: false,
                 invalidate_instruction_fetch: touches_executable,
                 invalidate_generated_code: touches_executable,
             },
-        )?);
-        Ok(GuestWriteResult {
-            bytes_written: bytes.len(),
-            dirty_pages: unique_segment_pages(&segments),
-            invalidation,
-        })
-    }
-
-    pub fn reconcile_reflected_page(
-        &mut self,
-        acknowledged_generation: u64,
-        owner: MemoryOwnerId,
-        address: GuestAddress,
-        bytes: &[u8],
-    ) -> Result<GuestPageReconciliation, GuestMemoryError> {
-        let changed_bytes =
-            self.reconcile_reflected_page_bytes(acknowledged_generation, owner, address, bytes)?;
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-        Ok(GuestPageReconciliation {
-            generation: acknowledged_generation,
-            address,
-            owner,
-            bytes_reconciled: bytes.len(),
-            changed_bytes,
-            content_sha256: hex_digest(&hasher.finalize()),
-        })
-    }
-
-    fn reconcile_reflected_page_bytes(
-        &mut self,
-        acknowledged_generation: u64,
-        owner: MemoryOwnerId,
-        address: GuestAddress,
-        bytes: &[u8],
-    ) -> Result<usize, GuestMemoryError> {
-        self.ensure_synchronized()?;
-        if !self.initial_reflection_acknowledged {
-            return Err(GuestMemoryError::invalid_request(
-                "memory-reconciliation",
-                "initial-memory-reflection-required",
-                "a full memory reflection must be acknowledged before CPU page reconciliation",
-            ));
-        }
-        if acknowledged_generation != self.acknowledged_generation {
-            return Err(GuestMemoryError::invalid_request(
-                "memory-reconciliation",
-                "reconciliation-generation-mismatch",
-                "CPU page reconciliation does not match the acknowledged memory generation",
-            ));
-        }
-        if !address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
-            return Err(GuestMemoryError::invalid_request(
-                "memory-reconciliation",
-                "reconciliation-address-not-page-aligned",
-                "CPU page reconciliation address must be guest-page aligned",
-            ));
-        }
-        if bytes.len() != GUEST_PAGE_SIZE_USIZE {
-            return Err(GuestMemoryError::invalid_request(
-                "memory-reconciliation",
-                "reconciliation-page-size-mismatch",
-                "CPU page reconciliation must provide exactly one guest page",
-            ));
-        }
-
-        let segments = self.preflight_guest_access_without_synchronization(
-            address,
-            bytes.len(),
-            MemoryAccess::Write,
         )?;
-        let [segment] = segments.as_slice() else {
-            return Err(GuestMemoryError::runtime_defect(
-                "memory-reconciliation",
-                "reconciliation-segment-count-invalid",
-                "one aligned guest page did not produce exactly one access segment",
-            ));
-        };
-        let page = self.pages.get(&segment.virtual_page).ok_or_else(|| {
-            GuestMemoryError::runtime_defect(
-                "memory-reconciliation",
-                "preflighted-page-missing",
-                "CPU page reconciliation preflight succeeded but the page disappeared",
-            )
-        })?;
-        if page.owner != owner {
-            return Err(GuestMemoryError::conflict(
-                "memory-reconciliation",
-                "reconciliation-page-owner-mismatch",
-                "CPU page reconciliation names a different owner than the mapped page",
-            ));
-        }
-        if page.dirty_generation.is_some() {
-            return Err(GuestMemoryError::runtime_defect(
-                "memory-reconciliation",
-                "reconciliation-page-already-dirty",
-                "a synchronized page retained dirty state before CPU reconciliation",
-            ));
-        }
-        let frame = page.frame;
-        let changed_bytes = count_changed_bytes(self.frames.bytes(frame)?, bytes);
-        self.journal_frame_bytes_before(frame)?;
-        self.frames.bytes_mut(frame)?.copy_from_slice(bytes);
-        Ok(changed_bytes)
+        Ok(())
     }
 
     pub fn reconcile_cpu_writeback_binary(
         &mut self,
         control: &[u8],
         page_bytes: &[u8],
-    ) -> Result<CpuWritebackReceipt, GuestMemoryError> {
+    ) -> Result<u64, GuestMemoryError> {
         let batch = decode_cpu_writeback_view(control, page_bytes, self.limits.max_physical_pages)?;
-        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(
-            batch.base_generation,
-            CpuWritebackPages::Described(&batch.pages),
-            true,
-        )?;
-        Ok(CpuWritebackReceipt {
-            from_generation: receipt.from_generation,
-            generation: receipt.generation,
-            touched_pages: receipt.touched_pages,
-            changed_pages: receipt.changed_pages,
-            unchanged_pages: receipt.unchanged_pages,
-            executable_pages: receipt.executable_pages,
-            changed_bytes: receipt.changed_bytes,
-            transferred_bytes: receipt.transferred_bytes,
-            content_sha256: content_sha256.expect("requested CPU writeback SHA-256 is present"),
-        })
-    }
-
-    pub fn reconcile_cpu_writeback_binary_fast(
-        &mut self,
-        control: &[u8],
-        page_bytes: &[u8],
-    ) -> Result<CpuWritebackFastReceipt, GuestMemoryError> {
-        let batch = decode_cpu_writeback_view(control, page_bytes, self.limits.max_physical_pages)?;
-        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(
-            batch.base_generation,
-            CpuWritebackPages::Described(&batch.pages),
-            false,
-        )?;
-        debug_assert!(content_sha256.is_none());
-        Ok(receipt)
-    }
-
-    pub fn reconcile_cpu_writeback_pages_fast<'a>(
-        &mut self,
-        base_generation: u64,
-        pages: &'a [(u32, &'a [u8])],
-    ) -> Result<CpuWritebackFastReceipt, GuestMemoryError> {
-        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(
-            base_generation,
-            CpuWritebackPages::CurrentOwner(pages),
-            false,
-        )?;
-        debug_assert!(content_sha256.is_none());
-        Ok(receipt)
-    }
-
-    pub fn reconcile_cpu_writeback(
-        &mut self,
-        batch: &CpuWritebackBatch,
-    ) -> Result<CpuWritebackReceipt, GuestMemoryError> {
-        let pages = batch
-            .pages
-            .iter()
-            .map(|page| CpuWritebackPageView {
-                address: page.address,
-                owner: page.owner,
-                bytes: &page.bytes,
-            })
-            .collect();
-        let view = CpuWritebackBatchView {
-            base_generation: batch.base_generation,
-            pages,
-        };
-        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(
-            view.base_generation,
-            CpuWritebackPages::Described(&view.pages),
-            true,
-        )?;
-        Ok(CpuWritebackReceipt {
-            from_generation: receipt.from_generation,
-            generation: receipt.generation,
-            touched_pages: receipt.touched_pages,
-            changed_pages: receipt.changed_pages,
-            unchanged_pages: receipt.unchanged_pages,
-            executable_pages: receipt.executable_pages,
-            changed_bytes: receipt.changed_bytes,
-            transferred_bytes: receipt.transferred_bytes,
-            content_sha256: content_sha256.expect("requested CPU writeback SHA-256 is present"),
-        })
+        self.reconcile_cpu_writeback_view(batch.base_generation, &batch.pages)
     }
 
     fn reconcile_cpu_writeback_view(
         &mut self,
         base_generation: u64,
-        pages: CpuWritebackPages<'_>,
-        include_content_hash: bool,
-    ) -> Result<(CpuWritebackFastReceipt, Option<String>), GuestMemoryError> {
+        pages: &[CpuWritebackPageView<'_>],
+    ) -> Result<u64, GuestMemoryError> {
         self.ensure_synchronized()?;
         if !self.initial_reflection_acknowledged {
             return Err(GuestMemoryError::invalid_request(
-                "cpu-writeback",
-                "initial-memory-reflection-required",
                 "a full memory reflection must be acknowledged before CPU writeback",
             ));
         }
         if base_generation != self.generation || base_generation != self.acknowledged_generation {
-            return Err(GuestMemoryError::conflict(
-                "cpu-writeback",
-                "cpu-writeback-generation-conflict",
-                format!(
-                    "CPU writeback generation {} does not match synchronized generation {}",
-                    base_generation, self.acknowledged_generation
-                ),
-            ));
+            return Err(GuestMemoryError::conflict(format!(
+                "CPU writeback generation {} does not match synchronized generation {}",
+                base_generation, self.acknowledged_generation
+            )));
         }
         if pages.len() > self.limits.max_physical_pages {
-            return Err(GuestMemoryError::resource_limit(
-                "cpu-writeback",
-                "cpu-writeback-page-limit-exceeded",
-                format!(
-                    "CPU writeback contains {} pages; limit is {}",
-                    pages.len(),
-                    self.limits.max_physical_pages
-                ),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "CPU writeback contains {} pages; limit is {}",
+                pages.len(),
+                self.limits.max_physical_pages
+            )));
         }
 
-        // ponytail: small live batches use a bounded quadratic duplicate check; larger or hashed
-        // batches retain sorted order.
+        // Small batches avoid sorting; large batches use sorted order for duplicate detection.
         let mut inline_changed = [(0usize, FrameId(0)); 16];
         let mut heap_changed =
             (pages.len() > inline_changed.len()).then(|| Vec::with_capacity(pages.len()));
-        let order = if include_content_hash || pages.len() > inline_changed.len() {
+        let order = if pages.len() > inline_changed.len() {
             let mut order = (0..pages.len()).collect::<Vec<_>>();
-            order.sort_unstable_by_key(|index| pages.get(*index).address);
+            order.sort_unstable_by_key(|index| pages[*index].address);
             for pair in order.windows(2) {
-                if pages.get(pair[0]).address == pages.get(pair[1]).address {
+                if pages[pair[0]].address == pages[pair[1]].address {
                     return Err(GuestMemoryError::conflict(
-                        "cpu-writeback",
-                        "cpu-writeback-duplicate-page",
                         "CPU writeback contains the same guest page more than once",
                     ));
                 }
@@ -3410,11 +2437,9 @@ impl GuestMemory {
             Some(order)
         } else {
             for index in 0..pages.len() {
-                let address = pages.get(index).address;
-                if (0..index).any(|previous| pages.get(previous).address == address) {
+                let address = pages[index].address;
+                if (0..index).any(|previous| pages[previous].address == address) {
                     return Err(GuestMemoryError::conflict(
-                        "cpu-writeback",
-                        "cpu-writeback-duplicate-page",
                         "CPU writeback contains the same guest page more than once",
                     ));
                 }
@@ -3423,95 +2448,41 @@ impl GuestMemory {
         };
 
         let mut changed_pages = 0usize;
-        let mut executable_pages = 0usize;
-        let mut changed_bytes = 0u64;
-        let mut hasher = include_content_hash.then(Sha256::new);
-        if let Some(hasher) = &mut hasher {
-            hasher.update(base_generation.to_le_bytes());
-        }
         for offset in 0..pages.len() {
             let index = order.as_ref().map_or(offset, |order| order[offset]);
-            let writeback = pages.get(index);
+            let writeback = pages[index];
             if !writeback.address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
                 return Err(GuestMemoryError::invalid_request(
-                    "cpu-writeback",
-                    "cpu-writeback-address-not-page-aligned",
                     "CPU writeback page address must be guest-page aligned",
                 ));
             }
             if writeback.bytes.len() != GUEST_PAGE_SIZE_USIZE {
                 return Err(GuestMemoryError::invalid_request(
-                    "cpu-writeback",
-                    "cpu-writeback-page-size-mismatch",
                     "CPU writeback must provide exactly one page per dirty-page descriptor",
                 ));
             }
-            let expected_owner = match writeback.owner {
-                Some(owner) => owner,
-                None => self
-                    .pages
-                    .get(&(writeback.address.0 >> 12))
-                    .map(|page| page.owner)
-                    .ok_or_else(|| {
-                        GuestMemoryError::invalid_request(
-                            "cpu-writeback",
-                            "cpu-writeback-page-unmapped",
-                            "CPU writeback names an unmapped guest page",
-                        )
-                    })?,
-            };
             let page = self.preflight_cpu_writeback_page(writeback.address)?;
-            if page.owner != expected_owner {
+            if page.owner != writeback.owner {
                 return Err(GuestMemoryError::conflict(
-                    "cpu-writeback",
-                    "cpu-writeback-page-owner-mismatch",
                     "CPU writeback owner does not match the mapped guest page",
                 ));
             }
             if page.dirty_generation.is_some() {
                 return Err(GuestMemoryError::runtime_defect(
-                    "cpu-writeback",
-                    "cpu-writeback-page-already-dirty",
                     "a synchronized CPU writeback page retained host dirty state",
                 ));
             }
-            executable_pages += usize::from(page.protection.execute);
-            let page_changed_bytes =
-                count_changed_bytes(self.frames.bytes(page.frame)?, writeback.bytes);
-            if page_changed_bytes != 0 {
+            if self.frames.bytes(page.frame)?.as_slice() != writeback.bytes {
                 if let Some(changed) = &mut heap_changed {
                     changed.push((index, page.frame));
                 } else {
                     inline_changed[changed_pages] = (index, page.frame);
                 }
                 changed_pages += 1;
-                changed_bytes = changed_bytes
-                    .checked_add(page_changed_bytes as u64)
-                    .ok_or_else(|| {
-                        GuestMemoryError::resource_limit(
-                            "cpu-writeback",
-                            "cpu-writeback-changed-byte-count-overflow",
-                            "CPU writeback changed-byte count overflowed host accounting",
-                        )
-                    })?;
-            }
-            if let Some(hasher) = &mut hasher {
-                hasher.update(writeback.address.0.to_le_bytes());
-                hasher.update(page.owner.0.to_le_bytes());
-                hasher.update(writeback.bytes);
             }
         }
 
         let from_generation = self.generation;
-        let transferred_bytes = (pages.len() as u64)
-            .checked_mul(GUEST_PAGE_SIZE)
-            .ok_or_else(|| {
-                GuestMemoryError::resource_limit(
-                    "cpu-writeback",
-                    "cpu-writeback-transferred-byte-count-overflow",
-                    "CPU writeback transfer size overflowed host accounting",
-                )
-            })?;
         let generation = if changed_pages == 0 {
             from_generation
         } else {
@@ -3523,7 +2494,7 @@ impl GuestMemory {
                 None => &inline_changed[..changed_pages],
             };
             for &(index, frame) in changed_order {
-                let writeback = pages.get(index);
+                let writeback = pages[index];
                 self.frames
                     .bytes_mut(frame)
                     .expect("preflighted CPU writeback frame disappeared")
@@ -3533,19 +2504,7 @@ impl GuestMemory {
             self.acknowledged_generation = generation;
         }
 
-        Ok((
-            CpuWritebackFastReceipt {
-                from_generation,
-                generation,
-                touched_pages: pages.len(),
-                changed_pages,
-                unchanged_pages: pages.len() - changed_pages,
-                executable_pages,
-                changed_bytes,
-                transferred_bytes,
-            },
-            hasher.map(|hasher| hex_digest(&hasher.finalize())),
-        ))
+        Ok(generation)
     }
 
     pub fn stats(&self) -> MemoryStats {
@@ -3589,16 +2548,32 @@ impl GuestMemory {
         !self.pending_changes.is_empty()
     }
 
-    pub fn region_snapshots(&self) -> Vec<MemoryRegionSnapshot> {
+    pub fn regions(&self) -> impl ExactSizeIterator<Item = MemoryRegionInfo> + '_ {
+        self.regions.values().map(|region| MemoryRegionInfo {
+            address_allocation_id: region.address_allocation_id,
+            owner: region.owner,
+            kind: region.kind,
+            range: region.range,
+        })
+    }
+
+    pub(crate) fn image_ranges(
+        &self,
+    ) -> impl Iterator<Item = Result<GuestRange, GuestMemoryError>> + '_ {
         self.regions
             .values()
-            .map(|region| MemoryRegionSnapshot {
-                address_allocation_id: region.address_allocation_id,
-                owner: region.owner,
-                kind: region.kind,
-                range: region.range,
+            .filter(|region| region.kind == MemoryRegionKind::Image)
+            .map(|region| {
+                if !matches!(
+                    &self.require_owner(region.owner)?.kind,
+                    MemoryOwnerKind::Image { .. }
+                ) {
+                    return Err(GuestMemoryError::conflict(
+                        "image memory region requires an image owner",
+                    ));
+                }
+                Ok(region.range)
             })
-            .collect()
     }
 
     pub(crate) fn committed_page(
@@ -3607,8 +2582,6 @@ impl GuestMemory {
     ) -> Result<Option<(MemoryOwnerId, PageProtection)>, GuestMemoryError> {
         if !address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
             return Err(GuestMemoryError::invalid_request(
-                "page-table",
-                "page-query-address-not-aligned",
                 "committed page queries require a page-aligned guest address",
             ));
         }
@@ -3621,15 +2594,11 @@ impl GuestMemory {
     pub fn pending_reflection(&mut self) -> Result<MemoryReflection, GuestMemoryError> {
         if self.initial_reflection_acknowledged {
             return Err(GuestMemoryError::conflict(
-                "memory-reflection",
-                "full-memory-reflection-already-acknowledged",
                 "incremental memory deltas must be used after the initial full reflection",
             ));
         }
         let invalidation = self.pending_invalidation().ok_or_else(|| {
             GuestMemoryError::invalid_request(
-                "memory-reflection",
-                "no-memory-delta-pending",
                 "memory reflection requires a pending memory generation",
             )
         })?;
@@ -3650,55 +2619,22 @@ impl GuestMemory {
         )
     }
 
-    pub fn current_content_sha256(&self) -> Result<String, GuestMemoryError> {
-        let mut hasher = Sha256::new();
-        for (&virtual_page, page) in &self.pages {
-            let address = virtual_page_address(virtual_page, "memory-reflection")?;
-            let owner = self.require_owner(page.owner)?;
-            if page.protection.execute && !owner.sealed {
-                return Err(GuestMemoryError::conflict(
-                    "memory-reflection",
-                    "executable-owner-unsealed",
-                    "executable pages cannot be reflected before their owner is sealed",
-                ));
-            }
-            let protection_bits = u8::from(page.protection.read)
-                | u8::from(page.protection.write) << 1
-                | u8::from(page.protection.execute) << 2;
-            hasher.update(address.0.to_le_bytes());
-            hasher.update(page.owner.0.to_le_bytes());
-            hasher.update([protection_bits, u8::from(owner.sealed), 1]);
-            hasher.update(self.frames.bytes(page.frame)?);
-        }
-        Ok(hex_digest(&hasher.finalize()))
-    }
-
     fn build_reflection(
         &self,
         invalidation: MemoryInvalidation,
         force_dirty: bool,
     ) -> Result<MemoryReflection, GuestMemoryError> {
         let mut pages = Vec::with_capacity(self.pages.len());
-        let mut hasher = Sha256::new();
         for (&virtual_page, page) in &self.pages {
-            let address = virtual_page_address(virtual_page, "memory-reflection")?;
+            let address = virtual_page_address(virtual_page)?;
             let owner = self.require_owner(page.owner)?;
             if page.protection.execute && !owner.sealed {
                 return Err(GuestMemoryError::conflict(
-                    "memory-reflection",
-                    "executable-owner-unsealed",
                     "executable pages cannot be reflected before their owner is sealed",
                 ));
             }
             let bytes = self.frames.bytes(page.frame)?.to_vec();
-            let protection_bits = u8::from(page.protection.read)
-                | u8::from(page.protection.write) << 1
-                | u8::from(page.protection.execute) << 2;
             let dirty = force_dirty || page.dirty_generation.is_some();
-            hasher.update(address.0.to_le_bytes());
-            hasher.update(page.owner.0.to_le_bytes());
-            hasher.update([protection_bits, u8::from(owner.sealed), u8::from(dirty)]);
-            hasher.update(&bytes);
             pages.push(MemoryReflectionPage {
                 address,
                 owner: page.owner,
@@ -3712,18 +2648,13 @@ impl GuestMemory {
             invalidation,
             page_size: GUEST_PAGE_SIZE,
             pages,
-            content_sha256: hex_digest(&hasher.finalize()),
         })
     }
 
     fn require_owner(&self, owner: MemoryOwnerId) -> Result<&OwnerState, GuestMemoryError> {
-        self.owners.get(&owner).ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "memory-owner",
-                "memory-owner-not-found",
-                "memory owner identifier is not live",
-            )
-        })
+        self.owners
+            .get(&owner)
+            .ok_or_else(|| GuestMemoryError::invalid_request("memory owner identifier is not live"))
     }
 
     fn require_region_contains(
@@ -3739,8 +2670,6 @@ impl GuestMemory {
             .map(|region| region.address_allocation_id)
             .ok_or_else(|| {
                 GuestMemoryError::invalid_request(
-                    "region-table",
-                    "range-not-reserved-by-owner",
                     "guest range is not fully contained in a region reserved by this owner",
                 )
             })
@@ -3753,16 +2682,12 @@ impl GuestMemory {
     ) -> Result<(), GuestMemoryError> {
         for virtual_page in pages {
             let page = self.pages.get(virtual_page).ok_or_else(|| {
-                GuestMemoryError::invalid_request(
-                    "page-table",
-                    "page-not-committed",
-                    format!("virtual page {virtual_page:#x} is not committed"),
-                )
+                GuestMemoryError::invalid_request(format!(
+                    "virtual page {virtual_page:#x} is not committed"
+                ))
             })?;
             if page.owner != owner {
                 return Err(GuestMemoryError::conflict(
-                    "page-table",
-                    "committed-page-owner-mismatch",
                     "committed page belongs to a different owner",
                 ));
             }
@@ -3773,7 +2698,6 @@ impl GuestMemory {
     fn ensure_synchronized(&self) -> Result<(), GuestMemoryError> {
         if let Some(pending) = self.pending_invalidation() {
             return Err(GuestMemoryError::synchronization(
-                "memory-invalidation-unacknowledged",
                 "guest access is blocked until the pending memory delta is applied and acknowledged",
                 pending,
             ));
@@ -3796,14 +2720,10 @@ impl GuestMemory {
         address: GuestAddress,
     ) -> Result<&PageState, GuestMemoryError> {
         if GUEST_PAGE_SIZE_USIZE > self.limits.max_access_bytes {
-            return Err(GuestMemoryError::resource_limit(
-                "guest-access",
-                "guest-access-limit-exceeded",
-                format!(
-                    "guest access requests {GUEST_PAGE_SIZE_USIZE} bytes; limit is {}",
-                    self.limits.max_access_bytes
-                ),
-            ));
+            return Err(GuestMemoryError::resource_limit(format!(
+                "guest access requests {GUEST_PAGE_SIZE_USIZE} bytes; limit is {}",
+                self.limits.max_access_bytes
+            )));
         }
         let page = self.pages.get(&(address.0 >> 12)).ok_or_else(|| {
             GuestMemoryError::fault(memory_fault(
@@ -3875,19 +2795,13 @@ impl GuestMemory {
         let segments = access_segments(address, byte_length, self.limits.max_access_bytes)?;
         for segment in &segments {
             let page = self.pages.get(&segment.virtual_page).ok_or_else(|| {
-                GuestMemoryError::invalid_request(
-                    "image-initialization",
-                    "initialization-page-not-committed",
-                    format!(
-                        "initialization address {:#010x} is not committed",
-                        segment.fault_address.0
-                    ),
-                )
+                GuestMemoryError::invalid_request(format!(
+                    "initialization address {:#010x} is not committed",
+                    segment.fault_address.0
+                ))
             })?;
             if page.owner != owner {
                 return Err(GuestMemoryError::conflict(
-                    "image-initialization",
-                    "initialization-page-owner-mismatch",
                     "initialization range crosses into a different memory owner",
                 ));
             }
@@ -3903,11 +2817,7 @@ impl GuestMemory {
         let mut output = Vec::with_capacity(byte_length);
         for segment in segments {
             let page = self.pages.get(&segment.virtual_page).ok_or_else(|| {
-                GuestMemoryError::runtime_defect(
-                    "page-table",
-                    "preflighted-page-missing",
-                    "access preflight succeeded but page disappeared",
-                )
+                GuestMemoryError::runtime_defect("access preflight succeeded but page disappeared")
             })?;
             let bytes = self.frames.bytes(page.frame)?;
             let end = segment
@@ -3936,19 +2846,13 @@ impl GuestMemory {
                 .get(&segment.virtual_page)
                 .ok_or_else(|| {
                     GuestMemoryError::runtime_defect(
-                        "page-table",
-                        "preflighted-page-missing",
                         "write preflight succeeded but the page disappeared",
                     )
                 })?
                 .frame;
             self.journal_frame_bytes_before(frame)?;
             let page = self.pages.get_mut(&segment.virtual_page).ok_or_else(|| {
-                GuestMemoryError::runtime_defect(
-                    "page-table",
-                    "preflighted-page-missing",
-                    "write preflight succeeded but page disappeared",
-                )
+                GuestMemoryError::runtime_defect("write preflight succeeded but page disappeared")
             })?;
             let bytes = self.frames.bytes_mut(page.frame)?;
             let page_end = segment
@@ -3989,13 +2893,9 @@ impl GuestMemory {
     }
 
     fn next_generation(&self) -> Result<u64, GuestMemoryError> {
-        self.generation.checked_add(1).ok_or_else(|| {
-            GuestMemoryError::runtime_defect(
-                "memory-delta",
-                "memory-generation-overflow",
-                "memory generation counter overflowed",
-            )
-        })
+        self.generation
+            .checked_add(1)
+            .ok_or_else(|| GuestMemoryError::runtime_defect("memory generation counter overflowed"))
     }
 
     fn ensure_generation_available(&self) -> Result<(), GuestMemoryError> {
@@ -4015,8 +2915,6 @@ impl GuestMemory {
         });
         self.pending_invalidation().ok_or_else(|| {
             GuestMemoryError::runtime_defect(
-                "memory-delta",
-                "recorded-memory-delta-missing",
                 "recorded memory change did not produce a pending delta",
             )
         })
@@ -4040,49 +2938,25 @@ impl GuestMemory {
     }
 }
 
-fn read_binary_u32(
-    bytes: &[u8],
-    offset: usize,
-    code: &'static str,
-) -> Result<u32, GuestMemoryError> {
+fn read_binary_u32(bytes: &[u8], offset: usize) -> Result<u32, GuestMemoryError> {
     let end = offset.checked_add(4).ok_or_else(|| {
-        GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            code,
-            "CPU writeback control offset overflowed host accounting",
-        )
+        GuestMemoryError::invalid_request("CPU writeback control offset overflowed host accounting")
     })?;
-    let value = bytes.get(offset..end).ok_or_else(|| {
-        GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            code,
-            "CPU writeback control is truncated",
-        )
-    })?;
+    let value = bytes
+        .get(offset..end)
+        .ok_or_else(|| GuestMemoryError::invalid_request("CPU writeback control is truncated"))?;
     Ok(u32::from_le_bytes(
         value.try_into().expect("checked four-byte control field"),
     ))
 }
 
-fn read_binary_u64(
-    bytes: &[u8],
-    offset: usize,
-    code: &'static str,
-) -> Result<u64, GuestMemoryError> {
+fn read_binary_u64(bytes: &[u8], offset: usize) -> Result<u64, GuestMemoryError> {
     let end = offset.checked_add(8).ok_or_else(|| {
-        GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            code,
-            "CPU writeback control offset overflowed host accounting",
-        )
+        GuestMemoryError::invalid_request("CPU writeback control offset overflowed host accounting")
     })?;
-    let value = bytes.get(offset..end).ok_or_else(|| {
-        GuestMemoryError::invalid_request(
-            "cpu-writeback-transport",
-            code,
-            "CPU writeback control is truncated",
-        )
-    })?;
+    let value = bytes
+        .get(offset..end)
+        .ok_or_else(|| GuestMemoryError::invalid_request("CPU writeback control is truncated"))?;
     Ok(u64::from_le_bytes(
         value.try_into().expect("checked eight-byte control field"),
     ))
@@ -4112,118 +2986,227 @@ fn memory_region_kind_code(kind: MemoryRegionKind) -> u32 {
     }
 }
 
-fn virtual_page_address(
-    virtual_page: u32,
-    stage: &'static str,
-) -> Result<GuestAddress, GuestMemoryError> {
+fn virtual_page_address(virtual_page: u32) -> Result<GuestAddress, GuestMemoryError> {
     virtual_page
         .checked_mul(GUEST_PAGE_SIZE as u32)
         .map(GuestAddress)
         .ok_or_else(|| {
             GuestMemoryError::runtime_defect(
-                stage,
-                "virtual-page-address-overflow",
                 "committed virtual page does not fit the 32-bit guest address space",
             )
         })
 }
 
-fn hash_delta_content(
-    mapping_operations: &[MappingOperation],
-    dirty_pages: &[DirtyPage],
-) -> String {
-    let mut hasher = Sha256::new();
-    for operation in mapping_operations {
-        match operation {
-            MappingOperation::Reserve {
-                address_allocation_id,
-                owner,
-                kind,
-                range,
-            } => {
-                hasher.update([0]);
-                hash_address_allocation_id(&mut hasher, *address_allocation_id);
-                hash_mapping_fields(&mut hasher, *owner, *range);
-                hasher.update([*kind as u8]);
-            }
-            MappingOperation::Commit {
-                address_allocation_id,
-                owner,
-                range,
-                protection,
-            } => {
-                hasher.update([1]);
-                hash_address_allocation_id(&mut hasher, *address_allocation_id);
-                hash_mapping_fields(&mut hasher, *owner, *range);
-                hash_protection(&mut hasher, *protection);
-            }
-            MappingOperation::Protect {
-                address_allocation_id,
-                owner,
-                range,
-                protection,
-            } => {
-                hasher.update([2]);
-                hash_address_allocation_id(&mut hasher, *address_allocation_id);
-                hash_mapping_fields(&mut hasher, *owner, *range);
-                hash_protection(&mut hasher, *protection);
-            }
-            MappingOperation::Decommit {
-                address_allocation_id,
-                owner,
-                range,
-            } => {
-                hasher.update([3]);
-                hash_address_allocation_id(&mut hasher, *address_allocation_id);
-                hash_mapping_fields(&mut hasher, *owner, *range);
-            }
-            MappingOperation::Release {
-                address_allocation_id,
-                owner,
-                range,
-            } => {
-                hasher.update([4]);
-                hash_address_allocation_id(&mut hasher, *address_allocation_id);
-                hash_mapping_fields(&mut hasher, *owner, *range);
-            }
-        }
-    }
-    for page in dirty_pages {
-        hasher.update(page.address.0.to_le_bytes());
-        hasher.update(page.owner.0.to_le_bytes());
-        hasher.update([u8::from(page.owner_sealed)]);
-        hash_protection(&mut hasher, page.protection);
-        hasher.update(&page.bytes);
-    }
-    hex_digest(&hasher.finalize())
+#[cfg(test)]
+#[test]
+fn growth_capacity_preserves_the_last_usable_owner_identifier() {
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    memory.next_owner = u32::MAX - 1;
+    let before = memory.stats();
+    memory.preflight_growth(2, 0, 0).unwrap_err();
+    assert_eq!(memory.stats(), before);
+    assert_eq!(memory.next_owner, u32::MAX - 1);
+
+    memory.preflight_growth(1, 0, 0).unwrap();
+    let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    assert_eq!(owner.0, u32::MAX - 1);
+    let before = memory.stats();
+    memory.preflight_growth(1, 0, 0).unwrap_err();
+    memory.create_owner(MemoryOwnerKind::Runtime).unwrap_err();
+    assert_eq!(memory.stats(), before);
+    assert_eq!(memory.next_owner, u32::MAX);
+    memory.preflight_growth(0, 0, 0).unwrap();
 }
 
-fn hash_address_allocation_id(hasher: &mut Sha256, address_allocation_id: Option<u64>) {
-    if let Some(address_allocation_id) = address_allocation_id {
-        hasher.update(b"address-allocation-id");
-        hasher.update(address_allocation_id.to_le_bytes());
-    }
+#[cfg(test)]
+#[test]
+fn transaction_journals_only_touched_pages_not_the_baseline() {
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 128,
+        max_regions: 1,
+        max_owners: 1,
+        max_access_bytes: GUEST_PAGE_SIZE_USIZE,
+    })
+    .unwrap();
+    let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    let address = GuestAddress(0x2600_0000);
+    let range = memory
+        .reserve_fixed(
+            owner,
+            MemoryRegionKind::Runtime,
+            address,
+            128 * GUEST_PAGE_SIZE,
+        )
+        .unwrap();
+    let protection = PageProtection {
+        read: true,
+        write: true,
+        execute: false,
+    };
+    memory.commit(owner, range, protection).unwrap();
+    memory.seal_owner(owner).unwrap();
+    let generation = memory.pending_reflection().unwrap().invalidation.generation;
+    memory.acknowledge_delta(generation).unwrap();
+
+    let mut transaction = memory.begin_transaction();
+    assert!(
+        transaction
+            .transaction
+            .as_ref()
+            .unwrap()
+            .frame_images
+            .is_empty()
+    );
+    transaction.write(address, &[1]).unwrap();
+    transaction
+        .write(GuestAddress(address.0 + 1), &[2])
+        .unwrap();
+    let journal = transaction.transaction.as_ref().unwrap();
+    assert_eq!(journal.pages.len(), 1);
+    assert_eq!(journal.frame_images.len(), 1);
+    transaction
+        .write(GuestAddress(address.0 + GUEST_PAGE_SIZE as u32), &[3])
+        .unwrap();
+    let journal = transaction.transaction.as_ref().unwrap();
+    assert_eq!(journal.pages.len(), 2);
+    assert_eq!(journal.frame_images.len(), 2);
+    drop(transaction);
+    assert_eq!(memory.read(address, 2).unwrap(), [0, 0]);
 }
 
-fn hash_mapping_fields(hasher: &mut Sha256, owner: MemoryOwnerId, range: GuestRange) {
-    hasher.update(owner.0.to_le_bytes());
-    hasher.update(range.start().0.to_le_bytes());
-    hasher.update(range.byte_length().to_le_bytes());
+#[cfg(test)]
+#[test]
+fn owned_host_reads_preserve_guest_sync_owner_range_protection_and_lifetime() {
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let address = GuestAddress(0x2400_0000);
+    let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    let other = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Runtime, address, 4096)
+        .unwrap();
+    let adjacent = memory
+        .reserve_fixed(
+            other,
+            MemoryRegionKind::Runtime,
+            GuestAddress(address.0 + 4096),
+            4096,
+        )
+        .unwrap();
+    let readable = PageProtection {
+        read: true,
+        write: true,
+        execute: false,
+    };
+    memory.commit(owner, range, readable).unwrap();
+    memory.commit(other, adjacent, readable).unwrap();
+    memory.seal_owner(owner).unwrap();
+    memory.seal_owner(other).unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    memory.write(address, &[1, 2, 3, 4]).unwrap();
+    let before = memory.stats();
+    assert_eq!(
+        memory.read_owned_host(address, 4, owner).unwrap(),
+        [1, 2, 3, 4]
+    );
+    assert_eq!(
+        memory.read(address, 4).unwrap_err().class,
+        GuestMemoryErrorClass::SynchronizationRequired
+    );
+    assert!(memory.read_owned_host(address, 4, other).is_err());
+    assert!(
+        memory
+            .read_owned_host(GuestAddress(address.0 + 4094), 4, owner)
+            .is_err()
+    );
+    assert_eq!(memory.stats(), before);
+    memory
+        .protect(
+            owner,
+            range,
+            PageProtection {
+                read: false,
+                write: true,
+                execute: false,
+            },
+        )
+        .unwrap();
+    let denied = memory.read_owned_host(address, 4, owner).unwrap_err();
+    assert_eq!(denied.fault.unwrap().reason, MemoryFaultReason::ReadDenied);
+    memory.release_region(owner, address).unwrap();
+    assert!(memory.read_owned_host(address, 4, owner).is_err());
+    assert_eq!(
+        memory.read(address, 4).unwrap_err().class,
+        GuestMemoryErrorClass::SynchronizationRequired
+    );
 }
 
-fn hash_protection(hasher: &mut Sha256, protection: PageProtection) {
-    hasher.update([
-        u8::from(protection.read),
-        u8::from(protection.write),
-        u8::from(protection.execute),
-    ]);
+#[cfg(test)]
+#[test]
+fn snapshots_require_the_live_owner_read_protection_and_complete_range() {
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    let other = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    let address = GuestAddress(0x20000000);
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Runtime, address, 4096)
+        .unwrap();
+    memory
+        .commit(
+            owner,
+            range,
+            PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+        .unwrap();
+    let acknowledge = |memory: &mut GuestMemory| {
+        let generation = memory.pending_delta().unwrap().generation;
+        memory.acknowledge_delta(generation).unwrap();
+    };
+    memory.write(address, &[1, 2, 3, 4]).unwrap();
+    assert!(memory.read_owned(address, 4, owner).is_err());
+    memory.seal_owner(owner).unwrap();
+    memory.seal_owner(other).unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    let captured = memory.read_owned(address, 4, owner).unwrap();
+    memory.write(address, &[9, 9, 9, 9]).unwrap();
+    acknowledge(&mut memory);
+    assert_eq!(captured, [1, 2, 3, 4]);
+    assert!(memory.read_owned(address, 4, other).is_err());
+    assert!(
+        memory
+            .read_owned(GuestAddress(address.0 + 4094), 4, owner)
+            .is_err()
+    );
+    memory
+        .protect(
+            owner,
+            range,
+            PageProtection {
+                read: false,
+                write: false,
+                execute: false,
+            },
+        )
+        .unwrap();
+    acknowledge(&mut memory);
+    assert!(memory.read_owned(address, 4, owner).is_err());
+    memory.decommit(owner, range).unwrap();
+    acknowledge(&mut memory);
+    assert!(memory.read_owned(address, 4, owner).is_err());
 }
 
-fn require_page_aligned(range: GuestRange, code: &'static str) -> Result<(), GuestMemoryError> {
+fn require_page_aligned(range: GuestRange) -> Result<(), GuestMemoryError> {
     if !range.is_page_aligned() {
         return Err(GuestMemoryError::invalid_request(
-            "guest-range",
-            code,
             "guest range start and length must be 4 KiB aligned",
         ));
     }
@@ -4231,22 +3214,14 @@ fn require_page_aligned(range: GuestRange, code: &'static str) -> Result<(), Gue
 }
 
 fn virtual_pages(range: GuestRange) -> Result<Range<u32>, GuestMemoryError> {
-    require_page_aligned(range, "page-range-not-aligned")?;
+    require_page_aligned(range)?;
     let start = u64::from(range.start.0) / GUEST_PAGE_SIZE;
     let end = range.end() / GUEST_PAGE_SIZE;
     let start = u32::try_from(start).map_err(|_| {
-        GuestMemoryError::runtime_defect(
-            "guest-range",
-            "virtual-page-start-not-representable",
-            "virtual page start does not fit the page index type",
-        )
+        GuestMemoryError::runtime_defect("virtual page start does not fit the page index type")
     })?;
     let end = u32::try_from(end).map_err(|_| {
-        GuestMemoryError::runtime_defect(
-            "guest-range",
-            "virtual-page-end-not-representable",
-            "virtual page end does not fit the page index type",
-        )
+        GuestMemoryError::runtime_defect("virtual page end does not fit the page index type")
     })?;
     Ok(start..end)
 }
@@ -4264,28 +3239,20 @@ fn insert_plan_mapping(
         return Ok(());
     }
     let address = image_base.checked_add(rva).ok_or_else(|| {
-        GuestMemoryError::invalid_request(
-            "image-layout",
-            "image-mapping-address-overflow",
-            format!("{label} guest address overflows 32 bits"),
-        )
+        GuestMemoryError::invalid_request(format!("{label} guest address overflows 32 bits"))
     })?;
     let range = GuestRange::new(GuestAddress(address), u64::from(mapped_size))?;
-    require_page_aligned(range, "image-mapping-not-page-aligned")?;
+    require_page_aligned(range)?;
     if !contains_range(image_range, range) {
-        return Err(GuestMemoryError::invalid_request(
-            "image-layout",
-            "image-mapping-outside-reservation",
-            format!("{label} mapping extends outside SizeOfImage"),
-        ));
+        return Err(GuestMemoryError::invalid_request(format!(
+            "{label} mapping extends outside SizeOfImage"
+        )));
     }
     for virtual_page in virtual_pages(range)? {
         if pages.insert(virtual_page, protection).is_some() {
-            return Err(GuestMemoryError::conflict(
-                "image-layout",
-                "image-page-mapping-overlap",
-                format!("{label} overlaps another image page mapping"),
-            ));
+            return Err(GuestMemoryError::conflict(format!(
+                "{label} overlaps another image page mapping"
+            )));
         }
     }
     Ok(())
@@ -4298,58 +3265,36 @@ fn access_segments(
 ) -> Result<Vec<AccessSegment>, GuestMemoryError> {
     if byte_length == 0 {
         return Err(GuestMemoryError::invalid_request(
-            "guest-access",
-            "zero-length-access",
             "guest access must contain at least one byte",
         ));
     }
     if byte_length > max_access_bytes {
-        return Err(GuestMemoryError::resource_limit(
-            "guest-access",
-            "guest-access-limit-exceeded",
-            format!("guest access requests {byte_length} bytes; limit is {max_access_bytes}"),
-        ));
+        return Err(GuestMemoryError::resource_limit(format!(
+            "guest access requests {byte_length} bytes; limit is {max_access_bytes}"
+        )));
     }
     let byte_length_u64 = u64::try_from(byte_length).map_err(|_| {
-        GuestMemoryError::resource_limit(
-            "guest-access",
-            "guest-access-length-not-representable",
-            "guest access length does not fit 64-bit range accounting",
-        )
+        GuestMemoryError::resource_limit("guest access length does not fit 64-bit range accounting")
     })?;
     let range = GuestRange::new(address, byte_length_u64)?;
     let mut current = u64::from(address.0);
     let mut segments = Vec::new();
     while current < range.end() {
         let virtual_page = u32::try_from(current / GUEST_PAGE_SIZE).map_err(|_| {
-            GuestMemoryError::runtime_defect(
-                "guest-access",
-                "virtual-page-not-representable",
-                "guest access page does not fit the page index type",
-            )
+            GuestMemoryError::runtime_defect("guest access page does not fit the page index type")
         })?;
         let page_offset = usize::try_from(current % GUEST_PAGE_SIZE).map_err(|_| {
-            GuestMemoryError::runtime_defect(
-                "guest-access",
-                "page-offset-not-representable",
-                "guest access offset does not fit the host index type",
-            )
+            GuestMemoryError::runtime_defect("guest access offset does not fit the host index type")
         })?;
         let available = GUEST_PAGE_SIZE_USIZE - page_offset;
         let remaining = usize::try_from(range.end() - current).map_err(|_| {
             GuestMemoryError::resource_limit(
-                "guest-access",
-                "guest-access-remaining-not-representable",
                 "guest access remainder does not fit the host index type",
             )
         })?;
         let segment_length = available.min(remaining);
         let fault_address = GuestAddress(u32::try_from(current).map_err(|_| {
-            GuestMemoryError::runtime_defect(
-                "guest-access",
-                "fault-address-not-representable",
-                "guest access address does not fit 32 bits",
-            )
+            GuestMemoryError::runtime_defect("guest access address does not fit 32 bits")
         })?);
         segments.push(AccessSegment {
             virtual_page,
@@ -4358,11 +3303,7 @@ fn access_segments(
             fault_address,
         });
         current += u64::try_from(segment_length).map_err(|_| {
-            GuestMemoryError::runtime_defect(
-                "guest-access",
-                "segment-length-not-representable",
-                "guest access segment length does not fit 64 bits",
-            )
+            GuestMemoryError::runtime_defect("guest access segment length does not fit 64 bits")
         })?;
     }
     Ok(segments)
@@ -4404,28 +3345,6 @@ fn contains_range(container: GuestRange, value: GuestRange) -> bool {
     value.start >= container.start && value.end <= container.end
 }
 
-fn unique_segment_pages(segments: &[AccessSegment]) -> usize {
-    segments
-        .iter()
-        .map(|segment| segment.virtual_page)
-        .collect::<std::collections::BTreeSet<_>>()
-        .len()
-}
-
 fn segment_bounds_error() -> GuestMemoryError {
-    GuestMemoryError::runtime_defect(
-        "guest-access",
-        "preflighted-segment-out-of-bounds",
-        "access segment escaped its preflighted page or input bounds",
-    )
-}
-
-fn hex_digest(digest: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut value = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        value.push(char::from(HEX[usize::from(byte >> 4)]));
-        value.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    value
+    GuestMemoryError::runtime_defect("access segment escaped its preflighted page or input bounds")
 }

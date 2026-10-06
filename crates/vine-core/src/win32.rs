@@ -1,169 +1,33 @@
+use crate::runtime::TLS_OUT_OF_INDEXES;
 use std::mem::size_of;
 
 use encoding_rs::{EncoderResult, SHIFT_JIS};
 
 use crate::api::{
-    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
-    ApiDirection, ApiDispatcher, ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault,
-    ApiGuestCallbackCall, ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate,
-    ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding,
-    ApiSymbol, ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention,
-    DispatchOutcome, ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy,
-    GuestCallbackRequest, HostCompletion, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
+    ApiCallFrame, ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFault,
+    ApiGuestCallbackCall, ApiGuestWrite, ApiHandlerResult, ApiImmediate, ApiSymbol,
+    DispatchOutcome, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
+    HostCompletion, commit_indirect_guest_writes,
 };
-use crate::memory::{GuestAddress, MemoryAccess};
+use crate::memory::{GuestAddress, GuestMemory, MemoryAccess};
+use crate::module_graph::{RuntimeModuleClass, RuntimeModuleLoadState};
 use crate::pe32::ExportLookup;
 use crate::runtime::{
-    LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
-    LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
-    RUNTIME_AUDIO_NOTIFICATION_LIMIT, RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE,
-    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_EVENT_OBJECT_NAMESPACE,
-    RUNTIME_FILE_SEARCH_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,
-    RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE,
-    RUNTIME_THREAD_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    RUNTIME_WRITABLE_DELETE_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE,
-    RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_READ_SERVICE,
+    FLS_OUT_OF_INDEXES, RUNTIME_AUDIO_NOTIFICATION_LIMIT,
+    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_OPFS_READ_SERVICE,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
     RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest, RuntimeCriticalSection,
-    RuntimeFileBacking, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind, RuntimeHandle,
-    RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeMutexNameA, RuntimeObjectKind,
-    RuntimePathResolution, RuntimeSourceReadHostResponse, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryCommitRequest,
-    RuntimeVirtualMemoryDecommitRequest, RuntimeVirtualMemoryReserveRequest,
-    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
-    RuntimeWaitForSingleObjectExResult, RuntimeWaitState, RuntimeWritableCommitHostResponse,
-    RuntimeWritableDirectoryCreateHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeFileBacking, RuntimeFindFirstFileOutcome, RuntimeHandle, RuntimeHeapInitialization,
+    RuntimeMutexNameA, RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
+    RuntimeThreadPriority, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin,
+    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState, X86_CRITICAL_SECTION_BYTE_LENGTH,
 };
 
-mod policy;
-
-pub use policy::{
-    KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
-    Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
-    Kernel32CreateMutexAPolicy, Kernel32CreateThreadPolicy, Kernel32CreateWaitableTimerAPolicy,
-    Kernel32DeleteFileAPolicy, Kernel32FindFileAPolicy, Kernel32GetDriveTypeAPolicy,
-    Kernel32GetFileAttributesAPolicy, Kernel32GetModuleFileNameAPolicy,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
-    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
-    Kernel32LoadLibraryAPolicy, Kernel32MemoryStatusPolicy, Kernel32MultiByteToWideCharPolicy,
-    Kernel32OsVersionInfoAPolicy, Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
-    Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
-    Kernel32SetWaitableTimerPolicy, Kernel32SourceFilePolicy, Kernel32StandardHandleFileType,
-    Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy,
-    Kernel32TickCountPolicy, Kernel32VirtualAllocPolicy, Kernel32WaitForSingleObjectExPolicy,
-    Kernel32WideCharToMultiBytePolicy,
-};
-
-pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
-    "kernel32.get-system-time-as-file-time.v1";
-pub const GET_SYSTEM_TIME_IMPLEMENTATION: &str = "kernel32.get-system-time.v1";
-pub const GET_LOCAL_TIME_IMPLEMENTATION: &str = "kernel32.get-local-time.fixed-utc-offset.v1";
-pub const RAISE_EXCEPTION_IMPLEMENTATION: &str = "kernel32.raise-exception.seh-dispatch.v1";
-pub const RTL_UNWIND_IMPLEMENTATION: &str = "kernel32.rtl-unwind.current-seh-frame.v1";
-pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
-pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
-pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
-pub const GET_EXIT_CODE_THREAD_IMPLEMENTATION: &str = "kernel32.get-exit-code-thread.v1";
-pub const EXIT_THREAD_IMPLEMENTATION: &str = "kernel32.exit-thread.dynamic-thread.v1";
-pub const SET_THREAD_AFFINITY_MASK_IMPLEMENTATION: &str = "kernel32.set-thread-affinity-mask.v1";
-pub const SET_THREAD_PRIORITY_IMPLEMENTATION: &str = "kernel32.set-thread-priority.v1";
-pub const CREATE_THREAD_IMPLEMENTATION: &str = "kernel32.create-thread.v1";
-pub const RESUME_THREAD_IMPLEMENTATION: &str = "kernel32.resume-thread.v1";
-pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
-pub const GLOBAL_MEMORY_STATUS_IMPLEMENTATION: &str =
-    "kernel32.global-memory-status.x86-deterministic.v1";
-pub const VIRTUAL_ALLOC_IMPLEMENTATION: &str = "kernel32.virtual-alloc.reserve-top-down.v1";
-pub const VIRTUAL_FREE_IMPLEMENTATION: &str = "kernel32.virtual-free.decommit.v1";
-pub const GET_VERSION_EX_A_IMPLEMENTATION: &str = "kernel32.get-version-ex-a.v1";
-pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
-pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
-pub const GET_ACP_IMPLEMENTATION: &str = "kernel32.get-acp.v1";
-pub const GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION: &str =
-    "kernel32.get-system-default-lang-id.v1";
-pub const GET_DRIVE_TYPE_A_IMPLEMENTATION: &str = "kernel32.get-drive-type-a.v1";
-pub const GET_CP_INFO_IMPLEMENTATION: &str = "kernel32.get-cp-info.v1";
-pub const IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION: &str =
-    "kernel32.is-processor-feature-present.v1";
-pub const SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION: &str =
-    "kernel32.set-unhandled-exception-filter.v1";
-pub const GET_TICK_COUNT_IMPLEMENTATION: &str = "kernel32.get-tick-count.v1";
-pub const GET_STD_HANDLE_IMPLEMENTATION: &str = "kernel32.get-std-handle.v2";
-pub const GET_FILE_TYPE_IMPLEMENTATION: &str = "kernel32.get-file-type.v2";
-pub const SET_HANDLE_COUNT_IMPLEMENTATION: &str = "kernel32.set-handle-count.v1";
-pub const GET_COMMAND_LINE_A_IMPLEMENTATION: &str = "kernel32.get-command-line-a.v1";
-pub const GET_MODULE_FILE_NAME_A_IMPLEMENTATION: &str = "kernel32.get-module-file-name-a.v1";
-pub const GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str = "kernel32.get-environment-strings-w.v1";
-pub const FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION: &str =
-    "kernel32.free-environment-strings-w.v1";
-pub const WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION: &str = "kernel32.wide-char-to-multi-byte.v1";
-pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to-wide-char.v1";
-pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-directory-a.v1";
-pub const GET_FILE_ATTRIBUTES_A_IMPLEMENTATION: &str =
-    "kernel32.get-file-attributes-a.runtime-vfs.v1";
-pub const FIND_FIRST_FILE_A_IMPLEMENTATION: &str =
-    "kernel32.find-first-file-a.runtime-vfs-windows-932-lexical.v1";
-pub const FIND_NEXT_FILE_A_IMPLEMENTATION: &str =
-    "kernel32.find-next-file-a.runtime-vfs-windows-932-lexical.v1";
-pub const FIND_CLOSE_IMPLEMENTATION: &str = "kernel32.find-close.runtime-vfs.v1";
-pub const DELETE_FILE_A_IMPLEMENTATION: &str = "kernel32.delete-file-a.missing-runtime-vfs.v1";
-pub const CREATE_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.create-directory-a.runtime-vfs.v1";
-pub const CREATE_FILE_A_IMPLEMENTATION: &str = "kernel32.create-file-a.source.v1";
-pub const GET_FILE_SIZE_IMPLEMENTATION: &str = "kernel32.get-file-size.source.v1";
-pub const READ_FILE_IMPLEMENTATION: &str = "kernel32.read-file.source.v1";
-pub const WRITE_FILE_IMPLEMENTATION: &str = "kernel32.write-file.profile.v1";
-pub const FLUSH_FILE_BUFFERS_IMPLEMENTATION: &str = "kernel32.flush-file-buffers.profile.v1";
-pub const SET_FILE_POINTER_IMPLEMENTATION: &str = "kernel32.set-file-pointer.source.v1";
-pub const CLOSE_HANDLE_IMPLEMENTATION: &str = "kernel32.close-handle.v2";
-pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
-pub const CREATE_EVENT_A_IMPLEMENTATION: &str = "kernel32.create-event-a.unnamed.v1";
-pub const SET_EVENT_IMPLEMENTATION: &str = "kernel32.set-event.v1";
-pub const RESET_EVENT_IMPLEMENTATION: &str = "kernel32.reset-event.v1";
-pub const WAIT_FOR_SINGLE_OBJECT_IMPLEMENTATION: &str = "kernel32.wait-for-single-object.event.v1";
-pub const WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION: &str =
-    "kernel32.wait-for-multiple-objects.dsound-events.v1";
-pub const CREATE_WAITABLE_TIMER_A_IMPLEMENTATION: &str = "kernel32.create-waitable-timer-a.v1";
-pub const SET_WAITABLE_TIMER_IMPLEMENTATION: &str =
-    "kernel32.set-waitable-timer.relative-one-shot.v1";
-pub const WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION: &str =
-    "kernel32.wait-for-single-object-ex.waitable-timer.v1";
-pub const SLEEP_ZERO_IMPLEMENTATION: &str = "kernel32.sleep-zero.yield-current-thread.v1";
-pub const RUNTIME_SLEEP_DELAY_SERVICE: &str = "runtime.sleep-delay.v1";
-pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
-pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
-pub const QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION: &str =
-    "kernel32.query-performance-frequency.v1";
-pub const QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION: &str = "kernel32.query-performance-counter.v1";
-pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w.v1";
-pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
-pub const HEAP_CREATE_IMPLEMENTATION: &str = "kernel32.heap-create.v1";
-pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v2";
-pub const HEAP_REALLOC_IMPLEMENTATION: &str = "kernel32.heap-realloc.move.v1";
-pub const HEAP_FREE_IMPLEMENTATION: &str = "kernel32.heap-free.v1";
-pub const HEAP_SIZE_IMPLEMENTATION: &str = "kernel32.heap-size.v1";
-pub const LOAD_LIBRARY_A_IMPLEMENTATION: &str = "kernel32.load-library-a.runtime-system.v1";
-pub const GET_MODULE_HANDLE_W_IMPLEMENTATION: &str = "kernel32.get-module-handle-w.v1";
-pub const GET_PROC_ADDRESS_IMPLEMENTATION: &str = "kernel32.get-proc-address.v1";
-pub const TLS_ALLOC_IMPLEMENTATION: &str = "kernel32.tls-alloc.v1";
-pub const TLS_GET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-get-value.v1";
-pub const TLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.tls-set-value.v1";
-pub const ENCODE_POINTER_IMPLEMENTATION: &str = "kernel32.encode-pointer.v1";
-pub const DECODE_POINTER_IMPLEMENTATION: &str = "kernel32.decode-pointer.v1";
-pub const FLS_ALLOC_IMPLEMENTATION: &str = "kernel32.fls-alloc.v1";
-pub const FLS_GET_VALUE_IMPLEMENTATION: &str = "kernel32.fls-get-value.v1";
-pub const FLS_SET_VALUE_IMPLEMENTATION: &str = "kernel32.fls-set-value.v1";
-pub const INTERLOCKED_INCREMENT_IMPLEMENTATION: &str = "kernel32.interlocked-increment.v1";
-pub const INTERLOCKED_DECREMENT_IMPLEMENTATION: &str = "kernel32.interlocked-decrement.v1";
-pub const INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION: &str =
-    "kernel32.initialize-critical-section-and-spin-count.v1";
-pub const INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION: &str =
-    "kernel32.initialize-critical-section.v1";
-pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical-section.v1";
-pub const LEAVE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.leave-critical-section.v1";
-pub const DELETE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.delete-critical-section.v1";
+pub const RUNTIME_SLEEP_DELAY_SERVICE: &str = "browser.sleep";
 
 const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
+const HEAP_NO_SERIALIZE: u32 = 0x0000_0001;
 const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
 const MAX_MODULE_NAME_CODE_UNITS: usize = 64;
 const MAX_LOAD_LIBRARY_MODULE_NAME_BYTES: usize = 260;
@@ -177,19 +41,17 @@ const ERROR_ACCESS_DENIED: u32 = 5;
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_NO_MORE_FILES: u32 = 18;
 const ERROR_NOT_ENOUGH_MEMORY: u32 = 8;
-const ERROR_SHARING_VIOLATION: u32 = 32;
 const ERROR_DISK_FULL: u32 = 112;
-const ERROR_INVALID_PARAMETER: u32 = 87;
+pub(crate) const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const ERROR_INVALID_NAME: u32 = 123;
 const ERROR_MOD_NOT_FOUND: u32 = 126;
 const ERROR_PROC_NOT_FOUND: u32 = 127;
 const ERROR_ALREADY_EXISTS: u32 = 183;
-const ERROR_NEGATIVE_SEEK: u32 = 131;
+pub(crate) const ERROR_NEGATIVE_SEEK: u32 = 131;
 const INVALID_HANDLE_VALUE: u32 = u32::MAX;
 const WAIT_OBJECT_0: u32 = 0;
 const WAIT_TIMEOUT: u32 = 258;
-const STILL_ACTIVE: u32 = 259;
 const WAIT_FAILED: u32 = u32::MAX;
 const EXCEPTION_NONCONTINUABLE: u32 = 1;
 const EXCEPTION_UNWINDING: u32 = 2;
@@ -204,451 +66,201 @@ const X86_CONTEXT_OFFSET: u32 = X86_EXCEPTION_RECORD_BYTES as u32;
 const X86_CONTEXT_FULL_CONTROL_INTEGER_SEGMENTS: u32 = 0x0001_0007;
 const X86_OS_VERSION_INFO_A_BASE_BYTES: u32 = 148;
 const X86_OS_VERSION_INFO_EX_A_BYTES: u32 = 156;
-const X86_WIN32_FIND_DATA_A_BYTES: usize = 320;
-const X86_WIN32_FIND_DATA_A_FILE_NAME_OFFSET: usize = 44;
-const X86_WIN32_FIND_DATA_A_FILE_NAME_CAPACITY: usize = 260;
 pub const MEM_RESERVE: u32 = 0x0000_2000;
 pub const MEM_COMMIT: u32 = 0x0000_1000;
 pub const MEM_DECOMMIT: u32 = 0x0000_4000;
 pub const MEM_TOP_DOWN: u32 = 0x0010_0000;
 pub const PAGE_READWRITE: u32 = 0x0000_0004;
 
-pub fn dispatch_kernel32_api(
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> ApiHandlerResult {
-    dispatch_kernel32_api_with_policy(
-        &Kernel32CompatibilityPolicy::controlled_v1(),
-        contract,
-        frame,
-        session,
-    )
-}
-
-pub fn dispatch_kernel32_api_with_policy(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> ApiHandlerResult {
-    if let Err(error) = policy.validate() {
-        return ApiHandlerResult::Fault(ApiFault::runtime_defect(
-            "win32-compatibility-policy",
-            error.code,
-            error.message,
-        ));
-    }
-    dispatch_kernel32_api_with_prevalidated_policy(policy, contract, frame, session)
-}
-
-pub fn dispatch_kernel32_api_with_prevalidated_policy(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> ApiHandlerResult {
-    if contract.implementation_id == RAISE_EXCEPTION_IMPLEMENTATION {
-        return handle_raise_exception(contract, frame, session);
-    }
-    if contract.implementation_id == RTL_UNWIND_IMPLEMENTATION {
-        return handle_rtl_unwind(contract, frame, session);
-    }
-    if contract.implementation_id == READ_FILE_IMPLEMENTATION {
-        return handle_read_file(policy, contract, frame, session);
-    }
-    if contract.implementation_id == FLUSH_FILE_BUFFERS_IMPLEMENTATION {
-        return handle_flush_file_buffers(policy, contract, frame, session);
-    }
-    if contract.implementation_id == CREATE_DIRECTORY_A_IMPLEMENTATION {
-        return handle_create_directory_a(policy, contract, frame, session);
-    }
-    if contract.implementation_id == DELETE_FILE_A_IMPLEMENTATION {
-        return handle_delete_file_a(policy, contract, frame, session);
-    }
-    if contract.implementation_id == CLOSE_HANDLE_IMPLEMENTATION {
-        return handle_close_handle(policy, contract, frame, session);
-    }
-    if contract.implementation_id == WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION {
-        return handle_wait_for_single_object_ex(policy, contract, frame, session);
-    }
-    if contract.implementation_id == WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION {
-        return handle_wait_for_multiple_objects(contract, frame, session);
-    }
-    if contract.implementation_id == SLEEP_ZERO_IMPLEMENTATION {
-        return handle_sleep(policy, contract, frame, session);
-    }
-    let result = match contract.implementation_id.as_str() {
-        GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION => {
-            handle_get_system_time_as_file_time(contract, frame, session)
-        }
-        GET_SYSTEM_TIME_IMPLEMENTATION => handle_get_system_time(contract, frame, session),
-        GET_LOCAL_TIME_IMPLEMENTATION => handle_get_local_time(policy, contract, frame, session),
-        GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
-        GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
-        GET_CURRENT_THREAD_IMPLEMENTATION => handle_get_current_thread(contract, session),
-        GET_EXIT_CODE_THREAD_IMPLEMENTATION => {
-            handle_get_exit_code_thread(contract, frame, session)
-        }
-        EXIT_THREAD_IMPLEMENTATION => handle_exit_thread(contract, frame, session),
-        SET_THREAD_AFFINITY_MASK_IMPLEMENTATION => {
-            handle_set_thread_affinity_mask(policy, contract, frame, session)
-        }
-        SET_THREAD_PRIORITY_IMPLEMENTATION => {
-            handle_set_thread_priority(policy, contract, frame, session)
-        }
-        CREATE_THREAD_IMPLEMENTATION => handle_create_thread(policy, contract, frame, session),
-        RESUME_THREAD_IMPLEMENTATION => handle_resume_thread(contract, frame, session),
-        GET_SYSTEM_INFO_IMPLEMENTATION => handle_get_system_info(policy, contract, frame),
-        GLOBAL_MEMORY_STATUS_IMPLEMENTATION => handle_global_memory_status(policy, contract, frame),
-        VIRTUAL_ALLOC_IMPLEMENTATION => handle_virtual_alloc(policy, contract, frame, session),
-        VIRTUAL_FREE_IMPLEMENTATION => handle_virtual_free(policy, contract, frame, session),
-        GET_VERSION_EX_A_IMPLEMENTATION => {
-            handle_get_version_ex_a(policy, contract, frame, session)
-        }
-        GET_LAST_ERROR_IMPLEMENTATION => handle_get_last_error(contract, session),
-        SET_LAST_ERROR_IMPLEMENTATION => handle_set_last_error(contract, frame),
-        GET_ACP_IMPLEMENTATION => handle_get_acp(policy),
-        GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION => handle_get_system_default_lang_id(policy),
-        GET_DRIVE_TYPE_A_IMPLEMENTATION => {
-            handle_get_drive_type_a(policy, contract, frame, session)
-        }
-        GET_CP_INFO_IMPLEMENTATION => handle_get_cp_info(policy, contract, frame),
-        IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION => {
-            handle_is_processor_feature_present(policy, contract, frame)
-        }
-        SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION => {
-            handle_set_unhandled_exception_filter(contract, frame, session)
-        }
-        GET_TICK_COUNT_IMPLEMENTATION => handle_get_tick_count(policy, contract, session),
-        GET_STD_HANDLE_IMPLEMENTATION => handle_get_std_handle(policy, contract, frame, session),
-        GET_FILE_TYPE_IMPLEMENTATION => handle_get_file_type(policy, contract, frame, session),
-        SET_HANDLE_COUNT_IMPLEMENTATION => handle_set_handle_count(policy, contract, frame),
-        GET_COMMAND_LINE_A_IMPLEMENTATION => handle_get_command_line_a(contract, session),
-        GET_MODULE_FILE_NAME_A_IMPLEMENTATION => {
-            handle_get_module_file_name_a(policy, contract, frame, session)
-        }
-        GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION => {
-            handle_get_environment_strings_w(contract, session)
-        }
-        FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION => {
-            handle_free_environment_strings_w(contract, frame, session)
-        }
-        WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION => {
-            handle_wide_char_to_multi_byte(policy, contract, frame, session)
-        }
-        MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION => {
-            handle_multi_byte_to_wide_char(policy, contract, frame, session)
-        }
-        SET_CURRENT_DIRECTORY_A_IMPLEMENTATION => {
-            handle_set_current_directory_a(policy, contract, frame, session)
-        }
-        GET_FILE_ATTRIBUTES_A_IMPLEMENTATION => {
-            handle_get_file_attributes_a(policy, contract, frame, session)
-        }
-        FIND_FIRST_FILE_A_IMPLEMENTATION => {
-            handle_find_first_file_a(policy, contract, frame, session)
-        }
-        FIND_NEXT_FILE_A_IMPLEMENTATION => {
-            handle_find_next_file_a(policy, contract, frame, session)
-        }
-        FIND_CLOSE_IMPLEMENTATION => handle_find_close(policy, contract, frame, session),
-        CREATE_FILE_A_IMPLEMENTATION => handle_create_file_a(policy, contract, frame, session),
-        GET_FILE_SIZE_IMPLEMENTATION => handle_get_file_size(policy, contract, frame, session),
-        WRITE_FILE_IMPLEMENTATION => handle_write_file(policy, contract, frame, session),
-        SET_FILE_POINTER_IMPLEMENTATION => {
-            handle_set_file_pointer(policy, contract, frame, session)
-        }
-        CREATE_MUTEX_A_IMPLEMENTATION => handle_create_mutex_a(policy, contract, frame, session),
-        CREATE_EVENT_A_IMPLEMENTATION => handle_create_event_a(contract, frame, session),
-        SET_EVENT_IMPLEMENTATION => handle_set_event(contract, frame, session, true),
-        RESET_EVENT_IMPLEMENTATION => handle_set_event(contract, frame, session, false),
-        WAIT_FOR_SINGLE_OBJECT_IMPLEMENTATION => {
-            handle_wait_for_single_object(contract, frame, session)
-        }
-        CREATE_WAITABLE_TIMER_A_IMPLEMENTATION => {
-            handle_create_waitable_timer_a(policy, contract, frame, session)
-        }
-        SET_WAITABLE_TIMER_IMPLEMENTATION => {
-            handle_set_waitable_timer(policy, contract, frame, session)
-        }
-        GET_STRING_TYPE_W_IMPLEMENTATION => {
-            handle_get_string_type_w(policy, contract, frame, session)
-        }
-        LC_MAP_STRING_W_IMPLEMENTATION => handle_lc_map_string_w(policy, contract, frame, session),
-        QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION => {
-            handle_query_performance_frequency(contract, frame, session)
-        }
-        QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION => {
-            handle_query_performance_counter(policy, contract, frame, session)
-        }
-        GET_STARTUP_INFO_W_IMPLEMENTATION => handle_get_startup_info_w(contract, frame, session),
-        HEAP_SET_INFORMATION_IMPLEMENTATION => {
-            handle_heap_set_information(contract, frame, session)
-        }
-        HEAP_CREATE_IMPLEMENTATION => handle_heap_create(contract, frame, session),
-        HEAP_ALLOC_IMPLEMENTATION => handle_heap_alloc(policy, contract, frame, session),
-        HEAP_REALLOC_IMPLEMENTATION => handle_heap_realloc(policy, contract, frame, session),
-        HEAP_FREE_IMPLEMENTATION => handle_heap_free(policy, contract, frame, session),
-        HEAP_SIZE_IMPLEMENTATION => handle_heap_size(policy, contract, frame, session),
-        LOAD_LIBRARY_A_IMPLEMENTATION => handle_load_library_a(policy, contract, frame, session),
-        GET_MODULE_HANDLE_W_IMPLEMENTATION => handle_get_module_handle_w(contract, frame, session),
-        GET_PROC_ADDRESS_IMPLEMENTATION => handle_get_proc_address(contract, frame, session),
-        TLS_ALLOC_IMPLEMENTATION => handle_tls_alloc(contract, session),
-        TLS_GET_VALUE_IMPLEMENTATION => handle_tls_get_value(contract, frame, session),
-        TLS_SET_VALUE_IMPLEMENTATION => handle_tls_set_value(contract, frame, session),
-        ENCODE_POINTER_IMPLEMENTATION => handle_encode_pointer(contract, frame, session),
-        DECODE_POINTER_IMPLEMENTATION => handle_decode_pointer(contract, frame, session),
-        FLS_ALLOC_IMPLEMENTATION => handle_fls_alloc(contract, frame, session),
-        FLS_GET_VALUE_IMPLEMENTATION => handle_fls_get_value(contract, frame, session),
-        FLS_SET_VALUE_IMPLEMENTATION => handle_fls_set_value(contract, frame, session),
-        INTERLOCKED_INCREMENT_IMPLEMENTATION => {
-            handle_interlocked_increment(contract, frame, session)
-        }
-        INTERLOCKED_DECREMENT_IMPLEMENTATION => {
-            handle_interlocked_decrement(contract, frame, session)
-        }
-        INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION => {
-            handle_initialize_critical_section_and_spin_count(contract, frame, session)
-        }
-        INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION => {
-            handle_initialize_critical_section(policy, contract, frame, session)
-        }
-        ENTER_CRITICAL_SECTION_IMPLEMENTATION => {
-            handle_enter_critical_section(contract, frame, session)
-        }
-        LEAVE_CRITICAL_SECTION_IMPLEMENTATION => {
-            handle_leave_critical_section(contract, frame, session)
-        }
-        DELETE_CRITICAL_SECTION_IMPLEMENTATION => {
-            handle_delete_critical_section(contract, frame, session)
-        }
-        implementation_id => Err(ApiFault::unsupported(
-            "win32-api-dispatch",
-            "implementation-id-unsupported",
-            format!("Win32 implementation {implementation_id} is not registered"),
-        )),
-    };
-    match result {
-        Ok(immediate) => ApiHandlerResult::Immediate(immediate),
-        Err(fault) => ApiHandlerResult::Fault(fault),
-    }
-}
-
-pub fn kernel32_contract_for_endpoint(
-    endpoint: ApiEndpointIdentity,
-) -> Result<Option<ApiContract>, ApiFault> {
+pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<u8> {
     if !endpoint.module.eq_ignore_ascii_case("kernel32.dll") {
-        return Ok(None);
+        return None;
     }
     let ApiSymbol::Name { name } = &endpoint.symbol else {
-        return Ok(None);
+        return None;
     };
-    let contract = match name.as_str() {
-        "GetSystemTimeAsFileTime" => get_system_time_as_file_time_contract(endpoint)?,
-        "GetSystemTime" => get_system_time_contract(endpoint)?,
-        "GetLocalTime" => get_local_time_contract(endpoint)?,
-        "RaiseException" => raise_exception_contract(endpoint)?,
-        "RtlUnwind" => rtl_unwind_contract(endpoint)?,
-        "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
-        "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
-        "GetCurrentThread" => get_current_thread_contract(endpoint)?,
-        "GetExitCodeThread" => get_exit_code_thread_contract(endpoint)?,
-        "ExitThread" => exit_thread_contract(endpoint)?,
-        "SetThreadAffinityMask" => set_thread_affinity_mask_contract(endpoint)?,
-        "SetThreadPriority" => set_thread_priority_contract(endpoint)?,
-        "CreateThread" => create_thread_contract(endpoint)?,
-        "ResumeThread" => resume_thread_contract(endpoint)?,
-        "GetSystemInfo" => get_system_info_contract(endpoint)?,
-        "GlobalMemoryStatus" => global_memory_status_contract(endpoint)?,
-        "VirtualAlloc" => virtual_alloc_contract(endpoint)?,
-        "VirtualFree" => virtual_free_contract(endpoint)?,
-        "GetVersionExA" => get_version_ex_a_contract(endpoint)?,
-        "GetLastError" => get_last_error_contract(endpoint)?,
-        "SetLastError" => set_last_error_contract(endpoint)?,
-        "GetACP" => get_acp_contract(endpoint)?,
-        "GetSystemDefaultLangID" => get_system_default_lang_id_contract(endpoint)?,
-        "GetDriveTypeA" => get_drive_type_a_contract(endpoint)?,
-        "GetCPInfo" => get_cp_info_contract(endpoint)?,
-        "IsProcessorFeaturePresent" => is_processor_feature_present_contract(endpoint)?,
-        "SetUnhandledExceptionFilter" => set_unhandled_exception_filter_contract(endpoint)?,
-        "GetTickCount" => get_tick_count_contract(endpoint)?,
-        "GetStdHandle" => get_std_handle_contract(endpoint)?,
-        "GetFileType" => get_file_type_contract(endpoint)?,
-        "SetHandleCount" => set_handle_count_contract(endpoint)?,
-        "GetCommandLineA" => get_command_line_a_contract(endpoint)?,
-        "GetModuleFileNameA" => get_module_file_name_a_contract(endpoint)?,
-        "GetEnvironmentStringsW" => get_environment_strings_w_contract(endpoint)?,
-        "FreeEnvironmentStringsW" => free_environment_strings_w_contract(endpoint)?,
-        "WideCharToMultiByte" => wide_char_to_multi_byte_contract(endpoint)?,
-        "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
-        "SetCurrentDirectoryA" => set_current_directory_a_contract(endpoint)?,
-        "GetFileAttributesA" => get_file_attributes_a_contract(endpoint)?,
-        "FindFirstFileA" => find_first_file_a_contract(endpoint)?,
-        "FindNextFileA" => find_next_file_a_contract(endpoint)?,
-        "FindClose" => find_close_contract(endpoint)?,
-        "DeleteFileA" => delete_file_a_contract(endpoint)?,
-        "CreateDirectoryA" => create_directory_a_contract(endpoint)?,
-        "CreateFileA" => create_file_a_contract(endpoint)?,
-        "GetFileSize" => get_file_size_contract(endpoint)?,
-        "ReadFile" => read_file_contract(endpoint)?,
-        "WriteFile" => write_file_contract(endpoint)?,
-        "FlushFileBuffers" => flush_file_buffers_contract(endpoint)?,
-        "SetFilePointer" => set_file_pointer_contract(endpoint)?,
-        "CloseHandle" => close_handle_contract(endpoint)?,
-        "CreateMutexA" => create_mutex_a_contract(endpoint)?,
-        "CreateEventA" => create_event_a_contract(endpoint)?,
-        "SetEvent" => set_event_contract(endpoint)?,
-        "ResetEvent" => reset_event_contract(endpoint)?,
-        "WaitForSingleObject" => wait_for_single_object_contract(endpoint)?,
-        "WaitForMultipleObjects" => wait_for_multiple_objects_contract(endpoint)?,
-        "CreateWaitableTimerA" => create_waitable_timer_a_contract(endpoint)?,
-        "SetWaitableTimer" => set_waitable_timer_contract(endpoint)?,
-        "WaitForSingleObjectEx" => wait_for_single_object_ex_contract(endpoint)?,
-        "Sleep" => sleep_contract(endpoint)?,
-        "GetStringTypeW" => get_string_type_w_contract(endpoint)?,
-        "LCMapStringW" => lc_map_string_w_contract(endpoint)?,
-        "QueryPerformanceFrequency" => query_performance_frequency_contract(endpoint)?,
-        "QueryPerformanceCounter" => query_performance_counter_contract(endpoint)?,
-        "GetStartupInfoW" => get_startup_info_w_contract(endpoint)?,
-        "HeapSetInformation" => heap_set_information_contract(endpoint)?,
-        "HeapCreate" => heap_create_contract(endpoint)?,
-        "HeapAlloc" => heap_alloc_contract(endpoint)?,
-        "HeapReAlloc" => heap_realloc_contract(endpoint)?,
-        "HeapFree" => heap_free_contract(endpoint)?,
-        "HeapSize" => heap_size_contract(endpoint)?,
-        "LoadLibraryA" => load_library_a_contract(endpoint)?,
-        "GetModuleHandleW" => get_module_handle_w_contract(endpoint)?,
-        "GetProcAddress" => get_proc_address_contract(endpoint)?,
-        "TlsAlloc" => tls_alloc_contract(endpoint)?,
-        "TlsGetValue" => tls_get_value_contract(endpoint)?,
-        "TlsSetValue" => tls_set_value_contract(endpoint)?,
-        "EncodePointer" => encode_pointer_contract(endpoint)?,
-        "DecodePointer" => decode_pointer_contract(endpoint)?,
-        "FlsAlloc" => fls_alloc_contract(endpoint)?,
-        "FlsGetValue" => fls_get_value_contract(endpoint)?,
-        "FlsSetValue" => fls_set_value_contract(endpoint)?,
-        "InterlockedIncrement" => interlocked_increment_contract(endpoint)?,
-        "InterlockedDecrement" => interlocked_decrement_contract(endpoint)?,
-        "InitializeCriticalSectionAndSpinCount" => {
-            initialize_critical_section_and_spin_count_contract(endpoint)?
-        }
-        "InitializeCriticalSection" => initialize_critical_section_contract(endpoint)?,
-        "EnterCriticalSection" => enter_critical_section_contract(endpoint)?,
-        "LeaveCriticalSection" => leave_critical_section_contract(endpoint)?,
-        "DeleteCriticalSection" => delete_critical_section_contract(endpoint)?,
-        _ => return Ok(None),
-    };
-    Ok(Some(contract))
+    Some(match name.as_str() {
+        "GetCurrentProcessId"
+        | "GetCurrentThreadId"
+        | "GetCurrentThread"
+        | "GetLastError"
+        | "GetACP"
+        | "GetSystemDefaultLangID"
+        | "GetTickCount"
+        | "GetCommandLineA"
+        | "GetEnvironmentStringsW"
+        | "TlsAlloc" => 0,
+        "GetSystemTimeAsFileTime"
+        | "GetSystemTime"
+        | "GetLocalTime"
+        | "ExitThread"
+        | "ResumeThread"
+        | "GetSystemInfo"
+        | "GlobalMemoryStatus"
+        | "GetVersionExA"
+        | "SetLastError"
+        | "GetDriveTypeA"
+        | "IsProcessorFeaturePresent"
+        | "SetUnhandledExceptionFilter"
+        | "GetStdHandle"
+        | "GetFileType"
+        | "SetHandleCount"
+        | "FreeEnvironmentStringsW"
+        | "SetCurrentDirectoryA"
+        | "GetFileAttributesA"
+        | "FindClose"
+        | "DeleteFileA"
+        | "FlushFileBuffers"
+        | "CloseHandle"
+        | "SetEvent"
+        | "ResetEvent"
+        | "Sleep"
+        | "QueryPerformanceFrequency"
+        | "QueryPerformanceCounter"
+        | "GetStartupInfoW"
+        | "LoadLibraryA"
+        | "GetModuleHandleW"
+        | "TlsGetValue"
+        | "EncodePointer"
+        | "DecodePointer"
+        | "FlsAlloc"
+        | "FlsFree"
+        | "FlsGetValue"
+        | "InterlockedIncrement"
+        | "InterlockedDecrement"
+        | "InitializeCriticalSection"
+        | "EnterCriticalSection"
+        | "LeaveCriticalSection"
+        | "DeleteCriticalSection" => 1,
+        "GetExitCodeThread"
+        | "SetThreadAffinityMask"
+        | "SetThreadPriority"
+        | "GetCPInfo"
+        | "FindFirstFileA"
+        | "FindNextFileA"
+        | "CreateDirectoryA"
+        | "GetFileSize"
+        | "GetProcAddress"
+        | "TlsSetValue"
+        | "FlsSetValue"
+        | "InitializeCriticalSectionAndSpinCount"
+        | "WaitForSingleObject" => 2,
+        "VirtualFree"
+        | "CreateMutexA"
+        | "CreateWaitableTimerA"
+        | "WaitForSingleObjectEx"
+        | "HeapCreate"
+        | "HeapAlloc"
+        | "HeapFree"
+        | "HeapSize"
+        | "GetModuleFileNameA" => 3,
+        "RaiseException"
+        | "RtlUnwind"
+        | "VirtualAlloc"
+        | "CreateEventA"
+        | "SetFilePointer"
+        | "WaitForMultipleObjects"
+        | "GetStringTypeW"
+        | "HeapSetInformation"
+        | "HeapReAlloc" => 4,
+        "ReadFile" | "WriteFile" => 5,
+        "CreateThread" | "MultiByteToWideChar" | "SetWaitableTimer" | "LCMapStringW" => 6,
+        "CreateFileA" => 7,
+        "WideCharToMultiByte" => 8,
+        _ => return None,
+    })
 }
 
 fn handle_get_system_time_as_file_time(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(contract, frame, 0, "FILETIME output")?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void).with_guest_write(
+    let output = required_argument(endpoint, frame, 0, "FILETIME output")?;
+    Ok(ApiImmediate::new(None).with_guest_write(
         GuestAddress(output),
-        session
-            .runtime()
-            .clock()
-            .wall_clock_file_time
-            .to_le_bytes()
-            .to_vec(),
+        runtime.clock().wall_clock_file_time.to_le_bytes().to_vec(),
     ))
 }
 
 fn handle_raise_exception(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
+    cpu: Option<(crate::api::X86CpuContext, GuestAddress)>,
 ) -> ApiHandlerResult {
-    match prepare_raise_exception_callback(contract, frame, session) {
-        Ok(request) => ApiHandlerResult::GuestCallback(request),
+    match prepare_raise_exception_callback(endpoint, frame, runtime, cpu) {
+        Ok(request) => ApiHandlerResult::GuestCallback(Box::new(request)),
         Err(fault) => ApiHandlerResult::Fault(fault),
     }
 }
 
 fn handle_rtl_unwind(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> ApiHandlerResult {
-    match rtl_unwind_current_seh_frame(contract, frame, session) {
+    match rtl_unwind_current_seh_frame(endpoint, frame, runtime) {
         Ok(immediate) => ApiHandlerResult::Immediate(immediate),
         Err(fault) => ApiHandlerResult::Fault(fault),
     }
 }
 
 fn rtl_unwind_current_seh_frame(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let target_frame = GuestAddress(required_argument(contract, frame, 0, "target frame")?);
-    let target_ip = GuestAddress(required_argument(contract, frame, 1, "target instruction")?);
-    let exception_record = GuestAddress(required_argument(contract, frame, 2, "exception record")?);
-    let return_value = required_argument(contract, frame, 3, "return value")?;
+    let target_frame = GuestAddress(required_argument(endpoint, frame, 0, "target frame")?);
+    let target_ip = GuestAddress(required_argument(endpoint, frame, 1, "target instruction")?);
+    let exception_record = GuestAddress(required_argument(endpoint, frame, 2, "exception record")?);
+    let return_value = required_argument(endpoint, frame, 3, "return value")?;
     if target_frame.0 == 0 {
-        return Err(ApiFault::unsupported(
-            "win32-seh",
-            "rtl-unwind-exit-unwind-unsupported",
-            "RtlUnwind exit unwind is not implemented",
-        ));
+        return Err(ApiFault::new("RtlUnwind exit unwind is not implemented"));
     }
     if target_ip != frame.return_address {
-        return Err(ApiFault::unsupported(
-            "win32-seh",
-            "rtl-unwind-nonlocal-target-unsupported",
+        return Err(ApiFault::new(
             "RtlUnwind currently supports the reached continuation at the API return address",
         ));
     }
-    session
-        .memory()
+    runtime
+        .memory
         .validate_access(target_ip, 1, MemoryAccess::Execute)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     if exception_record.0 == 0 {
-        return Err(ApiFault::unsupported(
-            "win32-seh",
-            "rtl-unwind-generated-exception-record-unsupported",
+        return Err(ApiFault::new(
             "RtlUnwind with a generated exception record is not implemented",
         ));
     }
-    let teb_address = session
-        .runtime()
+    let teb_address = runtime
         .current_thread_teb_address()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let current_head = GuestAddress(read_guest_u32(session, teb_address, &contract.endpoint)?);
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let current_head = GuestAddress(read_guest_u32(&runtime.memory, teb_address, endpoint)?);
     if current_head != target_frame {
-        return Err(ApiFault::unsupported(
-            "win32-seh",
-            "rtl-unwind-intermediate-frames-unsupported",
+        return Err(ApiFault::new(
             "RtlUnwind currently supports a target equal to the current SEH chain head",
         ));
     }
-    let registration = read_x86_exception_registration(session, target_frame, &contract.endpoint)?;
-    let exception_bytes = session
-        .memory()
+    let registration = read_x86_exception_registration(runtime, target_frame, endpoint)?;
+    let exception_bytes = runtime
+        .memory
         .read(exception_record, X86_EXCEPTION_RECORD_BYTES)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    session
-        .memory()
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    runtime
+        .memory
         .validate_access(
             exception_record,
             X86_EXCEPTION_RECORD_BYTES,
             MemoryAccess::Write,
         )
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     let exception_flags = u32::from_le_bytes(
         exception_bytes[4..8]
             .try_into()
             .expect("exception flags word"),
     );
     if exception_flags & !EXCEPTION_NONCONTINUABLE != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-seh",
-            "rtl-unwind-exception-flags-unsupported",
+        return Err(ApiFault::new(
             "RtlUnwind currently supports the reached noncontinuable dispatch record",
         ));
     }
@@ -656,13 +268,7 @@ fn rtl_unwind_current_seh_frame(
         .0
         .checked_add(4)
         .map(GuestAddress)
-        .ok_or_else(|| {
-            ApiFault::invalid_call(
-                "win32-seh",
-                "rtl-unwind-exception-flags-address-overflow",
-                "RtlUnwind exception flags cross the x86 address limit",
-            )
-        })?;
+        .ok_or_else(|| ApiFault::new("RtlUnwind exception flags cross the x86 address limit"))?;
     let writes = [
         ApiGuestWrite {
             address: teb_address,
@@ -675,103 +281,70 @@ fn rtl_unwind_current_seh_frame(
                 .to_vec(),
         },
     ];
-    let receipts = session
-        .commit_indirect_guest_writes(&writes)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    let mut immediate = ApiImmediate::new(ApiReturnValue::Void).with_void_eax(return_value);
-    for receipt in receipts {
-        immediate = immediate.with_committed_guest_write(receipt);
-    }
-    Ok(immediate)
+    commit_indirect_guest_writes(&mut runtime.memory, &writes)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(return_value)))
 }
 
 fn prepare_raise_exception_callback(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
+    cpu: Option<(crate::api::X86CpuContext, GuestAddress)>,
 ) -> Result<GuestCallbackRequest, ApiFault> {
-    let exception_code = required_argument(contract, frame, 0, "exception code")?;
-    let exception_flags = required_argument(contract, frame, 1, "exception flags")?;
-    let argument_count = required_argument(contract, frame, 2, "exception argument count")?;
-    let arguments_address = required_argument(contract, frame, 3, "exception arguments")?;
+    let exception_code = required_argument(endpoint, frame, 0, "exception code")?;
+    let exception_flags = required_argument(endpoint, frame, 1, "exception flags")?;
+    let argument_count = required_argument(endpoint, frame, 2, "exception argument count")?;
+    let arguments_address = required_argument(endpoint, frame, 3, "exception arguments")?;
     if exception_flags != EXCEPTION_NONCONTINUABLE {
-        return Err(ApiFault::unsupported(
-            "win32-seh",
-            "raise-exception-flags-unsupported",
+        return Err(ApiFault::new(
             "RaiseException currently supports the reached noncontinuable exception variant",
         ));
     }
-    let argument_count = usize::try_from(argument_count).map_err(|_| {
-        ApiFault::resource_limit(
-            "win32-seh",
-            "exception-argument-count-unrepresentable",
-            "RaiseException argument count does not fit host accounting",
-        )
-    })?;
+    let argument_count = usize::try_from(argument_count)
+        .map_err(|_| ApiFault::new("RaiseException argument count does not fit host accounting"))?;
     if argument_count > EXCEPTION_MAXIMUM_PARAMETERS {
-        return Err(ApiFault::invalid_call(
-            "win32-seh",
-            "exception-argument-count-invalid",
+        return Err(ApiFault::new(
             "RaiseException accepts at most 15 exception arguments",
         ));
     }
-    let argument_bytes = argument_count.checked_mul(4).ok_or_else(|| {
-        ApiFault::resource_limit(
-            "win32-seh",
-            "exception-argument-bytes-overflow",
-            "RaiseException argument bytes overflowed host accounting",
-        )
-    })?;
+    let argument_bytes = argument_count
+        .checked_mul(4)
+        .ok_or_else(|| ApiFault::new("RaiseException argument bytes overflowed host accounting"))?;
     let exception_arguments = if argument_bytes == 0 {
         Vec::new()
     } else {
         if arguments_address == 0 {
-            return Err(ApiFault::invalid_call(
-                "win32-seh",
-                "exception-arguments-null",
+            return Err(ApiFault::new(
                 "RaiseException requires a readable arguments array when the count is nonzero",
             ));
         }
-        session
-            .memory()
+        runtime
+            .memory
             .read(GuestAddress(arguments_address), argument_bytes)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?
             .chunks_exact(4)
             .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("four-byte chunk")))
             .collect::<Vec<_>>()
     };
 
-    let context = session.x86_context().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-seh",
-            "x86-context-missing",
-            "RaiseException dispatch requires the authoritative x86 register snapshot",
-        )
+    let (context, callback_return_sentinel) = cpu.ok_or_else(|| {
+        ApiFault::new("RaiseException dispatch requires the authoritative x86 register snapshot")
     })?;
-    if context.esp != frame.stack_pointer.0 || context.eip != contract.endpoint.address.0 {
-        return Err(ApiFault::invalid_call(
-            "win32-seh",
-            "x86-context-api-frame-mismatch",
+    if context.esp != frame.stack_pointer.0 || context.eip != endpoint.address.0 {
+        return Err(ApiFault::new(
             "RaiseException register snapshot does not identify the trapped API frame",
         ));
     }
-    let callback_return_sentinel = session.guest_callback_return_sentinel().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-seh",
-            "callback-return-sentinel-missing",
-            "RaiseException dispatch requires the process callback return sentinel",
-        )
-    })?;
-    let teb_address = session
-        .runtime()
+    let teb_address = runtime
         .current_thread_teb_address()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let exception_list = read_guest_u32(session, teb_address, &contract.endpoint)?;
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let exception_list = read_guest_u32(&runtime.memory, teb_address, endpoint)?;
     if exception_list == u32::MAX {
         return Err(unhandled_exception_fault(exception_code));
     }
     let registration =
-        read_x86_exception_registration(session, GuestAddress(exception_list), &contract.endpoint)?;
+        read_x86_exception_registration(runtime, GuestAddress(exception_list), endpoint)?;
     let scratch = x86_exception_dispatch_scratch(
         exception_code,
         exception_flags,
@@ -785,11 +358,6 @@ fn prepare_raise_exception_callback(
         scratch,
         callback_return_sentinel,
     );
-    session.preflight_guest_callback(&ApiGuestCallbackCall {
-        request: Box::new(request.clone()),
-        contract: contract.clone(),
-        frame: frame.clone(),
-    })?;
     Ok(request)
 }
 
@@ -801,48 +369,35 @@ struct X86ExceptionRegistration {
 }
 
 fn read_x86_exception_registration(
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
     frame: GuestAddress,
     endpoint: &ApiEndpointIdentity,
 ) -> Result<X86ExceptionRegistration, ApiFault> {
     if frame.0 == u32::MAX || !frame.0.is_multiple_of(4) {
-        return Err(ApiFault::invalid_call(
-            "win32-seh",
-            "exception-registration-address-invalid",
+        return Err(ApiFault::new(
             "SEH registration frame must be aligned and may not be the chain terminator",
         ));
     }
-    let stack = session
-        .runtime()
+    let stack = runtime
         .current_thread_state()
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?
         .stack
         .as_ref()
         .ok_or_else(|| {
-            ApiFault::runtime_defect(
-                "win32-seh",
-                "thread-stack-missing",
-                "SEH registration validation requires a registered x86 thread stack",
-            )
+            ApiFault::new("SEH registration validation requires a registered x86 thread stack")
         })?;
-    let frame_end = u64::from(frame.0).checked_add(8).ok_or_else(|| {
-        ApiFault::invalid_call(
-            "win32-seh",
-            "exception-registration-range-overflow",
-            "SEH registration frame crosses the x86 address limit",
-        )
-    })?;
+    let frame_end = u64::from(frame.0)
+        .checked_add(8)
+        .ok_or_else(|| ApiFault::new("SEH registration frame crosses the x86 address limit"))?;
     if u64::from(frame.0) < u64::from(stack.committed_range.start().0)
         || frame_end > stack.committed_range.end()
     {
-        return Err(ApiFault::invalid_call(
-            "win32-seh",
-            "exception-registration-outside-stack",
+        return Err(ApiFault::new(
             "SEH registration frame is outside the current thread committed stack",
         ));
     }
-    let bytes = session
-        .memory()
+    let bytes = runtime
+        .memory
         .read(frame, 8)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     let next = GuestAddress(u32::from_le_bytes(
@@ -852,27 +407,21 @@ fn read_x86_exception_registration(
         bytes[4..8].try_into().expect("handler word"),
     ));
     if next.0 != u32::MAX {
-        let next_end = u64::from(next.0).checked_add(8).ok_or_else(|| {
-            ApiFault::invalid_call(
-                "win32-seh",
-                "exception-registration-next-overflow",
-                "next SEH registration crosses the x86 address limit",
-            )
-        })?;
+        let next_end = u64::from(next.0)
+            .checked_add(8)
+            .ok_or_else(|| ApiFault::new("next SEH registration crosses the x86 address limit"))?;
         if !next.0.is_multiple_of(4)
             || next.0 <= frame.0
             || u64::from(next.0) < u64::from(stack.committed_range.start().0)
             || next_end > stack.committed_range.end()
         {
-            return Err(ApiFault::invalid_call(
-                "win32-seh",
-                "exception-registration-next-invalid",
+            return Err(ApiFault::new(
                 "SEH registration chain must advance monotonically within the committed stack",
             ));
         }
     }
-    session
-        .memory()
+    runtime
+        .memory
         .validate_access(handler, 1, MemoryAccess::Execute)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     Ok(X86ExceptionRegistration {
@@ -883,12 +432,11 @@ fn read_x86_exception_registration(
 }
 
 fn read_guest_u32(
-    session: &ExecutionSession<'_>,
+    memory: &GuestMemory,
     address: GuestAddress,
     endpoint: &ApiEndpointIdentity,
 ) -> Result<u32, ApiFault> {
-    let bytes = session
-        .memory()
+    let bytes = memory
         .read(address, 4)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     Ok(u32::from_le_bytes(
@@ -936,13 +484,12 @@ fn x86_exception_dispatch_scratch(
         .stack_pointer
         .0
         .checked_add(4)
-        .and_then(|value| value.checked_add(frame.argument_bytes))
+        .and_then(|value| {
+            let argument_bytes = u32::try_from(frame.arguments.len()).ok()?.checked_mul(4)?;
+            value.checked_add(argument_bytes)
+        })
         .ok_or_else(|| {
-            ApiFault::invalid_call(
-                "win32-seh",
-                "exception-context-stack-overflow",
-                "RaiseException continuation stack crosses the x86 address limit",
-            )
+            ApiFault::new("RaiseException continuation stack crosses the x86 address limit")
         })?;
     write_scratch_u32(&mut scratch, context_offset + 196, continuation_esp);
     write_scratch_u32(&mut scratch, context_offset + 200, context.ss);
@@ -980,26 +527,22 @@ fn exception_dispatch_callback_request(
 }
 
 fn unhandled_exception_fault(exception_code: u32) -> ApiFault {
-    ApiFault::unsupported(
-        "win32-seh",
-        "unhandled-exception",
-        format!("guest exception {exception_code:#010x} reached the end of the SEH chain"),
-    )
+    ApiFault::new(format!(
+        "guest exception {exception_code:#010x} reached the end of the SEH chain"
+    ))
 }
 
 pub(crate) fn resolve_exception_dispatch_callback(
     call: &ApiGuestCallbackCall,
     result: u32,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> ApiHandlerResult {
     let GuestCallbackCompletionPolicy::ExceptionDispatch {
         next_frame,
         exception_flags,
     } = call.request.completion_policy
     else {
-        return ApiHandlerResult::Fault(ApiFault::runtime_defect(
-            "win32-seh",
-            "exception-callback-policy-mismatch",
+        return ApiHandlerResult::Fault(ApiFault::new(
             "SEH callback continuation has the wrong completion policy",
         ));
     };
@@ -1013,105 +556,66 @@ pub(crate) fn resolve_exception_dispatch_callback(
             if next_frame.0 == u32::MAX {
                 return ApiHandlerResult::Fault(unhandled_exception_fault(exception_code));
             }
-            match read_x86_exception_registration(session, next_frame, &call.frame.endpoint) {
+            match read_x86_exception_registration(runtime, next_frame, &call.frame.endpoint) {
                 Ok(registration) => {
-                    ApiHandlerResult::GuestCallback(exception_dispatch_callback_request(
+                    ApiHandlerResult::GuestCallback(Box::new(exception_dispatch_callback_request(
                         registration,
                         exception_flags,
                         call.request.scratch.clone(),
                         call.request.return_sentinel,
-                    ))
+                    )))
                 }
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
         EXCEPTION_CONTINUE_EXECUTION if exception_flags & EXCEPTION_NONCONTINUABLE != 0 => {
-            ApiHandlerResult::Fault(ApiFault::invalid_call(
-                "win32-seh",
-                "noncontinuable-exception-continued",
+            ApiHandlerResult::Fault(ApiFault::new(
                 "guest SEH handler attempted to continue a noncontinuable exception",
             ))
         }
-        EXCEPTION_CONTINUE_EXECUTION => ApiHandlerResult::Fault(ApiFault::unsupported(
-            "win32-seh",
-            "continuable-exception-resume-unsupported",
+        EXCEPTION_CONTINUE_EXECUTION => ApiHandlerResult::Fault(ApiFault::new(
             "restoring a handler-modified x86 CONTEXT is not implemented",
         )),
-        EXCEPTION_NESTED_EXCEPTION => ApiHandlerResult::Fault(ApiFault::unsupported(
-            "win32-seh",
-            "nested-exception-disposition-unsupported",
+        EXCEPTION_NESTED_EXCEPTION => ApiHandlerResult::Fault(ApiFault::new(
             "nested SEH exception disposition is not implemented",
         )),
-        EXCEPTION_COLLIDED_UNWIND => ApiHandlerResult::Fault(ApiFault::unsupported(
-            "win32-seh",
-            "collided-unwind-disposition-unsupported",
+        EXCEPTION_COLLIDED_UNWIND => ApiHandlerResult::Fault(ApiFault::new(
             "collided SEH unwind disposition is not implemented",
         )),
-        _ => ApiHandlerResult::Fault(ApiFault::invalid_call(
-            "win32-seh",
-            "exception-disposition-invalid",
-            format!("guest SEH handler returned invalid disposition {result}"),
-        )),
+        _ => ApiHandlerResult::Fault(ApiFault::new(format!(
+            "guest SEH handler returned invalid disposition {result}"
+        ))),
     }
 }
 
 fn handle_get_system_time(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(contract, frame, 0, "SYSTEMTIME output")?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void).with_guest_write(
+    let output = required_argument(endpoint, frame, 0, "SYSTEMTIME output")?;
+    Ok(ApiImmediate::new(None).with_guest_write(
         GuestAddress(output),
-        system_time_bytes(session.runtime().clock().wall_clock_file_time),
+        system_time_bytes(runtime.clock().wall_clock_file_time),
     ))
 }
 
 fn handle_get_local_time(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let offset_minutes = policy.local_time_utc_offset_minutes().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-clock",
-            "local-time-offset-unconfigured",
-            "GetLocalTime requires one explicit runtime UTC offset",
-        )
-    })?;
-    let local_file_time = local_file_time(
-        session.runtime().clock().wall_clock_file_time,
-        offset_minutes,
-    )?;
-    let output = required_argument(contract, frame, 0, "SYSTEMTIME output")?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void)
+    let local_file_time = local_file_time(runtime.clock().wall_clock_file_time)?;
+    let output = required_argument(endpoint, frame, 0, "SYSTEMTIME output")?;
+    Ok(ApiImmediate::new(None)
         .with_guest_write(GuestAddress(output), system_time_bytes(local_file_time)))
 }
 
-fn local_file_time(file_time: u64, offset_minutes: i16) -> Result<u64, ApiFault> {
-    const FILE_TIME_TICKS_PER_MINUTE: u64 = 600_000_000;
-
-    let offset_ticks = u64::from(offset_minutes.unsigned_abs())
-        .checked_mul(FILE_TIME_TICKS_PER_MINUTE)
-        .ok_or_else(|| {
-            ApiFault::runtime_defect(
-                "win32-clock",
-                "local-time-offset-overflow",
-                "configured local-time offset exceeds FILETIME arithmetic",
-            )
-        })?;
-    let local_file_time = if offset_minutes >= 0 {
-        file_time.checked_add(offset_ticks)
-    } else {
-        file_time.checked_sub(offset_ticks)
-    };
-    local_file_time.ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-clock",
-            "local-time-projection-overflow",
-            "runtime wall clock cannot be projected through the configured UTC offset",
-        )
+fn local_file_time(file_time: u64) -> Result<u64, ApiFault> {
+    // Fixed Japanese environment: UTC+09:00, without daylight saving.
+    const JAPAN_OFFSET_TICKS: u64 = 540 * 600_000_000;
+    file_time.checked_add(JAPAN_OFFSET_TICKS).ok_or_else(|| {
+        ApiFault::new("runtime wall clock cannot be projected to Japanese local time")
     })
 }
 
@@ -1161,581 +665,328 @@ fn civil_date_from_days_since_1970(days: i64) -> (u64, u64, u64) {
     (year as u64, month as u64, day as u64)
 }
 
-fn handle_get_current_process_id(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
-    Ok(ApiImmediate::new(ApiReturnValue::U32(
-        session.runtime().process_id().0,
-    )))
-}
-
-fn handle_get_current_thread_id(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
-    Ok(ApiImmediate::new(ApiReturnValue::U32(
-        session.runtime().current_thread_id().0,
-    )))
-}
-
 fn handle_get_current_thread(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let resolution = session
-        .runtime()
-        .resolve_current_thread_pseudo_handle()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::U32(resolution.value)))
+    let handle = runtime
+        .current_thread_pseudo_handle()
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(handle)))
 }
 
 fn handle_get_exit_code_thread(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "thread handle")?);
-    let output = GuestAddress(required_argument(contract, frame, 1, "exit code output")?);
-    let exit_code = match session
-        .runtime()
-        .object_wait_state(handle, RuntimeObjectKind::Thread)
-    {
-        Ok(RuntimeWaitState::Nonsignaled) => STILL_ACTIVE,
-        Ok(RuntimeWaitState::Signaled { exit_code }) => exit_code,
-        Err(error)
-            if matches!(
-                error.class,
-                RuntimeStateErrorClass::InvalidInput
-                    | RuntimeStateErrorClass::NotFound
-                    | RuntimeStateErrorClass::Conflict
-            ) =>
-        {
-            return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_INVALID_HANDLE));
-        }
-        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "thread handle")?);
+    let output = GuestAddress(required_argument(endpoint, frame, 1, "exit code output")?);
+    let Some(exit_code) = runtime
+        .thread_exit_code(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    else {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE));
     };
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-        .with_last_error(preserved_last_error)
+    Ok(ApiImmediate::new(Some(u32::from(true)))
         .with_guest_write(output, exit_code.to_le_bytes().to_vec()))
 }
 
 fn handle_exit_thread(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let exit_code = required_argument(contract, frame, 0, "exit code")?;
-    let thread_id = session.runtime().current_thread_id();
-    let thread = session
-        .runtime()
+    let exit_code = required_argument(endpoint, frame, 0, "exit code")?;
+    let thread_id = runtime.current_thread_id();
+    let thread = runtime
         .thread_state(thread_id)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
     if thread.guest_bootstrap.is_none() {
-        return Err(ApiFault::unsupported(
-            "win32-thread-lifecycle",
-            "exit-thread-initial-thread-unsupported",
+        return Err(ApiFault::new(
             "bounded ExitThread currently supports dynamically created guest threads",
         ));
     }
     if !thread.callback_frames.is_empty() {
-        return Err(ApiFault::unsupported(
-            "win32-thread-lifecycle",
-            "exit-thread-callback-unwind-unsupported",
+        return Err(ApiFault::new(
             "bounded ExitThread requires no active guest callback frames",
         ));
     }
-    Ok(ApiImmediate::new(ApiReturnValue::Void)
-        .with_void_eax(exit_code)
+    Ok(ApiImmediate::new(Some(exit_code))
         .with_execution_boundary(RuntimeApiBoundaryDisposition::TerminateCurrentThread))
 }
 
-fn handle_virtual_alloc(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_virtual_alloc_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let preferred_address = required_argument(contract, frame, 0, "preferred address")?;
-    let byte_length = required_argument(contract, frame, 1, "reservation size")?;
-    let allocation_type = required_argument(contract, frame, 2, "allocation type")?;
-    let protection = required_argument(contract, frame, 3, "protection")?;
-    let virtual_alloc = policy.virtual_alloc().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-virtual-memory",
-            "virtual-alloc-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable VirtualAlloc",
-                policy.id
-            ),
-        )
-    })?;
-    let reserve_enabled = allocation_type == (MEM_RESERVE | MEM_TOP_DOWN)
-        && (!virtual_alloc.require_null_preferred_address || preferred_address == 0)
-        && virtual_alloc
-            .allowed_reserve_byte_lengths
-            .contains(&byte_length);
-    let commit_enabled = allocation_type == MEM_COMMIT
-        && preferred_address != 0
-        && byte_length != 0
-        && virtual_alloc
-            .maximum_commit_byte_length
-            .is_some_and(|maximum| byte_length <= maximum);
-    if (!reserve_enabled && !commit_enabled)
-        || !virtual_alloc
-            .allowed_allocation_types
-            .contains(&allocation_type)
-        || !virtual_alloc.allowed_protections.contains(&protection)
+    let preferred = required_argument(endpoint, frame, 0, "preferred address")?;
+    let size = required_argument(endpoint, frame, 1, "reservation size")?;
+    let allocation_type = required_argument(endpoint, frame, 2, "allocation type")?;
+    let protection = required_argument(endpoint, frame, 3, "protection")?;
+    if protection != PAGE_READWRITE
+        || (allocation_type != MEM_COMMIT && allocation_type != (MEM_RESERVE | MEM_TOP_DOWN))
     {
-        return Err(ApiFault::unsupported(
-            "win32-virtual-memory",
-            "virtual-alloc-variant-unsupported",
-            format!(
-                "compatibility policy {} does not enable VirtualAlloc({preferred_address:#010x}, {byte_length:#010x}, {allocation_type:#010x}, {protection:#010x})",
-                policy.id
-            ),
+        return Err(ApiFault::new(
+            "VirtualAlloc currently supports read/write top-down reserve and commit inside a reservation",
         ));
     }
-    let system_info = policy.system_info().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-virtual-memory",
-            "virtual-alloc-system-info-missing",
-            "validated VirtualAlloc policy has no x86 system-information profile",
-        )
-    })?;
+    if size == 0
+        || (allocation_type == (MEM_RESERVE | MEM_TOP_DOWN) && preferred != 0)
+        || (allocation_type == MEM_COMMIT
+            && (preferred == 0 || !preferred.is_multiple_of(crate::memory::GUEST_PAGE_SIZE as u32)))
+    {
+        return virtual_memory_failure(Some(0), ERROR_INVALID_PARAMETER);
+    }
+    let page = crate::memory::GUEST_PAGE_SIZE as u32;
+    let rounded_size = size.checked_add(page - 1).map(|value| value & !(page - 1));
+    let Some(rounded_size) = rounded_size else {
+        return virtual_memory_failure(Some(0), ERROR_INVALID_PARAMETER);
+    };
     let page_protection = crate::memory::PageProtection {
-        read: protection == PAGE_READWRITE,
-        write: protection == PAGE_READWRITE,
+        read: true,
+        write: true,
         execute: false,
     };
-    if commit_enabled {
-        let commitment = session
-            .commit_virtual_memory(RuntimeVirtualMemoryCommitRequest {
-                address: GuestAddress(preferred_address),
-                byte_length,
-                protection: page_protection,
-            })
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        return Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
-            commitment.range.base.0,
-        )));
-    }
-    let reservation = session
-        .reserve_virtual_memory(RuntimeVirtualMemoryReserveRequest {
-            preferred_address: None,
-            byte_length,
-            minimum_application_address: GuestAddress(system_info.minimum_application_address),
-            maximum_application_address: GuestAddress(system_info.maximum_application_address),
-            allocation_granularity: system_info.allocation_granularity,
-            top_down: allocation_type == (MEM_RESERVE | MEM_TOP_DOWN),
-            protection: page_protection,
-        })
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
-        reservation.range.base.0,
-    )))
-}
-
-fn handle_virtual_free(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let address = required_argument(contract, frame, 0, "decommit address")?;
-    let byte_length = required_argument(contract, frame, 1, "decommit size")?;
-    let free_type = required_argument(contract, frame, 2, "free type")?;
-    let virtual_alloc = policy.virtual_alloc().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-virtual-memory",
-            "virtual-free-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable VirtualFree",
-                policy.id
-            ),
-        )
-    })?;
-    let decommit_enabled = free_type == MEM_DECOMMIT
-        && address != 0
-        && address % crate::memory::GUEST_PAGE_SIZE as u32 == 0
-        && byte_length != 0
-        && virtual_alloc
-            .maximum_decommit_byte_length
-            .is_some_and(|maximum| byte_length <= maximum);
-    if !decommit_enabled {
-        return Err(ApiFault::unsupported(
-            "win32-virtual-memory",
-            "virtual-free-variant-unsupported",
-            format!(
-                "compatibility policy {} does not enable VirtualFree({address:#010x}, {byte_length:#010x}, {free_type:#010x})",
-                policy.id
-            ),
-        ));
-    }
-    session
-        .decommit_virtual_memory(RuntimeVirtualMemoryDecommitRequest {
-            address: GuestAddress(address),
-            byte_length,
-        })
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
-}
-
-fn handle_set_thread_affinity_mask(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let thread_handle = required_argument(contract, frame, 0, "thread handle")?;
-    let requested_mask = required_argument(contract, frame, 1, "thread affinity mask")?;
-    let process_mask = policy.thread_affinity_process_mask().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-thread-affinity",
-            "set-thread-affinity-mask-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable thread affinity",
-                policy.id
-            ),
-        )
-    })?;
-    if thread_handle == 0 {
-        return Ok(ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INVALID_HANDLE));
-    }
-    if thread_handle != RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE {
-        return Err(ApiFault::unsupported(
-            "win32-thread-affinity",
-            "set-thread-affinity-mask-handle-unsupported",
-            "SetThreadAffinityMask currently accepts only the current-thread pseudo-handle",
-        ));
-    }
-    if requested_mask == 0 || requested_mask & !process_mask != 0 {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INVALID_PARAMETER)
-        );
-    }
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let previous_mask = session
-        .runtime_mut()
-        .set_current_thread_affinity_mask(process_mask, requested_mask)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::U32(previous_mask)).with_last_error(preserved_last_error))
-}
-
-fn handle_set_thread_priority(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let thread_handle = required_argument(contract, frame, 0, "thread handle")?;
-    let priority_value =
-        i32::from_le_bytes(required_argument(contract, frame, 1, "thread priority")?.to_le_bytes());
-    let Some(priority) = RuntimeThreadPriority::from_win32_value(priority_value) else {
-        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-            .with_last_error(ERROR_INVALID_PARAMETER));
-    };
-    if !policy.allows_thread_priority(priority_value) {
-        return Err(ApiFault::unsupported(
-            "win32-thread-priority",
-            "set-thread-priority-value-unsupported",
-            format!(
-                "compatibility policy {} does not enable thread priority {priority_value}",
-                policy.id
-            ),
-        ));
-    }
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    // GetCurrentThread() returns a pseudo handle that always designates the calling thread.
-    let outcome = if thread_handle == RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE {
-        session.runtime_mut().set_current_thread_priority(priority)
+    let result = if allocation_type == MEM_COMMIT {
+        runtime.commit_virtual_memory(GuestAddress(preferred), size, page_protection)
     } else {
-        session
-            .runtime_mut()
-            .set_thread_priority(RuntimeHandle(thread_handle), priority)
+        runtime.reserve_virtual_memory(rounded_size)
     };
-    match outcome {
-        Ok(_) => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-                .with_last_error(preserved_last_error))
-        }
-        Err(error)
-            if matches!(
-                error.class,
-                RuntimeStateErrorClass::InvalidInput
-                    | RuntimeStateErrorClass::NotFound
-                    | RuntimeStateErrorClass::Conflict
-            ) =>
-        {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_INVALID_HANDLE))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    match result {
+        Ok(Ok(address)) => Ok(ApiImmediate::new(Some(address.0))),
+        Ok(Err(last_error)) => virtual_memory_failure(Some(0), last_error),
+        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
     }
 }
 
-fn handle_create_thread(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_virtual_free_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    const CREATE_SUSPENDED: u32 = 0x0000_0004;
+    let address = required_argument(endpoint, frame, 0, "decommit address")?;
+    let size = required_argument(endpoint, frame, 1, "decommit size")?;
+    let free_type = required_argument(endpoint, frame, 2, "free type")?;
+    if free_type != MEM_DECOMMIT {
+        return Err(ApiFault::new(
+            "VirtualFree currently supports nonempty decommit inside a reservation",
+        ));
+    }
+    if address == 0 || size == 0 || !address.is_multiple_of(crate::memory::GUEST_PAGE_SIZE as u32) {
+        return virtual_memory_failure(Some(u32::from(false)), ERROR_INVALID_PARAMETER);
+    }
+    match runtime.decommit_virtual_memory(GuestAddress(address), size) {
+        Ok(Ok(())) => Ok(ApiImmediate::new(Some(u32::from(true)))),
+        Ok(Err(last_error)) => virtual_memory_failure(Some(u32::from(false)), last_error),
+        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
+    }
+}
 
-    let thread_policy = policy.create_thread().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-thread-bootstrap",
-            "create-thread-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable guest thread creation",
-                policy.id
-            ),
-        )
-    })?;
-    let security_attributes = required_argument(contract, frame, 0, "security attributes")?;
-    let stack_size = required_argument(contract, frame, 1, "stack size")?;
-    let start_address = required_argument(contract, frame, 2, "start address")?;
-    let parameter = required_argument(contract, frame, 3, "thread parameter")?;
-    let creation_flags = required_argument(contract, frame, 4, "creation flags")?;
-    let thread_id_output = required_argument(contract, frame, 5, "thread ID output")?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let failed = |last_error| {
-        ApiImmediate::new(ApiReturnValue::LogicalHandle {
-            namespace: RUNTIME_THREAD_OBJECT_NAMESPACE.to_owned(),
-            value: 0,
-        })
-        .with_last_error(last_error)
+fn virtual_memory_failure(value: Option<u32>, last_error: u32) -> Result<ApiImmediate, ApiFault> {
+    Ok(ApiImmediate::new(value).with_last_error(last_error))
+}
+
+fn handle_set_thread_affinity_mask_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "thread handle")?);
+    let requested_mask = required_argument(endpoint, frame, 1, "thread affinity mask")?;
+    match runtime
+        .set_thread_affinity_mask(handle, requested_mask)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        Ok(previous_mask) => Ok(ApiImmediate::new(Some(previous_mask))),
+        Err(last_error) => Ok(ApiImmediate::new(Some(0)).with_last_error(last_error)),
+    }
+}
+
+fn set_thread_priority_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let thread_handle = required_argument(endpoint, frame, 0, "thread handle")?;
+    let priority_value =
+        i32::from_le_bytes(required_argument(endpoint, frame, 1, "thread priority")?.to_le_bytes());
+    let Some(priority) = RuntimeThreadPriority::from_win32_value(priority_value) else {
+        return Ok(
+            ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_PARAMETER)
+        );
     };
+    let success = runtime
+        .set_thread_priority(RuntimeHandle(thread_handle), priority)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let immediate = ApiImmediate::new(Some(u32::from(success)));
+    Ok(if success {
+        immediate
+    } else {
+        immediate.with_last_error(ERROR_INVALID_HANDLE)
+    })
+}
+
+fn handle_create_thread_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let stack = runtime
+        .thread_stack(runtime.current_thread_id())
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let stack_reserve_bytes = stack.reserved_range.byte_length();
+    let stack_commit_bytes = stack.initial_commit_bytes;
+    const CREATE_SUSPENDED: u32 = 0x0000_0004;
+    let security_attributes = required_argument(endpoint, frame, 0, "security attributes")?;
+    let stack_size = required_argument(endpoint, frame, 1, "stack size")?;
+    let start_address = required_argument(endpoint, frame, 2, "start address")?;
+    let parameter = required_argument(endpoint, frame, 3, "thread parameter")?;
+    let creation_flags = required_argument(endpoint, frame, 4, "creation flags")?;
+    let thread_id_output = required_argument(endpoint, frame, 5, "thread ID output")?;
+    let failed = |last_error| ApiImmediate::new(Some(0)).with_last_error(last_error);
+
+    if thread_id_output != 0 {
+        runtime
+            .memory
+            .validate_access(
+                GuestAddress(thread_id_output),
+                size_of::<u32>(),
+                MemoryAccess::Write,
+            )
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    }
 
     if security_attributes != 0
         || stack_size != 0
         || start_address == 0
-        || !thread_policy
-            .allowed_creation_flags
-            .contains(&creation_flags)
+        || !matches!(creation_flags, 0 | CREATE_SUSPENDED)
     {
         return Ok(failed(ERROR_INVALID_PARAMETER));
     }
-    if session.runtime().scheduler().thread_states().len() >= thread_policy.maximum_threads as usize
-    {
-        return Ok(failed(ERROR_NOT_ENOUGH_MEMORY));
-    }
-    frame
-        .argument_bytes
-        .checked_add(4)
-        .and_then(|cleanup| frame.stack_pointer.0.checked_add(cleanup))
-        .ok_or_else(|| {
-            ApiFault::invalid_call(
-                "win32-thread-bootstrap",
-                "create-thread-return-stack-overflow",
-                "CreateThread return cleanup crosses the x86 address limit",
-            )
-        })?;
-
-    let result = match session.create_guest_thread(RuntimeCreateThreadRequest {
-        stack_reserve_bytes: u64::from(thread_policy.default_stack_reserve_bytes),
-        stack_commit_bytes: u64::from(thread_policy.default_stack_commit_bytes),
+    let (thread_id, handle) = match runtime.create_guest_thread(RuntimeCreateThreadRequest {
+        stack_reserve_bytes,
+        stack_commit_bytes,
         entry_point: GuestAddress(start_address),
         parameter,
         thread_id_output: (thread_id_output != 0).then_some(GuestAddress(thread_id_output)),
         initial_suspend_count: u32::from(creation_flags & CREATE_SUSPENDED != 0),
     }) {
-        Ok(result) => result,
-        Err(error) if error.class == RuntimeStateErrorClass::ResourceLimit => {
+        Ok(Some(result)) => result,
+        Ok(None) => {
             return Ok(failed(ERROR_NOT_ENOUGH_MEMORY));
         }
-        Err(error)
-            if matches!(
-                error.class,
-                RuntimeStateErrorClass::InvalidInput
-                    | RuntimeStateErrorClass::NotFound
-                    | RuntimeStateErrorClass::Conflict
-            ) =>
-        {
-            return Ok(failed(ERROR_INVALID_PARAMETER));
-        }
-        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        Err(error) => return Err(ApiFault::from_runtime(error, endpoint)),
     };
-    let mut immediate = ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: RUNTIME_THREAD_OBJECT_NAMESPACE.to_owned(),
-        value: result.handle.0,
-    })
-    .with_last_error(preserved_last_error);
-    if let (Some(address), Some(write)) = (result.thread_id_output, result.thread_id_write) {
-        immediate = immediate.with_committed_guest_write(ApiGuestWriteReceipt {
-            write: ApiGuestWrite {
-                address,
-                bytes: result.thread_id.0.to_le_bytes().to_vec(),
-            },
-            result: write,
-        });
-    }
+    let mut immediate = ApiImmediate::new(Some(handle.0));
+    immediate.created_thread = Some(thread_id);
     Ok(immediate)
 }
 
 fn handle_resume_thread(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "thread handle")?);
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    if handle.kind() != Ok(RuntimeObjectKind::Thread)
-        || session
-            .runtime()
-            .object_for_handle(handle, RuntimeObjectKind::Thread)
-            .is_err()
-    {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::U32(u32::MAX)).with_last_error(ERROR_INVALID_HANDLE)
-        );
-    }
-    match session.runtime_mut().resume_thread(handle) {
-        Ok(result) => Ok(
-            ApiImmediate::new(ApiReturnValue::U32(result.previous_suspend_count))
-                .with_last_error(preserved_last_error),
-        ),
-        Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
-            Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
-                .with_last_error(ERROR_INVALID_HANDLE))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
-    }
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "thread handle")?);
+    let previous_count = runtime
+        .resume_thread(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let immediate = ApiImmediate::new(Some(previous_count));
+    Ok(if previous_count == u32::MAX {
+        immediate.with_last_error(ERROR_INVALID_HANDLE)
+    } else {
+        immediate
+    })
 }
 
-fn handle_get_system_info(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_get_system_info_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
 ) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(contract, frame, 0, "SYSTEM_INFO output")?;
-    let info = policy.system_info().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-system-info",
-            "get-system-info-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable x86 system information",
-                policy.id
-            ),
-        )
-    })?;
-    let active_processor_mask = policy.thread_affinity_process_mask().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-system-info",
-            "get-system-info-affinity-policy-missing",
-            "validated x86 system information has no virtual process affinity mask",
-        )
-    })?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void).with_guest_write(
-        GuestAddress(output),
-        x86_system_info_bytes(&info, active_processor_mask),
-    ))
+    let output = GuestAddress(required_argument(endpoint, frame, 0, "SYSTEM_INFO output")?);
+    let mut info = Vec::with_capacity(36);
+    info.extend_from_slice(&0_u16.to_le_bytes()); // PROCESSOR_ARCHITECTURE_INTEL
+    info.extend_from_slice(&0_u16.to_le_bytes()); // reserved
+    info.extend_from_slice(&4096_u32.to_le_bytes());
+    info.extend_from_slice(&0x0001_0000_u32.to_le_bytes());
+    info.extend_from_slice(&0x7ffe_ffff_u32.to_le_bytes());
+    info.extend_from_slice(&1_u32.to_le_bytes()); // one virtual processor and affinity mask
+    info.extend_from_slice(&1_u32.to_le_bytes());
+    info.extend_from_slice(&586_u32.to_le_bytes()); // PROCESSOR_INTEL_PENTIUM
+    info.extend_from_slice(&65536_u32.to_le_bytes());
+    info.extend_from_slice(&6_u16.to_le_bytes());
+    info.extend_from_slice(&0_u16.to_le_bytes());
+    Ok(ApiImmediate::new(None).with_guest_write(output, info))
 }
 
-fn x86_system_info_bytes(info: &Kernel32SystemInfoPolicy, active_processor_mask: u32) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(36);
-    bytes.extend_from_slice(&info.processor_architecture.to_le_bytes());
-    bytes.extend_from_slice(&0_u16.to_le_bytes());
-    bytes.extend_from_slice(&info.page_size.to_le_bytes());
-    bytes.extend_from_slice(&info.minimum_application_address.to_le_bytes());
-    bytes.extend_from_slice(&info.maximum_application_address.to_le_bytes());
-    bytes.extend_from_slice(&active_processor_mask.to_le_bytes());
-    bytes.extend_from_slice(&active_processor_mask.count_ones().to_le_bytes());
-    bytes.extend_from_slice(&info.processor_type.to_le_bytes());
-    bytes.extend_from_slice(&info.allocation_granularity.to_le_bytes());
-    bytes.extend_from_slice(&info.processor_level.to_le_bytes());
-    bytes.extend_from_slice(&info.processor_revision.to_le_bytes());
-    bytes
-}
-
-fn handle_global_memory_status(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_global_memory_status_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(contract, frame, 0, "MEMORYSTATUS output")?;
-    let status = policy.memory_status().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-system-info",
-            "global-memory-status-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable x86 memory status",
-                policy.id
-            ),
-        )
-    })?;
-    let system_info = policy.system_info().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-system-info",
-            "global-memory-status-system-info-missing",
-            "validated x86 memory status has no virtual address profile",
-        )
-    })?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void).with_guest_write(
-        GuestAddress(output),
-        x86_memory_status_bytes(&status, &system_info),
-    ))
-}
-
-fn x86_memory_status_bytes(
-    status: &Kernel32MemoryStatusPolicy,
-    system_info: &Kernel32SystemInfoPolicy,
-) -> Vec<u8> {
-    const X86_MEMORY_STATUS_BYTES: u32 = 32;
-
-    let total_virtual_bytes = system_info
-        .maximum_application_address
-        .checked_sub(system_info.minimum_application_address)
-        .and_then(|span| span.checked_add(1))
-        .expect("validated x86 application-address span");
-    let mut bytes = Vec::with_capacity(X86_MEMORY_STATUS_BYTES as usize);
-    for value in [
-        X86_MEMORY_STATUS_BYTES,
-        status.memory_load_percent,
-        status.total_physical_bytes,
-        status.available_physical_bytes,
-        status.total_page_file_bytes,
-        status.available_page_file_bytes,
-        total_virtual_bytes,
-        status.available_virtual_bytes,
-    ] {
-        bytes.extend_from_slice(&value.to_le_bytes());
-    }
-    bytes
-}
-
-fn handle_get_version_ex_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    memory: &GuestMemory,
 ) -> Result<ApiImmediate, ApiFault> {
     let output = GuestAddress(required_argument(
-        contract,
+        endpoint,
+        frame,
+        0,
+        "MEMORYSTATUS output",
+    )?);
+    let limits = memory.limits();
+    let stats = memory.stats();
+    // The physical figures describe this process's bounded guest-memory budget,
+    // not the browser host's memory or the v86 execution mirror.
+    let total_physical = (limits.max_physical_pages as u64)
+        .saturating_mul(4096)
+        .min(u64::from(u32::MAX)) as u32;
+    let available_physical = (limits
+        .max_physical_pages
+        .saturating_sub(stats.physical_pages) as u64)
+        .saturating_mul(4096)
+        .min(u64::from(total_physical)) as u32;
+    // Match the x86 application span reported by GetSystemInfo. Reserved guest
+    // pages cannot be allocated a second time even when not committed.
+    const TOTAL_VIRTUAL: u32 = 0x7ffe_0000;
+    let available_virtual = TOTAL_VIRTUAL.saturating_sub(
+        (stats.reserved_pages as u64)
+            .saturating_mul(4096)
+            .min(u64::from(TOTAL_VIRTUAL)) as u32,
+    );
+    let memory_load = if total_physical == 0 {
+        100
+    } else {
+        ((u64::from(total_physical - available_physical) * 100) / u64::from(total_physical)) as u32
+    };
+    let mut bytes = Vec::with_capacity(32);
+    for word in [
+        32,
+        memory_load,
+        total_physical,
+        available_physical,
+        total_physical,
+        available_physical,
+        TOTAL_VIRTUAL,
+        available_virtual,
+    ] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    Ok(ApiImmediate::new(None).with_guest_write(output, bytes))
+}
+
+fn handle_get_version_ex_a_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    memory: &GuestMemory,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = GuestAddress(required_argument(
+        endpoint,
         frame,
         0,
         "OSVERSIONINFOA output",
     )?);
-    let version = policy.os_version_info_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-os-version",
-            "get-version-ex-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable ANSI OS version information",
-                policy.id
-            ),
-        )
-    })?;
-    let declared_size_bytes = session
-        .memory()
+    let declared_size_bytes = memory
         .read(output, size_of::<u32>())
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     let declared_size = u32::from_le_bytes(
         declared_size_bytes
             .try_into()
@@ -1745,509 +996,318 @@ fn handle_get_version_ex_a(
         declared_size,
         X86_OS_VERSION_INFO_A_BASE_BYTES | X86_OS_VERSION_INFO_EX_A_BYTES
     ) {
-        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-            .with_last_error(ERROR_INSUFFICIENT_BUFFER));
+        return Ok(
+            ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INSUFFICIENT_BUFFER)
+        );
     }
 
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let mut bytes = session
-        .memory()
+    let mut bytes = memory
         .read(output, declared_size as usize)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?
-        .to_vec();
-    merge_os_version_info_a(&mut bytes, version);
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-        .with_guest_write(output, bytes)
-        .with_last_error(preserved_last_error))
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    merge_os_version_info_a(&mut bytes);
+    Ok(ApiImmediate::new(Some(u32::from(true))).with_guest_write(output, bytes))
 }
 
-fn merge_os_version_info_a(bytes: &mut [u8], version: &Kernel32OsVersionInfoAPolicy) {
-    bytes[4..8].copy_from_slice(&version.major_version.to_le_bytes());
-    bytes[8..12].copy_from_slice(&version.minor_version.to_le_bytes());
-    bytes[12..16].copy_from_slice(&version.build_number.to_le_bytes());
-    bytes[16..20].copy_from_slice(&version.platform_id.to_le_bytes());
-    let service_pack = version.service_pack.as_bytes();
-    bytes[20..20 + service_pack.len()].copy_from_slice(service_pack);
-    bytes[20 + service_pack.len()] = 0;
+fn merge_os_version_info_a(bytes: &mut [u8]) {
+    // Fixed NT 10.0 / build 19045 workstation, independent of the browser host.
+    bytes[4..8].copy_from_slice(&10_u32.to_le_bytes());
+    bytes[8..12].copy_from_slice(&0_u32.to_le_bytes());
+    bytes[12..16].copy_from_slice(&19045_u32.to_le_bytes());
+    bytes[16..20].copy_from_slice(&2_u32.to_le_bytes());
+    bytes[20] = 0; // Empty service-pack string; preserve its unused tail.
     if bytes.len() == X86_OS_VERSION_INFO_EX_A_BYTES as usize {
-        bytes[148..150].copy_from_slice(&version.service_pack_major.to_le_bytes());
-        bytes[150..152].copy_from_slice(&version.service_pack_minor.to_le_bytes());
-        bytes[152..154].copy_from_slice(&version.suite_mask.to_le_bytes());
-        bytes[154] = version.product_type;
+        bytes[148..154].fill(0);
+        bytes[154] = 1; // VER_NT_WORKSTATION
         bytes[155] = 0;
     }
 }
 
 fn handle_get_last_error(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    Ok(ApiImmediate::new(ApiReturnValue::U32(
-        session
-            .last_error()
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
+    Ok(ApiImmediate::new(Some(
+        runtime
+            .current_last_error()
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?,
     )))
 }
 
 fn handle_set_last_error(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
 ) -> Result<ApiImmediate, ApiFault> {
-    let error = required_argument(contract, frame, 0, "LastError value")?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void).with_last_error(error))
-}
-
-fn handle_get_acp(policy: &Kernel32CompatibilityPolicy) -> Result<ApiImmediate, ApiFault> {
-    let active_code_page = policy.active_code_page().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-code-page",
-            "get-acp-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable an active ANSI code page",
-                policy.id
-            ),
-        )
-    })?;
-    Ok(ApiImmediate::new(ApiReturnValue::U32(active_code_page)))
-}
-
-fn handle_get_system_default_lang_id(
-    policy: &Kernel32CompatibilityPolicy,
-) -> Result<ApiImmediate, ApiFault> {
-    let lang_id = policy.system_default_lang_id().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-locale",
-            "get-system-default-lang-id-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable a system-default LANGID",
-                policy.id
-            ),
-        )
-    })?;
-    Ok(ApiImmediate::new(ApiReturnValue::U16(lang_id)))
-}
-
-fn handle_get_drive_type_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    const DRIVE_NO_ROOT_DIR: u32 = 1;
-    const DRIVE_FIXED: u32 = 3;
-
-    let drive_policy = policy.get_drive_type_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-process-drive",
-            "get-drive-type-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable GetDriveTypeA",
-                policy.id
-            ),
-        )
-    })?;
-    let root_path_address = required_argument(contract, frame, 0, "ANSI root path")?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let root_path = if root_path_address == 0 {
-        None
-    } else {
-        Some(read_nul_terminated_drive_root_path(
-            contract,
-            session,
-            GuestAddress(root_path_address),
-            drive_policy,
-        )?)
-    };
-    let result = if drive_policy.process_image_drive_only
-        && session
-            .runtime()
-            .is_process_image_drive_root_a(root_path.as_deref())
-    {
-        DRIVE_FIXED
-    } else {
-        DRIVE_NO_ROOT_DIR
-    };
-    Ok(ApiImmediate::new(ApiReturnValue::U32(result)).with_last_error(preserved_last_error))
+    let error = required_argument(endpoint, frame, 0, "LastError value")?;
+    Ok(ApiImmediate::new(None).with_last_error(error))
 }
 
 fn read_nul_terminated_drive_root_path(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     source: GuestAddress,
-    policy: Kernel32GetDriveTypeAPolicy,
+    maximum: usize,
 ) -> Result<Vec<u8>, ApiFault> {
-    let maximum = usize::try_from(policy.maximum_path_bytes).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-process-drive",
-            "get-drive-type-a-limit-not-representable",
-            "validated ANSI drive-root path limit does not fit host accounting",
-        )
-    })?;
     let mut bytes = Vec::new();
     for offset in 0..maximum {
-        let address = add_guest_offset(contract, source, offset)?;
-        let byte = session
-            .memory()
+        let address = add_guest_offset(endpoint, source, offset)?;
+        let byte = memory
             .read(address, 1)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
         bytes.push(byte);
         if byte == 0 {
             return Ok(bytes);
         }
     }
-    Err(ApiFault::resource_limit(
-        "win32-process-drive",
-        "get-drive-type-a-path-not-terminated",
-        format!(
-            "ANSI drive-root path exceeds compatibility policy limit {}",
-            policy.maximum_path_bytes
-        ),
+    Err(ApiFault::new(format!(
+        "ANSI drive-root path exceeds the {} byte DOS path limit",
+        maximum
+    )))
+}
+
+fn handle_get_drive_type_a_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = required_argument(endpoint, frame, 0, "ANSI root path")?;
+    let root = if address == 0 {
+        None
+    } else {
+        Some(read_nul_terminated_drive_root_path(
+            endpoint,
+            &runtime.memory,
+            GuestAddress(address),
+            260,
+        )?)
+    };
+    // Only the process image's mounted drive exists. Do not claim unmounted guest drives.
+    let drive_type = if runtime.is_process_image_drive_root_a(root.as_deref()) {
+        3 // DRIVE_FIXED
+    } else {
+        1 // DRIVE_NO_ROOT_DIR
+    };
+    Ok(ApiImmediate::new(Some(drive_type)))
+}
+
+fn handle_get_cp_info_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let code_page = required_argument(endpoint, frame, 0, "code page")?;
+    let output = GuestAddress(required_argument(endpoint, frame, 1, "CPINFO output")?);
+    if code_page != CP_ACP && code_page != WINDOWS_932_CODE_PAGE {
+        return Err(ApiFault::new(format!(
+            "GetCPInfo does not implement code page {code_page}"
+        )));
+    }
+    Ok(ApiImmediate::new(Some(u32::from(true))).with_guest_write(
+        output,
+        vec![
+            2, 0, 0, 0, b'?', 0, 0x81, 0x9f, 0xe0, 0xfc, 0, 0, 0, 0, 0, 0, 0, 0,
+        ],
     ))
 }
 
-fn handle_get_cp_info(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_is_processor_feature_present_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
 ) -> Result<ApiImmediate, ApiFault> {
-    let code_page = required_argument(contract, frame, 0, "code page")?;
-    let output = required_argument(contract, frame, 1, "CPINFO output")?;
-    let (active_code_page, info) = policy.active_code_page_info().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-code-page",
-            "get-cp-info-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable active code-page information",
-                policy.id
-            ),
-        )
-    })?;
-    if code_page != active_code_page {
-        return Err(ApiFault::unsupported(
-            "win32-code-page",
-            "get-cp-info-code-page-unsupported",
-            format!(
-                "compatibility policy {} enables GetCPInfo only for active code page {active_code_page}, not {code_page}",
-                policy.id
-            ),
-        ));
-    }
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-        .with_guest_write(GuestAddress(output), x86_cp_info_bytes(info)))
-}
-
-fn x86_cp_info_bytes(info: &Kernel32CodePageInfoPolicy) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(18);
-    bytes.extend_from_slice(&info.max_char_size.to_le_bytes());
-    bytes.extend_from_slice(&info.default_char);
-    bytes.extend_from_slice(&info.lead_byte);
-    bytes
-}
-
-fn handle_is_processor_feature_present(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-) -> Result<ApiImmediate, ApiFault> {
-    let index = required_argument(contract, frame, 0, "processor feature index")?;
-    let present = policy.processor_feature_presence(index).ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-processor-feature",
-            "processor-feature-index-unsupported",
-            format!(
-                "compatibility policy {} does not define processor feature index {index}",
-                policy.id
-            ),
-        )
-    })?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(present)))
+    let index = required_argument(endpoint, frame, 0, "processor feature index")?;
+    // The pinned i386 CPU implements SSE2. Do not advertise other CPU capabilities
+    // without verifying that the executing engine provides them.
+    // Unadvertised and unknown feature selectors return FALSE, as this query
+    // describes supported capabilities rather than requesting their execution.
+    Ok(ApiImmediate::new(Some(u32::from(index == 10))))
 }
 
 fn handle_set_unhandled_exception_filter(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let filter_value = required_argument(contract, frame, 0, "unhandled exception filter")?;
+    let filter_value = required_argument(endpoint, frame, 0, "unhandled exception filter")?;
     // Registration only records the filter; Windows validates nothing until an unhandled
     // exception actually dispatches to it, so an address that is not executable yet is legal.
     let filter = (filter_value != 0).then_some(GuestAddress(filter_value));
-    let previous = session
-        .runtime_mut()
+    let previous = runtime
         .set_unhandled_exception_filter(filter)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(
         previous.map_or(0, |address| address.0),
     )))
 }
 
 fn handle_get_tick_count(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    session: &mut ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let tick_count = match policy.tick_count_increment_per_read() {
-        Some(increment) => session
-            .runtime_mut()
-            .sample_tick_count(increment)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
-        None => session.runtime().clock().tick_count,
-    };
-    Ok(ApiImmediate::new(ApiReturnValue::U32(tick_count)))
+    let tick_count = runtime
+        .sample_tick_count()
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(tick_count)))
 }
 
-fn handle_get_std_handle(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_get_std_handle_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let selector = required_argument(contract, frame, 0, "standard handle selector")?;
-    if !policy.allows_standard_handle(selector) {
-        return Err(ApiFault::unsupported(
-            "win32-standard-handle",
-            "standard-handle-selector-unsupported",
-            format!(
-                "compatibility policy {} does not enable selector {selector:#010x}",
-                policy.id
-            ),
-        ));
-    }
-    let standard_handle = session
-        .runtime_mut()
+    let selector = required_argument(endpoint, frame, 0, "standard handle selector")?;
+    let handle = runtime
         .ensure_standard_handle(selector)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        .clone();
-    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: standard_handle.namespace,
-        value: standard_handle.handle,
-    }))
-}
-
-fn handle_get_file_type(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let handle = required_argument(contract, frame, 0, "standard handle")?;
-    let standard_handle = session
-        .runtime()
-        .standard_handle_by_value(handle)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let file_type = policy
-        .standard_handle_file_type(standard_handle.selector)
-        .ok_or_else(|| {
-            ApiFault::unsupported(
-                "win32-file-type",
-                "file-type-standard-handle-unsupported",
-                format!(
-                    "compatibility policy {} does not classify selector {:#010x}",
-                    policy.id, standard_handle.selector
-                ),
-            )
-        })?;
-    Ok(ApiImmediate::new(ApiReturnValue::U32(file_type)))
-}
-
-fn handle_set_handle_count(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-) -> Result<ApiImmediate, ApiFault> {
-    let count = required_argument(contract, frame, 0, "handle count")?;
-    if !policy.allows_set_handle_count(count) {
-        return Err(ApiFault::unsupported(
-            "win32-handle-table",
-            "set-handle-count-unsupported",
-            format!(
-                "compatibility policy {} does not enable SetHandleCount({count})",
-                policy.id
-            ),
-        ));
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    if handle == u32::MAX {
+        return Ok(ApiImmediate::new(Some(handle)).with_last_error(ERROR_INVALID_PARAMETER));
     }
-    Ok(ApiImmediate::new(ApiReturnValue::U32(count)))
+    Ok(ApiImmediate::new(Some(handle)))
+}
+
+fn handle_get_file_type_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = required_argument(endpoint, frame, 0, "file handle")?;
+    let Some(file_type) = runtime
+        .file_type(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    else {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE));
+    };
+    Ok(ApiImmediate::new(Some(file_type)))
+}
+
+fn handle_set_handle_count_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    Ok(ApiImmediate::new(Some(required_argument(
+        endpoint,
+        frame,
+        0,
+        "handle count",
+    )?)))
 }
 
 fn handle_get_command_line_a(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let command_line = session
-        .runtime()
+    let command_line = runtime
         .process_command_line()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let bytes = session
-        .memory()
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let bytes = runtime
+        .memory
         .read(
             command_line.ansi_buffer_address,
             usize::try_from(command_line.ansi_byte_length_with_nul).map_err(|_| {
-                ApiFault::runtime_defect(
-                    "win32-command-line",
-                    "ansi-command-line-length-not-representable",
-                    "runtime ANSI command-line length does not fit host accounting",
-                )
+                ApiFault::new("runtime ANSI command-line length does not fit host accounting")
             })?,
         )
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     if bytes.last() != Some(&0) || bytes[..bytes.len().saturating_sub(1)].contains(&0) {
-        return Err(ApiFault::unsupported(
-            "win32-command-line",
-            "ansi-command-line-mutation-unsupported",
+        return Err(ApiFault::new(
             "the process-owned ANSI command-line view no longer has its bounded NUL-terminated shape",
         ));
     }
-    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
-        command_line.ansi_buffer_address.0,
-    )))
+    Ok(ApiImmediate::new(Some(command_line.ansi_buffer_address.0)))
 }
 
-fn handle_get_module_file_name_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_get_module_file_name_a_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let module_handle = required_argument(contract, frame, 0, "module handle")?;
-    let output_address = required_argument(contract, frame, 1, "ANSI module file-name output")?;
-    let capacity = required_argument(contract, frame, 2, "ANSI module file-name capacity")?;
-    let file_name_policy = policy.get_module_file_name_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-module-file-name",
-            "get-module-file-name-a-policy-missing",
-            format!(
-                "compatibility policy {} does not enable GetModuleFileNameA",
-                policy.id
-            ),
-        )
-    })?;
-    if module_handle != 0 || !file_name_policy.main_module_only {
-        return Err(ApiFault::unsupported(
-            "win32-module-file-name",
-            "get-module-file-name-a-explicit-module-unsupported",
-            "the selected GetModuleFileNameA policy enables only the current process image",
+    const MAXIMUM_CAPACITY: u32 = 32768;
+    let module_handle = required_argument(endpoint, frame, 0, "module handle")?;
+    let output_address = required_argument(endpoint, frame, 1, "ANSI module file-name output")?;
+    let capacity = required_argument(endpoint, frame, 2, "ANSI module file-name capacity")?;
+    if module_handle != 0 {
+        return Err(ApiFault::new(
+            "GetModuleFileNameA currently supports only the current process image",
         ));
     }
-    if capacity > file_name_policy.maximum_capacity_bytes {
-        return Err(ApiFault::resource_limit(
-            "win32-module-file-name",
-            "get-module-file-name-a-capacity-limit-exceeded",
-            format!(
-                "ANSI module file-name capacity {capacity} exceeds the policy limit of {} bytes",
-                file_name_policy.maximum_capacity_bytes
-            ),
-        ));
+    if capacity > MAXIMUM_CAPACITY {
+        return Err(ApiFault::new(format!(
+            "ANSI module file-name capacity {capacity} exceeds the limit of {MAXIMUM_CAPACITY} bytes"
+        )));
     }
     if capacity == 0 {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INSUFFICIENT_BUFFER)
-        );
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INSUFFICIENT_BUFFER));
     }
     if output_address == 0 {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(ERROR_INVALID_PARAMETER)
-        );
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
     }
 
-    let image_path = session.runtime().process_image_path_a();
-    if image_path.encoding != RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING
-        || image_path.bytes_with_nul.len() < 2
-        || image_path.bytes_with_nul.last() != Some(&0)
-        || image_path.bytes_with_nul[..image_path.bytes_with_nul.len() - 1].contains(&0)
-    {
-        return Err(ApiFault::runtime_defect(
-            "win32-module-file-name",
-            "process-image-path-a-invalid",
-            "runtime process image path lost its bounded Windows-932 NUL-terminated shape",
-        ));
-    }
+    let image_path = runtime.process_image_path_a();
     let capacity = usize::try_from(capacity).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-module-file-name",
-            "get-module-file-name-a-capacity-not-representable",
-            "validated ANSI module file-name capacity does not fit host accounting",
-        )
+        ApiFault::new("validated ANSI module file-name capacity does not fit host accounting")
     })?;
     let output = GuestAddress(output_address);
-    session
-        .memory()
+    runtime
+        .memory
         .validate_access(output, capacity, MemoryAccess::Write)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     let path_length = image_path.bytes_with_nul.len() - 1;
     if capacity <= path_length {
         let mut truncated = image_path.bytes_with_nul[..capacity].to_vec();
         *truncated
             .last_mut()
             .expect("positive GetModuleFileNameA capacity") = 0;
-        return Ok(ApiImmediate::new(ApiReturnValue::U32(capacity as u32))
+        return Ok(ApiImmediate::new(Some(capacity as u32))
             .with_last_error(ERROR_INSUFFICIENT_BUFFER)
             .with_guest_write(output, truncated));
     }
-    Ok(ApiImmediate::new(ApiReturnValue::U32(path_length as u32))
+    Ok(ApiImmediate::new(Some(path_length as u32))
         .with_last_error(ERROR_SUCCESS)
         .with_guest_write(output, image_path.bytes_with_nul.clone()))
 }
 
 fn handle_get_environment_strings_w(
-    contract: &ApiContract,
-    session: &mut ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let environment = session
-        .runtime()
+    let environment = runtime
         .process_environment_strings()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
         .clone();
     let byte_length = usize::try_from(environment.byte_length_with_double_nul).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-environment-strings",
-            "wide-environment-length-not-representable",
-            "runtime wide environment length does not fit host accounting",
-        )
+        ApiFault::new("runtime wide environment length does not fit host accounting")
     })?;
-    let authority = session
-        .memory()
+    let authority = runtime
+        .memory
         .read(environment.authority_buffer_address, byte_length)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    let copy = session
-        .memory()
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let copy = runtime
+        .memory
         .read(environment.copy_buffer_address, byte_length)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     if authority != [0, 0, 0, 0] || copy != authority {
-        return Err(ApiFault::unsupported(
-            "win32-environment-strings",
-            "wide-environment-mutation-unsupported",
+        return Err(ApiFault::new(
             "the controlled wide environment authority or copy no longer has its empty double-NUL shape",
         ));
     }
-    let copy = session
-        .runtime_mut()
+    let copy = runtime
         .acquire_environment_strings_w()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
-        copy.buffer_address.0,
-    )))
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(copy.0)))
 }
 
 fn handle_free_environment_strings_w(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
     let buffer_address = GuestAddress(required_argument(
-        contract,
+        endpoint,
         frame,
         0,
         "wide environment-string copy",
     )?);
-    session
-        .runtime_mut()
+    runtime
         .free_environment_strings_w(buffer_address)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true))))
 }
 
 #[derive(Debug)]
@@ -2256,56 +1316,36 @@ struct Windows932Unit {
     used_default: bool,
 }
 
-fn handle_wide_char_to_multi_byte(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_wide_char_to_multi_byte_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    memory: &GuestMemory,
 ) -> Result<ApiImmediate, ApiFault> {
-    let code_page = required_argument(contract, frame, 0, "code page")?;
-    let flags = required_argument(contract, frame, 1, "conversion flags")?;
-    let source_address = required_argument(contract, frame, 2, "UTF-16 source")?;
-    let source_count = required_argument(contract, frame, 3, "UTF-16 source length")? as i32;
-    let destination_address = required_argument(contract, frame, 4, "byte destination")?;
-    let destination_bytes = required_argument(contract, frame, 5, "byte destination length")?;
-    let default_char = required_argument(contract, frame, 6, "default character")?;
-    let used_default_char = required_argument(contract, frame, 7, "used-default output")?;
-    let conversion = policy.wide_char_to_multi_byte().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-code-page",
-            "wide-char-to-multi-byte-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable WideCharToMultiByte",
-                policy.id
-            ),
-        )
-    })?;
+    const MAXIMUM_SOURCE_CODE_UNITS: usize = 65_536;
+    let code_page = required_argument(endpoint, frame, 0, "code page")?;
+    let flags = required_argument(endpoint, frame, 1, "conversion flags")?;
+    let source_address = required_argument(endpoint, frame, 2, "UTF-16 source")?;
+    let source_count = required_argument(endpoint, frame, 3, "UTF-16 source length")? as i32;
+    let destination_address = required_argument(endpoint, frame, 4, "byte destination")?;
+    let destination_bytes = required_argument(endpoint, frame, 5, "byte destination length")?;
+    let default_char = required_argument(endpoint, frame, 6, "default character")?;
+    let used_default_char = required_argument(endpoint, frame, 7, "used-default output")?;
     let effective_code_page = if code_page == CP_ACP {
-        conversion.active_code_page
+        WINDOWS_932_CODE_PAGE
     } else {
         code_page
     };
     if effective_code_page != WINDOWS_932_CODE_PAGE || flags != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-code-page",
-            "wide-char-to-multi-byte-variant-unsupported",
-            format!(
-                "compatibility policy {} enables CP_ACP/Windows-932 with flags 0, not code page {code_page} and flags {flags:#010x}",
-                policy.id
-            ),
-        ));
+        return Err(ApiFault::new(format!(
+            "Windows-932 conversion does not support code page {code_page} and flags {flags:#010x}"
+        )));
     }
     if default_char != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-code-page",
-            "wide-char-explicit-default-unsupported",
+        return Err(ApiFault::new(
             "the Windows-932 handler currently uses only the system default character",
         ));
     }
 
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     if source_address == 0 || source_count == 0 || source_count < -1 {
         return Ok(wide_char_failure(ERROR_INVALID_PARAMETER));
     }
@@ -2315,26 +1355,22 @@ fn handle_wide_char_to_multi_byte(
         return Ok(wide_char_failure(ERROR_INVALID_PARAMETER));
     }
     if used_default_char != 0 {
-        session
-            .memory()
+        memory
             .validate_access(GuestAddress(used_default_char), 4, MemoryAccess::Write)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     }
 
     let source_units = read_wide_char_source(
-        contract,
-        session,
+        endpoint,
+        memory,
         GuestAddress(source_address),
         source_count,
-        conversion,
+        MAXIMUM_SOURCE_CODE_UNITS,
     )?;
-    let source_byte_length = source_units.len().checked_mul(2).ok_or_else(|| {
-        ApiFault::resource_limit(
-            "win32-code-page",
-            "wide-char-source-length-overflow",
-            "UTF-16 source length overflowed host accounting",
-        )
-    })?;
+    let source_byte_length = source_units
+        .len()
+        .checked_mul(2)
+        .ok_or_else(|| ApiFault::new("UTF-16 source length overflowed host accounting"))?;
     if conversion_call
         && guest_ranges_overlap(
             source_address,
@@ -2348,26 +1384,17 @@ fn handle_wide_char_to_multi_byte(
 
     let encoded = encode_windows_932(&source_units)?;
     let encoded_length = encoded.iter().try_fold(0_usize, |length, unit| {
-        length.checked_add(unit.bytes.len()).ok_or_else(|| {
-            ApiFault::resource_limit(
-                "win32-code-page",
-                "wide-char-output-length-overflow",
-                "Windows-932 output length overflowed host accounting",
-            )
-        })
+        length
+            .checked_add(unit.bytes.len())
+            .ok_or_else(|| ApiFault::new("Windows-932 output length overflowed host accounting"))
     })?;
     let encoded_length_u32 = u32::try_from(encoded_length).map_err(|_| {
-        ApiFault::resource_limit(
-            "win32-code-page",
-            "wide-char-output-length-not-representable",
-            "Windows-932 output length does not fit the x86 return value",
-        )
+        ApiFault::new("Windows-932 output length does not fit the x86 return value")
     })?;
     let used_default = encoded.iter().any(|unit| unit.used_default);
 
     if query {
-        let mut immediate = ApiImmediate::new(ApiReturnValue::U32(encoded_length_u32))
-            .with_last_error(preserved_last_error);
+        let mut immediate = ApiImmediate::new(Some(encoded_length_u32));
         if used_default_char != 0 {
             immediate = immediate.with_guest_write(
                 GuestAddress(used_default_char),
@@ -2382,9 +1409,7 @@ fn handle_wide_char_to_multi_byte(
     let mut prefix_used_default = false;
     for unit in &encoded {
         let Some(next_length) = output.len().checked_add(unit.bytes.len()) else {
-            return Err(ApiFault::resource_limit(
-                "win32-code-page",
-                "wide-char-output-length-overflow",
+            return Err(ApiFault::new(
                 "Windows-932 prefix length overflowed host accounting",
             ));
         };
@@ -2395,26 +1420,19 @@ fn handle_wide_char_to_multi_byte(
         prefix_used_default |= unit.used_default;
     }
     if !output.is_empty() {
-        session
-            .memory()
+        memory
             .validate_access(
                 GuestAddress(destination_address),
                 output.len(),
                 MemoryAccess::Write,
             )
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     }
     let complete = output.len() == encoded_length;
-    let mut immediate = ApiImmediate::new(ApiReturnValue::U32(if complete {
-        encoded_length_u32
-    } else {
-        0
-    }))
-    .with_last_error(if complete {
-        preserved_last_error
-    } else {
-        ERROR_INSUFFICIENT_BUFFER
-    });
+    let mut immediate = ApiImmediate::new(Some(if complete { encoded_length_u32 } else { 0 }));
+    if !complete {
+        immediate = immediate.with_last_error(ERROR_INSUFFICIENT_BUFFER);
+    }
     if !output.is_empty() {
         immediate = immediate.with_guest_write(GuestAddress(destination_address), output);
     }
@@ -2434,79 +1452,55 @@ fn handle_wide_char_to_multi_byte(
 }
 
 fn read_wide_char_source(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     source: GuestAddress,
     source_count: i32,
-    policy: &Kernel32WideCharToMultiBytePolicy,
+    maximum: usize,
 ) -> Result<Vec<u16>, ApiFault> {
-    let maximum = policy.maximum_source_code_units as usize;
     let unit_count = if source_count == -1 {
         let mut units = Vec::new();
         for offset in 0..maximum {
             let address = add_guest_offset(
-                contract,
+                endpoint,
                 source,
                 offset.checked_mul(2).ok_or_else(|| {
-                    ApiFault::resource_limit(
-                        "win32-code-page",
-                        "wide-char-source-offset-overflow",
-                        "UTF-16 source offset overflowed host accounting",
-                    )
+                    ApiFault::new("UTF-16 source offset overflowed host accounting")
                 })?,
             )?;
-            let bytes = session
-                .memory()
+            let bytes = memory
                 .read(address, 2)
-                .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+                .map_err(|error| ApiFault::from_memory(error, endpoint))?;
             let unit = u16::from_le_bytes([bytes[0], bytes[1]]);
             units.push(unit);
             if unit == 0 {
                 return Ok(units);
             }
         }
-        return Err(ApiFault::resource_limit(
-            "win32-code-page",
-            "wide-char-source-not-terminated",
-            format!(
-                "UTF-16 source did not terminate within the policy limit of {} code units",
-                policy.maximum_source_code_units
-            ),
-        ));
+        return Err(ApiFault::new(format!(
+            "UTF-16 source did not terminate within the limit of {} code units",
+            maximum
+        )));
     } else {
         usize::try_from(source_count).map_err(|_| {
-            ApiFault::runtime_defect(
-                "win32-code-page",
-                "wide-char-source-count-not-representable",
-                "validated positive UTF-16 source count does not fit host accounting",
-            )
+            ApiFault::new("validated positive UTF-16 source count does not fit host accounting")
         })?
     };
     if unit_count > maximum {
-        return Err(ApiFault::resource_limit(
-            "win32-code-page",
-            "wide-char-source-limit-exceeded",
-            format!(
-                "UTF-16 source count {unit_count} exceeds the policy limit of {}",
-                policy.maximum_source_code_units
-            ),
-        ));
+        return Err(ApiFault::new(format!(
+            "UTF-16 source count {unit_count} exceeds the limit of {}",
+            maximum
+        )));
     }
-    let byte_length = unit_count.checked_mul(2).ok_or_else(|| {
-        ApiFault::resource_limit(
-            "win32-code-page",
-            "wide-char-source-length-overflow",
-            "UTF-16 source length overflowed host accounting",
-        )
-    })?;
-    session
-        .memory()
+    let byte_length = unit_count
+        .checked_mul(2)
+        .ok_or_else(|| ApiFault::new("UTF-16 source length overflowed host accounting"))?;
+    memory
         .validate_access(source, byte_length, MemoryAccess::Read)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    let bytes = session
-        .memory()
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let bytes = memory
         .read(source, byte_length)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     Ok(bytes
         .chunks_exact(2)
         .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
@@ -2537,16 +1531,12 @@ fn encode_windows_932(source: &[u16]) -> Result<Vec<Windows932Unit>, ApiFault> {
                 used_default: true,
             }),
             EncoderResult::OutputFull => {
-                return Err(ApiFault::runtime_defect(
-                    "win32-code-page",
-                    "windows-932-unit-buffer-too-small",
+                return Err(ApiFault::new(
                     "Windows-932 encoder exceeded its bounded per-unit output buffer",
                 ));
             }
             _ => {
-                return Err(ApiFault::runtime_defect(
-                    "win32-code-page",
-                    "windows-932-encoder-progress-invalid",
+                return Err(ApiFault::new(
                     "Windows-932 encoder returned an invalid per-unit progress result",
                 ));
             }
@@ -2555,61 +1545,30 @@ fn encode_windows_932(source: &[u16]) -> Result<Vec<Windows932Unit>, ApiFault> {
     Ok(output)
 }
 
-fn handle_multi_byte_to_wide_char(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_multi_byte_to_wide_char_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    memory: &GuestMemory,
 ) -> Result<ApiImmediate, ApiFault> {
-    let code_page = required_argument(contract, frame, 0, "code page")?;
-    let flags = required_argument(contract, frame, 1, "conversion flags")?;
-    let source_address = required_argument(contract, frame, 2, "multibyte source")?;
-    let source_count = required_argument(contract, frame, 3, "multibyte source length")? as i32;
-    let destination_address = required_argument(contract, frame, 4, "UTF-16 destination")?;
+    const MAXIMUM_SOURCE_BYTES: usize = 65_536;
+    let code_page = required_argument(endpoint, frame, 0, "code page")?;
+    let flags = required_argument(endpoint, frame, 1, "conversion flags")?;
+    let source_address = required_argument(endpoint, frame, 2, "multibyte source")?;
+    let source_count = required_argument(endpoint, frame, 3, "multibyte source length")? as i32;
+    let destination_address = required_argument(endpoint, frame, 4, "UTF-16 destination")?;
     let destination_units =
-        required_argument(contract, frame, 5, "UTF-16 destination length")? as i32;
-    let conversion = policy.multi_byte_to_wide_char().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-code-page",
-            "multi-byte-to-wide-char-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable MultiByteToWideChar",
-                policy.id
-            ),
-        )
-    })?;
-    let active_code_page = policy.active_code_page().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-code-page",
-            "multi-byte-to-wide-char-policy-layer-invalid",
-            "validated multibyte conversion policy has no active code page",
-        )
-    })?;
-    let effective_code_page = if code_page == CP_ACP && conversion.allow_active_code_page_selector {
-        active_code_page
+        required_argument(endpoint, frame, 5, "UTF-16 destination length")? as i32;
+    let effective_code_page = if code_page == CP_ACP {
+        WINDOWS_932_CODE_PAGE
     } else {
         code_page
     };
-    if effective_code_page != active_code_page || !conversion.allowed_flags.contains(&flags) {
-        return Err(ApiFault::unsupported(
-            "win32-code-page",
-            "multi-byte-to-wide-char-variant-unsupported",
-            format!(
-                "compatibility policy {} enables explicit code page {active_code_page}{} with flags {:?}, not code page {code_page} and flags {flags:#010x}",
-                policy.id,
-                if conversion.allow_active_code_page_selector {
-                    " or CP_ACP"
-                } else {
-                    ""
-                },
-                conversion.allowed_flags
-            ),
-        ));
+    if effective_code_page != WINDOWS_932_CODE_PAGE || !matches!(flags, 0 | 1) {
+        return Err(ApiFault::new(format!(
+            "Windows-932 conversion does not support code page {code_page} and flags {flags:#010x}"
+        )));
     }
 
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     if source_address == 0 || source_count == 0 || source_count < -1 || destination_units < 0 {
         return Ok(multi_byte_failure(ERROR_INVALID_PARAMETER));
     }
@@ -2620,28 +1579,20 @@ fn handle_multi_byte_to_wide_char(
     }
 
     let source = read_multi_byte_source(
-        contract,
-        session,
+        endpoint,
+        memory,
         GuestAddress(source_address),
         source_count,
-        conversion,
+        MAXIMUM_SOURCE_BYTES,
     )?;
     let destination_byte_capacity = usize::try_from(destination_units)
         .map_err(|_| {
-            ApiFault::runtime_defect(
-                "win32-code-page",
-                "multi-byte-destination-count-not-representable",
+            ApiFault::new(
                 "validated nonnegative UTF-16 destination count does not fit host accounting",
             )
         })?
         .checked_mul(2)
-        .ok_or_else(|| {
-            ApiFault::resource_limit(
-                "win32-code-page",
-                "multi-byte-destination-length-overflow",
-                "UTF-16 destination length overflowed host accounting",
-            )
-        })?;
+        .ok_or_else(|| ApiFault::new("UTF-16 destination length overflowed host accounting"))?;
     if conversion_call
         && guest_ranges_overlap(
             source_address,
@@ -2655,23 +1606,14 @@ fn handle_multi_byte_to_wide_char(
 
     let decoded = decode_windows_932(&source);
     let decoded_length = u32::try_from(decoded.len()).map_err(|_| {
-        ApiFault::resource_limit(
-            "win32-code-page",
-            "multi-byte-output-length-not-representable",
-            "Windows-932 UTF-16 output length does not fit the x86 return value",
-        )
+        ApiFault::new("Windows-932 UTF-16 output length does not fit the x86 return value")
     })?;
     if query {
-        return Ok(ApiImmediate::new(ApiReturnValue::U32(decoded_length))
-            .with_last_error(preserved_last_error));
+        return Ok(ApiImmediate::new(Some(decoded_length)));
     }
 
     let capacity = usize::try_from(destination_units).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-code-page",
-            "multi-byte-destination-count-not-representable",
-            "validated positive UTF-16 destination count does not fit host accounting",
-        )
+        ApiFault::new("validated positive UTF-16 destination count does not fit host accounting")
     })?;
     let prefix = &decoded[..decoded.len().min(capacity)];
     let mut output = Vec::with_capacity(prefix.len() * 2);
@@ -2679,564 +1621,233 @@ fn handle_multi_byte_to_wide_char(
         output.extend_from_slice(&unit.to_le_bytes());
     }
     if !output.is_empty() {
-        session
-            .memory()
+        memory
             .validate_access(
                 GuestAddress(destination_address),
                 output.len(),
                 MemoryAccess::Write,
             )
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     }
     let complete = prefix.len() == decoded.len();
-    let mut immediate = ApiImmediate::new(ApiReturnValue::U32(if complete {
-        decoded_length
-    } else {
-        0
-    }))
-    .with_last_error(if complete {
-        preserved_last_error
-    } else {
-        ERROR_INSUFFICIENT_BUFFER
-    });
+    let mut immediate = ApiImmediate::new(Some(if complete { decoded_length } else { 0 }));
+    if !complete {
+        immediate = immediate.with_last_error(ERROR_INSUFFICIENT_BUFFER);
+    }
     if !output.is_empty() {
         immediate = immediate.with_guest_write(GuestAddress(destination_address), output);
     }
     Ok(immediate)
 }
 
-fn handle_set_current_directory_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_set_current_directory_a_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let directory_policy = policy.set_current_directory_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-process-directory",
-            "set-current-directory-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable SetCurrentDirectoryA",
-                policy.id
-            ),
-        )
-    })?;
-    let path_address = required_argument(contract, frame, 0, "ANSI directory path")?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    if path_address == 0 {
-        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-            .with_last_error(ERROR_INVALID_PARAMETER));
-    }
-    let path = read_nul_terminated_ansi_path(
-        contract,
-        session,
-        GuestAddress(path_address),
-        directory_policy,
-    )?;
-    if path == [0] {
+    let address = required_argument(endpoint, frame, 0, "ANSI directory path")?;
+    if address == 0 {
         return Ok(
-            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_NAME)
+            ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_PARAMETER)
         );
     }
-    let is_process_image_directory = session
-        .runtime()
-        .is_process_image_directory_a(&path)
-        .map_err(|error| {
-            ApiFault::unsupported(
-                "win32-process-directory",
-                "set-current-directory-a-path-unsupported",
-                format!(
-                    "compatibility policy {} enables only the normalized process image directory: {}",
-                    policy.id, error.message
-                ),
-            )
-        })?;
-    if !directory_policy.process_image_directory_only || !is_process_image_directory {
-        return Err(ApiFault::unsupported(
-            "win32-process-directory",
-            "set-current-directory-a-path-unsupported",
-            format!(
-                "compatibility policy {} enables only the normalized process image directory",
-                policy.id
-            ),
-        ));
+    let path =
+        read_nul_terminated_ansi_path(endpoint, &runtime.memory, GuestAddress(address), 32768)?;
+    if path == [0] {
+        return Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_NAME));
     }
-    let plan = session
-        .runtime()
-        .plan_set_current_directory_a(&path)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    session
-        .runtime_mut()
-        .commit_set_current_directory_a(plan)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(preserved_last_error))
+    runtime
+        .set_current_directory_a(&path)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true))))
 }
 
 fn read_nul_terminated_ansi_path(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     source: GuestAddress,
-    policy: Kernel32SetCurrentDirectoryAPolicy,
+    maximum: usize,
 ) -> Result<Vec<u8>, ApiFault> {
-    let maximum = usize::try_from(policy.maximum_path_bytes).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-process-directory",
-            "set-current-directory-a-limit-not-representable",
-            "validated ANSI directory path limit does not fit host accounting",
-        )
-    })?;
     let mut bytes = Vec::new();
     for offset in 0..maximum {
-        let address = add_guest_offset(contract, source, offset)?;
-        let byte = session
-            .memory()
+        let address = add_guest_offset(endpoint, source, offset)?;
+        let byte = memory
             .read(address, 1)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
         bytes.push(byte);
         if byte == 0 {
             return Ok(bytes);
         }
     }
-    Err(ApiFault::resource_limit(
-        "win32-process-directory",
-        "set-current-directory-a-path-not-terminated",
-        format!(
-            "ANSI directory path did not terminate within the policy limit of {} bytes",
-            policy.maximum_path_bytes
-        ),
-    ))
+    Err(ApiFault::new(format!(
+        "ANSI directory path did not terminate within the limit of {} bytes",
+        maximum
+    )))
 }
 
-fn handle_get_file_attributes_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+// Browser reports only what OPFS observed. Windows results belong to the
+// guest filesystem boundary, including the immutable-source parent fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpfsFileOperation {
+    Attributes { source_missing: u8 },
+    CreateDirectory,
+    DeleteFile { source_missing: u8 },
+}
+
+pub fn complete_opfs_file_operation(
+    operation: OpfsFileOperation,
+    observation: u32,
+    previous_last_error: u32,
 ) -> Result<ApiImmediate, ApiFault> {
-    let file_policy = require_source_file_policy(policy)?;
-    let attributes_policy = policy.get_file_attributes_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-vfs",
-            "get-file-attributes-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable VFS path attributes",
-                policy.id
-            ),
-        )
-    })?;
-    let path_address = required_argument(contract, frame, 0, "ANSI file path")?;
-    let path = read_nul_terminated_source_path(
-        contract,
-        session,
-        GuestAddress(path_address),
-        file_policy.maximum_path_bytes,
-    )?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let resolution = session
-        .runtime()
-        .resolve_file_system_path_a(&path)
-        .map_err(|error| {
-            ApiFault::unsupported(
-                "win32-vfs",
-                "get-file-attributes-a-path-unsupported",
-                error.message,
-            )
-        })?;
-    let (attributes, last_error) = match resolution {
-        RuntimePathResolution::RegularFile => (
-            attributes_policy.regular_file_attributes,
-            preserved_last_error,
-        ),
-        RuntimePathResolution::Directory => {
-            (attributes_policy.directory_attributes, preserved_last_error)
-        }
-        RuntimePathResolution::MissingFile => (u32::MAX, ERROR_FILE_NOT_FOUND),
-        RuntimePathResolution::MissingPath => (u32::MAX, ERROR_PATH_NOT_FOUND),
-    };
-    Ok(ApiImmediate::new(ApiReturnValue::U32(attributes)).with_last_error(last_error))
-}
-
-fn handle_find_first_file_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let file_policy = require_source_file_policy(policy)?;
-    let find_policy = require_find_file_a_policy(policy)?;
-    let attributes = policy.get_file_attributes_a().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-vfs",
-            "find-file-a-attributes-policy-missing",
-            "validated FindFile policy lost its VFS attribute projection",
-        )
-    })?;
-    let pattern_address = required_argument(contract, frame, 0, "ANSI search pattern")?;
-    let output = GuestAddress(required_argument(contract, frame, 1, "find data output")?);
-    let pattern = read_nul_terminated_source_path(
-        contract,
-        session,
-        GuestAddress(pattern_address),
-        file_policy.maximum_path_bytes,
-    )?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let maximum_matches = usize::try_from(find_policy.maximum_matches).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-vfs",
-            "find-file-a-match-limit-not-representable",
-            "validated FindFile match limit does not fit host accounting",
-        )
-    })?;
-    let result = session.find_first_file_a(
-        &pattern,
-        output,
-        maximum_matches,
-        X86_WIN32_FIND_DATA_A_BYTES,
-        |entry| x86_win32_find_data_a(entry, attributes),
-    );
-    match result {
-        Ok(Some((result, bytes, write))) => Ok(file_search_handle_result(result.handle.0)
-            .with_committed_guest_write(ApiGuestWriteReceipt {
-                write: ApiGuestWrite {
-                    address: output,
-                    bytes,
-                },
-                result: write,
-            })
-            .with_last_error(preserved_last_error)),
-        Ok(None) => {
-            Ok(file_search_handle_result(INVALID_HANDLE_VALUE)
-                .with_last_error(ERROR_FILE_NOT_FOUND))
-        }
-        Err(error)
-            if matches!(
-                error.code,
-                "file-search-directory-missing" | "source-path-outside-mount"
-            ) =>
-        {
-            Ok(file_search_handle_result(INVALID_HANDLE_VALUE)
-                .with_last_error(ERROR_PATH_NOT_FOUND))
-        }
-        Err(error)
-            if matches!(
-                error.code,
-                "file-search-pattern-shape-invalid"
-                    | "file-search-pattern-component-invalid"
-                    | "file-search-pattern-windows-932-invalid"
-                    | "file-search-pattern-character-invalid"
-                    | "source-file-path-not-absolute"
-                    | "source-path-parent-escape"
-                    | "source-path-character-invalid"
-            ) =>
-        {
-            Err(ApiFault::unsupported(
-                "win32-vfs",
-                "find-first-file-a-pattern-unsupported",
-                error.message,
-            ))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
-    }
-}
-
-fn handle_delete_file_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> ApiHandlerResult {
-    let result = (|| {
-        let file_policy = require_source_file_policy(policy)?;
-        let delete_policy = require_delete_file_a_policy(policy)?;
-        let path_address = required_argument(contract, frame, 0, "ANSI file path")?;
-        let path = read_nul_terminated_source_path(
-            contract,
-            session,
-            GuestAddress(path_address),
-            file_policy.maximum_path_bytes,
-        )?;
-        let resolution = session
-            .runtime()
-            .resolve_file_system_path_a(&path)
-            .map_err(|error| {
-                ApiFault::unsupported("win32-vfs", "delete-file-a-path-unsupported", error.message)
-            })?;
-        match resolution {
-            RuntimePathResolution::MissingFile => Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Bool32(false))
-                    .with_last_error(ERROR_FILE_NOT_FOUND),
-            )),
-            RuntimePathResolution::MissingPath => Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Bool32(false))
-                    .with_last_error(ERROR_PATH_NOT_FOUND),
-            )),
-            RuntimePathResolution::RegularFile if delete_policy.allow_writable_profile_file => {
-                let request = match session.runtime_mut().begin_writable_file_delete(&path) {
-                    Ok(request) => request,
-                    Err(error)
-                        if matches!(
-                            error.code,
-                            "writable-file-delete-sharing-violation"
-                                | "writable-file-delete-pending"
-                        ) =>
-                    {
-                        return Ok(ApiHandlerResult::Immediate(
-                            ApiImmediate::new(ApiReturnValue::Bool32(false))
-                                .with_last_error(ERROR_SHARING_VIOLATION),
-                        ));
-                    }
-                    Err(error) if error.code == "writable-file-delete-missing" => {
-                        return Ok(ApiHandlerResult::Immediate(
-                            ApiImmediate::new(ApiReturnValue::Bool32(false))
-                                .with_last_error(ERROR_FILE_NOT_FOUND),
-                        ));
-                    }
-                    Err(error)
-                        if matches!(
-                            error.code,
-                            "writable-profile-missing" | "writable-file-delete-unregistered"
-                        ) =>
-                    {
-                        return Err(ApiFault::unsupported(
-                            "win32-vfs",
-                            "delete-file-a-existing-file-unsupported",
-                            error.message,
-                        ));
-                    }
-                    Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
-                };
-                Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
-                    request_id: request.request_id,
-                    service: RUNTIME_WRITABLE_DELETE_SERVICE.to_owned(),
-                    payload: request.encode_host_payload().to_vec(),
-                }))
+    let invalid = || ApiFault::new("browser returned an invalid OPFS result");
+    let (value, last_error) = match operation {
+        OpfsFileOperation::Attributes { source_missing } => {
+            if !matches!(source_missing, 2 | 3) {
+                return Err(invalid());
             }
-            RuntimePathResolution::RegularFile => Err(ApiFault::unsupported(
-                "win32-vfs",
-                "delete-file-a-existing-file-unsupported",
-                "DeleteFileA is enabled only for a missing final VFS component",
-            )),
-            RuntimePathResolution::Directory => Err(ApiFault::unsupported(
-                "win32-vfs",
-                "delete-file-a-directory-unsupported",
-                "DeleteFileA does not remove runtime VFS directories",
-            )),
+            let (attributes, error) = match observation {
+                1 => (0x20, previous_last_error),
+                2 => (0x30, previous_last_error),
+                3 => (u32::MAX, ERROR_FILE_NOT_FOUND),
+                4 => (u32::MAX, u32::from(source_missing)),
+                5 => (u32::MAX, ERROR_ACCESS_DENIED),
+                _ => return Err(invalid()),
+            };
+            return Ok(ApiImmediate::new(Some(attributes)).with_last_error(error));
         }
-    })();
-    match result {
-        Ok(outcome) => outcome,
-        Err(fault) => ApiHandlerResult::Fault(fault),
-    }
+        OpfsFileOperation::CreateDirectory => match observation {
+            0 => (true, previous_last_error),
+            1 => (false, ERROR_ALREADY_EXISTS),
+            2 => (false, ERROR_PATH_NOT_FOUND),
+            3 => (false, ERROR_ACCESS_DENIED),
+            4 => (false, ERROR_DISK_FULL),
+            _ => return Err(invalid()),
+        },
+        OpfsFileOperation::DeleteFile { source_missing } => {
+            if !matches!(source_missing, 2 | 3) {
+                return Err(invalid());
+            }
+            match observation {
+                0 => (true, previous_last_error),
+                1 => (false, ERROR_FILE_NOT_FOUND),
+                2 => (false, u32::from(source_missing)),
+                3 => (false, ERROR_ACCESS_DENIED),
+                4 => (false, ERROR_DISK_FULL),
+                _ => return Err(invalid()),
+            }
+        }
+    };
+    Ok(ApiImmediate::new(Some(u32::from(value))).with_last_error(last_error))
 }
 
-fn handle_find_next_file_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    require_find_file_a_policy(policy)?;
-    let attributes = policy.get_file_attributes_a().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-vfs",
-            "find-file-a-attributes-policy-missing",
-            "validated FindFile policy lost its VFS attribute projection",
-        )
-    })?;
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file search handle")?);
-    let output = GuestAddress(required_argument(contract, frame, 1, "find data output")?);
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    match session.find_next_file_a(handle, output, X86_WIN32_FIND_DATA_A_BYTES, |entry| {
-        x86_win32_find_data_a(entry, attributes)
-    }) {
-        Ok(Some((_entry, bytes, write))) => Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-            .with_committed_guest_write(ApiGuestWriteReceipt {
-                write: ApiGuestWrite {
-                    address: output,
-                    bytes,
-                },
-                result: write,
-            })
-            .with_last_error(preserved_last_error)),
-        Ok(None) => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_NO_MORE_FILES))
-        }
-        Err(error)
-            if matches!(
-                error.code,
-                "runtime-handle-type-unknown"
-                    | "runtime-handle-type-mismatch"
-                    | "runtime-handle-unknown"
-                    | "runtime-handle-stale"
-                    | "file-search-id-unknown"
-            ) =>
-        {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_INVALID_HANDLE))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
-    }
-}
-
-fn handle_find_close(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    require_find_file_a_policy(policy)?;
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file search handle")?);
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    match session.runtime_mut().find_close(handle) {
-        Ok(_) => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-                .with_last_error(preserved_last_error))
-        }
-        Err(error)
-            if matches!(
-                error.code,
-                "runtime-handle-type-unknown"
-                    | "runtime-handle-type-mismatch"
-                    | "runtime-handle-unknown"
-                    | "runtime-handle-stale"
-                    | "file-search-id-unknown"
-            ) =>
-        {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_INVALID_HANDLE))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
-    }
-}
-
-fn file_search_handle_result(value: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: RUNTIME_FILE_SEARCH_NAMESPACE.to_owned(),
-        value,
-    })
-}
-
-fn x86_win32_find_data_a(
-    entry: &RuntimeFileSearchEntry,
-    attributes: Kernel32GetFileAttributesAPolicy,
-) -> Result<Vec<u8>, crate::runtime::RuntimeStateError> {
-    if entry.file_name_a.is_empty()
-        || entry.file_name_a.len() >= X86_WIN32_FIND_DATA_A_FILE_NAME_CAPACITY
-        || entry.file_name_a.contains(&0)
+// A file handle is published only after the browser has finished the OPFS
+// operation and the suspended ABI frame has accepted its return value.
+pub fn complete_kernel32_opfs_open(
+    dispatcher: &ApiDispatcher,
+    call: &ApiDeferredCall,
+    observation: u32,
+    byte_length: u64,
+    runtime: &mut crate::runtime::Runtime,
+) -> DispatchOutcome {
+    let request_id = call.request.request_id;
+    if call.request.service != "browser.opfs-open"
+        || !call
+            .frame
+            .endpoint
+            .module
+            .eq_ignore_ascii_case("kernel32.dll")
+        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "CreateFileA")
     {
-        return Err(crate::runtime::RuntimeStateError::invalid_input(
-            "runtime-vfs",
-            "file-search-name-not-representable",
-            "file search result name does not fit WIN32_FIND_DATAA.cFileName",
+        return DispatchOutcome::Fault(ApiFault::new(
+            "OPFS file open does not identify CreateFileA",
         ));
     }
-    let mut bytes = vec![0; X86_WIN32_FIND_DATA_A_BYTES];
-    let projected_attributes = match entry.kind {
-        RuntimeFileSearchEntryKind::RegularFile => attributes.regular_file_attributes,
-        RuntimeFileSearchEntryKind::Directory => attributes.directory_attributes,
+    let (handle, disposition, source_missing) =
+        match runtime.preflight_opfs_file_open_completion(request_id, &call.request.payload) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                return DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.frame.endpoint));
+            }
+        };
+    let invalid = || ApiFault::new("browser returned an invalid OPFS open observation");
+    if byte_length > 9_007_199_254_740_991
+        || (observation != 1 && byte_length != 0)
+        || (observation == 1 && disposition == 2 && byte_length != 0)
+        || (observation == 0 && disposition == 3)
+        || observation > 6
+    {
+        return DispatchOutcome::Fault(invalid());
+    }
+    let (opened, last_error) = match observation {
+        0 => (Some(0), Some(ERROR_SUCCESS)),
+        1 => (
+            Some(byte_length),
+            if disposition == 3 {
+                None
+            } else {
+                Some(ERROR_ALREADY_EXISTS)
+            },
+        ),
+        2 => (None, Some(ERROR_FILE_NOT_FOUND)),
+        3 => (None, Some(u32::from(source_missing))),
+        4 | 6 => (None, Some(ERROR_ACCESS_DENIED)),
+        5 => (None, Some(ERROR_DISK_FULL)),
+        _ => unreachable!("validated OPFS observation"),
     };
-    bytes[0..4].copy_from_slice(&projected_attributes.to_le_bytes());
-    bytes[28..32].copy_from_slice(&((entry.byte_length >> 32) as u32).to_le_bytes());
-    bytes[32..36].copy_from_slice(&(entry.byte_length as u32).to_le_bytes());
-    let name_end = X86_WIN32_FIND_DATA_A_FILE_NAME_OFFSET + entry.file_name_a.len();
-    bytes[X86_WIN32_FIND_DATA_A_FILE_NAME_OFFSET..name_end].copy_from_slice(&entry.file_name_a);
-    Ok(bytes)
+    let mut immediate = ApiImmediate::new(Some(opened.map_or(INVALID_HANDLE_VALUE, |_| handle.0)));
+    if let Some(error) = last_error {
+        immediate = immediate.with_last_error(error);
+    }
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id,
+            result: immediate,
+        },
+        runtime,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        runtime.commit_opfs_file_open(request_id, opened);
+    }
+    outcome
 }
 
-fn handle_create_directory_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_get_file_attributes_a_opfs(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> ApiHandlerResult {
     let result = (|| {
-        let file_policy = require_source_file_policy(policy)?;
-        if !policy.create_directory_a_enabled() {
-            return Err(ApiFault::unsupported(
-                "win32-vfs",
-                "create-directory-a-policy-disabled",
-                format!(
-                    "compatibility policy {} does not enable writable directory creation",
-                    policy.id
-                ),
-            ));
+        let known = handle_get_file_attributes_a_basic(endpoint, frame, runtime)?;
+        if known.eax != Some(u32::MAX) {
+            return Ok(ApiHandlerResult::Immediate(known));
         }
-        let path_address = required_argument(contract, frame, 0, "ANSI directory path")?;
-        let security_attributes = required_argument(contract, frame, 1, "security attributes")?;
-        if path_address == 0 {
-            return Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Bool32(false))
-                    .with_last_error(ERROR_PATH_NOT_FOUND),
-            ));
-        }
-        if security_attributes != 0 {
-            return Err(ApiFault::unsupported(
-                "win32-vfs",
-                "create-directory-a-security-attributes-unsupported",
-                "the writable-profile directory slice supports NULL security attributes only",
-            ));
-        }
-        let path = read_nul_terminated_source_path(
-            contract,
-            session,
-            GuestAddress(path_address),
-            file_policy.maximum_path_bytes,
-        )?;
-        let request = match session.runtime_mut().begin_writable_directory_create(&path) {
-            Ok(request) => request,
-            Err(error)
-                if matches!(
-                    error.code,
-                    "writable-directory-already-exists"
-                        | "writable-directory-file-conflict"
-                        | "writable-directory-create-pending"
-                ) =>
-            {
-                return Ok(ApiHandlerResult::Immediate(
-                    ApiImmediate::new(ApiReturnValue::Bool32(false))
-                        .with_last_error(ERROR_ALREADY_EXISTS),
-                ));
-            }
-            Err(error)
-                if matches!(
-                    error.code,
-                    "writable-directory-parent-missing" | "source-path-outside-mount"
-                ) =>
-            {
-                return Ok(ApiHandlerResult::Immediate(
-                    ApiImmediate::new(ApiReturnValue::Bool32(false))
-                        .with_last_error(ERROR_PATH_NOT_FOUND),
-                ));
-            }
-            Err(error)
-                if matches!(
-                    error.code,
-                    "writable-profile-missing" | "writable-directory-unregistered"
-                ) =>
-            {
-                return Err(ApiFault::unsupported(
-                    "win32-vfs",
-                    "create-directory-a-path-unsupported",
-                    error.message,
-                ));
-            }
-            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        let address = required_argument(endpoint, frame, 0, "ANSI file path")?;
+        let path =
+            read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
+        let relative = match runtime.opfs_relative_path(&path) {
+            Ok(relative) => relative,
+            Err(_) => return Ok(ApiHandlerResult::Immediate(known)),
         };
+        // The source mount may contain the parent even when OPFS does not.
+        // Retain its Windows missing-file/path distinction across the host stat.
+        let source_missing = known
+            .last_error
+            .ok_or_else(|| ApiFault::new("missing source path has no Windows error"))?;
+        if !matches!(source_missing, ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND) {
+            return Err(ApiFault::new(
+                "source lookup returned an unexpected Windows error",
+            ));
+        }
+        let request = runtime
+            .begin_host_request("browser.opfs-stat")
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        let mut payload = vec![source_missing as u8];
+        payload.extend_from_slice(relative.as_bytes());
         Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
             request_id: request.request_id,
-            service: RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE.to_owned(),
-            payload: request.encode_host_payload().to_vec(),
+            service: request.service,
+            payload,
         }))
     })();
     match result {
@@ -3245,233 +1856,398 @@ fn handle_create_directory_a(
     }
 }
 
-fn handle_create_file_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_get_file_attributes_a_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let file_policy = require_source_file_policy(policy)?;
-    let path_address = required_argument(contract, frame, 0, "ANSI file path")?;
-    let desired_access = required_argument(contract, frame, 1, "desired access")?;
-    let share_mode = required_argument(contract, frame, 2, "share mode")?;
-    let security_attributes = required_argument(contract, frame, 3, "security attributes")?;
-    let creation_disposition = required_argument(contract, frame, 4, "creation disposition")?;
-    let flags_and_attributes = required_argument(contract, frame, 5, "flags and attributes")?;
-    let template_file = required_argument(contract, frame, 6, "template file")?;
-    let supported_read_open =
-        desired_access == 0x8000_0000 && share_mode == 1 && creation_disposition == 3;
-    let supported_write_open =
-        desired_access == 0x4000_0000 && share_mode == 0 && matches!(creation_disposition, 2 | 4);
-    if path_address == 0 {
-        return Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
-            .with_last_error(ERROR_INVALID_PARAMETER));
-    }
-    if security_attributes != 0
-        || template_file != 0
-        || !file_policy.allowed_desired_access.contains(&desired_access)
-        || !file_policy.allowed_share_modes.contains(&share_mode)
-        || !file_policy
-            .allowed_creation_dispositions
-            .contains(&creation_disposition)
-        || !file_policy
-            .allowed_flags_and_attributes
-            .contains(&flags_and_attributes)
-        || !(supported_read_open || supported_write_open)
-    {
-        return Err(ApiFault::unsupported(
-            "win32-vfs",
-            "create-file-a-variant-unsupported",
-            format!(
-                "compatibility policy {} enables only bounded source-read and writable-profile open variants",
-                policy.id
-            ),
-        ));
-    }
+    let path_address = required_argument(endpoint, frame, 0, "ANSI file path")?;
     let path = read_nul_terminated_source_path(
-        contract,
-        session,
+        endpoint,
+        &runtime.memory,
         GuestAddress(path_address),
-        file_policy.maximum_path_bytes,
+        260,
     )?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    match session.runtime_mut().open_file_a(
-        &path,
-        desired_access,
-        share_mode,
-        creation_disposition,
-        flags_and_attributes,
-    ) {
-        Ok(Some(opened)) => Ok(source_file_handle_result(opened.handle.0).with_last_error(
-            if matches!(creation_disposition, 2 | 4) {
-                if opened.existed {
-                    ERROR_ALREADY_EXISTS
-                } else {
-                    ERROR_SUCCESS
-                }
-            } else {
-                preserved_last_error
-            },
-        )),
-        Ok(None) => {
-            Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
-                .with_last_error(ERROR_FILE_NOT_FOUND))
+    let resolution = runtime
+        .resolve_file_system_path_a(&path)
+        .map_err(|error| ApiFault::new(error.message))?;
+    Ok(match resolution {
+        RuntimePathResolution::RegularFile => ApiImmediate::new(Some(0x20)),
+        RuntimePathResolution::Directory => ApiImmediate::new(Some(0x30)),
+        RuntimePathResolution::MissingFile => {
+            ApiImmediate::new(Some(u32::MAX)).with_last_error(ERROR_FILE_NOT_FOUND)
         }
-        Err(error) if error.code == "source-file-sharing-violation" => {
-            Ok(source_file_handle_result(INVALID_HANDLE_VALUE)
-                .with_last_error(ERROR_SHARING_VIOLATION))
+        RuntimePathResolution::MissingPath => {
+            ApiImmediate::new(Some(u32::MAX)).with_last_error(ERROR_PATH_NOT_FOUND)
         }
-        Err(error) if error.code == "immutable-source-write-denied" => Ok(
-            source_file_handle_result(INVALID_HANDLE_VALUE).with_last_error(ERROR_ACCESS_DENIED),
-        ),
-        Err(error) => Err(ApiFault::unsupported(
-            "win32-vfs",
-            "create-file-a-path-unsupported",
-            error.message,
-        )),
-    }
-}
-
-fn source_file_handle_result(value: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: RUNTIME_SOURCE_FILE_NAMESPACE.to_owned(),
-        value,
     })
 }
 
-fn handle_get_file_size(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_delete_file_a_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    require_source_file_policy(policy)?;
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
-    let size_high = required_argument(contract, frame, 1, "file size high output")?;
-    if size_high != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-vfs",
-            "get-file-size-high-output-unsupported",
-            "the immutable-source slice supports only files whose size fits the low DWORD",
-        ));
-    }
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let size = match session.runtime().source_file_byte_length(handle) {
-        Ok(size) => size,
-        Err(_) => {
-            return Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
-                .with_last_error(ERROR_INVALID_HANDLE));
-        }
-    };
-    let size = u32::try_from(size).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-vfs",
-            "source-file-size-not-representable",
-            "validated source file size does not fit GetFileSize low DWORD",
-        )
-    })?;
-    Ok(ApiImmediate::new(ApiReturnValue::U32(size)).with_last_error(preserved_last_error))
-}
-
-fn handle_read_file(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> ApiHandlerResult {
     let result = (|| {
-        let file_policy = require_source_file_policy(policy)?;
-        let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
-        let buffer = GuestAddress(required_argument(contract, frame, 1, "read buffer")?);
-        let requested_bytes = required_argument(contract, frame, 2, "requested bytes")?;
-        let bytes_read = GuestAddress(required_argument(contract, frame, 3, "bytes-read output")?);
-        let overlapped = required_argument(contract, frame, 4, "overlapped state")?;
-        let backing = match session.runtime().source_file_for_handle(handle) {
-            Ok(file) => file.backing,
-            Err(_) => {
+        let address = required_argument(endpoint, frame, 0, "ANSI file path")?;
+        if address == 0 {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_PATH_NOT_FOUND),
+            ));
+        }
+        let path =
+            read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
+        let (relative, source_missing) = match runtime.opfs_delete_path(&path) {
+            Ok(checked) => checked,
+            Err(error) => {
                 return Ok(ApiHandlerResult::Immediate(
-                    ApiImmediate::new(ApiReturnValue::Bool32(false))
-                        .with_last_error(ERROR_INVALID_HANDLE),
+                    ApiImmediate::new(Some(u32::from(false))).with_last_error(error),
                 ));
             }
         };
-        if buffer.0 == 0
-            || bytes_read.0 == 0
-            || requested_bytes == 0
-            || requested_bytes > file_policy.maximum_read_bytes
-            || requested_bytes > RUNTIME_SOURCE_READ_MAX_BYTES
+        let request = runtime
+            .begin_host_request("browser.opfs-delete-file")
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+            request_id: request.request_id,
+            service: request.service,
+            payload: std::iter::once(source_missing)
+                .chain(relative.into_bytes())
+                .collect(),
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+// The selected-executable path uses the Rust VFS search directly. A search only
+// enumerates paths already registered with the source mount; browser discovery
+// remains a separate, read-only operation.
+fn handle_find_first_file_a_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = required_argument(endpoint, frame, 0, "ANSI search pattern")?;
+    if address == 0 {
+        return Ok(
+            ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(ERROR_PATH_NOT_FOUND)
+        );
+    }
+    let output = GuestAddress(required_argument(endpoint, frame, 1, "find data output")?);
+    let pattern =
+        read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
+    match runtime.find_first_file_a(&pattern, output) {
+        Ok(RuntimeFindFirstFileOutcome::Found(handle)) => Ok(ApiImmediate::new(Some(handle.0))),
+        Ok(RuntimeFindFirstFileOutcome::NotFound(windows_error)) => {
+            Ok(ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(windows_error))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
+    }
+}
+
+fn handle_find_next_file_a_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "file search handle")?);
+    if !runtime
+        .is_live_object_handle(handle, RuntimeObjectKind::FileSearch)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        return Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    let output = GuestAddress(required_argument(endpoint, frame, 1, "find data output")?);
+    match runtime.find_next_file_a(handle, output) {
+        Ok(true) => Ok(ApiImmediate::new(Some(u32::from(true)))),
+        Ok(false) => {
+            Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_NO_MORE_FILES))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
+    }
+}
+
+fn handle_find_close_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "file search handle")?);
+    if !runtime
+        .is_live_object_handle(handle, RuntimeObjectKind::FileSearch)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        return Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    runtime
+        .find_close(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true))))
+}
+
+fn handle_create_directory_a_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let address = required_argument(endpoint, frame, 0, "ANSI directory path")?;
+        let security = required_argument(endpoint, frame, 1, "security attributes")?;
+        if address == 0 {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_PATH_NOT_FOUND),
+            ));
+        }
+        if security != 0 {
+            return Err(ApiFault::new(
+                "CreateDirectoryA supports NULL security attributes only",
+            ));
+        }
+        let path =
+            read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
+        if matches!(
+            runtime.resolve_file_system_path_a(&path),
+            Ok(RuntimePathResolution::RegularFile | RuntimePathResolution::Directory)
+        ) {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_ALREADY_EXISTS),
+            ));
+        }
+        let (relative, source_parents) = match runtime.opfs_create_directory_path(&path) {
+            Ok(checked) => checked,
+            Err(error) => {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(Some(u32::from(false))).with_last_error(error),
+                ));
+            }
+        };
+        let request = runtime
+            .begin_host_request("browser.opfs-create-directory")
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+            request_id: request.request_id,
+            service: request.service,
+            payload: std::iter::once(source_parents)
+                .chain(relative.into_bytes())
+                .collect(),
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn handle_create_file_a_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let address = required_argument(endpoint, frame, 0, "ANSI file path")?;
+        if address == 0 {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(INVALID_HANDLE_VALUE))
+                    .with_last_error(ERROR_INVALID_PARAMETER),
+            ));
+        }
+        let access = required_argument(endpoint, frame, 1, "desired access")?;
+        let sharing = required_argument(endpoint, frame, 2, "share mode")?;
+        let security = required_argument(endpoint, frame, 3, "security attributes")?;
+        let disposition = required_argument(endpoint, frame, 4, "creation disposition")?;
+        let attributes = required_argument(endpoint, frame, 5, "file attributes")?;
+        let template = required_argument(endpoint, frame, 6, "template file")?;
+        let read_open = access == 0x8000_0000 && matches!(sharing, 0 | 1) && disposition == 3;
+        let write_open = matches!(access, 0x4000_0000 | 0xc000_0000)
+            && matches!(sharing, 0 | 1)
+            && matches!(disposition, 2..=4);
+        if security != 0
+            || template != 0
+            || attributes & !(0x0800_0000 | 0x80 | 0x20) != 0
+            || !(read_open || write_open)
+        {
+            return handle_create_file_a_source_basic(endpoint, frame, runtime)
+                .map(ApiHandlerResult::Immediate);
+        }
+        let path =
+            read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
+        if matches!(
+            runtime.resolve_file_system_path_a(&path),
+            Ok(RuntimePathResolution::RegularFile)
+        ) && matches!(runtime.source_lookup_relative_path(&path), Ok(None))
+        {
+            return handle_create_file_a_source_basic(endpoint, frame, runtime)
+                .map(ApiHandlerResult::Immediate);
+        }
+        let request = match runtime
+            .begin_opfs_file_open(&path, access, sharing, disposition, attributes)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        {
+            Ok(open) => open,
+            Err(error) => {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(error),
+                ));
+            }
+        };
+        Ok(ApiHandlerResult::Deferred(request))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn handle_create_file_a_source_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = required_argument(endpoint, frame, 0, "ANSI file path")?;
+    if address == 0 {
+        return Ok(
+            ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(ERROR_INVALID_PARAMETER)
+        );
+    }
+    let access = required_argument(endpoint, frame, 1, "desired access")?;
+    let sharing = required_argument(endpoint, frame, 2, "share mode")?;
+    let security = required_argument(endpoint, frame, 3, "security attributes")?;
+    let disposition = required_argument(endpoint, frame, 4, "creation disposition")?;
+    let attributes = required_argument(endpoint, frame, 5, "file attributes")?;
+    let template = required_argument(endpoint, frame, 6, "template file")?;
+    if access != 0x8000_0000
+        || !matches!(sharing, 0 | 1)
+        || security != 0
+        || disposition != 3
+        || attributes & !(0x0800_0000 | 0x80 | 0x20) != 0
+        || template != 0
+    {
+        // An already registered immutable source file cannot be opened for
+        // modification. Other unsupported variants must not claim success.
+        if (access & 0x4000_0000 != 0 || disposition != 3)
+            && let Ok(path) = read_nul_terminated_source_path(
+                endpoint,
+                &runtime.memory,
+                GuestAddress(address),
+                260,
+            )
+            && matches!(
+                runtime.resolve_file_system_path_a(&path),
+                Ok(RuntimePathResolution::RegularFile)
+            )
+            && matches!(runtime.source_lookup_relative_path(&path), Ok(None))
+        {
+            return Ok(
+                ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(ERROR_ACCESS_DENIED)
+            );
+        }
+        return Err(ApiFault::new(
+            "the requested file access mode requires writable overlay or unsupported flags",
+        ));
+    }
+    let path =
+        read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
+    match runtime.open_file_a(&path, access, sharing, disposition, attributes) {
+        Ok(Ok(Some(opened))) => Ok(ApiImmediate::new(Some(opened.0))),
+        Ok(Ok(None)) => {
+            Ok(ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(ERROR_FILE_NOT_FOUND))
+        }
+        Ok(Err(win32_error)) => {
+            Ok(ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(win32_error))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
+    }
+}
+
+fn handle_get_file_size_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "file handle")?);
+    let size_high = required_argument(endpoint, frame, 1, "file size high output")?;
+    if !runtime
+        .is_live_object_handle(handle, RuntimeObjectKind::File)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        return Ok(ApiImmediate::new(Some(u32::MAX)).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    let size = runtime
+        .source_file_byte_length(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let result = ApiImmediate::new(Some(size as u32));
+    if size_high != 0 {
+        commit_indirect_guest_writes(
+            &mut runtime.memory,
+            &[ApiGuestWrite {
+                address: GuestAddress(size_high),
+                bytes: ((size >> 32) as u32).to_le_bytes().to_vec(),
+            }],
+        )
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    }
+    Ok(result)
+}
+
+fn handle_read_file_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "file handle")?);
+        let buffer = GuestAddress(required_argument(endpoint, frame, 1, "read buffer")?);
+        let requested = required_argument(endpoint, frame, 2, "requested bytes")?;
+        let count = GuestAddress(required_argument(endpoint, frame, 3, "bytes read")?);
+        let overlapped = required_argument(endpoint, frame, 4, "overlapped state")?;
+        if !runtime
+            .is_live_object_handle(handle, RuntimeObjectKind::File)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_HANDLE),
+            ));
+        }
+        runtime
+            .source_file_for_handle(handle)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        if count.0 == 0
+            || (requested != 0 && buffer.0 == 0)
+            || requested > RUNTIME_SOURCE_READ_MAX_BYTES
             || overlapped != 0
         {
-            return Err(ApiFault::unsupported(
-                "win32-vfs",
-                "read-file-variant-unsupported",
-                format!(
-                    "compatibility policy {} enables one bounded synchronous source read shape",
-                    policy.id
-                ),
+            return Err(ApiFault::new(
+                "ReadFile requires bounded synchronous file I/O",
             ));
         }
-        let requested_bytes_usize = usize::try_from(requested_bytes).map_err(|_| {
-            ApiFault::runtime_defect(
-                "win32-vfs",
-                "source-read-length-not-representable",
-                "validated source read length does not fit host accounting",
+        if requested == 0 {
+            commit_indirect_guest_writes(
+                &mut runtime.memory,
+                &[ApiGuestWrite {
+                    address: count,
+                    bytes: 0_u32.to_le_bytes().to_vec(),
+                }],
             )
-        })?;
-        session
-            .memory()
-            .validate_access(buffer, requested_bytes_usize, MemoryAccess::Write)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-        session
-            .memory()
-            .validate_access(bytes_read, 4, MemoryAccess::Write)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-        if matches!(backing, RuntimeFileBacking::WritableProfile { .. })
-            && session
-                .runtime()
-                .writable_file_needs_commit(handle)
-                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        {
-            let (result, bytes, buffer_write, count_write) = session
-                .read_writable_file(handle, buffer, bytes_read, requested_bytes)
-                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-            let mut immediate = ApiImmediate::new(ApiReturnValue::Bool32(true))
-                .with_committed_guest_write(ApiGuestWriteReceipt {
-                    write: ApiGuestWrite {
-                        address: bytes_read,
-                        bytes: result.transferred_bytes.to_le_bytes().to_vec(),
-                    },
-                    result: count_write,
-                })
-                .with_last_error(ERROR_SUCCESS);
-            if let Some(buffer_write) = buffer_write {
-                immediate = immediate.with_committed_guest_write(ApiGuestWriteReceipt {
-                    write: ApiGuestWrite {
-                        address: buffer,
-                        bytes,
-                    },
-                    result: buffer_write,
-                });
-            }
-            return Ok(ApiHandlerResult::Immediate(immediate));
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+            let result = ApiImmediate::new(Some(u32::from(true))).with_last_error(ERROR_SUCCESS);
+
+            return Ok(ApiHandlerResult::Immediate(result));
         }
-        let request = session
-            .runtime_mut()
-            .begin_source_file_read(handle, buffer, bytes_read, requested_bytes)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
-            request_id: request.request_id,
-            service: if request.source_id == 0 {
-                RUNTIME_WRITABLE_READ_SERVICE.to_owned()
-            } else {
-                RUNTIME_SOURCE_READ_SERVICE.to_owned()
-            },
-            payload: request.encode_host_payload().to_vec(),
-        }))
+        runtime
+            .memory
+            .validate_access(buffer, requested as usize, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        runtime
+            .memory
+            .validate_access(count, 4, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        let request = runtime
+            .begin_source_file_read(handle, buffer, count, requested)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        Ok(ApiHandlerResult::Deferred(request))
     })();
     match result {
         Ok(outcome) => outcome,
@@ -3479,114 +2255,66 @@ fn handle_read_file(
     }
 }
 
-fn handle_write_file(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_write_file_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let file_policy = require_source_file_policy(policy)?;
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
-    let buffer = GuestAddress(required_argument(contract, frame, 1, "write buffer")?);
-    let requested_bytes = required_argument(contract, frame, 2, "requested bytes")?;
-    let bytes_written = GuestAddress(required_argument(
-        contract,
-        frame,
-        3,
-        "bytes-written output",
-    )?);
-    let overlapped = required_argument(contract, frame, 4, "overlapped state")?;
-    let backing = match session.runtime().source_file_for_handle(handle) {
-        Ok(file) => file.backing,
-        Err(_) => {
-            return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_INVALID_HANDLE));
-        }
-    };
-    if matches!(backing, RuntimeFileBacking::ImmutableSource { .. }) {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_ACCESS_DENIED)
-        );
-    }
-    if buffer.0 == 0
-        || bytes_written.0 == 0
-        || requested_bytes == 0
-        || requested_bytes > file_policy.maximum_write_bytes
-        || requested_bytes > RUNTIME_WRITABLE_FILE_MAX_IO_BYTES
-        || overlapped != 0
-    {
-        return Err(ApiFault::unsupported(
-            "win32-vfs",
-            "write-file-variant-unsupported",
-            format!(
-                "compatibility policy {} enables one bounded synchronous writable-profile write shape",
-                policy.id
-            ),
-        ));
-    }
-    let bytes = session
-        .memory()
-        .read(buffer, requested_bytes as usize)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?
-        .to_vec();
-    match session.write_writable_file(handle, bytes_written, &bytes) {
-        Ok((result, count_write)) => Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-            .with_committed_guest_write(ApiGuestWriteReceipt {
-                write: ApiGuestWrite {
-                    address: bytes_written,
-                    bytes: result.transferred_bytes.to_le_bytes().to_vec(),
-                },
-                result: count_write,
-            })
-            .with_last_error(ERROR_SUCCESS)),
-        Err(error) if error.code == "writable-profile-quota-exceeded" => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_DISK_FULL))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
-    }
-}
-
-fn handle_flush_file_buffers(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> ApiHandlerResult {
     let result = (|| {
-        require_source_file_policy(policy)?;
-        let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
-        let backing = match session.runtime().source_file_for_handle(handle) {
-            Ok(file) => file.backing,
-            Err(_) => {
+        let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "file handle")?);
+        if !runtime
+            .is_live_object_handle(handle, RuntimeObjectKind::File)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_HANDLE),
+            ));
+        }
+        let file = runtime
+            .source_file_for_handle(handle)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        if matches!(file.backing, RuntimeFileBacking::ImmutableSource { .. }) {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_ACCESS_DENIED),
+            ));
+        }
+        let buffer = GuestAddress(required_argument(endpoint, frame, 1, "write buffer")?);
+        let requested = required_argument(endpoint, frame, 2, "write length")?;
+        let count = GuestAddress(required_argument(endpoint, frame, 3, "bytes written")?);
+        let overlapped = required_argument(endpoint, frame, 4, "overlapped")?;
+        if count.0 == 0
+            || buffer.0 == 0
+            || requested == 0
+            || requested > RUNTIME_WRITABLE_FILE_MAX_IO_BYTES
+            || overlapped != 0
+        {
+            return Err(ApiFault::new(
+                "WriteFile requires a nonempty bounded synchronous write and byte-count output",
+            ));
+        }
+        runtime
+            .memory
+            .validate_access(count, 4, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        let bytes = runtime
+            .memory
+            .read(buffer, requested as usize)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        let request = match runtime
+            .begin_opfs_write(handle, count, requested)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        {
+            Ok(prepared) => prepared,
+            Err(error) => {
                 return Ok(ApiHandlerResult::Immediate(
-                    ApiImmediate::new(ApiReturnValue::Bool32(false))
-                        .with_last_error(ERROR_INVALID_HANDLE),
+                    ApiImmediate::new(Some(u32::from(false))).with_last_error(error),
                 ));
             }
         };
-        if matches!(backing, RuntimeFileBacking::ImmutableSource { .. }) {
-            return Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Bool32(false))
-                    .with_last_error(ERROR_ACCESS_DENIED),
-            ));
-        }
-        if !session
-            .runtime()
-            .writable_file_needs_commit(handle)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        {
-            return Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(ERROR_SUCCESS),
-            ));
-        }
-        let request = session
-            .runtime_mut()
-            .begin_writable_file_commit(handle, false)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
         Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
             request_id: request.request_id,
-            service: RUNTIME_WRITABLE_COMMIT_SERVICE.to_owned(),
-            payload: request.encode_host_payload().to_vec(),
+            service: request.service,
+            payload: bytes,
         }))
     })();
     match result {
@@ -3595,155 +2323,207 @@ fn handle_flush_file_buffers(
     }
 }
 
-fn handle_set_file_pointer(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    require_source_file_policy(policy)?;
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file handle")?);
-    let distance = required_argument(contract, frame, 1, "distance low")? as i32 as i64;
-    let distance_high = required_argument(contract, frame, 2, "distance high")?;
-    let origin = required_argument(contract, frame, 3, "move method")?;
-    if distance_high != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-vfs",
-            "set-file-pointer-high-distance-unsupported",
-            "the first immutable-source seek slice supports a signed low DWORD only",
+pub fn complete_kernel32_opfs_write(
+    dispatcher: &ApiDispatcher,
+    call: &ApiDeferredCall,
+    observation: u32,
+    runtime: &mut crate::runtime::Runtime,
+) -> DispatchOutcome {
+    if call.request.service != "browser.opfs-write"
+        || !call
+            .frame
+            .endpoint
+            .module
+            .eq_ignore_ascii_case("kernel32.dll")
+        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "WriteFile")
+        || observation > 3
+    {
+        return DispatchOutcome::Fault(ApiFault::new(
+            "OPFS write completion does not match the suspended WriteFile",
         ));
     }
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    if session.runtime().source_file_for_handle(handle).is_err() {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::U32(u32::MAX)).with_last_error(ERROR_INVALID_HANDLE)
-        );
+    let request_id = call.request.request_id;
+    let (count, transferred) =
+        match runtime.preflight_opfs_write_completion(request_id, call.request.payload.len()) {
+            Ok(result) => result,
+            Err(error) => {
+                return DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.frame.endpoint));
+            }
+        };
+    let immediate = if observation == 0 {
+        ApiImmediate::new(Some(u32::from(true)))
+            .with_guest_write(count, transferred.to_le_bytes().to_vec())
+            .with_last_error(ERROR_SUCCESS)
+    } else {
+        let error = match observation {
+            1 => ERROR_FILE_NOT_FOUND,
+            2 => ERROR_ACCESS_DENIED,
+            3 => ERROR_DISK_FULL,
+            _ => unreachable!("validated observation"),
+        };
+        ApiImmediate::new(Some(u32::from(false))).with_last_error(error)
+    };
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id,
+            result: immediate,
+        },
+        runtime,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        runtime.commit_opfs_write(request_id, observation == 0);
     }
-    match session
-        .runtime_mut()
-        .seek_source_file(handle, distance, origin)
+    outcome
+}
+
+fn handle_flush_file_buffers_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "file handle")?);
+    if !runtime
+        .is_live_object_handle(handle, RuntimeObjectKind::File)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
     {
-        Ok(cursor) => Ok(ApiImmediate::new(ApiReturnValue::U32(cursor as u32))
-            .with_last_error(preserved_last_error)),
-        Err(error) if error.code == "source-seek-range-invalid" => {
-            Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
-                .with_last_error(ERROR_NEGATIVE_SEEK))
+        return Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    let file = runtime
+        .source_file_for_handle(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    match file.backing {
+        RuntimeFileBacking::ImmutableSource { .. } => {
+            Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_ACCESS_DENIED))
         }
-        Err(error) if error.code == "source-seek-origin-invalid" => {
-            Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
-                .with_last_error(ERROR_INVALID_PARAMETER))
+        RuntimeFileBacking::Opfs { .. } => {
+            if runtime
+                .opfs_write_pending(handle)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+            {
+                return Err(ApiFault::new(
+                    "FlushFileBuffers requires the pending write to complete",
+                ));
+            }
+            Ok(ApiImmediate::new(Some(u32::from(true))))
         }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
     }
 }
 
-fn handle_close_handle(
-    _policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_set_file_pointer_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> ApiHandlerResult {
-    let result = (|| {
-        let handle = RuntimeHandle(required_argument(contract, frame, 0, "object handle")?);
-        let preserved_last_error = session
-            .last_error()
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        let Ok(kind) = handle.kind() else {
-            return Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Bool32(false))
-                    .with_last_error(ERROR_INVALID_HANDLE),
-            ));
-        };
-        if !matches!(
-            kind,
-            RuntimeObjectKind::Process
-                | RuntimeObjectKind::Thread
-                | RuntimeObjectKind::Mutex
-                | RuntimeObjectKind::Event
-                | RuntimeObjectKind::WaitableTimer
-                | RuntimeObjectKind::File
-        ) || session.runtime().object_for_handle(handle, kind).is_err()
-        {
-            return Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Bool32(false))
-                    .with_last_error(ERROR_INVALID_HANDLE),
-            ));
-        }
-        if kind == RuntimeObjectKind::File
-            && session
-                .runtime()
-                .writable_file_needs_commit(handle)
-                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        {
-            let request = session
-                .runtime_mut()
-                .begin_writable_file_commit(handle, true)
-                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-            return Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
-                request_id: request.request_id,
-                service: RUNTIME_WRITABLE_COMMIT_SERVICE.to_owned(),
-                payload: request.encode_host_payload().to_vec(),
-            }));
-        }
-        session
-            .runtime_mut()
-            .close_handle(handle)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        Ok(ApiHandlerResult::Immediate(
-            ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(preserved_last_error),
-        ))
-    })();
-    match result {
-        Ok(outcome) => outcome,
-        Err(fault) => ApiHandlerResult::Fault(fault),
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "file handle")?);
+    let distance_low = required_argument(endpoint, frame, 1, "distance low")?;
+    let distance_high = required_argument(endpoint, frame, 2, "distance high")?;
+    let origin = required_argument(endpoint, frame, 3, "move method")?;
+    if !runtime
+        .is_live_object_handle(handle, RuntimeObjectKind::File)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        return Ok(ApiImmediate::new(Some(u32::MAX)).with_last_error(ERROR_INVALID_HANDLE));
     }
+    if origin > 2 {
+        return Ok(ApiImmediate::new(Some(u32::MAX)).with_last_error(ERROR_INVALID_PARAMETER));
+    }
+    let distance_high = (distance_high != 0).then_some(GuestAddress(distance_high));
+    let distance = if let Some(address) = distance_high {
+        let high = runtime
+            .memory
+            .read(address, 4)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        runtime
+            .memory
+            .validate_access(address, 4, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        ((u64::from(u32::from_le_bytes(high.try_into().expect("one DWORD"))) << 32)
+            | u64::from(distance_low)) as i64
+    } else {
+        i64::from(distance_low as i32)
+    };
+    match runtime
+        .seek_source_file(handle, distance, origin, distance_high)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        Ok(cursor) => {
+            let result = ApiImmediate::new(Some(cursor as u32));
+            Ok(if cursor as u32 == u32::MAX {
+                result.with_last_error(0)
+            } else {
+                result
+            })
+        }
+        Err(error) => Ok(ApiImmediate::new(Some(u32::MAX)).with_last_error(error)),
+    }
+}
+
+fn handle_close_handle_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "object handle")?);
+    let Ok(kind) = handle.kind() else {
+        return Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_HANDLE));
+    };
+    if !matches!(
+        kind,
+        RuntimeObjectKind::Process
+            | RuntimeObjectKind::Thread
+            | RuntimeObjectKind::File
+            | RuntimeObjectKind::WaitableTimer
+            | RuntimeObjectKind::Event
+            | RuntimeObjectKind::Mutex
+    ) || !runtime
+        .is_live_object_handle(handle, kind)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        return Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    runtime
+        .close_handle(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true))))
 }
 
 pub fn complete_kernel32_source_read(
     dispatcher: &ApiDispatcher,
-    call: ApiDeferredCall,
+    call: &ApiDeferredCall,
     response: RuntimeSourceReadHostResponse,
-    session: &mut ExecutionSession<'_>,
-) -> (
-    DispatchOutcome,
-    Option<crate::runtime::RuntimeSourceReadCompletion>,
-) {
-    if call.contract.implementation_id != READ_FILE_IMPLEMENTATION
+    runtime: &mut crate::runtime::Runtime,
+) -> DispatchOutcome {
+    if !call
+        .frame
+        .endpoint
+        .module
+        .eq_ignore_ascii_case("kernel32.dll")
+        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "ReadFile")
         || call.request.request_id != response.request_id
         || !matches!(
             call.request.service.as_str(),
-            RUNTIME_SOURCE_READ_SERVICE | RUNTIME_WRITABLE_READ_SERVICE
+            RUNTIME_SOURCE_READ_SERVICE | RUNTIME_OPFS_READ_SERVICE
         )
     {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-vfs",
-                "source-read-suspended-call-mismatch",
-                "source read host completion does not match its suspended API call",
-            )),
-            None,
-        );
+        return DispatchOutcome::Fault(ApiFault::new(
+            "source read host completion does not match its suspended API call",
+        ));
     }
-    let plan = match session.runtime().plan_source_file_read_completion(response) {
+    let plan = match runtime.plan_source_file_read_completion(&response) {
         Ok(plan) => plan,
         Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
+            return DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.frame.endpoint));
         }
     };
-    let response = plan.response();
-    let mut immediate = ApiImmediate::new(ApiReturnValue::Bool32(plan.completion().succeeded))
+    let mut immediate = ApiImmediate::new(Some(u32::from(response.win32_error == 0)))
         .with_guest_write(
             plan.bytes_read(),
             response.transferred_bytes.to_le_bytes().to_vec(),
         )
-        .with_last_error(plan.completion().win32_error);
-    if plan.completion().succeeded && !response.bytes.is_empty() {
-        immediate = immediate.with_guest_write(plan.buffer(), response.bytes.clone());
+        .with_last_error(response.win32_error);
+    if response.win32_error == 0 && !response.bytes.is_empty() {
+        immediate = immediate.with_guest_write(plan.buffer(), response.bytes);
     }
     let request_id = call.request.request_id;
     let outcome = dispatcher.complete_deferred(
@@ -3752,768 +2532,356 @@ pub fn complete_kernel32_source_read(
             request_id,
             result: immediate,
         },
-        session,
+        runtime,
     );
     if matches!(outcome, DispatchOutcome::Immediate(_)) {
-        let completion = session
-            .runtime_mut()
-            .commit_source_file_read_completion(plan);
-        (outcome, Some(completion))
-    } else {
-        (outcome, None)
+        runtime.commit_source_file_read_completion(plan);
     }
+    outcome
 }
 
 pub fn complete_kernel32_waitable_timer_pacing(
     dispatcher: &ApiDispatcher,
-    call: ApiDeferredCall,
+    call: &ApiDeferredCall,
     acknowledgement: u32,
-    session: &mut ExecutionSession<'_>,
-) -> (DispatchOutcome, Option<RuntimeWaitForSingleObjectExResult>) {
-    if call.contract.implementation_id != WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION
+    runtime: &mut crate::runtime::Runtime,
+) -> DispatchOutcome {
+    if !call
+        .frame
+        .endpoint
+        .module
+        .eq_ignore_ascii_case("kernel32.dll")
+        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "WaitForSingleObjectEx")
         || call.request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
         || acknowledgement != 1
     {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-wait",
-                "waitable-timer-pacing-suspended-call-mismatch",
-                "timer pacing host completion does not match its suspended API call",
-            )),
-            None,
-        );
+        return DispatchOutcome::Fault(ApiFault::new(
+            "timer pacing host completion does not match its suspended API call",
+        ));
     }
-    let plan = match session
-        .runtime()
-        .plan_waitable_timer_pacing_completion(call.request.request_id)
-    {
+    let plan = match runtime.plan_waitable_timer_pacing_completion(call.request.request_id) {
         Ok(plan) => plan,
         Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
+            return DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.frame.endpoint));
         }
     };
-    let result = plan.result();
-    let registration = result
-        .registration
-        .expect("timer pacing completion plan has a wait registration");
+    let registration = plan.registration();
     let pacing = registration
         .waitable_timer_pacing
-        .expect("timer pacing completion plan has a pacing contract");
-    if call.request.payload != pacing.encode_host_payload(registration.id) {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-wait",
-                "waitable-timer-pacing-payload-mismatch",
-                "timer pacing host payload differs from the Rust wait authority",
-            )),
-            None,
-        );
+        .expect("timer pacing completion plan has a pacing endpoint");
+    if call.request.payload != pacing.delay_milliseconds.to_le_bytes() {
+        return DispatchOutcome::Fault(ApiFault::new(
+            "timer pacing host payload differs from the Rust wait authority",
+        ));
     }
-    let preserved_last_error = match session.last_error() {
-        Ok(last_error) => last_error,
-        Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
+    if let Some(pacing) = plan.repace() {
+        if let Err(fault) =
+            dispatcher.validate_deferred_completion(call, call.request.request_id, runtime.memory())
+        {
+            return DispatchOutcome::Fault(fault);
         }
-    };
+        let retry = ApiDeferredCall {
+            request: crate::api::HostRequest {
+                request_id: pacing.request_id,
+                service: RUNTIME_WAITABLE_TIMER_PACING_SERVICE.to_owned(),
+                payload: pacing.delay_milliseconds.to_le_bytes().to_vec(),
+            },
+            frame: call.frame.clone(),
+        };
+        runtime.commit_waitable_timer_pacing_completion(plan);
+        return DispatchOutcome::Deferred(retry);
+    }
+    let outcome = plan.outcome();
     let request_id = call.request.request_id;
     let outcome = dispatcher.complete_deferred(
         call,
         HostCompletion {
             request_id,
-            result: wait_result_immediate(result, preserved_last_error),
+            result: wait_result_immediate(outcome),
         },
-        session,
+        runtime,
     );
     if matches!(outcome, DispatchOutcome::Immediate(_)) {
-        let result = session
-            .runtime_mut()
-            .commit_waitable_timer_pacing_completion(plan);
-        (outcome, Some(result))
-    } else {
-        (outcome, None)
+        runtime.commit_waitable_timer_pacing_completion(plan);
     }
+    outcome
 }
 
 pub fn complete_kernel32_audio_notification_wait(
     dispatcher: &ApiDispatcher,
-    call: ApiDeferredCall,
+    call: &ApiDeferredCall,
     acknowledgement: u32,
-    session: &mut ExecutionSession<'_>,
-) -> (DispatchOutcome, Option<RuntimeHostCompletion>) {
-    if call.contract.implementation_id != WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION
+    runtime: &mut crate::runtime::Runtime,
+) -> DispatchOutcome {
+    if !call
+        .frame
+        .endpoint
+        .module
+        .eq_ignore_ascii_case("kernel32.dll")
+        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "WaitForMultipleObjects")
         || call.request.service != RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE
         || acknowledgement != 1
     {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-wait",
-                "audio-notification-pacing-suspended-call-mismatch",
-                "audio notification pacing completion does not match its suspended API call",
-            )),
-            None,
-        );
+        return DispatchOutcome::Fault(ApiFault::new(
+            "audio notification pacing completion does not match its suspended API call",
+        ));
     }
     let timeout = call.frame.argument_u32(3).unwrap_or(0);
-    let plan = match session.runtime().plan_audio_notification_wait_completion(
+    let plan = match runtime.plan_audio_notification_wait_completion(
         call.request.request_id,
         timeout,
         &call.request.payload,
     ) {
         Ok(plan) => plan,
         Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
+            return DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.frame.endpoint));
         }
     };
-    if !plan.accepts_host_payload(&call.request.payload) {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-wait",
-                "audio-notification-pacing-payload-mismatch",
-                "audio notification host payload differs from Rust audio authority",
-            )),
-            None,
-        );
-    }
-    let expected_result_index = plan.result_index();
-    let preserved_last_error = match session.last_error() {
-        Ok(last_error) => last_error,
-        Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
-        }
-    };
-    let result = expected_result_index.map_or(WAIT_TIMEOUT, |index| WAIT_OBJECT_0 + index);
+    let result = plan
+        .result_index()
+        .map_or(WAIT_TIMEOUT, |index| WAIT_OBJECT_0 + index);
     let request_id = call.request.request_id;
     let outcome = dispatcher.complete_deferred(
         call,
         HostCompletion {
             request_id,
-            result: ApiImmediate::new(ApiReturnValue::U32(result))
-                .with_last_error(preserved_last_error),
+            result: ApiImmediate::new(Some(result)),
         },
-        session,
+        runtime,
     );
     if matches!(outcome, DispatchOutcome::Immediate(_)) {
-        let (completion, committed_result_index) = session
-            .runtime_mut()
-            .commit_audio_notification_wait_completion(plan);
-        debug_assert_eq!(committed_result_index, expected_result_index);
-        (outcome, Some(completion))
-    } else {
-        (outcome, None)
+        runtime.commit_audio_notification_wait_completion(plan);
     }
-}
-
-pub fn complete_kernel32_writable_commit(
-    dispatcher: &ApiDispatcher,
-    call: ApiDeferredCall,
-    response: RuntimeWritableCommitHostResponse,
-    session: &mut ExecutionSession<'_>,
-) -> (
-    DispatchOutcome,
-    Option<crate::runtime::RuntimeWritableCommitCompletion>,
-) {
-    if !matches!(
-        call.contract.implementation_id.as_str(),
-        CLOSE_HANDLE_IMPLEMENTATION | FLUSH_FILE_BUFFERS_IMPLEMENTATION
-    ) || call.request.request_id != response.request_id
-        || call.request.service != RUNTIME_WRITABLE_COMMIT_SERVICE
-    {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-vfs",
-                "writable-commit-suspended-call-mismatch",
-                "writable commit host completion does not match its suspended API call",
-            )),
-            None,
-        );
-    }
-    let plan = match session
-        .runtime()
-        .plan_writable_file_commit_completion(response)
-    {
-        Ok(plan) => plan,
-        Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
-        }
-    };
-    let completion_last_error = if plan.completion().succeeded
-        && call.contract.implementation_id == CLOSE_HANDLE_IMPLEMENTATION
-    {
-        match session.last_error() {
-            Ok(last_error) => last_error,
-            Err(error) => {
-                return (
-                    DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                    None,
-                );
-            }
-        }
-    } else {
-        plan.completion().win32_error
-    };
-    let immediate = ApiImmediate::new(ApiReturnValue::Bool32(plan.completion().succeeded))
-        .with_last_error(completion_last_error);
-    let request_id = call.request.request_id;
-    let outcome = dispatcher.complete_deferred(
-        call,
-        HostCompletion {
-            request_id,
-            result: immediate,
-        },
-        session,
-    );
-    if matches!(outcome, DispatchOutcome::Immediate(_)) {
-        let completion = session
-            .runtime_mut()
-            .commit_writable_file_commit_completion(plan);
-        (outcome, Some(completion))
-    } else {
-        (outcome, None)
-    }
-}
-
-pub fn complete_kernel32_writable_delete(
-    dispatcher: &ApiDispatcher,
-    call: ApiDeferredCall,
-    response: RuntimeWritableCommitHostResponse,
-    session: &mut ExecutionSession<'_>,
-) -> (
-    DispatchOutcome,
-    Option<crate::runtime::RuntimeWritableDeleteCompletion>,
-) {
-    if call.contract.implementation_id != DELETE_FILE_A_IMPLEMENTATION
-        || call.request.request_id != response.request_id
-        || call.request.service != RUNTIME_WRITABLE_DELETE_SERVICE
-    {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-vfs",
-                "writable-file-delete-suspended-call-mismatch",
-                "file delete host completion does not match its suspended API call",
-            )),
-            None,
-        );
-    }
-    let request = match session
-        .runtime()
-        .writable_file_delete_request(response.request_id)
-    {
-        Ok(request) => request,
-        Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
-        }
-    };
-    if call.request.payload != request.encode_host_payload() {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-vfs",
-                "writable-file-delete-payload-mismatch",
-                "file delete host payload differs from the Rust VFS authority",
-            )),
-            None,
-        );
-    }
-    let plan = match session
-        .runtime()
-        .plan_writable_file_delete_completion(response)
-    {
-        Ok(plan) => plan,
-        Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
-        }
-    };
-    let completion_last_error = if plan.completion().succeeded {
-        match session.last_error() {
-            Ok(last_error) => last_error,
-            Err(error) => {
-                return (
-                    DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                    None,
-                );
-            }
-        }
-    } else {
-        plan.completion().win32_error
-    };
-    let immediate = ApiImmediate::new(ApiReturnValue::Bool32(plan.completion().succeeded))
-        .with_last_error(completion_last_error);
-    let request_id = call.request.request_id;
-    let outcome = dispatcher.complete_deferred(
-        call,
-        HostCompletion {
-            request_id,
-            result: immediate,
-        },
-        session,
-    );
-    if matches!(outcome, DispatchOutcome::Immediate(_)) {
-        let completion = session
-            .runtime_mut()
-            .commit_writable_file_delete_completion(plan);
-        (outcome, Some(completion))
-    } else {
-        (outcome, None)
-    }
-}
-
-pub fn complete_kernel32_writable_directory_create(
-    dispatcher: &ApiDispatcher,
-    call: ApiDeferredCall,
-    response: RuntimeWritableDirectoryCreateHostResponse,
-    session: &mut ExecutionSession<'_>,
-) -> (
-    DispatchOutcome,
-    Option<crate::runtime::RuntimeWritableDirectoryCreateCompletion>,
-) {
-    if call.contract.implementation_id != CREATE_DIRECTORY_A_IMPLEMENTATION
-        || call.request.request_id != response.request_id
-        || call.request.service != RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE
-    {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-vfs",
-                "writable-directory-create-suspended-call-mismatch",
-                "directory create host completion does not match its suspended API call",
-            )),
-            None,
-        );
-    }
-    let request = match session
-        .runtime()
-        .writable_directory_create_request(response.request_id)
-    {
-        Ok(request) => request,
-        Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
-        }
-    };
-    if call.request.payload != request.encode_host_payload() {
-        return (
-            DispatchOutcome::Fault(ApiFault::invalid_call(
-                "win32-vfs",
-                "writable-directory-create-payload-mismatch",
-                "directory create host payload differs from the Rust VFS authority",
-            )),
-            None,
-        );
-    }
-    let plan = match session
-        .runtime()
-        .plan_writable_directory_create_completion(response)
-    {
-        Ok(plan) => plan,
-        Err(error) => {
-            return (
-                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                None,
-            );
-        }
-    };
-    let completion_last_error = if plan.completion().succeeded {
-        match session.last_error() {
-            Ok(last_error) => last_error,
-            Err(error) => {
-                return (
-                    DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
-                    None,
-                );
-            }
-        }
-    } else {
-        plan.completion().win32_error
-    };
-    let immediate = ApiImmediate::new(ApiReturnValue::Bool32(plan.completion().succeeded))
-        .with_last_error(completion_last_error);
-    let request_id = call.request.request_id;
-    let outcome = dispatcher.complete_deferred(
-        call,
-        HostCompletion {
-            request_id,
-            result: immediate,
-        },
-        session,
-    );
-    if matches!(outcome, DispatchOutcome::Immediate(_)) {
-        let completion = session
-            .runtime_mut()
-            .commit_writable_directory_create_completion(plan);
-        (outcome, Some(completion))
-    } else {
-        (outcome, None)
-    }
-}
-
-fn require_source_file_policy(
-    policy: &Kernel32CompatibilityPolicy,
-) -> Result<&Kernel32SourceFilePolicy, ApiFault> {
-    policy.source_files().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-vfs",
-            "source-file-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable immutable source files",
-                policy.id
-            ),
-        )
-    })
-}
-
-fn require_find_file_a_policy(
-    policy: &Kernel32CompatibilityPolicy,
-) -> Result<Kernel32FindFileAPolicy, ApiFault> {
-    policy.find_file_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-vfs",
-            "find-file-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable deterministic VFS enumeration",
-                policy.id
-            ),
-        )
-    })
-}
-
-fn require_delete_file_a_policy(
-    policy: &Kernel32CompatibilityPolicy,
-) -> Result<Kernel32DeleteFileAPolicy, ApiFault> {
-    policy.delete_file_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-vfs",
-            "delete-file-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable bounded missing-file deletion probes",
-                policy.id
-            ),
-        )
-    })
+    outcome
 }
 
 fn read_nul_terminated_source_path(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     source: GuestAddress,
     maximum_path_bytes: u32,
 ) -> Result<Vec<u8>, ApiFault> {
     let maximum = usize::try_from(maximum_path_bytes).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-vfs",
-            "source-file-path-limit-not-representable",
-            "validated source file path limit does not fit host accounting",
-        )
+        ApiFault::new("validated source file path limit does not fit host accounting")
     })?;
     let mut bytes = Vec::new();
     for offset in 0..maximum {
-        let address = add_guest_offset(contract, source, offset)?;
-        let byte = session
-            .memory()
+        let address = add_guest_offset(endpoint, source, offset)?;
+        let byte = memory
             .read(address, 1)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
         bytes.push(byte);
         if byte == 0 {
             return Ok(bytes);
         }
     }
-    Err(ApiFault::resource_limit(
-        "win32-vfs",
-        "source-file-path-not-terminated",
-        format!("ANSI source file path did not terminate within {maximum_path_bytes} bytes"),
-    ))
+    Err(ApiFault::new(format!(
+        "ANSI source file path did not terminate within {maximum_path_bytes} bytes"
+    )))
 }
 
-fn handle_create_mutex_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_create_mutex_a_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let mutex_policy = policy.create_mutex_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-mutex",
-            "create-mutex-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable CreateMutexA",
-                policy.id
-            ),
-        )
-    })?;
-    let security_attributes = required_argument(contract, frame, 0, "security attributes")?;
-    let initial_owner = required_argument(contract, frame, 1, "initial owner")? != 0;
-    let name_address = required_argument(contract, frame, 2, "ANSI mutex name")?;
+    const MAXIMUM_NAME_BYTES: usize = 260;
+    let security_attributes = required_argument(endpoint, frame, 0, "security attributes")?;
+    let initial_owner = required_argument(endpoint, frame, 1, "initial owner")? != 0;
+    let name_address = required_argument(endpoint, frame, 2, "ANSI mutex name")?;
     if security_attributes != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-mutex",
-            "create-mutex-a-security-attributes-unsupported",
-            "the selected CreateMutexA policy enables only null security attributes",
+        return Err(ApiFault::new(
+            "CreateMutexA currently supports only null security attributes",
         ));
     }
     let name_a = if name_address == 0 {
-        if !mutex_policy.allow_unnamed {
-            return Err(ApiFault::unsupported(
-                "win32-mutex",
-                "create-mutex-a-unnamed-unsupported",
-                "the selected CreateMutexA policy does not enable unnamed mutexes",
-            ));
-        }
         None
     } else {
-        if !mutex_policy.allow_named {
-            return Err(ApiFault::unsupported(
-                "win32-mutex",
-                "create-mutex-a-named-unsupported",
-                "the selected CreateMutexA policy does not enable named mutexes",
-            ));
-        }
         let bytes_with_nul = read_nul_terminated_ansi_mutex_name(
-            contract,
-            session,
+            endpoint,
+            &runtime.memory,
             GuestAddress(name_address),
-            mutex_policy,
+            MAXIMUM_NAME_BYTES,
         )?;
         if bytes_with_nul == [0] {
-            return Err(ApiFault::unsupported(
-                "win32-mutex",
-                "create-mutex-a-empty-name-unsupported",
-                "the selected CreateMutexA policy does not enable an empty object-manager name",
+            return Err(ApiFault::new(
+                "empty object-manager names are not yet supported",
             ));
         }
         let utf16_units_with_nul = decode_windows_932(&bytes_with_nul);
         Some(
             RuntimeMutexNameA::new(bytes_with_nul, utf16_units_with_nul)
-                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?,
         )
     };
-    let result = session
-        .runtime_mut()
+    let (handle, already_exists) = runtime
         .create_mutex_a(name_a, initial_owner)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
     Ok(
-        ApiImmediate::new(ApiReturnValue::U32(result.handle.0)).with_last_error(
-            if result.already_exists {
-                ERROR_ALREADY_EXISTS
-            } else {
-                ERROR_SUCCESS
-            },
-        ),
+        ApiImmediate::new(Some(handle.0)).with_last_error(if already_exists {
+            ERROR_ALREADY_EXISTS
+        } else {
+            ERROR_SUCCESS
+        }),
     )
 }
 
 fn handle_create_event_a(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let security_attributes = required_argument(contract, frame, 0, "security attributes")?;
-    let manual_reset = required_argument(contract, frame, 1, "manual reset")? != 0;
-    let initial_state = required_argument(contract, frame, 2, "initial state")? != 0;
-    let name = required_argument(contract, frame, 3, "ANSI event name")?;
+    let security_attributes = required_argument(endpoint, frame, 0, "security attributes")?;
+    let manual_reset = required_argument(endpoint, frame, 1, "manual reset")? != 0;
+    let initial_state = required_argument(endpoint, frame, 2, "initial state")? != 0;
+    let name = required_argument(endpoint, frame, 3, "ANSI event name")?;
     if security_attributes != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-event",
-            "create-event-a-security-attributes-unsupported",
+        return Err(ApiFault::new(
             "bounded CreateEventA supports null security attributes",
         ));
     }
     if name != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-event",
-            "create-event-a-named-unsupported",
+        return Err(ApiFault::new(
             "bounded CreateEventA supports the reached unnamed event variant",
         ));
     }
-    let (handle, _) = session
-        .runtime_mut()
+    let handle = runtime
         .create_event(manual_reset, initial_state)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: RUNTIME_EVENT_OBJECT_NAMESPACE.to_owned(),
-        value: handle.0,
-    })
-    .with_last_error(ERROR_SUCCESS))
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(handle.0)).with_last_error(ERROR_SUCCESS))
 }
 
 fn handle_set_event(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
     set: bool,
 ) -> Result<ApiImmediate, ApiFault> {
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "event handle")?);
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "event handle")?);
     let result = if set {
-        session.runtime_mut().set_event(handle)
+        runtime.set_event(handle)
     } else {
-        session.runtime_mut().reset_event(handle)
+        runtime.reset_event(handle)
     };
-    match result {
-        Ok(_) => Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))),
-        Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_INVALID_HANDLE))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
-    }
+    let success = result.map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let immediate = ApiImmediate::new(Some(u32::from(success)));
+    Ok(if success {
+        immediate
+    } else {
+        immediate.with_last_error(ERROR_INVALID_HANDLE)
+    })
 }
 
 fn handle_wait_for_single_object(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let handle = RuntimeHandle(required_argument(contract, frame, 0, "wait handle")?);
-    let timeout = required_argument(contract, frame, 1, "timeout")?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "wait handle")?);
+    let timeout = required_argument(endpoint, frame, 1, "timeout")?;
     let kind = match handle.kind() {
         Ok(kind @ (RuntimeObjectKind::Event | RuntimeObjectKind::Thread)) => kind,
         _ => {
-            return Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
-                .with_last_error(ERROR_INVALID_HANDLE));
+            return Ok(ApiImmediate::new(Some(WAIT_FAILED)).with_last_error(ERROR_INVALID_HANDLE));
         }
     };
-    let wait_state = match session.runtime().object_wait_state(handle, kind) {
-        Ok(state) => state,
-        Err(error) if error.class == RuntimeStateErrorClass::RuntimeDefect => {
-            return Err(ApiFault::from_runtime(error, &contract.endpoint));
-        }
-        Err(_) => {
-            return Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
-                .with_last_error(ERROR_INVALID_HANDLE));
-        }
-    };
+    if !runtime
+        .is_live_object_handle(handle, kind)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        return Ok(ApiImmediate::new(Some(WAIT_FAILED)).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    let wait_state = runtime
+        .object_wait_state(handle, kind)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
     if timeout == 0 {
         let signaled = if kind == RuntimeObjectKind::Event {
-            session
-                .runtime_mut()
+            runtime
                 .try_wait_event(handle)
-                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
         } else {
             matches!(wait_state, RuntimeWaitState::Signaled { .. })
         };
-        return Ok(ApiImmediate::new(ApiReturnValue::U32(if signaled {
+        return Ok(ApiImmediate::new(Some(if signaled {
             WAIT_OBJECT_0
         } else {
             WAIT_TIMEOUT
-        }))
-        .with_last_error(preserved_last_error));
+        })));
     }
-    if timeout != u32::MAX {
-        return Err(ApiFault::unsupported(
-            "win32-wait",
-            "wait-for-single-object-finite-timeout-unsupported",
-            "bounded event/thread WaitForSingleObject supports zero or infinite timeout",
+    if timeout != u32::MAX && !matches!(wait_state, RuntimeWaitState::Signaled { .. }) {
+        return Err(ApiFault::new(
+            "unsignaled finite event/thread waits require timeout scheduling",
         ));
     }
-    let wait = session
-        .runtime_mut()
+    let wait = runtime
         .wait_current_thread_on(handle)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
     match wait {
         RuntimeWaitDisposition::AlreadySignaled { .. } => {
-            Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_OBJECT_0))
-                .with_last_error(preserved_last_error))
+            Ok(ApiImmediate::new(Some(WAIT_OBJECT_0)))
         }
-        RuntimeWaitDisposition::Pending { .. } => {
-            Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_OBJECT_0))
-                .with_last_error(preserved_last_error)
-                .with_execution_boundary(RuntimeApiBoundaryDisposition::BlockCurrentThread))
-        }
-        RuntimeWaitDisposition::MutexAcquired { .. } => Err(ApiFault::runtime_defect(
-            "win32-wait",
-            "event-wait-returned-mutex-acquisition",
+        RuntimeWaitDisposition::Pending { .. } => Ok(ApiImmediate::new(Some(WAIT_OBJECT_0))
+            .with_execution_boundary(RuntimeApiBoundaryDisposition::BlockCurrentThread)),
+        RuntimeWaitDisposition::MutexAcquired { .. } => Err(ApiFault::new(
             "event/thread wait unexpectedly returned a mutex acquisition",
         )),
     }
 }
 
 fn handle_wait_for_multiple_objects(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> ApiHandlerResult {
     let result = (|| {
-        let wait_all = required_argument(contract, frame, 2, "wait-all")? != 0;
-        let timeout = required_argument(contract, frame, 3, "timeout")?;
+        let wait_all = required_argument(endpoint, frame, 2, "wait-all")? != 0;
+        let timeout = required_argument(endpoint, frame, 3, "timeout")?;
         if wait_all {
-            return Err(ApiFault::unsupported(
-                "win32-wait",
-                "wait-for-multiple-objects-wait-all-unsupported",
+            return Err(ApiFault::new(
                 "reached DirectSound event wait requires wait-any semantics",
             ));
         }
-        let handles = read_wait_handles(contract, frame, session)?;
-        let preserved_last_error = session
-            .last_error()
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        for (index, &handle) in handles.iter().enumerate() {
-            let event = match session.runtime().event_for_handle(handle) {
-                Ok(event) => event,
-                Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
-                    return Ok(ApiHandlerResult::Immediate(
-                        ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
-                            .with_last_error(ERROR_INVALID_HANDLE),
-                    ));
-                }
-                Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
-            };
-            if matches!(event.wait_state, RuntimeWaitState::Signaled { .. }) {
-                session
-                    .runtime_mut()
-                    .try_wait_event(handle)
-                    .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let handles = read_wait_handles(endpoint, frame, &runtime.memory)?;
+        for &handle in &handles {
+            if !runtime
+                .is_live_object_handle(handle, RuntimeObjectKind::Event)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+            {
                 return Ok(ApiHandlerResult::Immediate(
-                    ApiImmediate::new(ApiReturnValue::U32(WAIT_OBJECT_0 + index as u32))
-                        .with_last_error(preserved_last_error),
+                    ApiImmediate::new(Some(WAIT_FAILED)).with_last_error(ERROR_INVALID_HANDLE),
                 ));
+            }
+        }
+        for (index, &handle) in handles.iter().enumerate() {
+            let event = runtime
+                .event_for_handle(handle)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+            if matches!(event.wait_state, RuntimeWaitState::Signaled { .. }) {
+                runtime
+                    .try_wait_event(handle)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(
+                    WAIT_OBJECT_0 + index as u32,
+                ))));
             }
         }
         if timeout == 0 {
-            return Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::U32(WAIT_TIMEOUT))
-                    .with_last_error(preserved_last_error),
-            ));
+            return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(
+                WAIT_TIMEOUT,
+            ))));
         }
-        let begin = match session
-            .runtime_mut()
+        let Some((request, payload)) = runtime
             .begin_audio_notification_wait(&handles, timeout)
-        {
-            Ok(begin) => begin,
-            Err(error) if error.code == "audio-notification-wait-buffer-unknown" => {
-                return Err(ApiFault::unsupported(
-                    "win32-wait",
-                    "wait-for-multiple-objects-source-unsupported",
-                    "finite wait handle array is not owned by a playing DirectSound notification buffer",
-                ));
-            }
-            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        else {
+            return Err(ApiFault::new(
+                "finite wait handle array is not owned by a DirectSound notification buffer",
+            ));
         };
         Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
-            request_id: begin.request.request_id,
-            service: begin.request.service,
-            payload: begin.payload,
+            request_id: request.request_id,
+            service: request.service,
+            payload,
         }))
     })();
     match result {
@@ -4523,30 +2891,21 @@ fn handle_wait_for_multiple_objects(
 }
 
 fn read_wait_handles(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    memory: &GuestMemory,
 ) -> Result<Vec<RuntimeHandle>, ApiFault> {
-    let count =
-        usize::try_from(required_argument(contract, frame, 0, "handle count")?).map_err(|_| {
-            ApiFault::invalid_call(
-                "win32-wait",
-                "wait-handle-count-unrepresentable",
-                "wait handle count does not fit host accounting",
-            )
-        })?;
-    let pointer = required_argument(contract, frame, 1, "handle array")?;
+    let count = usize::try_from(required_argument(endpoint, frame, 0, "handle count")?)
+        .map_err(|_| ApiFault::new("wait handle count does not fit host accounting"))?;
+    let pointer = required_argument(endpoint, frame, 1, "handle array")?;
     if count == 0 || count > RUNTIME_AUDIO_NOTIFICATION_LIMIT || pointer == 0 {
-        return Err(ApiFault::invalid_call(
-            "win32-wait",
-            "wait-handle-array-invalid",
+        return Err(ApiFault::new(
             "wait handle array must be bounded, nonempty, and nonnull",
         ));
     }
-    let bytes = session
-        .memory()
+    let bytes = memory
         .read(GuestAddress(pointer), count * 4)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     Ok((0..count)
         .map(|index| {
             let offset = index * 4;
@@ -4560,274 +2919,135 @@ fn read_wait_handles(
 }
 
 fn read_nul_terminated_ansi_mutex_name(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     source: GuestAddress,
-    policy: Kernel32CreateMutexAPolicy,
+    maximum: usize,
 ) -> Result<Vec<u8>, ApiFault> {
-    let maximum = usize::try_from(policy.maximum_name_bytes).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-mutex",
-            "create-mutex-a-limit-not-representable",
-            "validated ANSI mutex name limit does not fit host accounting",
-        )
-    })?;
     let mut bytes = Vec::new();
     for offset in 0..maximum {
-        let address = add_guest_offset(contract, source, offset)?;
-        let byte = session
-            .memory()
+        let address = add_guest_offset(endpoint, source, offset)?;
+        let byte = memory
             .read(address, 1)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
         bytes.push(byte);
         if byte == 0 {
             return Ok(bytes);
         }
     }
-    Err(ApiFault::resource_limit(
-        "win32-mutex",
-        "create-mutex-a-name-not-terminated",
-        format!(
-            "ANSI mutex name did not terminate within the policy limit of {} bytes",
-            policy.maximum_name_bytes
-        ),
-    ))
+    Err(ApiFault::new(format!(
+        "ANSI mutex name did not terminate within the limit of {} bytes",
+        maximum
+    )))
 }
 
-fn handle_create_waitable_timer_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_create_waitable_timer_a_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let timer_policy = policy.create_waitable_timer_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-waitable-timer",
-            "create-waitable-timer-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable CreateWaitableTimerA",
-                policy.id
-            ),
-        )
-    })?;
-    let security_attributes = required_argument(contract, frame, 0, "security attributes")?;
-    let manual_reset = required_argument(contract, frame, 1, "manual reset")? != 0;
-    let name_address = required_argument(contract, frame, 2, "ANSI timer name")?;
-    if security_attributes != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-waitable-timer",
-            "create-waitable-timer-a-security-attributes-unsupported",
-            "the selected CreateWaitableTimerA policy enables only null security attributes",
+    let security_attributes = required_argument(endpoint, frame, 0, "security attributes")?;
+    let manual_reset = required_argument(endpoint, frame, 1, "manual reset")? != 0;
+    let name = required_argument(endpoint, frame, 2, "ANSI timer name")?;
+    if security_attributes != 0 || name != 0 {
+        return Err(ApiFault::new(
+            "CreateWaitableTimerA supports unnamed timers with default security",
         ));
     }
-    if name_address != 0 || !timer_policy.allow_unnamed {
-        return Err(ApiFault::unsupported(
-            "win32-waitable-timer",
-            "create-waitable-timer-a-named-unsupported",
-            "the selected CreateWaitableTimerA policy enables only unnamed timers",
-        ));
-    }
-    if (manual_reset && !timer_policy.allow_manual_reset)
-        || (!manual_reset && !timer_policy.allow_auto_reset)
-    {
-        return Err(ApiFault::unsupported(
-            "win32-waitable-timer",
-            "create-waitable-timer-a-reset-mode-unsupported",
-            format!(
-                "compatibility policy {} does not enable the requested timer reset mode",
-                policy.id
-            ),
-        ));
-    }
-    let result = session
-        .runtime_mut()
+    let timer = runtime
         .create_waitable_timer_a(manual_reset)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE.to_owned(),
-        value: result.handle.0,
-    })
-    .with_last_error(ERROR_SUCCESS))
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(timer.0)).with_last_error(ERROR_SUCCESS))
 }
 
-fn handle_set_waitable_timer(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_set_waitable_timer_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let timer_policy = policy.set_waitable_timer().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-waitable-timer",
-            "set-waitable-timer-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable SetWaitableTimer",
-                policy.id
-            ),
-        )
-    })?;
     let handle = RuntimeHandle(required_argument(
-        contract,
+        endpoint,
         frame,
         0,
         "waitable timer handle",
     )?);
-    let due_time_address = GuestAddress(required_argument(contract, frame, 1, "due time")?);
-    let period_milliseconds =
-        i32::from_le_bytes(required_argument(contract, frame, 2, "period")?.to_le_bytes());
-    let completion_routine = required_argument(contract, frame, 3, "completion routine")?;
-    let completion_context = required_argument(contract, frame, 4, "completion context")?;
-    let resume = required_argument(contract, frame, 5, "resume")? != 0;
-    if period_milliseconds != 0 || !timer_policy.allow_one_shot {
-        return Err(ApiFault::unsupported(
-            "win32-waitable-timer",
-            "set-waitable-timer-periodic-unsupported",
-            "the selected SetWaitableTimer policy enables only one-shot timers",
+    let due = GuestAddress(required_argument(endpoint, frame, 1, "due time")?);
+    let period = required_argument(endpoint, frame, 2, "period")?;
+    let routine = required_argument(endpoint, frame, 3, "completion routine")?;
+    let context = required_argument(endpoint, frame, 4, "completion context")?;
+    let resume = required_argument(endpoint, frame, 5, "resume")?;
+    if period != 0 || routine != 0 || context != 0 || resume != 0 {
+        return Err(ApiFault::new(
+            "only one-shot timers without completion routines or resume are supported",
         ));
     }
-    if completion_routine != 0 || completion_context != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-waitable-timer",
-            "set-waitable-timer-completion-routine-unsupported",
-            "the selected SetWaitableTimer policy enables no completion routine or context",
-        ));
-    }
-    if resume {
-        return Err(ApiFault::unsupported(
-            "win32-waitable-timer",
-            "set-waitable-timer-resume-unsupported",
-            "the selected SetWaitableTimer policy enables no resume request",
-        ));
-    }
-    if session.runtime().waitable_timer_for_handle(handle).is_err() {
-        return Ok(
-            ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_INVALID_HANDLE)
-        );
-    }
-    let bytes = session
-        .memory()
-        .read(due_time_address, size_of::<i64>())
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    let due_time_100ns = i64::from_le_bytes(bytes.try_into().map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-waitable-timer",
-            "set-waitable-timer-due-time-read-size-invalid",
-            "checked waitable timer due-time input did not contain one LARGE_INTEGER",
-        )
-    })?);
-    if due_time_100ns >= 0 {
-        return Err(ApiFault::unsupported(
-            "win32-waitable-timer",
-            "set-waitable-timer-absolute-due-time-unsupported",
-            "the selected SetWaitableTimer policy enables only negative relative due times",
-        ));
-    }
-    let relative_due_time_100ns = due_time_100ns.unsigned_abs();
-    if !(timer_policy.minimum_relative_due_time_100ns
-        ..=timer_policy.maximum_relative_due_time_100ns)
-        .contains(&relative_due_time_100ns)
+    if !runtime
+        .is_live_object_handle(handle, RuntimeObjectKind::WaitableTimer)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
     {
-        return Err(ApiFault::unsupported(
-            "win32-waitable-timer",
-            "set-waitable-timer-relative-due-time-unsupported",
-            format!(
-                "compatibility policy {} enables relative due times from {} through {} 100ns units, not {}",
-                policy.id,
-                timer_policy.minimum_relative_due_time_100ns,
-                timer_policy.maximum_relative_due_time_100ns,
-                relative_due_time_100ns,
-            ),
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    runtime
+        .waitable_timer_for_handle(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let bytes = runtime
+        .memory
+        .read(due, size_of::<i64>())
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let due_time_100ns = i64::from_le_bytes(bytes.try_into().expect("read exactly 8 bytes"));
+    if due_time_100ns >= 0 {
+        return Err(ApiFault::new(
+            "absolute timer due times are not yet supported",
         ));
     }
-    session
-        .runtime_mut()
-        .set_waitable_timer(handle, relative_due_time_100ns)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)).with_last_error(ERROR_SUCCESS))
+    runtime
+        .set_waitable_timer(handle, due_time_100ns.unsigned_abs())
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true))).with_last_error(ERROR_SUCCESS))
 }
 
-fn handle_wait_for_single_object_ex(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_wait_for_single_object_ex_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> ApiHandlerResult {
     let result = (|| {
-        let wait_policy = policy.wait_for_single_object_ex().ok_or_else(|| {
-            ApiFault::unsupported(
-                "win32-wait",
-                "wait-for-single-object-ex-policy-disabled",
-                format!(
-                    "compatibility policy {} does not enable WaitForSingleObjectEx",
-                    policy.id
-                ),
-            )
-        })?;
-        let handle = RuntimeHandle(required_argument(contract, frame, 0, "wait handle")?);
-        let timeout_milliseconds = required_argument(contract, frame, 1, "timeout")?;
-        let alertable = required_argument(contract, frame, 2, "alertable")? != 0;
-        if timeout_milliseconds > wait_policy.maximum_timeout_milliseconds {
-            return Err(ApiFault::unsupported(
-                "win32-wait",
-                "wait-for-single-object-ex-timeout-unsupported",
-                format!(
-                    "compatibility policy {} enables finite timeouts through {} milliseconds, not {}",
-                    policy.id, wait_policy.maximum_timeout_milliseconds, timeout_milliseconds
-                ),
-            ));
-        }
-        if (alertable && !wait_policy.allow_alertable)
-            || (!alertable && !wait_policy.allow_nonalertable)
+        let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "wait handle")?);
+        let timeout = required_argument(endpoint, frame, 1, "timeout")?;
+        let alertable = required_argument(endpoint, frame, 2, "alertable")? != 0;
+        if !runtime
+            .is_live_object_handle(handle, RuntimeObjectKind::WaitableTimer)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
         {
-            return Err(ApiFault::unsupported(
-                "win32-wait",
-                "wait-for-single-object-ex-alertable-mode-unsupported",
-                format!(
-                    "compatibility policy {} does not enable the requested alertable mode",
-                    policy.id
-                ),
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(WAIT_FAILED)).with_last_error(ERROR_INVALID_HANDLE),
             ));
         }
-        if !wait_policy.waitable_timer_only {
-            return Err(ApiFault::runtime_defect(
-                "win32-wait",
-                "wait-for-single-object-ex-policy-object-band-invalid",
-                "validated WaitForSingleObjectEx policy lost its timer-only object scope",
+        runtime
+            .waitable_timer_for_handle(handle)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        // The browser timer is finite and cannot represent INFINITE or delays
+        // beyond its signed 32-bit range. Do not report an early timeout.
+        if timeout > i32::MAX as u32 {
+            return Err(ApiFault::new(
+                "WaitForSingleObjectEx requires a finite browser-representable timeout",
             ));
         }
-        match session.runtime().waitable_timer_for_handle(handle) {
-            Ok(_) => {}
-            Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
-                return Ok(ApiHandlerResult::Immediate(
-                    ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
-                        .with_last_error(ERROR_INVALID_HANDLE),
-                ));
+        match runtime
+            .begin_wait_for_single_object_ex(handle, timeout, alertable)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        {
+            RuntimeWaitForSingleObjectExBegin::Immediate { outcome } => {
+                Ok(ApiHandlerResult::Immediate(wait_result_immediate(outcome)))
             }
-            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
-        }
-        let preserved_last_error = session
-            .last_error()
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        let begin = session
-            .runtime_mut()
-            .begin_wait_for_single_object_ex(handle, timeout_milliseconds, alertable)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        match begin {
-            RuntimeWaitForSingleObjectExBegin::Immediate { result } => Ok(
-                ApiHandlerResult::Immediate(wait_result_immediate(result, preserved_last_error)),
-            ),
             RuntimeWaitForSingleObjectExBegin::Deferred { registration } => {
                 let pacing = registration.waitable_timer_pacing.ok_or_else(|| {
-                    ApiFault::runtime_defect(
-                        "win32-wait",
-                        "waitable-timer-pacing-contract-missing",
-                        "deferred WaitForSingleObjectEx registration has no pacing contract",
-                    )
+                    ApiFault::new("timer wait registration has no browser pacing request")
                 })?;
                 Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
                     request_id: pacing.request_id,
                     service: RUNTIME_WAITABLE_TIMER_PACING_SERVICE.to_owned(),
-                    payload: pacing.encode_host_payload(registration.id).to_vec(),
+                    payload: pacing.delay_milliseconds.to_le_bytes().to_vec(),
                 }))
             }
         }
@@ -4838,58 +3058,36 @@ fn handle_wait_for_single_object_ex(
     }
 }
 
-fn wait_result_immediate(
-    result: RuntimeWaitForSingleObjectExResult,
-    preserved_last_error: u32,
-) -> ApiImmediate {
-    let value = match result.outcome {
+fn wait_result_immediate(outcome: RuntimeWaitForSingleObjectExOutcome) -> ApiImmediate {
+    let value = match outcome {
         RuntimeWaitForSingleObjectExOutcome::ObjectSignaled => WAIT_OBJECT_0,
         RuntimeWaitForSingleObjectExOutcome::TimedOut => WAIT_TIMEOUT,
     };
-    ApiImmediate::new(ApiReturnValue::U32(value)).with_last_error(preserved_last_error)
+    ApiImmediate::new(Some(value))
 }
 
-fn handle_sleep(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_sleep_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> ApiHandlerResult {
     let result = (|| {
-        let milliseconds = required_argument(contract, frame, 0, "sleep interval")?;
-        if !policy.allows_sleep_zero() {
-            return Err(ApiFault::unsupported(
-                "win32-thread-scheduling",
-                "sleep-zero-policy-disabled",
-                format!(
-                    "compatibility policy {} does not enable Sleep(0)",
-                    policy.id
-                ),
-            ));
-        }
+        let milliseconds = required_argument(endpoint, frame, 0, "sleep interval")?;
         if milliseconds == 0 {
             return Ok(ApiHandlerResult::Immediate(
-                ApiImmediate::new(ApiReturnValue::Void)
+                ApiImmediate::new(None)
                     .with_execution_boundary(RuntimeApiBoundaryDisposition::YieldCurrentThread),
             ));
         }
-        if policy
-            .maximum_sleep_milliseconds()
-            .is_none_or(|maximum| milliseconds > maximum)
-        {
-            return Err(ApiFault::unsupported(
-                "win32-thread-scheduling",
-                "sleep-interval-unsupported",
-                format!(
-                    "compatibility policy {} does not enable Sleep({milliseconds})",
-                    policy.id
-                ),
+        // setTimeout cannot represent INFINITE or delays beyond its signed 32-bit range.
+        if milliseconds > i32::MAX as u32 {
+            return Err(ApiFault::new(
+                "Sleep interval exceeds the browser timer range",
             ));
         }
-        let request = session
-            .runtime_mut()
+        let request = runtime
             .begin_host_request(RUNTIME_SLEEP_DELAY_SERVICE)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
         Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
             request_id: request.request_id,
             service: request.service,
@@ -4902,103 +3100,63 @@ fn handle_sleep(
     }
 }
 
-fn handle_get_string_type_w(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_get_string_type_w_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    memory: &GuestMemory,
 ) -> Result<ApiImmediate, ApiFault> {
-    let info_type = required_argument(contract, frame, 0, "character information type")?;
-    let source_address = required_argument(contract, frame, 1, "UTF-16 source")?;
-    let source_count = required_argument(contract, frame, 2, "UTF-16 source length")? as i32;
-    let output_address = required_argument(contract, frame, 3, "character-type output")?;
-    let classification = policy.get_string_type_w().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-string-classification",
-            "get-string-type-w-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable GetStringTypeW",
-                policy.id
-            ),
-        )
-    })?;
-    if !classification.allowed_info_types.contains(&info_type) {
-        return Err(ApiFault::unsupported(
-            "win32-string-classification",
-            "get-string-type-w-info-type-unsupported",
-            format!(
-                "compatibility policy {} enables information types {:?}, not {info_type:#010x}",
-                policy.id, classification.allowed_info_types
-            ),
-        ));
+    const MAXIMUM_SOURCE_CODE_UNITS: usize = 65_536;
+    let info_type = required_argument(endpoint, frame, 0, "character information type")?;
+    let source_address = required_argument(endpoint, frame, 1, "UTF-16 source")?;
+    let source_count = required_argument(endpoint, frame, 2, "UTF-16 source length")? as i32;
+    let output_address = required_argument(endpoint, frame, 3, "character-type output")?;
+    if info_type != 1 {
+        return Err(ApiFault::new(format!(
+            "GetStringTypeW does not support information type {info_type:#010x}"
+        )));
     }
 
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     if source_count == 0 {
         return Ok(get_string_type_failure(ERROR_INVALID_PARAMETER));
     }
     if source_count < 0 {
-        return Err(ApiFault::unsupported(
-            "win32-string-classification",
-            "get-string-type-w-negative-count-unsupported",
-            "the selected GetStringTypeW policy enables only explicit positive source lengths",
+        return Err(ApiFault::new(
+            "GetStringTypeW supports only explicit positive source lengths",
         ));
     }
     let source_units = usize::try_from(source_count).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-string-classification",
-            "get-string-type-w-count-not-representable",
-            "validated positive UTF-16 source count does not fit host accounting",
-        )
+        ApiFault::new("validated positive UTF-16 source count does not fit host accounting")
     })?;
-    if source_units > classification.maximum_source_code_units as usize {
-        return Err(ApiFault::resource_limit(
-            "win32-string-classification",
-            "get-string-type-w-source-limit-exceeded",
-            format!(
-                "UTF-16 source count {source_units} exceeds the policy limit of {}",
-                classification.maximum_source_code_units
-            ),
-        ));
+    if source_units > MAXIMUM_SOURCE_CODE_UNITS {
+        return Err(ApiFault::new(format!(
+            "UTF-16 source count {source_units} exceeds the limit of {MAXIMUM_SOURCE_CODE_UNITS}"
+        )));
     }
-    let byte_length = source_units.checked_mul(2).ok_or_else(|| {
-        ApiFault::resource_limit(
-            "win32-string-classification",
-            "get-string-type-w-byte-length-overflow",
-            "UTF-16 classification length overflowed host accounting",
-        )
-    })?;
+    let byte_length = source_units
+        .checked_mul(2)
+        .ok_or_else(|| ApiFault::new("UTF-16 classification length overflowed host accounting"))?;
     let source = GuestAddress(source_address);
     let output = GuestAddress(output_address);
-    session
-        .memory()
+    memory
         .validate_access(source, byte_length, MemoryAccess::Read)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    session
-        .memory()
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    memory
         .validate_access(output, byte_length, MemoryAccess::Write)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     if guest_ranges_overlap(source_address, byte_length, output_address, byte_length)? {
-        return Err(ApiFault::unsupported(
-            "win32-string-classification",
-            "get-string-type-w-overlap-unsupported",
-            "the selected GetStringTypeW policy does not enable overlapping input and output",
+        return Err(ApiFault::new(
+            "GetStringTypeW does not support overlapping input and output",
         ));
     }
 
-    let source_bytes = session
-        .memory()
+    let source_bytes = memory
         .read(source, byte_length)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     let mut output_bytes = Vec::with_capacity(byte_length);
     for (index, bytes) in source_bytes.chunks_exact(2).enumerate() {
         let unit = u16::from_le_bytes([bytes[0], bytes[1]]);
         let character_type = classify_windows_ctype1(unit).ok_or_else(|| {
-            ApiFault::unsupported(
-                "win32-string-classification",
-                "get-string-type-w-code-unit-unsupported",
+            ApiFault::new(
                 format!(
                     "the selected CT_CTYPE1 classifier does not cover UTF-16 unit {unit:#06x} at index {index}"
                 ),
@@ -5006,9 +3164,7 @@ fn handle_get_string_type_w(
         })?;
         output_bytes.extend_from_slice(&character_type.to_le_bytes());
     }
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-        .with_last_error(preserved_last_error)
-        .with_guest_write(output, output_bytes))
+    Ok(ApiImmediate::new(Some(u32::from(true))).with_guest_write(output, output_bytes))
 }
 
 fn classify_windows_ctype1(unit: u16) -> Option<u16> {
@@ -5089,109 +3245,67 @@ fn classify_windows_ctype1(unit: u16) -> Option<u16> {
 }
 
 fn get_string_type_failure(last_error: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(last_error)
+    ApiImmediate::new(Some(u32::from(false))).with_last_error(last_error)
 }
 
-fn handle_lc_map_string_w(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_lc_map_string_w_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    memory: &GuestMemory,
 ) -> Result<ApiImmediate, ApiFault> {
-    let locale = required_argument(contract, frame, 0, "locale")?;
-    let flags = required_argument(contract, frame, 1, "mapping flags")?;
-    let source_address = required_argument(contract, frame, 2, "UTF-16 source")?;
-    let source_count = required_argument(contract, frame, 3, "UTF-16 source length")? as i32;
-    let destination_address = required_argument(contract, frame, 4, "UTF-16 destination")?;
+    const MAXIMUM_SOURCE_CODE_UNITS: usize = 65_536;
+    let locale = required_argument(endpoint, frame, 0, "locale")?;
+    let flags = required_argument(endpoint, frame, 1, "mapping flags")?;
+    let source_address = required_argument(endpoint, frame, 2, "UTF-16 source")?;
+    let source_count = required_argument(endpoint, frame, 3, "UTF-16 source length")? as i32;
+    let destination_address = required_argument(endpoint, frame, 4, "UTF-16 destination")?;
     let destination_count =
-        required_argument(contract, frame, 5, "UTF-16 destination capacity")? as i32;
-    let mapping = policy.lc_map_string_w().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-locale-mapping",
-            "lc-map-string-w-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable LCMapStringW",
-                policy.id
-            ),
-        )
-    })?;
-    if !mapping.allowed_locales.contains(&locale) {
-        return Err(ApiFault::unsupported(
-            "win32-locale-mapping",
-            "lc-map-string-w-locale-unsupported",
-            format!(
-                "compatibility policy {} enables locales {:?}, not {locale:#010x}",
-                policy.id, mapping.allowed_locales
-            ),
-        ));
+        required_argument(endpoint, frame, 5, "UTF-16 destination capacity")? as i32;
+    if locale != 0x0411 {
+        return Err(ApiFault::new(format!(
+            "LCMapStringW does not support locale {locale:#010x}"
+        )));
     }
-    if !mapping.allowed_flags.contains(&flags) {
-        return Err(ApiFault::unsupported(
-            "win32-locale-mapping",
-            "lc-map-string-w-flags-unsupported",
-            format!(
-                "compatibility policy {} enables mapping flags {:?}, not {flags:#010x}",
-                policy.id, mapping.allowed_flags
-            ),
-        ));
+    if !matches!(flags, 0x0100 | 0x0200) {
+        return Err(ApiFault::new(format!(
+            "LCMapStringW does not support mapping flags {flags:#010x}"
+        )));
     }
 
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     if source_count == 0 {
         return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
     }
     if source_count < 0 {
-        return Err(ApiFault::unsupported(
-            "win32-locale-mapping",
-            "lc-map-string-w-negative-source-count-unsupported",
-            "the selected LCMapStringW policy enables only explicit positive source lengths",
+        return Err(ApiFault::new(
+            "LCMapStringW supports only explicit positive source lengths",
         ));
     }
     if destination_count < 0 {
         return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
     }
     let source_units = usize::try_from(source_count).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-locale-mapping",
-            "lc-map-string-w-source-count-not-representable",
-            "validated positive UTF-16 source count does not fit host accounting",
-        )
+        ApiFault::new("validated positive UTF-16 source count does not fit host accounting")
     })?;
-    if source_units > mapping.maximum_source_code_units as usize {
-        return Err(ApiFault::resource_limit(
-            "win32-locale-mapping",
-            "lc-map-string-w-source-limit-exceeded",
-            format!(
-                "UTF-16 source count {source_units} exceeds the policy limit of {}",
-                mapping.maximum_source_code_units
-            ),
-        ));
+    if source_units > MAXIMUM_SOURCE_CODE_UNITS {
+        return Err(ApiFault::new(format!(
+            "UTF-16 source count {source_units} exceeds the limit of {MAXIMUM_SOURCE_CODE_UNITS}"
+        )));
     }
-    let byte_length = source_units.checked_mul(2).ok_or_else(|| {
-        ApiFault::resource_limit(
-            "win32-locale-mapping",
-            "lc-map-string-w-byte-length-overflow",
-            "UTF-16 mapping length overflowed host accounting",
-        )
-    })?;
+    let byte_length = source_units
+        .checked_mul(2)
+        .ok_or_else(|| ApiFault::new("UTF-16 mapping length overflowed host accounting"))?;
     let source = GuestAddress(source_address);
-    session
-        .memory()
+    memory
         .validate_access(source, byte_length, MemoryAccess::Read)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    let source_bytes = session
-        .memory()
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let source_bytes = memory
         .read(source, byte_length)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     let mut output_bytes = Vec::with_capacity(byte_length);
     for (index, bytes) in source_bytes.chunks_exact(2).enumerate() {
         let unit = u16::from_le_bytes([bytes[0], bytes[1]]);
         let mapped = map_windows_lc_string_unit(flags, unit).ok_or_else(|| {
-            ApiFault::unsupported(
-                "win32-locale-mapping",
-                "lc-map-string-w-code-unit-unsupported",
+            ApiFault::new(
                 format!(
                     "the selected locale mapper does not cover UTF-16 unit {unit:#06x} at index {index} for flags {flags:#010x}"
                 ),
@@ -5201,42 +3315,32 @@ fn handle_lc_map_string_w(
     }
 
     if destination_address == 0 && destination_count == 0 {
-        return Ok(ApiImmediate::new(ApiReturnValue::U32(source_count as u32))
-            .with_last_error(preserved_last_error));
+        return Ok(ApiImmediate::new(Some(source_count as u32)));
     }
     if destination_address == 0 || destination_count == 0 {
         return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
     }
     let destination_units = usize::try_from(destination_count).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-locale-mapping",
-            "lc-map-string-w-destination-count-not-representable",
-            "validated positive UTF-16 destination count does not fit host accounting",
-        )
+        ApiFault::new("validated positive UTF-16 destination count does not fit host accounting")
     })?;
     if destination_units < source_units {
         return Ok(lc_map_string_failure(ERROR_INSUFFICIENT_BUFFER));
     }
     let destination = GuestAddress(destination_address);
-    session
-        .memory()
+    memory
         .validate_access(destination, byte_length, MemoryAccess::Write)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     if guest_ranges_overlap(
         source_address,
         byte_length,
         destination_address,
         byte_length,
     )? {
-        return Err(ApiFault::unsupported(
-            "win32-locale-mapping",
-            "lc-map-string-w-overlap-unsupported",
-            "the selected LCMapStringW policy does not enable overlapping input and output",
+        return Err(ApiFault::new(
+            "LCMapStringW does not support overlapping input and output",
         ));
     }
-    Ok(ApiImmediate::new(ApiReturnValue::U32(source_count as u32))
-        .with_last_error(preserved_last_error)
-        .with_guest_write(destination, output_bytes))
+    Ok(ApiImmediate::new(Some(source_count as u32)).with_guest_write(destination, output_bytes))
 }
 
 fn map_windows_lc_string_unit(flags: u32, unit: u16) -> Option<u16> {
@@ -5251,64 +3355,48 @@ fn map_windows_lc_string_unit(flags: u32, unit: u16) -> Option<u16> {
 }
 
 fn lc_map_string_failure(last_error: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(last_error)
+    ApiImmediate::new(Some(0)).with_last_error(last_error)
 }
 
 fn read_multi_byte_source(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     source: GuestAddress,
     source_count: i32,
-    policy: &Kernel32MultiByteToWideCharPolicy,
+    maximum: usize,
 ) -> Result<Vec<u8>, ApiFault> {
-    let maximum = policy.maximum_source_bytes as usize;
     if source_count == -1 {
         let mut bytes = Vec::new();
         for offset in 0..maximum {
-            let address = add_guest_offset(contract, source, offset)?;
-            let byte = session
-                .memory()
+            let address = add_guest_offset(endpoint, source, offset)?;
+            let byte = memory
                 .read(address, 1)
-                .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+                .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
             bytes.push(byte);
             if byte == 0 {
                 return Ok(bytes);
             }
         }
-        return Err(ApiFault::resource_limit(
-            "win32-code-page",
-            "multi-byte-source-not-terminated",
-            format!(
-                "multibyte source did not terminate within the policy limit of {} bytes",
-                policy.maximum_source_bytes
-            ),
-        ));
+        return Err(ApiFault::new(format!(
+            "multibyte source did not terminate within the limit of {} bytes",
+            maximum
+        )));
     }
     let byte_length = usize::try_from(source_count).map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-code-page",
-            "multi-byte-source-count-not-representable",
-            "validated positive multibyte source count does not fit host accounting",
-        )
+        ApiFault::new("validated positive multibyte source count does not fit host accounting")
     })?;
     if byte_length > maximum {
-        return Err(ApiFault::resource_limit(
-            "win32-code-page",
-            "multi-byte-source-limit-exceeded",
-            format!(
-                "multibyte source count {byte_length} exceeds the policy limit of {}",
-                policy.maximum_source_bytes
-            ),
-        ));
+        return Err(ApiFault::new(format!(
+            "multibyte source count {byte_length} exceeds the limit of {}",
+            maximum
+        )));
     }
-    session
-        .memory()
+    memory
         .validate_access(source, byte_length, MemoryAccess::Read)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    session
-        .memory()
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    memory
         .read(source, byte_length)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))
+        .map_err(|error| ApiFault::from_memory(error, endpoint))
 }
 
 fn decode_windows_932(source: &[u8]) -> Vec<u16> {
@@ -5351,7 +3439,7 @@ fn is_windows_932_trail_byte(byte: u8) -> bool {
 }
 
 fn multi_byte_failure(last_error: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(last_error)
+    ApiImmediate::new(Some(0)).with_last_error(last_error)
 }
 
 fn guest_ranges_overlap(
@@ -5361,39 +3449,19 @@ fn guest_ranges_overlap(
     right_length: usize,
 ) -> Result<bool, ApiFault> {
     let left_end = u64::from(left_address)
-        .checked_add(u64::try_from(left_length).map_err(|_| {
-            ApiFault::resource_limit(
-                "win32-code-page",
-                "wide-char-range-length-not-representable",
-                "guest range length does not fit x86 accounting",
-            )
-        })?)
-        .ok_or_else(|| {
-            ApiFault::resource_limit(
-                "win32-code-page",
-                "wide-char-range-overflow",
-                "UTF-16 source range overflowed x86 accounting",
-            )
-        })?;
+        .checked_add(
+            u64::try_from(left_length)
+                .map_err(|_| ApiFault::new("guest range length does not fit x86 accounting"))?,
+        )
+        .ok_or_else(|| ApiFault::new("UTF-16 source range overflowed x86 accounting"))?;
     let right_end = u64::from(right_address)
-        .checked_add(u64::try_from(right_length).map_err(|_| {
-            ApiFault::resource_limit(
-                "win32-code-page",
-                "wide-char-range-length-not-representable",
-                "guest range length does not fit x86 accounting",
-            )
-        })?)
-        .ok_or_else(|| {
-            ApiFault::resource_limit(
-                "win32-code-page",
-                "wide-char-range-overflow",
-                "byte destination range overflowed x86 accounting",
-            )
-        })?;
+        .checked_add(
+            u64::try_from(right_length)
+                .map_err(|_| ApiFault::new("guest range length does not fit x86 accounting"))?,
+        )
+        .ok_or_else(|| ApiFault::new("byte destination range overflowed x86 accounting"))?;
     if left_end > u64::from(u32::MAX) + 1 || right_end > u64::from(u32::MAX) + 1 {
-        return Err(ApiFault::resource_limit(
-            "win32-code-page",
-            "wide-char-range-overflow",
+        return Err(ApiFault::new(
             "conversion range exceeds the x86 address space",
         ));
     }
@@ -5401,397 +3469,327 @@ fn guest_ranges_overlap(
 }
 
 fn wide_char_failure(last_error: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::U32(0)).with_last_error(last_error)
+    ApiImmediate::new(Some(0)).with_last_error(last_error)
 }
 
-fn handle_query_performance_counter(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_query_performance_counter_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(contract, frame, 0, "performance counter output")?;
-    let counter = match policy.performance_counter_increment_per_read() {
-        Some(increment) => session
-            .runtime_mut()
-            .sample_performance_counter(increment)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?,
-        None => session.runtime().clock().performance_counter,
-    };
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-        .with_guest_write(GuestAddress(output), counter.to_le_bytes().to_vec()))
+    let output = required_argument(endpoint, frame, 0, "performance counter output")?;
+    Ok(ApiImmediate::new(Some(u32::from(true))).with_guest_write(
+        GuestAddress(output),
+        runtime
+            .sample_performance_counter()
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+            .to_le_bytes()
+            .to_vec(),
+    ))
 }
 
 fn handle_query_performance_frequency(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(contract, frame, 0, "performance frequency output")?;
-    let frequency = session.runtime().clock().performance_frequency;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+    let output = required_argument(endpoint, frame, 0, "performance frequency output")?;
+    let frequency = runtime.clock().performance_frequency;
+    Ok(ApiImmediate::new(Some(u32::from(true)))
         .with_guest_write(GuestAddress(output), frequency.to_le_bytes().to_vec()))
 }
 
 fn handle_get_startup_info_w(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(contract, frame, 0, "STARTUPINFOW output")?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void).with_guest_write(
-        GuestAddress(output),
-        session.runtime().startup_info().bytes.clone(),
-    ))
+    let output = required_argument(endpoint, frame, 0, "STARTUPINFOW output")?;
+    Ok(ApiImmediate::new(None)
+        .with_guest_write(GuestAddress(output), runtime.startup_info().bytes.clone()))
 }
 
 fn handle_heap_set_information(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let heap = required_argument(contract, frame, 0, "heap handle")?;
-    let information_class = required_argument(contract, frame, 1, "heap information class")?;
-    let information = required_argument(contract, frame, 2, "heap information")?;
-    let information_length = required_argument(contract, frame, 3, "heap information length")?;
+    let heap = required_argument(endpoint, frame, 0, "heap handle")?;
+    let information_class = required_argument(endpoint, frame, 1, "heap information class")?;
+    let information = required_argument(endpoint, frame, 2, "heap information")?;
+    let information_length = required_argument(endpoint, frame, 3, "heap information length")?;
     if heap != 0
         || information_class != HEAP_ENABLE_TERMINATION_ON_CORRUPTION
         || information != 0
         || information_length != 0
     {
-        return Err(ApiFault::unsupported(
-            "win32-heap",
-            "heap-set-information-variant-unsupported",
+        return Err(ApiFault::new(
             "only process-wide HeapEnableTerminationOnCorruption is implemented",
         ));
     }
-    session
-        .runtime_mut()
-        .set_heap_termination_on_corruption(true);
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
+    runtime.set_heap_termination_on_corruption(true);
+    Ok(ApiImmediate::new(Some(u32::from(true))))
 }
 
 fn handle_heap_create(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let creation_flags = required_argument(contract, frame, 0, "heap creation flags")?;
-    let initial_size = required_argument(contract, frame, 1, "heap initial size")?;
-    let maximum_size = required_argument(contract, frame, 2, "heap maximum size")?;
-    let heap = session
-        .runtime_mut()
-        .allocate_private_heap(creation_flags, initial_size, maximum_size)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        .clone();
-    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: heap.namespace,
-        value: heap.handle,
-    }))
-}
-
-fn handle_heap_alloc(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let heap = required_argument(contract, frame, 0, "heap handle")?;
-    let flags = required_argument(contract, frame, 1, "heap allocation flags")?;
-    let byte_length = required_argument(contract, frame, 2, "heap allocation byte length")?;
-    if !policy.allows_heap_allocation(flags, byte_length) {
-        return Err(ApiFault::unsupported(
-            "win32-heap",
-            "heap-alloc-variant-unsupported",
-            format!(
-                "compatibility policy {} does not enable HeapAlloc flags {flags:#010x} and size {byte_length:#x}",
-                policy.id
-            ),
+    let creation_flags = required_argument(endpoint, frame, 0, "heap creation flags")?;
+    let initial_size = required_argument(endpoint, frame, 1, "heap initial size")?;
+    let maximum_size = required_argument(endpoint, frame, 2, "heap maximum size")?;
+    // Rust executes each heap operation synchronously; HEAP_NO_SERIALIZE
+    // therefore needs no separate heap state or locking mode.
+    if creation_flags & !HEAP_NO_SERIALIZE != 0 {
+        return Err(ApiFault::new(
+            "HeapCreate supports only no flags or HEAP_NO_SERIALIZE",
         ));
     }
-    let initialization = match flags {
-        0 => RuntimeHeapInitialization::DeterministicUninitialized,
-        HEAP_ZERO_MEMORY => RuntimeHeapInitialization::Zeroed,
-        _ => {
-            return Err(ApiFault::runtime_defect(
-                "win32-heap",
-                "validated-heap-flags-unimplemented",
-                "validated HeapAlloc policy selected flags without semantic initialization",
-            ));
-        }
-    };
-    let allocation = match session.allocate_private_heap_block(heap, byte_length, initialization) {
-        Ok(allocation) => allocation,
-        Err(error) if error.class == RuntimeStateErrorClass::ResourceLimit => {
-            return Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(0)));
-        }
-        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
-    };
-    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
-        allocation.address.0,
+    let heap = runtime
+        .allocate_private_heap(initial_size, maximum_size)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(if heap == 0 {
+        ApiImmediate::new(Some(0)).with_last_error(ERROR_NOT_ENOUGH_MEMORY)
+    } else {
+        ApiImmediate::new(Some(heap))
+    })
+}
+
+fn heap_initialization(flags: u32) -> Result<RuntimeHeapInitialization, ApiFault> {
+    if flags & !(HEAP_NO_SERIALIZE | HEAP_ZERO_MEMORY) != 0 {
+        return Err(ApiFault::new(
+            "heap allocation flags require an unsupported mode",
+        ));
+    }
+    Ok(if flags & HEAP_ZERO_MEMORY != 0 {
+        RuntimeHeapInitialization::Zeroed
+    } else {
+        RuntimeHeapInitialization::DeterministicUninitialized
+    })
+}
+
+fn handle_heap_alloc_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let heap = required_argument(endpoint, frame, 0, "heap handle")?;
+    let flags = required_argument(endpoint, frame, 1, "heap allocation flags")?;
+    let byte_length = required_argument(endpoint, frame, 2, "heap allocation byte length")?;
+    let initialization = heap_initialization(flags)?;
+    let allocation = runtime
+        .allocate_private_heap_block(heap, byte_length, initialization)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(
+        allocation.map_or(0, |allocation| allocation.address.0),
     )))
 }
 
-fn handle_heap_realloc(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_heap_realloc_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let heap = required_argument(contract, frame, 0, "heap handle")?;
-    let flags = required_argument(contract, frame, 1, "heap reallocation flags")?;
-    let allocation = required_argument(contract, frame, 2, "heap allocation")?;
-    let byte_length = required_argument(contract, frame, 3, "heap reallocation byte length")?;
-    if !policy.allows_heap_allocation(flags, byte_length) {
-        return Err(ApiFault::unsupported(
-            "win32-heap",
-            "heap-realloc-variant-unsupported",
-            format!(
-                "compatibility policy {} does not enable HeapReAlloc flags {flags:#010x} and size {byte_length:#x}",
-                policy.id
-            ),
-        ));
-    }
-    let previous = session
-        .runtime()
-        .private_heap_allocation(heap, GuestAddress(allocation))
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let heap = required_argument(endpoint, frame, 0, "heap handle")?;
+    let flags = required_argument(endpoint, frame, 1, "heap reallocation flags")?;
+    let address = GuestAddress(required_argument(endpoint, frame, 2, "heap allocation")?);
+    let size = required_argument(endpoint, frame, 3, "heap reallocation byte length")?;
+    let initialization = heap_initialization(flags)?;
+    let Some(previous) = runtime
+        .private_heap_allocation_option(heap, address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    else {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
+    };
     if previous.byte_length > RUNTIME_PRIVATE_HEAP_ARENA_STRIDE
-        || byte_length > RUNTIME_PRIVATE_HEAP_ARENA_STRIDE
+        || size > RUNTIME_PRIVATE_HEAP_ARENA_STRIDE
     {
-        return Err(ApiFault::unsupported(
-            "win32-heap",
-            "heap-realloc-large-allocation-unsupported",
-            "HeapReAlloc does not yet move lazy large-slot allocations",
+        return Err(ApiFault::new(
+            "HeapReAlloc does not move lazy large allocations",
         ));
     }
-    let initialization = match flags {
-        0 => RuntimeHeapInitialization::DeterministicUninitialized,
-        HEAP_ZERO_MEMORY => RuntimeHeapInitialization::Zeroed,
-        _ => {
-            return Err(ApiFault::runtime_defect(
-                "win32-heap",
-                "validated-heap-realloc-flags-unimplemented",
-                "validated HeapReAlloc policy selected flags without semantic initialization",
-            ));
-        }
-    };
-    let allocation = session
-        .reallocate_private_heap_block(heap, GuestAddress(allocation), byte_length, initialization)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
-        allocation.address.0,
+    let allocation = runtime
+        .reallocate_private_heap_block(heap, address, size, initialization)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(
+        allocation.map_or(0, |allocation| allocation.address.0),
     )))
 }
 
-fn handle_heap_free(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_heap_free_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let heap = required_argument(contract, frame, 0, "heap handle")?;
-    let flags = required_argument(contract, frame, 1, "heap free flags")?;
-    let allocation = required_argument(contract, frame, 2, "heap allocation")?;
-    if !policy.allows_heap_free(flags) {
-        return Err(ApiFault::unsupported(
-            "win32-heap",
-            "heap-free-variant-unsupported",
-            format!(
-                "compatibility policy {} does not enable HeapFree flags {flags:#010x}",
-                policy.id
-            ),
+    let heap = required_argument(endpoint, frame, 0, "heap handle")?;
+    let flags = required_argument(endpoint, frame, 1, "heap free flags")?;
+    let allocation = GuestAddress(required_argument(endpoint, frame, 2, "heap allocation")?);
+    if flags & !HEAP_NO_SERIALIZE != 0 {
+        return Err(ApiFault::new(
+            "HeapFree supports only no flags or HEAP_NO_SERIALIZE",
         ));
     }
-    session
-        .free_private_heap_block(heap, GuestAddress(allocation))
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
-}
-
-fn handle_heap_size(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let heap = required_argument(contract, frame, 0, "heap handle")?;
-    let flags = required_argument(contract, frame, 1, "heap size flags")?;
-    let address = required_argument(contract, frame, 2, "heap allocation")?;
-    if !policy.allows_heap_size(flags) {
-        return Err(ApiFault::unsupported(
-            "win32-heap",
-            "heap-size-flags-unsupported",
-            format!(
-                "compatibility policy {} does not enable HeapSize flags {flags:#010x}",
-                policy.id
-            ),
-        ));
+    if allocation.0 == 0 {
+        return Ok(ApiImmediate::new(Some(1)));
     }
-    let allocation = match session
-        .runtime()
-        .private_heap_allocation(heap, GuestAddress(address))
-    {
-        Ok(allocation) => allocation,
-        Err(error) if error.code == "heap-allocation-pointer-invalid" => {
-            return Ok(ApiImmediate::new(ApiReturnValue::U32(u32::MAX))
-                .with_last_error(ERROR_INVALID_PARAMETER));
-        }
-        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    let Some(_) = runtime
+        .private_heap_allocation_option(heap, allocation)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    else {
+        return Ok(
+            ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_PARAMETER)
+        );
     };
-    let last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::U32(allocation.byte_length)).with_last_error(last_error))
+    runtime
+        .free_private_heap_block(heap, allocation)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true))))
 }
 
-fn handle_load_library_a(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
+fn handle_heap_size_basic(
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let loader = policy.load_library_a().ok_or_else(|| {
-        ApiFault::unsupported(
-            "win32-module-loader",
-            "load-library-a-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable runtime-system module loading",
-                policy.id
-            ),
-        )
-    })?;
-    let name_address = required_argument(contract, frame, 0, "module name")?;
+    let heap = required_argument(endpoint, frame, 0, "heap handle")?;
+    let flags = required_argument(endpoint, frame, 1, "heap size flags")?;
+    let address = GuestAddress(required_argument(endpoint, frame, 2, "heap allocation")?);
+    if flags & !HEAP_NO_SERIALIZE != 0 {
+        return Err(ApiFault::new(
+            "HeapSize supports only no flags or HEAP_NO_SERIALIZE",
+        ));
+    }
+    let Some(allocation) = runtime
+        .private_heap_allocation_option(heap, address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    else {
+        return Ok(ApiImmediate::new(Some(u32::MAX)).with_last_error(ERROR_INVALID_PARAMETER));
+    };
+    Ok(ApiImmediate::new(Some(allocation.byte_length)))
+}
+
+fn handle_load_library_a_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let name_address = required_argument(endpoint, frame, 0, "module name")?;
     if name_address == 0 {
         return Ok(load_library_a_failure(ERROR_INVALID_PARAMETER));
     }
-    let requested_name = read_load_library_a_name(
-        contract,
-        session,
+    let name = read_load_library_a_name(
+        endpoint,
+        &runtime.memory,
         GuestAddress(name_address),
-        loader.maximum_module_name_bytes as usize,
+        MAX_LOAD_LIBRARY_MODULE_NAME_BYTES,
     )?;
-    if requested_name.is_empty() {
+    if name.is_empty() {
         return Ok(load_library_a_failure(ERROR_INVALID_PARAMETER));
     }
-    if !requested_name.to_ascii_lowercase().ends_with(".dll")
-        || requested_name
+    if !name.to_ascii_lowercase().ends_with(".dll")
+        || name
             .bytes()
             .any(|byte| byte.is_ascii_control() || matches!(byte, b'/' | b'\\' | b':'))
     {
-        return Err(ApiFault::unsupported(
-            "win32-module-loader",
-            "load-library-a-search-variant-unsupported",
-            "LoadLibraryA currently accepts only an explicit ASCII DLL basename",
+        return Err(ApiFault::new(
+            "LoadLibraryA requires a DLL basename until the full Windows search path is implemented",
         ));
     }
-    let Some(module_policy) = loader
-        .runtime_system_modules
-        .iter()
-        .find(|module| module.canonical_name.eq_ignore_ascii_case(&requested_name))
-    else {
-        return Ok(load_library_a_failure(ERROR_MOD_NOT_FOUND));
-    };
-    for export in &module_policy.exports {
-        if session
-            .runtime()
-            .dynamic_endpoint_by_name(&module_policy.canonical_name, export)
-            .is_err()
-        {
-            return Err(ApiFault::runtime_defect(
-                "win32-module-loader",
-                "load-library-a-runtime-export-missing",
-                format!(
-                    "runtime-system module {} is missing its configured export {export}",
-                    module_policy.canonical_name
-                ),
-            ));
+    match runtime.module_by_name(&name) {
+        Ok(Some(module)) if module.runtime_system_module => {
+            let canonical_name = module.canonical_name.clone();
+            let loaded = runtime
+                .load_current_thread_runtime_system_module(name, canonical_name)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+            Ok(ApiImmediate::new(Some(loaded)))
         }
+        Ok(Some(module)) => {
+            let handle = module.handle;
+            let node = runtime
+                .module_graph()
+                .module_by_handle(handle)
+                .map_err(|error| ApiFault::new(error.to_string()))?;
+            if node.class != RuntimeModuleClass::GuestDynamicLibrary
+                || !matches!(node.state, RuntimeModuleLoadState::ProcessAttached { .. })
+                || runtime.module_images().image(node.id).is_err()
+            {
+                return Err(ApiFault::new(
+                    "LoadLibraryA requires a materialized and attached guest DLL",
+                ));
+            }
+            runtime
+                .add_current_thread_module_reference(handle)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+            Ok(ApiImmediate::new(Some(handle)))
+        }
+        Ok(None) => {
+            let mut path = name.into_bytes();
+            path.push(0);
+            match runtime
+                .resolve_file_system_path_a(&path)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+            {
+                RuntimePathResolution::RegularFile => Err(ApiFault::new(
+                    "LoadLibraryA found an immutable DLL but guest module loading is not implemented",
+                )),
+                RuntimePathResolution::Directory
+                | RuntimePathResolution::MissingFile
+                | RuntimePathResolution::MissingPath => {
+                    Ok(load_library_a_failure(ERROR_MOD_NOT_FOUND))
+                }
+            }
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
     }
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let loaded = session
-        .runtime_mut()
-        .load_current_thread_runtime_system_module(
-            requested_name,
-            module_policy.canonical_name.clone(),
-        )
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
-        value: loaded.handle,
-    })
-    .with_last_error(preserved_last_error))
 }
 
 fn load_library_a_failure(last_error: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
-        value: 0,
-    })
-    .with_last_error(last_error)
+    ApiImmediate::new(Some(0)).with_last_error(last_error)
 }
 
 fn handle_get_module_handle_w(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let name_address = required_argument(contract, frame, 0, "module name")?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let name_address = required_argument(endpoint, frame, 0, "module name")?;
     // A null module name is the documented request for the module handle of the file used to
     // create the calling process.
     let module = if name_address == 0 {
-        session.runtime().main_module()
+        runtime.main_module().map(Some)
     } else {
         let name = read_utf16_nul(
-            contract,
-            session,
+            endpoint,
+            &runtime.memory,
             GuestAddress(name_address),
             MAX_MODULE_NAME_CODE_UNITS,
         )?;
-        session.runtime().module_by_name(&name)
+        runtime.module_by_name(&name)
     };
     match module {
-        Ok(module) => Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
-            namespace: module.namespace.clone(),
-            value: module.handle,
-        })
-        .with_last_error(preserved_last_error)),
-        Err(error) if resolvable_lookup_failure(&error) => {
-            Ok(get_module_handle_w_failure(ERROR_MOD_NOT_FOUND))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        Ok(Some(module)) => Ok(ApiImmediate::new(Some(module.handle))),
+        Ok(None) => Ok(get_module_handle_w_failure(ERROR_MOD_NOT_FOUND)),
+        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
     }
 }
 
 fn get_module_handle_w_failure(last_error: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
-        value: 0,
-    })
-    .with_last_error(last_error)
+    ApiImmediate::new(Some(0)).with_last_error(last_error)
 }
 
 fn handle_get_proc_address(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let module_handle = required_argument(contract, frame, 0, "module handle")?;
-    let name_address = required_argument(contract, frame, 1, "procedure name")?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let module = match session.runtime().module(module_handle) {
-        Ok(module) => module,
-        Err(error) if resolvable_lookup_failure(&error) => {
-            return Ok(get_proc_address_failure(ERROR_MOD_NOT_FOUND));
-        }
-        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    let module_handle = required_argument(endpoint, frame, 0, "module handle")?;
+    let name_address = required_argument(endpoint, frame, 1, "procedure name")?;
+    let Some(module) = runtime
+        .module_option(module_handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    else {
+        return Ok(get_proc_address_failure(ERROR_MOD_NOT_FOUND));
     };
     // A procedure name whose high-order word is zero is an ordinal, not a string address.
     let lookup = if name_address <= u32::from(u16::MAX) {
@@ -5800,417 +3798,560 @@ fn handle_get_proc_address(
         }
     } else {
         let name = read_ascii_nul(
-            contract,
-            session,
+            endpoint,
+            &runtime.memory,
             GuestAddress(name_address),
             MAX_EXPORT_NAME_BYTES,
         )?;
+        if name.is_empty() || !name.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) {
+            return Ok(get_proc_address_failure(ERROR_PROC_NOT_FOUND));
+        }
         ExportLookup::Name { name }
     };
-    let export_address = if module.runtime_system_module {
-        match lookup {
-            ExportLookup::Name { name } => session
-                .runtime()
-                .dynamic_endpoint_by_name(&module.canonical_name, &name)
-                .map(|export| export.address),
-            ExportLookup::Ordinal { ordinal } => session
-                .runtime()
-                .dynamic_endpoint_by_ordinal(&module.canonical_name, ordinal)
-                .map(|export| export.address),
-        }
-    } else {
-        session
-            .runtime()
-            .resolve_guest_export_state(&module.canonical_name, lookup)
-            .map(|export| export.address)
-    };
-    match export_address {
-        Ok(address) => Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(address.0))
-            .with_last_error(preserved_last_error)),
-        Err(error) if resolvable_lookup_failure(&error) => {
-            Ok(get_proc_address_failure(ERROR_PROC_NOT_FOUND))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    if module.runtime_system_module {
+        let export = match lookup {
+            ExportLookup::Name { name } => {
+                runtime.dynamic_endpoint_by_name(&module.canonical_name, &name)
+            }
+            ExportLookup::Ordinal { ordinal } => {
+                runtime.dynamic_endpoint_by_ordinal(&module.canonical_name, ordinal)
+            }
+        };
+        return Ok(match export {
+            Some(export) => ApiImmediate::new(Some(export.address.0)),
+            None => get_proc_address_failure(ERROR_PROC_NOT_FOUND),
+        });
     }
+    let export = runtime
+        .resolve_guest_export(&module.canonical_name, lookup)
+        .map_err(|error| ApiFault::new(error.to_string()))?;
+    Ok(match export {
+        Some(export) => ApiImmediate::new(Some(export.address.0)),
+        None => get_proc_address_failure(ERROR_PROC_NOT_FOUND),
+    })
 }
 
 fn get_proc_address_failure(last_error: u32) -> ApiImmediate {
-    ApiImmediate::new(ApiReturnValue::OpaquePointer(0)).with_last_error(last_error)
-}
-
-/// Reports whether a runtime lookup failure is a documented Win32 "not found" outcome rather
-/// than a runtime defect that must surface as a fault.
-fn resolvable_lookup_failure(error: &RuntimeStateError) -> bool {
-    matches!(
-        error.class,
-        RuntimeStateErrorClass::NotFound | RuntimeStateErrorClass::InvalidInput
-    )
+    ApiImmediate::new(Some(0)).with_last_error(last_error)
 }
 
 fn handle_tls_alloc(
-    contract: &ApiContract,
-    session: &mut ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let index = session
-        .runtime_mut()
+    let index = runtime
         .allocate_tls_index()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::U32(index)))
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let immediate = ApiImmediate::new(Some(index));
+    Ok(if index == TLS_OUT_OF_INDEXES {
+        immediate.with_last_error(ERROR_NOT_ENOUGH_MEMORY)
+    } else {
+        immediate
+    })
 }
 
 fn handle_tls_get_value(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let index = required_argument(contract, frame, 0, "TLS index")?;
-    match session.runtime().tls_value_or_unset(index) {
-        Ok(value) => Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
-            value.map_or(0, |value| value.raw_value()),
-        ))
-        .with_last_error(ERROR_SUCCESS)),
-        Err(error) if error.code == "tls-index-unallocated" => {
-            Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(0))
-                .with_last_error(ERROR_INVALID_PARAMETER))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    let index = required_argument(endpoint, frame, 0, "TLS index")?;
+    if !runtime.tls_index_available(index) {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
     }
+    let value = runtime
+        .tls_value_or_unset(index)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(value.unwrap_or(0))).with_last_error(ERROR_SUCCESS))
 }
 
 fn handle_tls_set_value(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let index = required_argument(contract, frame, 0, "TLS index")?;
-    let value = required_argument(contract, frame, 1, "TLS value")?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    match session.runtime_mut().set_tls_value(index, value) {
-        Ok(()) => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-                .with_last_error(preserved_last_error))
-        }
-        Err(error) if error.code == "tls-index-unallocated" => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_INVALID_PARAMETER))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    let index = required_argument(endpoint, frame, 0, "TLS index")?;
+    let value = required_argument(endpoint, frame, 1, "TLS value")?;
+    if !runtime.tls_index_available(index) {
+        return Ok(
+            ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_PARAMETER)
+        );
     }
+    runtime
+        .set_tls_value(index, value)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true))))
 }
 
 fn handle_encode_pointer(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let source = required_argument(contract, frame, 0, "pointer source")?;
-    let encoded = session
-        .runtime_mut()
-        .encode_pointer(source)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        .clone();
-    Ok(ApiImmediate::new(ApiReturnValue::LogicalPointer {
-        namespace: encoded.namespace,
-        value: encoded.token,
-    }))
+    let source = required_argument(endpoint, frame, 0, "pointer source")?;
+    let token = runtime.encode_pointer(source);
+    Ok(ApiImmediate::new(Some(token)))
 }
 
 fn handle_decode_pointer(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let token = required_argument(contract, frame, 0, "encoded pointer")?;
-    let source = session
-        .runtime()
-        .decode_pointer(token)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(source)))
+    let token = required_argument(endpoint, frame, 0, "encoded pointer")?;
+    let source = runtime.decode_pointer(token);
+    Ok(ApiImmediate::new(Some(source)))
+}
+
+// Dispatch by imported symbol. The ABI boundary has already checked the call frame.
+pub(crate) fn dispatch_kernel32_api(
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+    cpu: Option<(crate::api::X86CpuContext, GuestAddress)>,
+) -> ApiHandlerResult {
+    let endpoint = &frame.endpoint;
+    let result = match &endpoint.symbol {
+        crate::api::ApiSymbol::Name { name }
+            if endpoint.module.eq_ignore_ascii_case("kernel32.dll") =>
+        {
+            if name == "RaiseException" {
+                return handle_raise_exception(endpoint, frame, runtime, cpu);
+            }
+            if name == "RtlUnwind" {
+                return handle_rtl_unwind(endpoint, frame, runtime);
+            }
+            if name == "WaitForMultipleObjects" {
+                return handle_wait_for_multiple_objects(endpoint, frame, runtime);
+            }
+            if name == "ReadFile" {
+                return handle_read_file_basic(endpoint, frame, runtime);
+            }
+            if name == "CreateFileA" {
+                return handle_create_file_a_basic(endpoint, frame, runtime);
+            }
+            if name == "WriteFile" {
+                return handle_write_file_basic(endpoint, frame, runtime);
+            }
+            if name == "CreateDirectoryA" {
+                return handle_create_directory_a_basic(endpoint, frame, runtime);
+            }
+            if name == "DeleteFileA" {
+                return handle_delete_file_a_basic(endpoint, frame, runtime);
+            }
+            if name == "GetFileAttributesA" {
+                return handle_get_file_attributes_a_opfs(endpoint, frame, runtime);
+            }
+            match name.as_str() {
+                "FlsAlloc" => handle_fls_alloc(endpoint, frame, runtime),
+                "FlsFree" => handle_fls_free(endpoint, frame, runtime),
+                "FlsGetValue" => handle_fls_get_value(endpoint, frame, runtime),
+                "FlsSetValue" => handle_fls_set_value(endpoint, frame, runtime),
+                "CreateThread" => handle_create_thread_basic(endpoint, frame, runtime),
+                "ResumeThread" => handle_resume_thread(endpoint, frame, runtime),
+                "SetThreadPriority" => set_thread_priority_basic(endpoint, frame, runtime),
+                "ExitThread" => handle_exit_thread(endpoint, frame, runtime),
+                "WaitForSingleObject" => handle_wait_for_single_object(endpoint, frame, runtime),
+                "WaitForSingleObjectEx" => {
+                    return handle_wait_for_single_object_ex_basic(endpoint, frame, runtime);
+                }
+                "GetExitCodeThread" => handle_get_exit_code_thread(endpoint, frame, runtime),
+                "CloseHandle" => handle_close_handle_basic(endpoint, frame, runtime),
+                "GetLastError" => handle_get_last_error(endpoint, runtime),
+                "SetLastError" => handle_set_last_error(endpoint, frame),
+                "GetCurrentProcessId" => Ok(ApiImmediate::new(Some(runtime.process_id().0))),
+                "GetCurrentThreadId" => Ok(ApiImmediate::new(Some(runtime.current_thread_id().0))),
+                "GetCurrentThread" => handle_get_current_thread(endpoint, runtime),
+                "GetSystemTimeAsFileTime" => {
+                    handle_get_system_time_as_file_time(endpoint, frame, runtime)
+                }
+                "GetSystemTime" => handle_get_system_time(endpoint, frame, runtime),
+                "Sleep" => return handle_sleep_basic(endpoint, frame, runtime),
+                "GetTickCount" => handle_get_tick_count(endpoint, runtime),
+                "QueryPerformanceCounter" => {
+                    handle_query_performance_counter_basic(endpoint, frame, runtime)
+                }
+                "QueryPerformanceFrequency" => {
+                    handle_query_performance_frequency(endpoint, frame, runtime)
+                }
+                "GetStartupInfoW" => handle_get_startup_info_w(endpoint, frame, runtime),
+                "HeapSetInformation" => handle_heap_set_information(endpoint, frame, runtime),
+                "HeapCreate" => handle_heap_create(endpoint, frame, runtime),
+                "HeapAlloc" => handle_heap_alloc_basic(endpoint, frame, runtime),
+                "VirtualAlloc" => handle_virtual_alloc_basic(endpoint, frame, runtime),
+                "VirtualFree" => handle_virtual_free_basic(endpoint, frame, runtime),
+                "HeapReAlloc" => handle_heap_realloc_basic(endpoint, frame, runtime),
+                "HeapFree" => handle_heap_free_basic(endpoint, frame, runtime),
+                "HeapSize" => handle_heap_size_basic(endpoint, frame, runtime),
+                "IsProcessorFeaturePresent" => {
+                    handle_is_processor_feature_present_basic(endpoint, frame)
+                }
+                "SetUnhandledExceptionFilter" => {
+                    handle_set_unhandled_exception_filter(endpoint, frame, runtime)
+                }
+                "GetStdHandle" => handle_get_std_handle_basic(endpoint, frame, runtime),
+                "GetFileType" => handle_get_file_type_basic(endpoint, frame, runtime),
+                "SetHandleCount" => handle_set_handle_count_basic(endpoint, frame),
+                "GetCommandLineA" => handle_get_command_line_a(endpoint, runtime),
+                "GetModuleFileNameA" => {
+                    handle_get_module_file_name_a_basic(endpoint, frame, runtime)
+                }
+                "GetLocalTime" => handle_get_local_time(endpoint, frame, runtime),
+                "GetSystemInfo" => handle_get_system_info_basic(endpoint, frame),
+                "GlobalMemoryStatus" => {
+                    handle_global_memory_status_basic(endpoint, frame, &runtime.memory)
+                }
+                "GetVersionExA" => handle_get_version_ex_a_basic(endpoint, frame, &runtime.memory),
+                "GetDriveTypeA" => handle_get_drive_type_a_basic(endpoint, frame, runtime),
+                "SetCurrentDirectoryA" => {
+                    handle_set_current_directory_a_basic(endpoint, frame, runtime)
+                }
+                "CreateMutexA" => handle_create_mutex_a_basic(endpoint, frame, runtime),
+                "CreateEventA" => handle_create_event_a(endpoint, frame, runtime),
+                "SetEvent" => handle_set_event(endpoint, frame, runtime, true),
+                "ResetEvent" => handle_set_event(endpoint, frame, runtime, false),
+                "GetFileAttributesA" => {
+                    handle_get_file_attributes_a_basic(endpoint, frame, runtime)
+                }
+                "FindFirstFileA" => handle_find_first_file_a_basic(endpoint, frame, runtime),
+                "FindNextFileA" => handle_find_next_file_a_basic(endpoint, frame, runtime),
+                "FindClose" => handle_find_close_basic(endpoint, frame, runtime),
+                "GetFileSize" => handle_get_file_size_basic(endpoint, frame, runtime),
+                "FlushFileBuffers" => handle_flush_file_buffers_basic(endpoint, frame, runtime),
+                "SetFilePointer" => handle_set_file_pointer_basic(endpoint, frame, runtime),
+                "CreateWaitableTimerA" => {
+                    handle_create_waitable_timer_a_basic(endpoint, frame, runtime)
+                }
+                "SetWaitableTimer" => handle_set_waitable_timer_basic(endpoint, frame, runtime),
+                "SetThreadAffinityMask" => {
+                    handle_set_thread_affinity_mask_basic(endpoint, frame, runtime)
+                }
+                "GetEnvironmentStringsW" => handle_get_environment_strings_w(endpoint, runtime),
+                "WideCharToMultiByte" => {
+                    handle_wide_char_to_multi_byte_basic(endpoint, frame, &runtime.memory)
+                }
+                "MultiByteToWideChar" => {
+                    handle_multi_byte_to_wide_char_basic(endpoint, frame, &runtime.memory)
+                }
+                "GetACP" => Ok(ApiImmediate::new(Some(WINDOWS_932_CODE_PAGE))),
+                "GetSystemDefaultLangID" => Ok(ApiImmediate::new(Some(0x0411))),
+                "GetCPInfo" => handle_get_cp_info_basic(endpoint, frame),
+                "GetStringTypeW" => {
+                    handle_get_string_type_w_basic(endpoint, frame, &runtime.memory)
+                }
+                "LCMapStringW" => handle_lc_map_string_w_basic(endpoint, frame, &runtime.memory),
+                "FreeEnvironmentStringsW" => {
+                    handle_free_environment_strings_w(endpoint, frame, runtime)
+                }
+                "GetModuleHandleW" => handle_get_module_handle_w(endpoint, frame, runtime),
+                "LoadLibraryA" => handle_load_library_a_basic(endpoint, frame, runtime),
+                "GetProcAddress" => handle_get_proc_address(endpoint, frame, runtime),
+                "TlsAlloc" => handle_tls_alloc(endpoint, runtime),
+                "TlsGetValue" => handle_tls_get_value(endpoint, frame, runtime),
+                "TlsSetValue" => handle_tls_set_value(endpoint, frame, runtime),
+                "EncodePointer" => handle_encode_pointer(endpoint, frame, runtime),
+                "DecodePointer" => handle_decode_pointer(endpoint, frame, runtime),
+                "InitializeCriticalSectionAndSpinCount" => {
+                    handle_initialize_critical_section_and_spin_count(endpoint, frame, runtime)
+                }
+                "InitializeCriticalSection" => {
+                    handle_initialize_critical_section_basic(endpoint, frame, runtime)
+                }
+                "EnterCriticalSection" => handle_enter_critical_section(endpoint, frame, runtime),
+                "LeaveCriticalSection" => handle_leave_critical_section(endpoint, frame, runtime),
+                "DeleteCriticalSection" => handle_delete_critical_section(endpoint, frame, runtime),
+                "InterlockedIncrement" => handle_interlocked_long_update(
+                    endpoint,
+                    frame,
+                    &runtime.memory,
+                    1,
+                    "InterlockedIncrement",
+                ),
+                "InterlockedDecrement" => handle_interlocked_long_update(
+                    endpoint,
+                    frame,
+                    &runtime.memory,
+                    -1,
+                    "InterlockedDecrement",
+                ),
+                _ => Err(ApiFault::new(format!(
+                    "unsupported imported function kernel32.dll!{name}"
+                ))),
+            }
+        }
+        _ => Err(ApiFault::new("unsupported imported function")),
+    };
+    match result {
+        Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
 }
 
 fn handle_fls_alloc(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let callback_value = required_argument(contract, frame, 0, "FLS callback")?;
+    let callback_value = required_argument(endpoint, frame, 0, "FLS callback")?;
     let callback = (callback_value != 0).then_some(GuestAddress(callback_value));
     if let Some(address) = callback {
-        session
-            .memory()
+        runtime
+            .memory
             .validate_access(address, 1, MemoryAccess::Execute)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     }
-    let slot = session
-        .runtime_mut()
+    let index = runtime
         .allocate_fls_slot(callback)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::U32(slot.index)))
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let immediate = ApiImmediate::new(Some(index));
+    Ok(if index == FLS_OUT_OF_INDEXES {
+        immediate.with_last_error(ERROR_NOT_ENOUGH_MEMORY)
+    } else {
+        immediate
+    })
+}
+
+fn handle_fls_free(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let index = required_argument(endpoint, frame, 0, "FLS index")?;
+    if !runtime.fls_index_allocated(index) {
+        return Ok(
+            ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_PARAMETER)
+        );
+    }
+    if !runtime
+        .free_fls_slot(index)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        return Err(ApiFault::new(
+            "FlsFree needs a guest callback for an active FLS value",
+        ));
+    }
+    Ok(ApiImmediate::new(Some(u32::from(true))))
 }
 
 fn handle_fls_get_value(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let index = required_argument(contract, frame, 0, "FLS index")?;
-    match session.runtime().fls_value_or_unset(index) {
-        Ok(value) => Ok(
-            ApiImmediate::new(ApiReturnValue::OpaquePointer(value.unwrap_or(0)))
-                .with_last_error(ERROR_SUCCESS),
-        ),
-        Err(error)
-            if matches!(
-                error.code,
-                "fls-index-unallocated" | "fls-thread-storage-uninitialized"
-            ) =>
-        {
-            Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(0))
-                .with_last_error(ERROR_INVALID_PARAMETER))
-        }
-        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    let index = required_argument(endpoint, frame, 0, "FLS index")?;
+    if !runtime.fls_index_allocated(index) {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
     }
+    let value = runtime
+        .fls_value_or_unset(index)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(value.unwrap_or(0))).with_last_error(ERROR_SUCCESS))
 }
 
 fn handle_fls_set_value(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let index = required_argument(contract, frame, 0, "FLS index")?;
-    let value = required_argument(contract, frame, 1, "FLS value")?;
-    let preserved_last_error = session
-        .last_error()
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    match session.runtime_mut().set_fls_value(index, value) {
-        Ok(_) => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-                .with_last_error(preserved_last_error))
-        }
-        Err(error) => match fls_set_value_failure_last_error(&error) {
-            Some(last_error) => {
-                Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(last_error))
-            }
-            None => Err(ApiFault::from_runtime(error, &contract.endpoint)),
-        },
+    let index = required_argument(endpoint, frame, 0, "FLS index")?;
+    let value = required_argument(endpoint, frame, 1, "FLS value")?;
+    if !runtime.fls_index_allocated(index) {
+        return Ok(
+            ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_PARAMETER)
+        );
     }
-}
-
-fn fls_set_value_failure_last_error(error: &RuntimeStateError) -> Option<u32> {
-    if error.code == "fls-index-unallocated" {
-        Some(ERROR_INVALID_PARAMETER)
-    } else if error.code == "fls-thread-storage-uninitialized"
-        || error.class == RuntimeStateErrorClass::ResourceLimit
-    {
-        Some(ERROR_NOT_ENOUGH_MEMORY)
-    } else {
-        None
-    }
-}
-
-fn handle_interlocked_increment(
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    handle_interlocked_long_update(contract, frame, session, 1, "InterlockedIncrement")
-}
-
-fn handle_interlocked_decrement(
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    handle_interlocked_long_update(contract, frame, session, -1, "InterlockedDecrement")
+    runtime
+        .set_fls_value(index, value)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true))))
 }
 
 fn handle_interlocked_long_update(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &ExecutionSession<'_>,
+    memory: &GuestMemory,
     delta: i32,
     operation: &str,
 ) -> Result<ApiImmediate, ApiFault> {
-    let address = GuestAddress(required_argument(contract, frame, 0, "LONG target")?);
-    let bytes = session
-        .memory()
+    let address = GuestAddress(required_argument(endpoint, frame, 0, "LONG target")?);
+    if address.0 == 0 || !address.0.is_multiple_of(4) {
+        return Err(ApiFault::new(
+            "Interlocked LONG target requires a nonnull DWORD-aligned address",
+        ));
+    }
+    memory
+        .validate_access(address, size_of::<i32>(), MemoryAccess::Write)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let bytes = memory
         .read(address, size_of::<i32>())
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
     let value = i32::from_le_bytes(bytes.try_into().map_err(|_| {
-        ApiFault::runtime_defect(
-            "win32-interlocked",
-            "interlocked-long-read-size-invalid",
-            format!("checked {operation} target did not contain one LONG"),
-        )
+        ApiFault::new(format!(
+            "checked {operation} target did not contain one LONG"
+        ))
     })?);
     let updated = value.wrapping_add(delta);
-    Ok(ApiImmediate::new(ApiReturnValue::U32(updated as u32))
+    Ok(ApiImmediate::new(Some(updated as u32))
         .with_guest_write(address, updated.to_le_bytes().to_vec()))
 }
 
 fn handle_initialize_critical_section_and_spin_count(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
     let address = GuestAddress(required_argument(
-        contract,
+        endpoint,
         frame,
         0,
         "critical section storage",
     )?);
-    let spin_count = required_argument(contract, frame, 1, "critical section spin count")?;
-    let section = session
-        .runtime_mut()
-        .initialize_critical_section(address, spin_count)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
-        .with_guest_write(address, x86_critical_section_bytes(section)))
-}
-
-fn handle_initialize_critical_section(
-    policy: &Kernel32CompatibilityPolicy,
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let address = GuestAddress(required_argument(
-        contract,
-        frame,
-        0,
-        "critical section storage",
-    )?);
-    let spin_count_field = policy
-        .initialize_critical_section_spin_count_field()
-        .ok_or_else(|| {
-            ApiFault::unsupported(
-                "win32-critical-section",
-                "initialize-critical-section-policy-unsupported",
-                format!(
-                    "compatibility policy {} does not enable InitializeCriticalSection",
-                    policy.id
-                ),
-            )
-        })?;
-    let section = session
-        .runtime_mut()
-        .initialize_critical_section_with_spin_state(address, spin_count_field)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void)
-        .with_guest_write(address, x86_critical_section_bytes(section)))
-}
-
-fn handle_enter_critical_section(
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let address = GuestAddress(required_argument(
-        contract,
-        frame,
-        0,
-        "critical section storage",
-    )?);
-    validate_x86_critical_section(contract, session, address)?;
-    let current_thread_id = session.runtime().current_thread_id();
-    if let Some(owner) = session
-        .runtime()
-        .critical_section(address)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        .owning_thread_id
-        && owner != current_thread_id
-    {
-        session
-            .runtime_mut()
-            .wait_current_thread_for_critical_section(address)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        let section = session
-            .runtime()
-            .critical_section(address)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-        return Ok(ApiImmediate::new(ApiReturnValue::Void)
-            .with_guest_write(address, x86_critical_section_bytes(section))
-            .with_execution_boundary(RuntimeApiBoundaryDisposition::BlockCurrentThread));
-    }
-    let section = session
-        .runtime_mut()
-        .enter_critical_section(address)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void)
-        .with_guest_write(address, x86_critical_section_bytes(section)))
-}
-
-fn handle_leave_critical_section(
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let address = GuestAddress(required_argument(
-        contract,
-        frame,
-        0,
-        "critical section storage",
-    )?);
-    validate_x86_critical_section(contract, session, address)?;
-    let section = session
-        .runtime_mut()
-        .leave_critical_section(address)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void)
-        .with_guest_write(address, x86_critical_section_bytes(section)))
-}
-
-fn handle_delete_critical_section(
-    contract: &ApiContract,
-    frame: &ApiCallFrame,
-    session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let address = GuestAddress(required_argument(
-        contract,
-        frame,
-        0,
-        "critical section storage",
-    )?);
-    validate_x86_critical_section(contract, session, address)?;
-    session
-        .runtime_mut()
-        .delete_critical_section(address)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Void)
-        .with_guest_write(address, vec![0; X86_CRITICAL_SECTION_BYTE_LENGTH]))
-}
-
-fn validate_x86_critical_section(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
-    address: GuestAddress,
-) -> Result<(), ApiFault> {
-    let section = session
-        .runtime()
-        .critical_section(address)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let expected = x86_critical_section_bytes(section);
-    let actual = session
-        .memory()
-        .read(address, X86_CRITICAL_SECTION_BYTE_LENGTH)
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    if actual != expected {
-        return Err(ApiFault::invalid_call(
-            "win32-critical-section",
-            "critical-section-guest-state-mismatch",
-            "guest CRITICAL_SECTION bytes differ from the process-owned synchronization state",
-        ));
-    }
-    session
-        .memory()
+    let spin_count = required_argument(endpoint, frame, 1, "critical section spin count")?;
+    runtime
+        .memory
         .validate_access(
             address,
             X86_CRITICAL_SECTION_BYTE_LENGTH,
             MemoryAccess::Write,
         )
-        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let section = runtime
+        .initialize_critical_section(address, spin_count)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(u32::from(true)))
+        .with_guest_write(address, x86_critical_section_bytes(section)))
+}
+
+fn handle_initialize_critical_section_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    // Fixed RTL_CRITICAL_SECTION default spin state and initialization flag.
+    runtime
+        .memory
+        .validate_access(
+            address,
+            X86_CRITICAL_SECTION_BYTE_LENGTH,
+            MemoryAccess::Write,
+        )
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let section = runtime
+        .initialize_critical_section_with_spin_state(address, 0x0200_07d0)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(None).with_guest_write(address, x86_critical_section_bytes(section)))
+}
+
+fn handle_enter_critical_section(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    let section = runtime
+        .critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    validate_x86_critical_section(endpoint, &runtime.memory, address, section)?;
+    let current_thread_id = runtime.current_thread_id();
+    if let Some(owner) = runtime
+        .critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        .owning_thread_id
+        && owner != current_thread_id
+    {
+        runtime
+            .wait_current_thread_for_critical_section(address)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        let section = runtime
+            .critical_section(address)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        return Ok(ApiImmediate::new(None)
+            .with_guest_write(address, x86_critical_section_bytes(section))
+            .with_execution_boundary(RuntimeApiBoundaryDisposition::BlockCurrentThread));
+    }
+    let section = runtime
+        .enter_critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(None).with_guest_write(address, x86_critical_section_bytes(section)))
+}
+
+fn handle_leave_critical_section(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    let section = runtime
+        .critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    validate_x86_critical_section(endpoint, &runtime.memory, address, section)?;
+    let section = runtime
+        .leave_critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(None).with_guest_write(address, x86_critical_section_bytes(section)))
+}
+
+fn handle_delete_critical_section(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    let section = runtime
+        .critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    validate_x86_critical_section(endpoint, &runtime.memory, address, section)?;
+    runtime
+        .delete_critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(
+        ApiImmediate::new(None)
+            .with_guest_write(address, vec![0; X86_CRITICAL_SECTION_BYTE_LENGTH]),
+    )
+}
+
+fn validate_x86_critical_section(
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
+    address: GuestAddress,
+    section: &RuntimeCriticalSection,
+) -> Result<(), ApiFault> {
+    memory
+        .validate_access(
+            address,
+            X86_CRITICAL_SECTION_BYTE_LENGTH,
+            MemoryAccess::Write,
+        )
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let expected = x86_critical_section_bytes(section);
+    let actual = memory
+        .read(address, X86_CRITICAL_SECTION_BYTE_LENGTH)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    if actual != expected {
+        return Err(ApiFault::new(
+            "guest CRITICAL_SECTION bytes differ from the process-owned synchronization state",
+        ));
+    }
     Ok(())
 }
 
@@ -6232,1852 +4373,168 @@ fn x86_critical_section_bytes(section: &RuntimeCriticalSection) -> Vec<u8> {
 }
 
 fn required_argument(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     index: usize,
     label: &str,
 ) -> Result<u32, ApiFault> {
     frame.argument_u32(index).ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "win32-api-dispatch",
-            "decoded-argument-missing",
-            format!(
-                "{} handler did not receive its {label}",
-                contract.implementation_id
-            ),
-        )
+        ApiFault::new(format!(
+            "{:?} handler did not receive its {label}",
+            endpoint.symbol
+        ))
     })
 }
 
 fn read_ascii_nul(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     address: GuestAddress,
     maximum_bytes: usize,
 ) -> Result<String, ApiFault> {
     let mut bytes = Vec::new();
     for offset in 0..maximum_bytes {
-        let current = add_guest_offset(contract, address, offset)?;
-        let byte = session
-            .memory()
+        let current = add_guest_offset(endpoint, address, offset)?;
+        let byte = memory
             .read(current, 1)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
         if byte == 0 {
-            return String::from_utf8(bytes).map_err(|_| {
-                ApiFault::invalid_call(
-                    "win32-string",
-                    "guest-ascii-string-invalid",
-                    "guest export name is not ASCII",
-                )
-            });
+            return String::from_utf8(bytes)
+                .map_err(|_| ApiFault::new("guest export name is not ASCII"));
         }
         if !byte.is_ascii() {
-            return Err(ApiFault::invalid_call(
-                "win32-string",
-                "guest-ascii-string-invalid",
-                "guest export name is not ASCII",
-            ));
+            return Err(ApiFault::new("guest export name is not ASCII"));
         }
         bytes.push(byte);
     }
-    Err(ApiFault::invalid_call(
-        "win32-string",
-        "guest-ascii-string-unterminated",
-        "guest export name exceeds its bounded read",
-    ))
+    Err(ApiFault::new("guest export name exceeds its bounded read"))
 }
 
 fn read_load_library_a_name(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     address: GuestAddress,
     maximum_bytes: usize,
 ) -> Result<String, ApiFault> {
     let mut bytes = Vec::new();
     for offset in 0..maximum_bytes {
-        let current = add_guest_offset(contract, address, offset)?;
-        let byte = session
-            .memory()
+        let current = add_guest_offset(endpoint, address, offset)?;
+        let byte = memory
             .read(current, 1)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
         if byte == 0 {
             return String::from_utf8(bytes).map_err(|_| {
-                ApiFault::unsupported(
-                    "win32-module-loader",
-                    "load-library-a-encoding-unsupported",
-                    "LoadLibraryA currently accepts only ASCII module names",
-                )
+                ApiFault::new("LoadLibraryA currently accepts only ASCII module names")
             });
         }
         if !byte.is_ascii() {
-            return Err(ApiFault::unsupported(
-                "win32-module-loader",
-                "load-library-a-encoding-unsupported",
+            return Err(ApiFault::new(
                 "LoadLibraryA currently accepts only ASCII module names",
             ));
         }
         bytes.push(byte);
     }
-    Err(ApiFault::invalid_call(
-        "win32-module-loader",
-        "load-library-a-name-unterminated",
+    Err(ApiFault::new(
         "LoadLibraryA module name exceeds its bounded read",
     ))
 }
 
 fn read_utf16_nul(
-    contract: &ApiContract,
-    session: &ExecutionSession<'_>,
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
     address: GuestAddress,
     maximum_code_units: usize,
 ) -> Result<String, ApiFault> {
     let mut code_units = Vec::new();
     for index in 0..maximum_code_units {
-        let offset = index.checked_mul(2).ok_or_else(|| {
-            ApiFault::resource_limit(
-                "win32-string",
-                "guest-utf16-offset-overflow",
-                "UTF-16 string offset overflowed host accounting",
-            )
-        })?;
-        let current = add_guest_offset(contract, address, offset)?;
-        let bytes = session
-            .memory()
+        let offset = index
+            .checked_mul(2)
+            .ok_or_else(|| ApiFault::new("UTF-16 string offset overflowed host accounting"))?;
+        let current = add_guest_offset(endpoint, address, offset)?;
+        let bytes = memory
             .read(current, 2)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
         let code_unit = u16::from_le_bytes([bytes[0], bytes[1]]);
         if code_unit == 0 {
-            return String::from_utf16(&code_units).map_err(|_| {
-                ApiFault::invalid_call(
-                    "win32-string",
-                    "guest-utf16-string-invalid",
-                    "guest module name is not valid UTF-16",
-                )
-            });
+            return String::from_utf16(&code_units)
+                .map_err(|_| ApiFault::new("guest module name is not valid UTF-16"));
         }
         code_units.push(code_unit);
     }
-    Err(ApiFault::invalid_call(
-        "win32-string",
-        "guest-utf16-string-unterminated",
-        "guest module name exceeds its bounded read",
-    ))
+    Err(ApiFault::new("guest module name exceeds its bounded read"))
 }
 
 fn add_guest_offset(
-    contract: &ApiContract,
+    endpoint: &ApiEndpointIdentity,
     address: GuestAddress,
     offset: usize,
 ) -> Result<GuestAddress, ApiFault> {
-    let offset = u32::try_from(offset).map_err(|_| {
-        ApiFault::resource_limit(
-            "win32-string",
-            "guest-string-offset-not-representable",
-            "guest string offset does not fit x86 address accounting",
-        )
-    })?;
+    let offset = u32::try_from(offset)
+        .map_err(|_| ApiFault::new("guest string offset does not fit x86 address accounting"))?;
     address
         .0
         .checked_add(offset)
         .map(GuestAddress)
         .ok_or_else(|| {
-            ApiFault::invalid_call(
-                "win32-string",
-                "guest-string-address-overflow",
-                format!(
-                    "{} string argument crosses the x86 address limit",
-                    contract.implementation_id
-                ),
-            )
+            ApiFault::new(format!(
+                "{:?} string argument crosses the x86 address limit",
+                endpoint.symbol
+            ))
         })
-}
-
-pub fn get_system_time_as_file_time_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetSystemTimeAsFileTime",
-        vec![out_struct("systemTime", "FILETIME", 8)],
-        ApiReturnSchema::Void,
-        GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION,
-    )
-}
-
-pub fn get_system_time_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetSystemTime",
-        vec![out_struct("systemTime", "SYSTEMTIME", 16)],
-        ApiReturnSchema::Void,
-        GET_SYSTEM_TIME_IMPLEMENTATION,
-    )
-}
-
-pub fn get_local_time_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetLocalTime",
-        vec![out_struct("systemTime", "SYSTEMTIME", 16)],
-        ApiReturnSchema::Void,
-        GET_LOCAL_TIME_IMPLEMENTATION,
-    )
-}
-
-pub fn raise_exception_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "RaiseException",
-        vec![
-            u32_argument("exceptionCode"),
-            u32_argument("exceptionFlags"),
-            u32_argument("numberOfArguments"),
-            opaque_pointer("arguments", true, 4),
-        ],
-        ApiReturnSchema::Void,
-        RAISE_EXCEPTION_IMPLEMENTATION,
-    )?;
-    contract.reentrancy_policy = ReentrancyPolicy::Allowed;
-    contract.callback_policy = CallbackPolicy::Required;
-    Ok(contract)
-}
-
-pub fn rtl_unwind_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "RtlUnwind",
-        vec![
-            opaque_pointer("targetFrame", true, 4),
-            opaque_pointer("targetIp", true, 1),
-            ApiArgumentSchema {
-                name: "exceptionRecord".to_owned(),
-                direction: ApiDirection::InOut,
-                value: ApiValueSchema::Pointer {
-                    constraint: ApiPointerConstraint {
-                        nullable: true,
-                        alignment: 4,
-                        byte_length: X86_EXCEPTION_RECORD_BYTES as u32,
-                        pointee: ApiPointeeSchema::Struct {
-                            type_id: "EXCEPTION_RECORD".to_owned(),
-                        },
-                        write_requirement: ApiWriteRequirement::Optional,
-                    },
-                },
-            },
-            opaque_pointer("returnValue", true, 1),
-        ],
-        ApiReturnSchema::Void,
-        RTL_UNWIND_IMPLEMENTATION,
-    )?;
-    contract.reentrancy_policy = ReentrancyPolicy::Allowed;
-    contract.behavior = ApiBehavior::ImmediateWithCommittedIndirectGuestWrites;
-    Ok(contract)
-}
-
-pub fn get_current_process_id_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetCurrentProcessId",
-        Vec::new(),
-        ApiReturnSchema::U32,
-        GET_CURRENT_PROCESS_ID_IMPLEMENTATION,
-    )
-}
-
-pub fn get_current_thread_id_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetCurrentThreadId",
-        Vec::new(),
-        ApiReturnSchema::U32,
-        GET_CURRENT_THREAD_ID_IMPLEMENTATION,
-    )
-}
-
-pub fn get_current_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetCurrentThread",
-        Vec::new(),
-        ApiReturnSchema::U32,
-        GET_CURRENT_THREAD_IMPLEMENTATION,
-    )
-}
-
-pub fn get_exit_code_thread_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetExitCodeThread",
-        vec![
-            logical_handle("threadHandle", RUNTIME_THREAD_OBJECT_NAMESPACE, false),
-            fallible_out_struct("exitCode", "DWORD", 4),
-        ],
-        ApiReturnSchema::Bool32,
-        GET_EXIT_CODE_THREAD_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn exit_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "ExitThread",
-        vec![u32_argument("exitCode")],
-        ApiReturnSchema::Void,
-        EXIT_THREAD_IMPLEMENTATION,
-    )
-}
-
-pub fn set_thread_affinity_mask_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "SetThreadAffinityMask",
-        vec![
-            u32_argument("threadHandle"),
-            u32_argument("threadAffinityMask"),
-        ],
-        ApiReturnSchema::U32,
-        SET_THREAD_AFFINITY_MASK_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn set_thread_priority_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "SetThreadPriority",
-        vec![u32_argument("threadHandle"), u32_argument("priority")],
-        ApiReturnSchema::Bool32,
-        SET_THREAD_PRIORITY_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn create_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "CreateThread",
-        vec![
-            opaque_pointer("securityAttributes", true, 4),
-            u32_argument("stackSize"),
-            opaque_pointer("startAddress", false, 1),
-            u32_argument("parameter"),
-            u32_argument("creationFlags"),
-            optional_out_struct("threadId", "DWORD", 4, 4),
-        ],
-        ApiReturnSchema::LogicalHandle {
-            namespace: RUNTIME_THREAD_OBJECT_NAMESPACE.to_owned(),
-            nullable: true,
-        },
-        CREATE_THREAD_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn resume_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "ResumeThread",
-        vec![u32_argument("threadHandle")],
-        ApiReturnSchema::U32,
-        RESUME_THREAD_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_system_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetSystemInfo",
-        vec![out_struct("systemInfo", "SYSTEM_INFO", 36)],
-        ApiReturnSchema::Void,
-        GET_SYSTEM_INFO_IMPLEMENTATION,
-    )
-}
-
-pub fn global_memory_status_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GlobalMemoryStatus",
-        vec![out_struct("memoryStatus", "MEMORYSTATUS", 32)],
-        ApiReturnSchema::Void,
-        GLOBAL_MEMORY_STATUS_IMPLEMENTATION,
-    )
-}
-
-pub fn virtual_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "VirtualAlloc",
-        vec![
-            opaque_pointer("preferredAddress", true, 1),
-            u32_argument("byteLength"),
-            u32_argument("allocationType"),
-            u32_argument("protection"),
-        ],
-        ApiReturnSchema::OpaquePointer { nullable: true },
-        VIRTUAL_ALLOC_IMPLEMENTATION,
-    )
-}
-
-pub fn virtual_free_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "VirtualFree",
-        vec![
-            opaque_pointer("address", false, 1),
-            u32_argument("byteLength"),
-            u32_argument("freeType"),
-        ],
-        ApiReturnSchema::Bool32,
-        VIRTUAL_FREE_IMPLEMENTATION,
-    )
-}
-
-pub fn get_version_ex_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetVersionExA",
-        vec![dynamic_inout_struct(
-            "versionInformation",
-            "OSVERSIONINFOA/OSVERSIONINFOEXA.size-versioned",
-            size_of::<u32>() as u32,
-            X86_OS_VERSION_INFO_EX_A_BYTES,
-        )],
-        ApiReturnSchema::Bool32,
-        GET_VERSION_EX_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_last_error_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetLastError",
-        Vec::new(),
-        ApiReturnSchema::U32,
-        GET_LAST_ERROR_IMPLEMENTATION,
-    )
-}
-
-pub fn set_last_error_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "SetLastError",
-        vec![u32_argument("error")],
-        ApiReturnSchema::Void,
-        SET_LAST_ERROR_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_acp_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetACP",
-        Vec::new(),
-        ApiReturnSchema::U32,
-        GET_ACP_IMPLEMENTATION,
-    )
-}
-
-pub fn get_system_default_lang_id_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetSystemDefaultLangID",
-        Vec::new(),
-        ApiReturnSchema::U16,
-        GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION,
-    )
-}
-
-pub fn get_drive_type_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetDriveTypeA",
-        vec![dynamic_in_bytes("rootPath", true, 1, 1, 32_768)],
-        ApiReturnSchema::U32,
-        GET_DRIVE_TYPE_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_cp_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetCPInfo",
-        vec![
-            u32_argument("codePage"),
-            out_struct("codePageInfo", "CPINFO.fields", 18),
-        ],
-        ApiReturnSchema::Bool32,
-        GET_CP_INFO_IMPLEMENTATION,
-    )
-}
-
-pub fn is_processor_feature_present_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "IsProcessorFeaturePresent",
-        vec![u32_argument("processorFeature")],
-        ApiReturnSchema::Bool32,
-        IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
-    )
-}
-
-pub fn set_unhandled_exception_filter_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "SetUnhandledExceptionFilter",
-        vec![opaque_pointer("filter", true, 1)],
-        ApiReturnSchema::OpaquePointer { nullable: true },
-        SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
-    )
-}
-
-pub fn get_tick_count_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetTickCount",
-        Vec::new(),
-        ApiReturnSchema::U32,
-        GET_TICK_COUNT_IMPLEMENTATION,
-    )
-}
-
-pub fn get_std_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetStdHandle",
-        vec![u32_argument("standardHandle")],
-        ApiReturnSchema::LogicalHandle {
-            namespace: LOGICAL_STANDARD_HANDLE_NAMESPACE.to_owned(),
-            nullable: false,
-        },
-        GET_STD_HANDLE_IMPLEMENTATION,
-    )
-}
-
-pub fn get_file_type_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetFileType",
-        vec![logical_handle(
-            "handle",
-            LOGICAL_STANDARD_HANDLE_NAMESPACE,
-            false,
-        )],
-        ApiReturnSchema::U32,
-        GET_FILE_TYPE_IMPLEMENTATION,
-    )
-}
-
-pub fn set_handle_count_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "SetHandleCount",
-        vec![u32_argument("handleCount")],
-        ApiReturnSchema::U32,
-        SET_HANDLE_COUNT_IMPLEMENTATION,
-    )
-}
-
-pub fn get_command_line_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetCommandLineA",
-        Vec::new(),
-        ApiReturnSchema::OpaquePointer { nullable: false },
-        GET_COMMAND_LINE_A_IMPLEMENTATION,
-    )
-}
-
-pub fn get_module_file_name_a_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetModuleFileNameA",
-        vec![
-            logical_handle("module", LOGICAL_LOADED_MODULE_NAMESPACE, true),
-            dynamic_out_bytes("fileName", true, 1, 1, 32_768),
-            u32_argument("capacity"),
-        ],
-        ApiReturnSchema::U32,
-        GET_MODULE_FILE_NAME_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_environment_strings_w_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetEnvironmentStringsW",
-        Vec::new(),
-        ApiReturnSchema::OpaquePointer { nullable: false },
-        GET_ENVIRONMENT_STRINGS_W_IMPLEMENTATION,
-    )
-}
-
-pub fn free_environment_strings_w_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "FreeEnvironmentStringsW",
-        vec![opaque_pointer("environmentBlock", false, 2)],
-        ApiReturnSchema::Bool32,
-        FREE_ENVIRONMENT_STRINGS_W_IMPLEMENTATION,
-    )
-}
-
-pub fn wide_char_to_multi_byte_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "WideCharToMultiByte",
-        vec![
-            u32_argument("codePage"),
-            u32_argument("flags"),
-            opaque_pointer("wideCharSource", true, 2),
-            u32_argument("wideCharCount"),
-            dynamic_out_bytes("multiByteDestination", true, 1, 1, 2_097_152),
-            u32_argument("multiByteCapacity"),
-            opaque_pointer("defaultChar", true, 1),
-            optional_out_struct("usedDefaultChar", "BOOL", 4, 1),
-        ],
-        ApiReturnSchema::U32,
-        WIDE_CHAR_TO_MULTI_BYTE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn multi_byte_to_wide_char_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "MultiByteToWideChar",
-        vec![
-            u32_argument("codePage"),
-            u32_argument("flags"),
-            dynamic_in_bytes("multiByteSource", true, 1, 1, 1_048_576),
-            u32_argument("multiByteCount"),
-            dynamic_out_bytes("wideCharDestination", true, 2, 2, 2_097_152),
-            u32_argument("wideCharCapacity"),
-        ],
-        ApiReturnSchema::U32,
-        MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn set_current_directory_a_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "SetCurrentDirectoryA",
-        vec![dynamic_in_bytes("directoryPath", true, 1, 1, 32_768)],
-        ApiReturnSchema::Bool32,
-        SET_CURRENT_DIRECTORY_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_file_attributes_a_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetFileAttributesA",
-        vec![dynamic_in_bytes("fileName", false, 1, 1, 32_768)],
-        ApiReturnSchema::U32,
-        GET_FILE_ATTRIBUTES_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn find_first_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "FindFirstFileA",
-        vec![
-            dynamic_in_bytes("fileName", false, 1, 1, 32_768),
-            fallible_out_struct(
-                "findFileData",
-                "WIN32_FIND_DATAA",
-                X86_WIN32_FIND_DATA_A_BYTES as u32,
-            ),
-        ],
-        ApiReturnSchema::LogicalHandle {
-            namespace: RUNTIME_FILE_SEARCH_NAMESPACE.to_owned(),
-            nullable: false,
-        },
-        FIND_FIRST_FILE_A_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateWithCommittedIndirectGuestWrites;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn find_next_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "FindNextFileA",
-        vec![
-            logical_handle("fileSearch", RUNTIME_FILE_SEARCH_NAMESPACE, false),
-            fallible_out_struct(
-                "findFileData",
-                "WIN32_FIND_DATAA",
-                X86_WIN32_FIND_DATA_A_BYTES as u32,
-            ),
-        ],
-        ApiReturnSchema::Bool32,
-        FIND_NEXT_FILE_A_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateWithCommittedIndirectGuestWrites;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn find_close_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "FindClose",
-        vec![logical_handle(
-            "fileSearch",
-            RUNTIME_FILE_SEARCH_NAMESPACE,
-            false,
-        )],
-        ApiReturnSchema::Bool32,
-        FIND_CLOSE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn delete_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "DeleteFileA",
-        vec![dynamic_in_bytes("fileName", false, 1, 1, 32_768)],
-        ApiReturnSchema::Bool32,
-        DELETE_FILE_A_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateOrDeferred;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn create_directory_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "CreateDirectoryA",
-        vec![
-            dynamic_in_bytes("pathName", false, 1, 1, 32_768),
-            opaque_pointer("securityAttributes", true, 4),
-        ],
-        ApiReturnSchema::Bool32,
-        CREATE_DIRECTORY_A_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateOrDeferred;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn create_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "CreateFileA",
-        vec![
-            dynamic_in_bytes("fileName", false, 1, 1, 32_768),
-            u32_argument("desiredAccess"),
-            u32_argument("shareMode"),
-            opaque_pointer("securityAttributes", true, 4),
-            u32_argument("creationDisposition"),
-            u32_argument("flagsAndAttributes"),
-            logical_handle("templateFile", RUNTIME_SOURCE_FILE_NAMESPACE, true),
-        ],
-        ApiReturnSchema::LogicalHandle {
-            namespace: RUNTIME_SOURCE_FILE_NAMESPACE.to_owned(),
-            nullable: false,
-        },
-        CREATE_FILE_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_file_size_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetFileSize",
-        vec![
-            logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false),
-            optional_out_struct("fileSizeHigh", "DWORD", 4, 4),
-        ],
-        ApiReturnSchema::U32,
-        GET_FILE_SIZE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn read_file_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "ReadFile",
-        vec![
-            logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false),
-            dynamic_out_bytes("buffer", false, 1, 1, RUNTIME_SOURCE_READ_MAX_BYTES),
-            u32_argument("bytesToRead"),
-            out_struct("bytesRead", "DWORD", 4),
-            opaque_pointer("overlapped", true, 4),
-        ],
-        ApiReturnSchema::Bool32,
-        READ_FILE_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateOrDeferred;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn write_file_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "WriteFile",
-        vec![
-            logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false),
-            dynamic_in_bytes("buffer", false, 1, 1, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES),
-            u32_argument("bytesToWrite"),
-            out_struct("bytesWritten", "DWORD", 4),
-            opaque_pointer("overlapped", true, 4),
-        ],
-        ApiReturnSchema::Bool32,
-        WRITE_FILE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn flush_file_buffers_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "FlushFileBuffers",
-        vec![logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false)],
-        ApiReturnSchema::Bool32,
-        FLUSH_FILE_BUFFERS_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateOrDeferred;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn set_file_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "SetFilePointer",
-        vec![
-            logical_handle("file", RUNTIME_SOURCE_FILE_NAMESPACE, false),
-            u32_argument("distanceLow"),
-            opaque_pointer("distanceHigh", true, 4),
-            u32_argument("moveMethod"),
-        ],
-        ApiReturnSchema::U32,
-        SET_FILE_POINTER_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn close_handle_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "CloseHandle",
-        vec![u32_argument("object")],
-        ApiReturnSchema::Bool32,
-        CLOSE_HANDLE_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateOrDeferred;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn create_mutex_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "CreateMutexA",
-        vec![
-            opaque_pointer("securityAttributes", true, 4),
-            u32_argument("initialOwner"),
-            dynamic_in_bytes("mutexName", true, 1, 1, 32_768),
-        ],
-        ApiReturnSchema::U32,
-        CREATE_MUTEX_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn create_event_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "CreateEventA",
-        vec![
-            opaque_pointer("securityAttributes", true, 4),
-            u32_argument("manualReset"),
-            u32_argument("initialState"),
-            opaque_pointer("eventName", true, 1),
-        ],
-        ApiReturnSchema::LogicalHandle {
-            namespace: RUNTIME_EVENT_OBJECT_NAMESPACE.to_owned(),
-            nullable: false,
-        },
-        CREATE_EVENT_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn set_event_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "SetEvent",
-        vec![logical_handle(
-            "event",
-            RUNTIME_EVENT_OBJECT_NAMESPACE,
-            false,
-        )],
-        ApiReturnSchema::Bool32,
-        SET_EVENT_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn reset_event_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "ResetEvent",
-        vec![logical_handle(
-            "event",
-            RUNTIME_EVENT_OBJECT_NAMESPACE,
-            false,
-        )],
-        ApiReturnSchema::Bool32,
-        RESET_EVENT_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn wait_for_single_object_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "WaitForSingleObject",
-        vec![
-            u32_argument("waitableObject"),
-            u32_argument("timeoutMilliseconds"),
-        ],
-        ApiReturnSchema::U32,
-        WAIT_FOR_SINGLE_OBJECT_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn wait_for_multiple_objects_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "WaitForMultipleObjects",
-        vec![
-            u32_argument("handleCount"),
-            dynamic_in_bytes(
-                "handles",
-                false,
-                4,
-                4,
-                (RUNTIME_AUDIO_NOTIFICATION_LIMIT * 4) as u32,
-            ),
-            u32_argument("waitAll"),
-            u32_argument("timeoutMilliseconds"),
-        ],
-        ApiReturnSchema::U32,
-        WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateOrDeferred;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn create_waitable_timer_a_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "CreateWaitableTimerA",
-        vec![
-            opaque_pointer("securityAttributes", true, 4),
-            u32_argument("manualReset"),
-            opaque_pointer("timerName", true, 1),
-        ],
-        ApiReturnSchema::LogicalHandle {
-            namespace: RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE.to_owned(),
-            nullable: false,
-        },
-        CREATE_WAITABLE_TIMER_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn set_waitable_timer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "SetWaitableTimer",
-        vec![
-            logical_handle(
-                "waitableTimer",
-                RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
-                false,
-            ),
-            in_struct("dueTime", "LARGE_INTEGER", 8, 4),
-            u32_argument("periodMilliseconds"),
-            opaque_pointer("completionRoutine", true, 4),
-            opaque_pointer("completionContext", true, 4),
-            u32_argument("resume"),
-        ],
-        ApiReturnSchema::Bool32,
-        SET_WAITABLE_TIMER_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn wait_for_single_object_ex_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "WaitForSingleObjectEx",
-        vec![
-            logical_handle(
-                "waitableObject",
-                RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
-                false,
-            ),
-            u32_argument("timeoutMilliseconds"),
-            u32_argument("alertable"),
-        ],
-        ApiReturnSchema::U32,
-        WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateOrDeferred;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn sleep_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "Sleep",
-        vec![u32_argument("milliseconds")],
-        ApiReturnSchema::Void,
-        SLEEP_ZERO_IMPLEMENTATION,
-    )?;
-    contract.behavior = ApiBehavior::ImmediateOrDeferred;
-    Ok(contract)
-}
-
-pub fn get_string_type_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetStringTypeW",
-        vec![
-            u32_argument("infoType"),
-            opaque_pointer("wideCharSource", false, 2),
-            u32_argument("wideCharCount"),
-            dynamic_out_bytes("characterTypes", false, 2, 2, 2_097_152),
-        ],
-        ApiReturnSchema::Bool32,
-        GET_STRING_TYPE_W_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn lc_map_string_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "LCMapStringW",
-        vec![
-            u32_argument("locale"),
-            u32_argument("mapFlags"),
-            opaque_pointer("wideCharSource", false, 2),
-            u32_argument("wideCharCount"),
-            dynamic_out_bytes("wideCharDestination", true, 2, 2, 2_097_152),
-            u32_argument("wideCharCapacity"),
-        ],
-        ApiReturnSchema::U32,
-        LC_MAP_STRING_W_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn query_performance_counter_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "QueryPerformanceCounter",
-        vec![out_struct("performanceCounter", "LARGE_INTEGER", 8)],
-        ApiReturnSchema::Bool32,
-        QUERY_PERFORMANCE_COUNTER_IMPLEMENTATION,
-    )
-}
-
-pub fn query_performance_frequency_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "QueryPerformanceFrequency",
-        vec![out_struct("performanceFrequency", "LARGE_INTEGER", 8)],
-        ApiReturnSchema::Bool32,
-        QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION,
-    )
-}
-
-pub fn get_startup_info_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "GetStartupInfoW",
-        vec![out_struct(
-            "startupInfo",
-            "STARTUPINFOW",
-            X86_STARTUP_INFO_W_BYTE_LENGTH as u32,
-        )],
-        ApiReturnSchema::Void,
-        GET_STARTUP_INFO_W_IMPLEMENTATION,
-    )
-}
-
-pub fn heap_set_information_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "HeapSetInformation",
-        vec![
-            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, true),
-            u32_argument("informationClass"),
-            opaque_pointer("information", true, 1),
-            u32_argument("informationLength"),
-        ],
-        ApiReturnSchema::Bool32,
-        HEAP_SET_INFORMATION_IMPLEMENTATION,
-    )
-}
-
-pub fn heap_create_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "HeapCreate",
-        vec![
-            u32_argument("options"),
-            u32_argument("initialSize"),
-            u32_argument("maximumSize"),
-        ],
-        ApiReturnSchema::LogicalHandle {
-            namespace: LOGICAL_PRIVATE_HEAP_NAMESPACE.to_owned(),
-            nullable: false,
-        },
-        HEAP_CREATE_IMPLEMENTATION,
-    )
-}
-
-pub fn heap_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "HeapAlloc",
-        vec![
-            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, false),
-            u32_argument("flags"),
-            u32_argument("byteLength"),
-        ],
-        ApiReturnSchema::OpaquePointer { nullable: true },
-        HEAP_ALLOC_IMPLEMENTATION,
-    )
-}
-
-pub fn heap_realloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "HeapReAlloc",
-        vec![
-            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, false),
-            u32_argument("flags"),
-            opaque_pointer("allocation", false, RUNTIME_PRIVATE_HEAP_ALIGNMENT),
-            u32_argument("byteLength"),
-        ],
-        ApiReturnSchema::OpaquePointer { nullable: true },
-        HEAP_REALLOC_IMPLEMENTATION,
-    )
-}
-
-pub fn heap_free_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "HeapFree",
-        vec![
-            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, false),
-            u32_argument("flags"),
-            opaque_pointer("allocation", false, RUNTIME_PRIVATE_HEAP_ALIGNMENT),
-        ],
-        ApiReturnSchema::Bool32,
-        HEAP_FREE_IMPLEMENTATION,
-    )
-}
-
-pub fn heap_size_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "HeapSize",
-        vec![
-            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, false),
-            u32_argument("flags"),
-            opaque_pointer("allocation", true, 1),
-        ],
-        ApiReturnSchema::U32,
-        HEAP_SIZE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn load_library_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "LoadLibraryA",
-        vec![nullable_input_string(
-            "moduleName",
-            ApiStringEncoding::Windows932,
-            1,
-            1,
-            MAX_LOAD_LIBRARY_MODULE_NAME_BYTES as u32,
-        )],
-        ApiReturnSchema::LogicalHandle {
-            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
-            nullable: true,
-        },
-        LOAD_LIBRARY_A_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_module_handle_w_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetModuleHandleW",
-        vec![nullable_input_string(
-            "moduleName",
-            ApiStringEncoding::Utf16Le,
-            2,
-            2,
-            MAX_MODULE_NAME_CODE_UNITS as u32,
-        )],
-        ApiReturnSchema::LogicalHandle {
-            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
-            nullable: true,
-        },
-        GET_MODULE_HANDLE_W_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn get_proc_address_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "GetProcAddress",
-        vec![
-            logical_handle("module", LOGICAL_LOADED_MODULE_NAMESPACE, true),
-            name_or_ordinal(
-                "procedureName",
-                ApiStringEncoding::Windows1252,
-                MAX_EXPORT_NAME_BYTES as u32,
-            ),
-        ],
-        ApiReturnSchema::OpaquePointer { nullable: true },
-        GET_PROC_ADDRESS_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn tls_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "TlsAlloc",
-        Vec::new(),
-        ApiReturnSchema::U32,
-        TLS_ALLOC_IMPLEMENTATION,
-    )
-}
-
-pub fn tls_get_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "TlsGetValue",
-        vec![u32_argument("tlsIndex")],
-        ApiReturnSchema::OpaquePointer { nullable: true },
-        TLS_GET_VALUE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn tls_set_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "TlsSetValue",
-        vec![u32_argument("tlsIndex"), opaque_pointer("value", true, 1)],
-        ApiReturnSchema::Bool32,
-        TLS_SET_VALUE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn encode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "EncodePointer",
-        vec![opaque_pointer("pointer", true, 1)],
-        // The cookie transform is a bijection over the whole 32-bit space, so a zero token is a
-        // legitimate encoding rather than a failure.
-        ApiReturnSchema::LogicalPointer {
-            namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-            nullable: true,
-        },
-        ENCODE_POINTER_IMPLEMENTATION,
-    )
-}
-
-pub fn decode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "DecodePointer",
-        vec![opaque_pointer("encodedPointer", true, 1)],
-        ApiReturnSchema::OpaquePointer { nullable: true },
-        DECODE_POINTER_IMPLEMENTATION,
-    )
-}
-
-pub fn fls_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "FlsAlloc",
-        vec![opaque_pointer("callback", true, 1)],
-        ApiReturnSchema::U32,
-        FLS_ALLOC_IMPLEMENTATION,
-    )
-}
-
-pub fn fls_get_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "FlsGetValue",
-        vec![u32_argument("flsIndex")],
-        ApiReturnSchema::OpaquePointer { nullable: true },
-        FLS_GET_VALUE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn fls_set_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    let mut contract = kernel32_contract(
-        endpoint,
-        "FlsSetValue",
-        vec![u32_argument("flsIndex"), opaque_pointer("value", true, 1)],
-        ApiReturnSchema::Bool32,
-        FLS_SET_VALUE_IMPLEMENTATION,
-    )?;
-    contract.last_error_policy = LastErrorPolicy::FromHandler;
-    Ok(contract)
-}
-
-pub fn interlocked_increment_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "InterlockedIncrement",
-        vec![inout_struct("addend", "LONG", size_of::<i32>() as u32)],
-        ApiReturnSchema::U32,
-        INTERLOCKED_INCREMENT_IMPLEMENTATION,
-    )
-}
-
-pub fn interlocked_decrement_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "InterlockedDecrement",
-        vec![inout_struct("addend", "LONG", size_of::<i32>() as u32)],
-        ApiReturnSchema::U32,
-        INTERLOCKED_DECREMENT_IMPLEMENTATION,
-    )
-}
-
-pub fn initialize_critical_section_and_spin_count_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "InitializeCriticalSectionAndSpinCount",
-        vec![
-            out_struct(
-                "criticalSection",
-                "RTL_CRITICAL_SECTION",
-                X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
-            ),
-            u32_argument("spinCount"),
-        ],
-        ApiReturnSchema::Bool32,
-        INITIALIZE_CRITICAL_SECTION_AND_SPIN_COUNT_IMPLEMENTATION,
-    )
-}
-
-pub fn initialize_critical_section_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "InitializeCriticalSection",
-        vec![out_struct(
-            "criticalSection",
-            "RTL_CRITICAL_SECTION",
-            X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
-        )],
-        ApiReturnSchema::Void,
-        INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
-    )
-}
-
-pub fn enter_critical_section_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "EnterCriticalSection",
-        vec![inout_struct(
-            "criticalSection",
-            "RTL_CRITICAL_SECTION",
-            X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
-        )],
-        ApiReturnSchema::Void,
-        ENTER_CRITICAL_SECTION_IMPLEMENTATION,
-    )
-}
-
-pub fn leave_critical_section_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "LeaveCriticalSection",
-        vec![inout_struct(
-            "criticalSection",
-            "RTL_CRITICAL_SECTION",
-            X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
-        )],
-        ApiReturnSchema::Void,
-        LEAVE_CRITICAL_SECTION_IMPLEMENTATION,
-    )
-}
-
-pub fn delete_critical_section_contract(
-    endpoint: ApiEndpointIdentity,
-) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
-        endpoint,
-        "DeleteCriticalSection",
-        vec![inout_struct(
-            "criticalSection",
-            "RTL_CRITICAL_SECTION",
-            X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
-        )],
-        ApiReturnSchema::Void,
-        DELETE_CRITICAL_SECTION_IMPLEMENTATION,
-    )
-}
-
-fn kernel32_contract(
-    endpoint: ApiEndpointIdentity,
-    name: &str,
-    arguments: Vec<ApiArgumentSchema>,
-    return_value: ApiReturnSchema,
-    implementation_id: &str,
-) -> Result<ApiContract, ApiFault> {
-    let symbol = ApiSymbol::Name {
-        name: name.to_owned(),
-    };
-    if !endpoint.matches("kernel32.dll", &symbol) {
-        return Err(ApiFault::invalid_call(
-            "win32-api-contract",
-            "kernel32-endpoint-identity-mismatch",
-            format!("endpoint does not identify kernel32.dll!{name}"),
-        ));
-    }
-    Ok(ApiContract {
-        endpoint,
-        abi: AbiSchema {
-            calling_convention: CallingConvention::Stdcall,
-            arguments,
-            return_value,
-            stack_cleanup: StackCleanup::Callee,
-        },
-        last_error_policy: LastErrorPolicy::Preserve,
-        reentrancy_policy: ReentrancyPolicy::Disallowed,
-        behavior: ApiBehavior::Immediate,
-        callback_policy: CallbackPolicy::Forbidden,
-        implementation_id: implementation_id.to_owned(),
-    })
-}
-
-fn u32_argument(name: &str) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::U32,
-    }
-}
-
-fn opaque_pointer(name: &str, nullable: bool, alignment: u32) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::OpaquePointer {
-            nullable,
-            alignment,
-        },
-    }
-}
-
-fn logical_handle(name: &str, namespace: &str, nullable: bool) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::LogicalHandle {
-            namespace: namespace.to_owned(),
-            nullable,
-        },
-    }
-}
-
-fn name_or_ordinal(
-    name: &str,
-    encoding: ApiStringEncoding,
-    maximum_code_units: u32,
-) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::NameOrOrdinal {
-            encoding,
-            maximum_code_units,
-        },
-    }
-}
-
-fn input_string(
-    name: &str,
-    encoding: ApiStringEncoding,
-    alignment: u32,
-    minimum_byte_length: u32,
-    maximum_code_units: u32,
-) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::Pointer {
-            constraint: ApiPointerConstraint {
-                nullable: false,
-                alignment,
-                byte_length: minimum_byte_length,
-                pointee: ApiPointeeSchema::String {
-                    encoding,
-                    maximum_code_units,
-                    nul_terminated: true,
-                },
-                write_requirement: ApiWriteRequirement::None,
-            },
-        },
-    }
-}
-
-fn nullable_input_string(
-    name: &str,
-    encoding: ApiStringEncoding,
-    alignment: u32,
-    minimum_byte_length: u32,
-    maximum_code_units: u32,
-) -> ApiArgumentSchema {
-    let mut argument = input_string(
-        name,
-        encoding,
-        alignment,
-        minimum_byte_length,
-        maximum_code_units,
-    );
-    let ApiValueSchema::Pointer { constraint } = &mut argument.value else {
-        unreachable!("input string helper did not create a pointer schema");
-    };
-    constraint.nullable = true;
-    argument
-}
-
-fn out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::Out,
-        value: ApiValueSchema::Pointer {
-            constraint: ApiPointerConstraint {
-                nullable: false,
-                alignment: 4,
-                byte_length,
-                pointee: ApiPointeeSchema::Struct {
-                    type_id: type_id.to_owned(),
-                },
-                write_requirement: ApiWriteRequirement::Required,
-            },
-        },
-    }
-}
-
-fn fallible_out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
-    let mut argument = out_struct(name, type_id, byte_length);
-    let ApiValueSchema::Pointer { constraint } = &mut argument.value else {
-        unreachable!("output struct helper did not create a pointer schema");
-    };
-    constraint.write_requirement = ApiWriteRequirement::Optional;
-    argument
-}
-
-fn in_struct(name: &str, type_id: &str, byte_length: u32, alignment: u32) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::Pointer {
-            constraint: ApiPointerConstraint {
-                nullable: false,
-                alignment,
-                byte_length,
-                pointee: ApiPointeeSchema::Struct {
-                    type_id: type_id.to_owned(),
-                },
-                write_requirement: ApiWriteRequirement::None,
-            },
-        },
-    }
-}
-
-fn optional_out_struct(
-    name: &str,
-    type_id: &str,
-    byte_length: u32,
-    alignment: u32,
-) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::Out,
-        value: ApiValueSchema::Pointer {
-            constraint: ApiPointerConstraint {
-                nullable: true,
-                alignment,
-                byte_length,
-                pointee: ApiPointeeSchema::Struct {
-                    type_id: type_id.to_owned(),
-                },
-                write_requirement: ApiWriteRequirement::Optional,
-            },
-        },
-    }
-}
-
-fn dynamic_out_bytes(
-    name: &str,
-    nullable: bool,
-    alignment: u32,
-    minimum_byte_length: u32,
-    maximum_byte_length: u32,
-) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::Out,
-        value: ApiValueSchema::DynamicPointer {
-            constraint: ApiDynamicPointerConstraint {
-                nullable,
-                alignment,
-                minimum_byte_length,
-                maximum_byte_length,
-                pointee: ApiPointeeSchema::Bytes,
-                write_requirement: ApiWriteRequirement::Optional,
-            },
-        },
-    }
-}
-
-fn dynamic_in_bytes(
-    name: &str,
-    nullable: bool,
-    alignment: u32,
-    minimum_byte_length: u32,
-    maximum_byte_length: u32,
-) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::DynamicPointer {
-            constraint: ApiDynamicPointerConstraint {
-                nullable,
-                alignment,
-                minimum_byte_length,
-                maximum_byte_length,
-                pointee: ApiPointeeSchema::Bytes,
-                write_requirement: ApiWriteRequirement::None,
-            },
-        },
-    }
-}
-
-fn dynamic_inout_struct(
-    name: &str,
-    type_id: &str,
-    minimum_byte_length: u32,
-    maximum_byte_length: u32,
-) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::InOut,
-        value: ApiValueSchema::DynamicPointer {
-            constraint: ApiDynamicPointerConstraint {
-                nullable: false,
-                alignment: 4,
-                minimum_byte_length,
-                maximum_byte_length,
-                pointee: ApiPointeeSchema::Struct {
-                    type_id: type_id.to_owned(),
-                },
-                write_requirement: ApiWriteRequirement::Optional,
-            },
-        },
-    }
-}
-
-fn inout_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::InOut,
-        value: ApiValueSchema::Pointer {
-            constraint: ApiPointerConstraint {
-                nullable: false,
-                alignment: 4,
-                byte_length,
-                pointee: ApiPointeeSchema::Struct {
-                    type_id: type_id.to_owned(),
-                },
-                write_requirement: ApiWriteRequirement::Required,
-            },
-        },
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        ERROR_INVALID_PARAMETER, ERROR_NOT_ENOUGH_MEMORY, RuntimeStateError,
-        fls_set_value_failure_last_error, local_file_time, system_time_bytes,
+        OpfsFileOperation, complete_opfs_file_operation, local_file_time, system_time_bytes,
     };
 
     #[test]
-    fn fls_set_value_maps_documented_parameter_and_allocation_failures() {
-        let invalid_index = RuntimeStateError::not_found(
-            "runtime-fls",
-            "fls-index-unallocated",
-            "test invalid index",
+    fn opfs_results_project_windows_failures_without_consuming_invalid_observations() {
+        let directory = OpfsFileOperation::CreateDirectory;
+        let delete = OpfsFileOperation::DeleteFile { source_missing: 2 };
+        let attrs = OpfsFileOperation::Attributes { source_missing: 2 };
+        for (operation, observation, value, error) in [
+            (directory, 0, 1, 0x4321),
+            (directory, 1, 0, 183),
+            (directory, 2, 0, 3),
+            (delete, 0, 1, 0x4321),
+            (delete, 1, 0, 2),
+            (delete, 2, 0, 2),
+            (OpfsFileOperation::DeleteFile { source_missing: 3 }, 2, 0, 3),
+            (attrs, 1, 0x20, 0x4321),
+            (attrs, 2, 0x30, 0x4321),
+            (attrs, 4, u32::MAX, 2),
+            (
+                OpfsFileOperation::Attributes { source_missing: 3 },
+                4,
+                u32::MAX,
+                3,
+            ),
+        ] {
+            let result = complete_opfs_file_operation(operation, observation, 0x4321).unwrap();
+            assert_eq!(result.eax, Some(value));
+            assert_eq!(result.last_error, Some(error));
+        }
+        for operation in [directory, delete, attrs] {
+            assert!(complete_opfs_file_operation(operation, 99, 0x4321).is_err());
+        }
+        assert!(
+            complete_opfs_file_operation(OpfsFileOperation::Attributes { source_missing: 9 }, 1, 0)
+                .is_err()
         );
-        assert_eq!(
-            fls_set_value_failure_last_error(&invalid_index),
-            Some(ERROR_INVALID_PARAMETER)
-        );
-
-        let allocation_failure = RuntimeStateError::resource_limit(
-            "runtime-fls",
-            "fls-storage-allocation-failed",
-            "test allocation failure",
-        );
-        assert_eq!(
-            fls_set_value_failure_last_error(&allocation_failure),
-            Some(ERROR_NOT_ENOUGH_MEMORY)
+        assert!(
+            complete_opfs_file_operation(OpfsFileOperation::DeleteFile { source_missing: 9 }, 0, 0)
+                .is_err()
         );
     }
 
     #[test]
-    fn local_time_projection_applies_bounded_offsets_without_mutating_the_clock() {
+    fn local_time_projection_uses_japan_offset_and_checks_overflow() {
         let utc = 134_282_016_000_000_000;
-        assert_eq!(local_file_time(utc, 540).unwrap(), 134_282_340_000_000_000);
-        assert_eq!(local_file_time(600_000_000, -1).unwrap(), 0);
-        assert_eq!(
-            local_file_time(0, -1).unwrap_err().code,
-            "local-time-projection-overflow"
-        );
+        assert_eq!(local_file_time(utc).unwrap(), 134_282_340_000_000_000);
+        assert_eq!(local_file_time(0).unwrap(), 324_000_000_000);
+        assert!(local_file_time(u64::MAX).is_err());
     }
 
     #[test]

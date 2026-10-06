@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use encoding_rs::SHIFT_JIS;
-use serde::Serialize;
 
 use crate::memory::GuestAddress;
 use crate::module_graph::RuntimeModuleId;
@@ -10,44 +9,33 @@ use crate::pe32::Rva;
 use super::gdi::RuntimeDeviceContextId;
 use super::{RuntimeRect, RuntimeStateError, RuntimeThreadId};
 
-pub const LOGICAL_ICON_HANDLE_NAMESPACE: &str = "vine.logical-icon.v1";
-pub const LOGICAL_CURSOR_HANDLE_NAMESPACE: &str = "vine.logical-cursor.v1";
-pub const LOGICAL_MENU_HANDLE_NAMESPACE: &str = "vine.logical-menu.v1";
-pub const LOGICAL_WINDOW_CLASS_ATOM_NAMESPACE: &str = "vine.logical-window-class-atom.v1";
-pub const LOGICAL_WINDOW_HANDLE_NAMESPACE: &str = "vine.logical-window.v1";
 pub const RUNTIME_SHARED_ICON_LIMIT: usize = 4_096;
 pub const RUNTIME_SHARED_CURSOR_LIMIT: usize = 256;
 pub const RUNTIME_WINDOW_CLASS_LIMIT: usize = 4_096;
 pub const RUNTIME_WINDOW_CLASS_NAME_A_LIMIT: usize = 256;
-pub const RUNTIME_WINDOW_CLASS_NAME_A_ENCODING: &str = "windows-932-v1";
 pub const RUNTIME_WINDOW_LIMIT: usize = 4_096;
 pub const RUNTIME_SYSTEM_MENU_LIMIT: usize = RUNTIME_WINDOW_LIMIT;
 pub const RUNTIME_DEFAULT_IME_WINDOW_LIMIT: usize = 4_096;
 pub const RUNTIME_WINDOW_NAME_A_LIMIT: usize = 512;
-pub const RUNTIME_WINDOW_NAME_A_ENCODING: &str = "windows-932-v1";
 pub const RUNTIME_ICON_HANDLE_BASE: u32 = 0x4901_0001;
 pub const RUNTIME_CURSOR_HANDLE_BASE: u32 = 0x4301_0001;
 pub const RUNTIME_MENU_HANDLE_BASE: u32 = 0x4e01_0001;
 pub const RUNTIME_WINDOW_HANDLE_BASE: u32 = 0x4801_0001;
 pub const RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID: u32 = 0x7f00;
 pub const RUNTIME_WINDOW_CLASS_ATOM_BASE: u16 = 0xc000;
-pub const RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES: u32 = 16;
 pub const RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH: usize = 64;
 pub const RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES: u32 = 0x0000_0010;
 pub const RUNTIME_WINDOW_CLASS_STYLE_DOUBLE_CLICKS: u32 = 0x0000_0008;
 pub const RUNTIME_WINDOW_STYLE_VISIBLE: u32 = 0x1000_0000;
 pub const RUNTIME_WINDOW_STYLE_MINIMIZED: u32 = 0x2000_0000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeIconId(pub u64);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeIconResource {
     pub module_id: RuntimeModuleId,
     pub module_load_base: GuestAddress,
-    pub module_source_sha256: String,
     pub group_resource_id: u32,
     pub language_id: u32,
     pub icon_resource_id: u32,
@@ -61,40 +49,26 @@ pub struct RuntimeIconResource {
     pub bits_per_pixel: u16,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeIcon {
     pub id: RuntimeIconId,
     pub handle: u32,
-    pub namespace: String,
     pub shared: bool,
     pub resource: RuntimeIconResource,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeLoadIconAResult {
-    pub icon_id: RuntimeIconId,
-    pub handle: u32,
-    pub already_loaded: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeCursorId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RuntimeSystemCursorKind {
     Arrow,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeCursorResource {
     pub module_id: RuntimeModuleId,
     pub module_load_base: GuestAddress,
-    pub module_source_sha256: String,
     pub group_resource_id: u32,
     pub language_id: u32,
     pub cursor_resource_id: u32,
@@ -110,11 +84,9 @@ pub struct RuntimeCursorResource {
     pub hotspot_y: u16,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RuntimeCursorSource {
     SystemPredefined {
-        #[serde(rename = "resourceId")]
         resource_id: u32,
         cursor: RuntimeSystemCursorKind,
     },
@@ -123,118 +95,69 @@ pub enum RuntimeCursorSource {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeCursor {
     pub id: RuntimeCursorId,
     pub handle: u32,
-    pub namespace: String,
     pub shared: bool,
     pub source: RuntimeCursorSource,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeLoadCursorAResult {
-    pub cursor_id: RuntimeCursorId,
-    pub handle: u32,
-    pub already_loaded: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeWindowClassId(pub u64);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeWindowClassModule {
     pub module_id: RuntimeModuleId,
     pub load_base: GuestAddress,
-    pub source_sha256: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RuntimeWindowProcedureCallingConvention {
-    Stdcall,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeWindowProcedure {
     pub module_id: RuntimeModuleId,
     pub address: GuestAddress,
     pub rva: Rva,
-    pub calling_convention: RuntimeWindowProcedureCallingConvention,
-    pub argument_bytes: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeWindowClassIconReference {
     pub icon_id: RuntimeIconId,
     pub handle: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeWindowClassCursorReference {
     pub cursor_id: RuntimeCursorId,
     pub handle: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWindowClassNameA {
-    pub value: String,
-    pub encoding: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeWindowClassRegistration {
     pub module: RuntimeWindowClassModule,
     pub style: u32,
     pub window_procedure: RuntimeWindowProcedure,
     pub class_extra_bytes: u32,
     pub window_extra_bytes: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<RuntimeWindowClassIconReference>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<RuntimeWindowClassCursorReference>,
     pub background_brush: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub menu_name: Option<RuntimeWindowClassNameA>,
-    pub class_name: RuntimeWindowClassNameA,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menu_name: Option<String>,
+    pub class_name: String,
     pub small_icon: Option<RuntimeWindowClassIconReference>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeWindowClass {
     pub id: RuntimeWindowClassId,
     pub atom: u16,
-    pub atom_namespace: String,
     pub local: bool,
-    #[serde(flatten)]
     pub registration: RuntimeWindowClassRegistration,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeRegisterClassExAResult {
-    pub class_id: RuntimeWindowClassId,
-    pub atom: u16,
-    pub already_registered: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeWindowId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RuntimeWindowCreationMessage {
     NonClientCreate,
     NonClientCalculate,
@@ -243,8 +166,7 @@ pub enum RuntimeWindowCreationMessage {
     Move,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeWindowLifecycle {
     Creating {
         message: RuntimeWindowCreationMessage,
@@ -252,35 +174,28 @@ pub enum RuntimeWindowLifecycle {
     Created,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeWindowClassReference {
     pub class_id: RuntimeWindowClassId,
     pub atom: u16,
     pub module_id: RuntimeModuleId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeWindowNameA {
     pub value: String,
-    pub encoding: String,
 }
 
 impl RuntimeWindowNameA {
     pub fn windows_932_bytes(&self) -> Result<Vec<u8>, RuntimeStateError> {
-        if self.encoding != RUNTIME_WINDOW_NAME_A_ENCODING || self.value.contains('\0') {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "window-name-a-invalid",
+        if self.value.contains('\0') {
+            return Err(RuntimeStateError::new(
                 "logical window title requires copied Windows-932 text without embedded NULs",
             ));
         }
         let (bytes, _, had_errors) = SHIFT_JIS.encode(&self.value);
         if had_errors || bytes.len() > RUNTIME_WINDOW_NAME_A_LIMIT {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "window-name-a-invalid",
+            return Err(RuntimeStateError::new(
                 "logical window title must be representable within the bounded Windows-932 profile",
             ));
         }
@@ -288,8 +203,7 @@ impl RuntimeWindowNameA {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeWindowGeometry {
     pub x: i32,
     pub y: i32,
@@ -301,15 +215,13 @@ pub struct RuntimeWindowGeometry {
     pub client_height: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeWindowIconReference {
     pub icon_id: RuntimeIconId,
     pub handle: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeSetWindowPosVariant {
     InitialShow,
     InitialHide,
@@ -319,8 +231,7 @@ pub enum RuntimeSetWindowPosVariant {
     FrameChangeMove,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeSetWindowPosCallbackMessage {
     WindowPositionChanged,
     GetSmallIcon,
@@ -333,8 +244,7 @@ pub enum RuntimeSetWindowPosCallbackMessage {
     Activate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeSetWindowPosDefaultCallbackMessage {
     ImeSetContext,
     SetFocus,
@@ -358,8 +268,7 @@ pub struct RuntimeSetWindowPosRequest {
     pub frame_change_changed_flags: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeSetWindowPosOperation {
     pub window_id: RuntimeWindowId,
     pub window_handle: u32,
@@ -387,29 +296,17 @@ pub struct RuntimeSetWindowPosOperation {
     pub small_icon_handle: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeUpdateWindowRequest {
-    pub window_handle: u32,
-    pub entry_last_error: u32,
-    pub expected_callback_result: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeUpdateWindowOperation {
     pub window_id: RuntimeWindowId,
     pub window_handle: u32,
     pub owner_thread_id: RuntimeThreadId,
-    pub expected_generation: u64,
     pub expected_paint_generation: u64,
     pub update_rect: RuntimeRect,
     pub entry_last_error: u32,
-    pub expected_callback_result: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimePaintSession {
     pub window_id: RuntimeWindowId,
     pub window_handle: u32,
@@ -423,21 +320,6 @@ pub struct RuntimePaintSession {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuntimeBeginPaintRequest {
-    pub window_handle: u32,
-    pub paint_struct_address: GuestAddress,
-    pub erase: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeEndPaintRequest {
-    pub window_handle: u32,
-    pub paint_struct_address: GuestAddress,
-    pub paint_struct_bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RuntimeSetWindowPosDefaultOperation {
     pub window_id: RuntimeWindowId,
     pub window_handle: u32,
@@ -445,8 +327,7 @@ pub struct RuntimeSetWindowPosDefaultOperation {
     pub expected_generation: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeWindowCreationRequest {
     pub owner_thread_id: RuntimeThreadId,
     pub class: RuntimeWindowClassReference,
@@ -463,115 +344,149 @@ pub struct RuntimeWindowCreationRequest {
     pub entry_last_error: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeWindow {
     pub id: RuntimeWindowId,
     pub handle: u32,
-    pub namespace: String,
-    #[serde(flatten)]
     pub creation: RuntimeWindowCreationRequest,
     pub lifecycle: RuntimeWindowLifecycle,
     pub visible: bool,
     pub topmost: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_update_rect: Option<RuntimeRect>,
     pub paint_generation: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub small_icon: Option<RuntimeWindowIconReference>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeMenuId(pub u64);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeSystemMenu {
     pub id: RuntimeMenuId,
     pub handle: u32,
-    pub namespace: String,
     pub owner_window_id: RuntimeWindowId,
     pub owner_window_handle: u32,
     pub close_item_command: u32,
     pub close_item_enabled: bool,
-    pub generation: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGetSystemMenuResult {
-    pub menu_id: RuntimeMenuId,
-    pub handle: u32,
-    pub already_created: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeEnableMenuItemResult {
-    pub previous_state: u32,
-    pub enabled: bool,
-    pub changed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeImeWindowId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeImeStatusWindowRequest {
     Close,
     Open,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+pub const RUNTIME_MESSAGE_BOX_SERVICE: &str = "browser.message-box";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeMessageBoxIcon {
+    None,
+    Error,
+    Question,
+    Warning,
+    Information,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeMessageBoxButton {
+    pub id: u32,
+    pub label: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeMessageBox {
+    pub title: String,
+    pub text: String,
+    pub buttons: Vec<RuntimeMessageBoxButton>,
+    pub default_button: u32,
+    pub cancel_button: Option<u32>,
+    pub icon: RuntimeMessageBoxIcon,
+}
+
+impl RuntimeMessageBox {
+    pub(super) fn new(title: String, text: String, flags: u32) -> Result<Self, RuntimeStateError> {
+        // App-modal and system-modal have the same process-local blocking
+        // behavior here; Chrome's modal surface is already above the game.
+        if flags & !0x137f != 0 || flags & 0x3000 == 0x2000 {
+            return Err(RuntimeStateError::new(
+                "MessageBox flags are not implemented",
+            ));
+        }
+        let ids: &[u32] = match flags & 0xf {
+            0 => &[1],
+            1 => &[1, 2],
+            2 => &[3, 4, 5],
+            3 => &[6, 7, 2],
+            4 => &[6, 7],
+            5 => &[4, 2],
+            6 => &[2, 10, 11],
+            _ => {
+                return Err(RuntimeStateError::new(
+                    "MessageBox button type is not implemented",
+                ));
+            }
+        };
+        let icon = match flags & 0xf0 {
+            0 => RuntimeMessageBoxIcon::None,
+            0x10 => RuntimeMessageBoxIcon::Error,
+            0x20 => RuntimeMessageBoxIcon::Question,
+            0x30 => RuntimeMessageBoxIcon::Warning,
+            0x40 => RuntimeMessageBoxIcon::Information,
+            _ => return Err(RuntimeStateError::new("MessageBox icon is not implemented")),
+        };
+        let default_button = *ids
+            .get(((flags & 0x300) >> 8) as usize)
+            .ok_or_else(|| RuntimeStateError::new("MessageBox default button does not exist"))?;
+        let buttons = ids
+            .iter()
+            .map(|id| RuntimeMessageBoxButton {
+                id: *id,
+                label: match id {
+                    1 => "OK",
+                    2 => "キャンセル",
+                    3 => "中止",
+                    4 => "再試行",
+                    5 => "無視",
+                    6 => "はい",
+                    7 => "いいえ",
+                    10 => "再実行",
+                    11 => "続行",
+                    _ => unreachable!(),
+                },
+            })
+            .collect();
+        let cancel_button = if ids.contains(&2) {
+            Some(2)
+        } else if flags & 0xf == 0 {
+            Some(1)
+        } else {
+            None
+        };
+        Ok(Self {
+            title,
+            text,
+            buttons,
+            default_button,
+            cancel_button,
+            icon,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeImeWindow {
     pub id: RuntimeImeWindowId,
     pub handle: u32,
-    pub namespace: String,
     pub owner_thread_id: RuntimeThreadId,
     pub class_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub status_window_request: Option<RuntimeImeStatusWindowRequest>,
-    pub generation: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeDefaultImeWindowResult {
-    pub ime_window_id: RuntimeImeWindowId,
-    pub handle: u32,
-    pub already_created: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeCreateWindowExAResult {
-    pub window_id: RuntimeWindowId,
-    pub handle: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeSetWindowStyleResult {
-    pub previous_effective_style: u32,
-    pub effective_style: u32,
-    pub visible: bool,
-    pub changed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWindowFileDropAcceptanceResult {
-    pub previous_accepts_files: bool,
-    pub accepts_files: bool,
-    pub changed: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "action", rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeWindowCreationCallbackAction {
     Continue {
         window: RuntimeWindow,
@@ -585,8 +500,7 @@ pub enum RuntimeWindowCreationCallbackAction {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "action", rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeSetWindowPosCallbackAction {
     Continue {
         window: RuntimeWindow,
@@ -598,14 +512,7 @@ pub enum RuntimeSetWindowPosCallbackAction {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "action", rename_all = "kebab-case")]
-pub enum RuntimeUpdateWindowCallbackAction {
-    Completed { window: RuntimeWindow },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "action", rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeSetWindowPosDefaultCallbackAction {
     Continue {
         operation: RuntimeSetWindowPosDefaultOperation,
@@ -614,277 +521,43 @@ pub enum RuntimeSetWindowPosDefaultCallbackAction {
     Completed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeIconLoadDisposition {
-    Existing(RuntimeIcon),
-    Create {
-        icon: RuntimeIcon,
-        next_icon_id: u64,
-        next_icon_handle: u32,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeCursorLoadDisposition {
-    Existing(RuntimeCursor),
-    Create {
-        cursor: RuntimeCursor,
-        next_cursor_id: u64,
-        next_cursor_handle: u32,
-        next_generation: u64,
-    },
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct RuntimeWindowClassKey {
     module_id: RuntimeModuleId,
     canonical_name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeWindowClassRegistrationDisposition {
-    Existing(RuntimeWindowClass),
-    Create {
-        key: RuntimeWindowClassKey,
-        class: RuntimeWindowClass,
-        next_class_id: u64,
-        next_class_atom: u32,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeWindowCreationDisposition {
-    Create {
-        window: RuntimeWindow,
-        next_window_id: u64,
-        next_window_handle: u32,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeSystemMenuDisposition {
-    Existing(RuntimeSystemMenu),
-    Create {
-        menu: RuntimeSystemMenu,
-        next_menu_id: u64,
-        next_menu_handle: u32,
-        next_menu_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeSystemMenuItemDisposition {
-    Unchanged(RuntimeSystemMenu),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeDefaultImeWindowDisposition {
-    Existing(RuntimeImeWindow),
-    Create {
-        window: RuntimeImeWindow,
-        next_ime_window_id: u64,
-        next_window_handle: u32,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeImeControlDisposition {
-    Unchanged(RuntimeImeWindow),
-    Update {
-        previous: RuntimeImeWindow,
-        next: RuntimeImeWindow,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 enum RuntimeWindowCreationCallbackDisposition {
     Update {
-        previous: RuntimeWindow,
         next: Box<RuntimeWindow>,
         action: RuntimeWindowCreationCallbackAction,
         next_generation: u64,
     },
     Remove {
-        previous: RuntimeWindow,
+        window_id: RuntimeWindowId,
+        window_handle: u32,
         action: RuntimeWindowCreationCallbackAction,
         next_generation: u64,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeWindowSmallIconDisposition {
-    Unchanged {
-        window: RuntimeWindow,
-        previous_handle: u32,
-    },
-    Update {
-        previous: RuntimeWindow,
-        next: Box<RuntimeWindow>,
-        previous_handle: u32,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeWindowTitleDisposition {
-    Unchanged {
-        window: RuntimeWindow,
-    },
-    Update {
-        previous: RuntimeWindow,
-        next: Box<RuntimeWindow>,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeWindowStyleUpdateDisposition {
-    Unchanged {
-        window: RuntimeWindow,
-        previous_effective_style: u32,
-    },
-    Update {
-        previous: RuntimeWindow,
-        next: Box<RuntimeWindow>,
-        previous_effective_style: u32,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeWindowFileDropAcceptanceDisposition {
-    Unchanged {
-        window: RuntimeWindow,
-        accepts_files: bool,
-    },
-    Update {
-        previous: RuntimeWindow,
-        next: Box<RuntimeWindow>,
-        previous_accepts_files: bool,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeSetWindowPosCallbackDisposition {
+#[derive(Debug)]
+pub(super) enum RuntimeSetWindowPosCallbackDisposition {
     Validate {
-        window: RuntimeWindow,
         action: RuntimeSetWindowPosCallbackAction,
     },
     Update {
-        previous: RuntimeWindow,
         next: Box<RuntimeWindow>,
         action: RuntimeSetWindowPosCallbackAction,
         next_generation: u64,
     },
     Activate {
-        previous: RuntimeWindow,
+        window_id: RuntimeWindowId,
+        owner_thread_id: RuntimeThreadId,
         action: RuntimeSetWindowPosCallbackAction,
         next_generation: u64,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeUpdateWindowCallbackDisposition {
-    Validate {
-        window: RuntimeWindow,
-        action: RuntimeUpdateWindowCallbackAction,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeBeginPaintDisposition {
-    Begin {
-        previous: RuntimeWindow,
-        next: Box<RuntimeWindow>,
-        session: RuntimePaintSession,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeEndPaintDisposition {
-    End {
-        previous: RuntimeWindow,
-        next: Box<RuntimeWindow>,
-        session: RuntimePaintSession,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSetWindowPosFocusPlan {
-    expected_generation: u64,
-    window: RuntimeWindow,
-    previous_focused_window: Option<RuntimeWindowId>,
-    next_focused_window: RuntimeWindowId,
-    next_generation: u64,
-    operation: RuntimeSetWindowPosDefaultOperation,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeIconLoadPlan {
-    expected_generation: u64,
-    disposition: RuntimeIconLoadDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeCursorLoadPlan {
-    expected_generation: u64,
-    disposition: RuntimeCursorLoadDisposition,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeCursorSelectionPlan {
-    expected_generation: u64,
-    previous: Option<RuntimeCursorId>,
-    next: Option<RuntimeCursorId>,
-    previous_handle: u32,
-    next_generation: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWindowClassRegistrationPlan {
-    expected_generation: u64,
-    disposition: RuntimeWindowClassRegistrationDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWindowCreationPlan {
-    expected_generation: u64,
-    disposition: RuntimeWindowCreationDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSystemMenuPlan {
-    expected_menu_generation: u64,
-    owner_window: RuntimeWindow,
-    disposition: RuntimeSystemMenuDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSystemMenuItemPlan {
-    expected_menu_generation: u64,
-    owner_window: RuntimeWindow,
-    disposition: RuntimeSystemMenuItemDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeDefaultImeWindowPlan {
-    expected_generation: u64,
-    app_window: RuntimeWindow,
-    disposition: RuntimeDefaultImeWindowDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeImeControlPlan {
-    expected_generation: u64,
-    disposition: RuntimeImeControlDisposition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -894,142 +567,30 @@ pub(super) struct RuntimeImeAppWindowTarget {
     pub owner_thread_id: RuntimeThreadId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWindowCreationCallbackPlan {
-    expected_generation: u64,
-    disposition: RuntimeWindowCreationCallbackDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWindowSmallIconPlan {
-    expected_generation: u64,
-    disposition: RuntimeWindowSmallIconDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWindowTitlePlan {
-    expected_generation: u64,
-    disposition: RuntimeWindowTitleDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWindowStyleUpdatePlan {
-    expected_generation: u64,
-    disposition: RuntimeWindowStyleUpdateDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWindowFileDropAcceptancePlan {
-    expected_generation: u64,
-    disposition: RuntimeWindowFileDropAcceptanceDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSetWindowPosCallbackPlan {
-    expected_generation: u64,
-    disposition: RuntimeSetWindowPosCallbackDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeUpdateWindowCallbackPlan {
-    expected_generation: u64,
-    disposition: RuntimeUpdateWindowCallbackDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeBeginPaintPlan {
-    expected_generation: u64,
-    disposition: RuntimeBeginPaintDisposition,
-}
-
-impl RuntimeBeginPaintPlan {
-    pub(super) fn session(&self) -> &RuntimePaintSession {
-        match &self.disposition {
-            RuntimeBeginPaintDisposition::Begin { session, .. } => session,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeEndPaintPlan {
-    expected_generation: u64,
-    disposition: RuntimeEndPaintDisposition,
-}
-
-impl RuntimeEndPaintPlan {
-    pub(super) fn session(&self) -> &RuntimePaintSession {
-        match &self.disposition {
-            RuntimeEndPaintDisposition::End { session, .. } => session,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeUser32TeardownPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    expected_menu_generation: u64,
-    next_menu_generation: u64,
-    retired_icons: usize,
-    retired_cursors: usize,
-    expected_current_cursor: Option<RuntimeCursorId>,
-    retired_window_classes: usize,
-    retired_windows: usize,
-    retired_paint_sessions: usize,
-    retired_system_menus: usize,
-    retired_ime_windows: usize,
-    retired_default_ime_windows: usize,
-    retired_active_windows: usize,
-    retired_focused_windows: usize,
-    retired_foreground_window: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub(super) struct RuntimeUser32 {
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     icons: BTreeMap<RuntimeIconId, RuntimeIcon>,
-    #[serde(skip)]
     resource_index: BTreeMap<RuntimeIconResource, RuntimeIconId>,
-    #[serde(skip)]
     handle_index: BTreeMap<u32, RuntimeIconId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     cursors: BTreeMap<RuntimeCursorId, RuntimeCursor>,
-    #[serde(skip)]
     cursor_source_index: BTreeMap<RuntimeCursorSource, RuntimeCursorId>,
-    #[serde(skip)]
     cursor_handle_index: BTreeMap<u32, RuntimeCursorId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     current_cursor: Option<RuntimeCursorId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     window_classes: BTreeMap<RuntimeWindowClassId, RuntimeWindowClass>,
-    #[serde(skip)]
     window_class_name_index: BTreeMap<RuntimeWindowClassKey, RuntimeWindowClassId>,
-    #[serde(skip)]
     window_class_atom_index: BTreeMap<u16, RuntimeWindowClassId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     windows: BTreeMap<RuntimeWindowId, RuntimeWindow>,
-    #[serde(skip)]
     window_handle_index: BTreeMap<u32, RuntimeWindowId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     paint_sessions: BTreeMap<RuntimeWindowId, RuntimePaintSession>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     system_menus: BTreeMap<RuntimeMenuId, RuntimeSystemMenu>,
-    #[serde(skip)]
     system_menu_window_index: BTreeMap<RuntimeWindowId, RuntimeMenuId>,
-    #[serde(skip)]
     menu_handle_index: BTreeMap<u32, RuntimeMenuId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     ime_windows: BTreeMap<RuntimeImeWindowId, RuntimeImeWindow>,
-    #[serde(skip)]
     ime_window_handle_index: BTreeMap<u32, RuntimeImeWindowId>,
-    #[serde(skip)]
     default_ime_windows: BTreeMap<RuntimeThreadId, RuntimeImeWindowId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     active_windows: BTreeMap<RuntimeThreadId, RuntimeWindowId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     focused_windows: BTreeMap<RuntimeThreadId, RuntimeWindowId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     foreground_window: Option<RuntimeWindowId>,
     next_icon_id: u64,
     next_icon_handle: u32,
@@ -1043,7 +604,6 @@ pub(super) struct RuntimeUser32 {
     next_ime_window_id: u64,
     next_window_handle: u32,
     generation: u64,
-    menu_generation: u64,
 }
 
 impl Default for RuntimeUser32 {
@@ -1083,207 +643,106 @@ impl Default for RuntimeUser32 {
             next_ime_window_id: 1,
             next_window_handle: RUNTIME_WINDOW_HANDLE_BASE,
             generation: 0,
-            menu_generation: 0,
         }
     }
 }
 
 impl RuntimeUser32 {
-    pub(super) fn plan_shared_icon_load(
-        &self,
+    pub(super) fn load_shared_icon(
+        &mut self,
         resource: RuntimeIconResource,
-    ) -> Result<RuntimeIconLoadPlan, RuntimeStateError> {
+    ) -> Result<u32, RuntimeStateError> {
         validate_icon_resource(&resource)?;
         if let Some(id) = self.resource_index.get(&resource) {
             let icon = self.icons.get(id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "icon-resource-index-dangling",
-                    "shared icon resource index does not resolve to a live icon",
-                )
+                RuntimeStateError::new("shared icon resource index does not resolve to a live icon")
             })?;
-            if self.handle_index.get(&icon.handle) != Some(id) {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "icon-handle-index-mismatch",
-                    "shared icon handle index does not match its resource identity",
+            if icon.id != *id
+                || icon.resource != resource
+                || self.handle_index.get(&icon.handle) != Some(id)
+            {
+                return Err(RuntimeStateError::new(
+                    "shared icon handle and resource indexes do not match their live identity",
                 ));
             }
-            return Ok(RuntimeIconLoadPlan {
-                expected_generation: self.generation,
-                disposition: RuntimeIconLoadDisposition::Existing(icon.clone()),
-            });
+            return Ok(icon.handle);
         }
         if self.icons.len() >= RUNTIME_SHARED_ICON_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "shared-icon-limit-exceeded",
+            return Err(RuntimeStateError::new(
                 "process shared icon count exceeds the runtime bound",
             ));
         }
         let id = RuntimeIconId(self.next_icon_id);
         if id.0 == 0 || self.icons.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "icon-id-collision",
+            return Err(RuntimeStateError::new(
                 "shared icon allocator selected an invalid or live identity",
             ));
         }
         if self.next_icon_handle < RUNTIME_ICON_HANDLE_BASE
             || self.handle_index.contains_key(&self.next_icon_handle)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "icon-handle-collision",
+            return Err(RuntimeStateError::new(
                 "shared icon allocator selected an invalid or live handle",
             ));
         }
-        let next_icon_id = self.next_icon_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "icon-id-space-exhausted",
-                "shared icon ID space is exhausted",
-            )
-        })?;
-        let next_icon_handle = self.next_icon_handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "icon-handle-space-exhausted",
-                "shared icon handle space is exhausted",
-            )
-        })?;
-        Ok(RuntimeIconLoadPlan {
-            expected_generation: self.generation,
-            disposition: RuntimeIconLoadDisposition::Create {
-                icon: RuntimeIcon {
-                    id,
-                    handle: self.next_icon_handle,
-                    namespace: LOGICAL_ICON_HANDLE_NAMESPACE.to_owned(),
-                    shared: true,
-                    resource,
-                },
-                next_icon_id,
-                next_icon_handle,
-                next_generation: self.next_generation()?,
-            },
-        })
+        let next_icon_id = self
+            .next_icon_id
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("shared icon ID space is exhausted"))?;
+        let next_icon_handle = self
+            .next_icon_handle
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("shared icon handle space is exhausted"))?;
+        let next_generation = self.next_generation()?;
+        let icon = RuntimeIcon {
+            id,
+            handle: self.next_icon_handle,
+            shared: true,
+            resource,
+        };
+        let handle = icon.handle;
+        // One synchronous owner; publication follows every fallible identity check.
+        self.next_icon_id = next_icon_id;
+        self.next_icon_handle = next_icon_handle;
+        self.generation = next_generation;
+        let previous_resource = self.resource_index.insert(icon.resource.clone(), icon.id);
+        let previous_handle = self.handle_index.insert(icon.handle, icon.id);
+        let previous_icon = self.icons.insert(icon.id, icon);
+        debug_assert!(previous_resource.is_none());
+        debug_assert!(previous_handle.is_none());
+        debug_assert!(previous_icon.is_none());
+        Ok(handle)
     }
 
-    pub(super) fn preflight_shared_icon_load(
-        &self,
-        plan: &RuntimeIconLoadPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "icon-load-plan-stale",
-                "shared icon state changed after load planning",
-            ));
-        }
-        match &plan.disposition {
-            RuntimeIconLoadDisposition::Existing(expected) => {
-                if self.icons.get(&expected.id) != Some(expected)
-                    || self.resource_index.get(&expected.resource) != Some(&expected.id)
-                    || self.handle_index.get(&expected.handle) != Some(&expected.id)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "icon-load-plan-stale",
-                        "shared icon identity changed after load planning",
-                    ));
-                }
-            }
-            RuntimeIconLoadDisposition::Create { icon, .. } => {
-                if self.next_icon_id != icon.id.0
-                    || self.next_icon_handle != icon.handle
-                    || self.icons.contains_key(&icon.id)
-                    || self.resource_index.contains_key(&icon.resource)
-                    || self.handle_index.contains_key(&icon.handle)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "icon-load-plan-stale",
-                        "shared icon allocator changed after load planning",
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_shared_icon_load(
+    pub(super) fn load_shared_cursor(
         &mut self,
-        plan: RuntimeIconLoadPlan,
-    ) -> Result<RuntimeLoadIconAResult, RuntimeStateError> {
-        self.preflight_shared_icon_load(&plan)?;
-        match plan.disposition {
-            RuntimeIconLoadDisposition::Existing(icon) => Ok(RuntimeLoadIconAResult {
-                icon_id: icon.id,
-                handle: icon.handle,
-                already_loaded: true,
-            }),
-            RuntimeIconLoadDisposition::Create {
-                icon,
-                next_icon_id,
-                next_icon_handle,
-                next_generation,
-            } => {
-                let result = RuntimeLoadIconAResult {
-                    icon_id: icon.id,
-                    handle: icon.handle,
-                    already_loaded: false,
-                };
-                self.next_icon_id = next_icon_id;
-                self.next_icon_handle = next_icon_handle;
-                self.generation = next_generation;
-                let previous_resource = self.resource_index.insert(icon.resource.clone(), icon.id);
-                let previous_handle = self.handle_index.insert(icon.handle, icon.id);
-                let previous_icon = self.icons.insert(icon.id, icon);
-                debug_assert!(previous_resource.is_none());
-                debug_assert!(previous_handle.is_none());
-                debug_assert!(previous_icon.is_none());
-                Ok(result)
-            }
-        }
-    }
-
-    pub(super) fn plan_shared_cursor_load(
-        &self,
         source: RuntimeCursorSource,
-    ) -> Result<RuntimeCursorLoadPlan, RuntimeStateError> {
+    ) -> Result<u32, RuntimeStateError> {
         validate_cursor_source(&source)?;
         if let Some(id) = self.cursor_source_index.get(&source) {
             let cursor = self.cursors.get(id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "cursor-source-index-dangling",
+                RuntimeStateError::new(
                     "shared cursor source index does not resolve to a live cursor",
                 )
             })?;
-            if self.cursor_handle_index.get(&cursor.handle) != Some(id) {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "cursor-handle-index-mismatch",
-                    "shared cursor handle index does not match its source identity",
+            if cursor.id != *id
+                || cursor.source != source
+                || self.cursor_handle_index.get(&cursor.handle) != Some(id)
+            {
+                return Err(RuntimeStateError::new(
+                    "shared cursor handle and source indexes do not match their live identity",
                 ));
             }
-            return Ok(RuntimeCursorLoadPlan {
-                expected_generation: self.generation,
-                disposition: RuntimeCursorLoadDisposition::Existing(cursor.clone()),
-            });
+            return Ok(cursor.handle);
         }
         if self.cursors.len() >= RUNTIME_SHARED_CURSOR_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "shared-cursor-limit-exceeded",
+            return Err(RuntimeStateError::new(
                 "process shared cursor count exceeds the runtime bound",
             ));
         }
         let id = RuntimeCursorId(self.next_cursor_id);
         if id.0 == 0 || self.cursors.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "cursor-id-collision",
+            return Err(RuntimeStateError::new(
                 "shared cursor allocator selected an invalid or live identity",
             ));
         }
@@ -1292,384 +751,157 @@ impl RuntimeUser32 {
                 .cursor_handle_index
                 .contains_key(&self.next_cursor_handle)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "cursor-handle-collision",
+            return Err(RuntimeStateError::new(
                 "shared cursor allocator selected an invalid or live handle",
             ));
         }
-        let next_cursor_id = self.next_cursor_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "cursor-id-space-exhausted",
-                "shared cursor ID space is exhausted",
-            )
-        })?;
-        let next_cursor_handle = self.next_cursor_handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "cursor-handle-space-exhausted",
-                "shared cursor handle space is exhausted",
-            )
-        })?;
-        Ok(RuntimeCursorLoadPlan {
-            expected_generation: self.generation,
-            disposition: RuntimeCursorLoadDisposition::Create {
-                cursor: RuntimeCursor {
-                    id,
-                    handle: self.next_cursor_handle,
-                    namespace: LOGICAL_CURSOR_HANDLE_NAMESPACE.to_owned(),
-                    shared: true,
-                    source,
-                },
-                next_cursor_id,
-                next_cursor_handle,
-                next_generation: self.next_generation()?,
-            },
-        })
+        let next_cursor_id = self
+            .next_cursor_id
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("shared cursor ID space is exhausted"))?;
+        let next_cursor_handle = self
+            .next_cursor_handle
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("shared cursor handle space is exhausted"))?;
+        let next_generation = self.next_generation()?;
+        let initialize_current_cursor = self.current_cursor.is_none()
+            && matches!(
+                &source,
+                RuntimeCursorSource::SystemPredefined {
+                    cursor: RuntimeSystemCursorKind::Arrow,
+                    ..
+                }
+            );
+        let cursor = RuntimeCursor {
+            id,
+            handle: self.next_cursor_handle,
+            shared: true,
+            source,
+        };
+        let handle = cursor.handle;
+        // All fallible identity, capacity and lifetime checks precede publication.
+        self.next_cursor_id = next_cursor_id;
+        self.next_cursor_handle = next_cursor_handle;
+        self.generation = next_generation;
+        let previous_source = self
+            .cursor_source_index
+            .insert(cursor.source.clone(), cursor.id);
+        let previous_handle = self.cursor_handle_index.insert(cursor.handle, cursor.id);
+        let previous_cursor = self.cursors.insert(cursor.id, cursor);
+        debug_assert!(previous_source.is_none());
+        debug_assert!(previous_handle.is_none());
+        debug_assert!(previous_cursor.is_none());
+        if initialize_current_cursor {
+            self.current_cursor = Some(id);
+        }
+        Ok(handle)
     }
 
-    pub(super) fn preflight_shared_cursor_load(
-        &self,
-        plan: &RuntimeCursorLoadPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "cursor-load-plan-stale",
-                "shared cursor state changed after load planning",
-            ));
-        }
-        match &plan.disposition {
-            RuntimeCursorLoadDisposition::Existing(expected) => {
-                if self.cursors.get(&expected.id) != Some(expected)
-                    || self.cursor_source_index.get(&expected.source) != Some(&expected.id)
-                    || self.cursor_handle_index.get(&expected.handle) != Some(&expected.id)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "cursor-load-plan-stale",
-                        "shared cursor identity changed after load planning",
-                    ));
-                }
-            }
-            RuntimeCursorLoadDisposition::Create { cursor, .. } => {
-                if self.next_cursor_id != cursor.id.0
-                    || self.next_cursor_handle != cursor.handle
-                    || self.cursors.contains_key(&cursor.id)
-                    || self.cursor_source_index.contains_key(&cursor.source)
-                    || self.cursor_handle_index.contains_key(&cursor.handle)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "cursor-load-plan-stale",
-                        "shared cursor allocator changed after load planning",
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_shared_cursor_load(
+    pub(super) fn set_current_cursor(
         &mut self,
-        plan: RuntimeCursorLoadPlan,
-    ) -> Result<RuntimeLoadCursorAResult, RuntimeStateError> {
-        self.preflight_shared_cursor_load(&plan)?;
-        match plan.disposition {
-            RuntimeCursorLoadDisposition::Existing(cursor) => Ok(RuntimeLoadCursorAResult {
-                cursor_id: cursor.id,
-                handle: cursor.handle,
-                already_loaded: true,
-            }),
-            RuntimeCursorLoadDisposition::Create {
-                cursor,
-                next_cursor_id,
-                next_cursor_handle,
-                next_generation,
-            } => {
-                let initialize_current_cursor = self.current_cursor.is_none()
-                    && matches!(
-                        &cursor.source,
-                        RuntimeCursorSource::SystemPredefined {
-                            cursor: RuntimeSystemCursorKind::Arrow,
-                            ..
-                        }
-                    );
-                let result = RuntimeLoadCursorAResult {
-                    cursor_id: cursor.id,
-                    handle: cursor.handle,
-                    already_loaded: false,
-                };
-                self.next_cursor_id = next_cursor_id;
-                self.next_cursor_handle = next_cursor_handle;
-                self.generation = next_generation;
-                let previous_source = self
-                    .cursor_source_index
-                    .insert(cursor.source.clone(), cursor.id);
-                let previous_handle = self.cursor_handle_index.insert(cursor.handle, cursor.id);
-                let previous_cursor = self.cursors.insert(cursor.id, cursor);
-                debug_assert!(previous_source.is_none());
-                debug_assert!(previous_handle.is_none());
-                debug_assert!(previous_cursor.is_none());
-                if initialize_current_cursor {
-                    self.current_cursor = Some(result.cursor_id);
-                }
-                Ok(result)
-            }
-        }
-    }
-
-    pub(super) fn plan_cursor_selection(
-        &self,
         handle: Option<u32>,
-    ) -> Result<RuntimeCursorSelectionPlan, RuntimeStateError> {
-        let previous = self.current_cursor;
+    ) -> Result<u32, RuntimeStateError> {
         let previous_handle = self.current_cursor()?.map_or(0, |cursor| cursor.handle);
         let next = handle
             .map(|handle| self.cursor(handle).map(|cursor| cursor.id))
             .transpose()?;
-        Ok(RuntimeCursorSelectionPlan {
-            expected_generation: self.generation,
-            previous,
-            next,
-            previous_handle,
-            next_generation: (next != previous)
-                .then(|| self.next_generation())
-                .transpose()?,
-        })
-    }
-
-    pub(super) fn preflight_cursor_selection(
-        &self,
-        plan: &RuntimeCursorSelectionPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation || self.current_cursor != plan.previous {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "cursor-selection-plan-stale",
-                "current cursor identity changed after selection planning",
-            ));
-        }
-        if self.current_cursor()?.map_or(0, |cursor| cursor.handle) != plan.previous_handle
-            || plan.next.is_some_and(|id| {
-                self.cursors
-                    .get(&id)
-                    .is_none_or(|cursor| self.cursor_handle_index.get(&cursor.handle) != Some(&id))
-            })
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "cursor-selection-plan-stale",
-                "selected cursor no longer resolves to the planned live handle",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_cursor_selection(
-        &mut self,
-        plan: RuntimeCursorSelectionPlan,
-    ) -> Result<u32, RuntimeStateError> {
-        self.preflight_cursor_selection(&plan)?;
-        self.current_cursor = plan.next;
-        if let Some(next_generation) = plan.next_generation {
+        let next_generation = (next != self.current_cursor)
+            .then(|| self.next_generation())
+            .transpose()?;
+        // Validation above precedes this synchronous selection; no callback or
+        // browser handoff occurs between resolving the handle and publication.
+        self.current_cursor = next;
+        if let Some(next_generation) = next_generation {
             self.generation = next_generation;
         }
-        Ok(plan.previous_handle)
+        Ok(previous_handle)
     }
 
-    pub(super) fn plan_window_class_registration(
-        &self,
+    pub(super) fn register_window_class(
+        &mut self,
         registration: RuntimeWindowClassRegistration,
-    ) -> Result<RuntimeWindowClassRegistrationPlan, RuntimeStateError> {
+    ) -> Result<u16, RuntimeStateError> {
         validate_window_class_registration(&registration)?;
         self.validate_window_class_references(&registration)?;
         let key = window_class_key(&registration)?;
         if let Some(id) = self.window_class_name_index.get(&key) {
             let class = self.window_classes.get(id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "window-class-name-index-dangling",
-                    "window class name index does not resolve to a live class",
-                )
+                RuntimeStateError::new("window class name index does not resolve to a live class")
             })?;
-            if self.window_class_atom_index.get(&class.atom) != Some(id) {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "window-class-atom-index-mismatch",
-                    "window class atom index does not match its name identity",
+            if class.id != *id
+                || class.registration.module.module_id != key.module_id
+                || class.registration.class_name.to_ascii_lowercase() != key.canonical_name
+                || self.window_class_atom_index.get(&class.atom) != Some(id)
+            {
+                return Err(RuntimeStateError::new(
+                    "window class atom and name indexes do not match their live identity",
                 ));
             }
-            return Ok(RuntimeWindowClassRegistrationPlan {
-                expected_generation: self.generation,
-                disposition: RuntimeWindowClassRegistrationDisposition::Existing(class.clone()),
-            });
+            return Ok(0);
         }
         if self.window_classes.len() >= RUNTIME_WINDOW_CLASS_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-class-limit-exceeded",
+            return Err(RuntimeStateError::new(
                 "process-local window class count exceeds the runtime bound",
             ));
         }
         let id = RuntimeWindowClassId(self.next_window_class_id);
         if id.0 == 0 || self.window_classes.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-class-id-collision",
+            return Err(RuntimeStateError::new(
                 "window class allocator selected an invalid or live identity",
             ));
         }
         let atom = u16::try_from(self.next_window_class_atom).map_err(|_| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-class-atom-space-exhausted",
-                "process-local window class atom space is exhausted",
-            )
+            RuntimeStateError::new("process-local window class atom space is exhausted")
         })?;
         if atom < RUNTIME_WINDOW_CLASS_ATOM_BASE || self.window_class_atom_index.contains_key(&atom)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-class-atom-collision",
+            return Err(RuntimeStateError::new(
                 "window class atom allocator selected an invalid or live atom",
             ));
         }
-        let next_class_id = self.next_window_class_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-class-id-space-exhausted",
-                "window class ID space is exhausted",
-            )
-        })?;
-        let next_class_atom = self.next_window_class_atom.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-class-atom-space-exhausted",
-                "window class atom space is exhausted",
-            )
-        })?;
-        Ok(RuntimeWindowClassRegistrationPlan {
-            expected_generation: self.generation,
-            disposition: RuntimeWindowClassRegistrationDisposition::Create {
-                key,
-                class: RuntimeWindowClass {
-                    id,
-                    atom,
-                    atom_namespace: LOGICAL_WINDOW_CLASS_ATOM_NAMESPACE.to_owned(),
-                    local: true,
-                    registration,
-                },
-                next_class_id,
-                next_class_atom,
-                next_generation: self.next_generation()?,
-            },
-        })
+        let next_class_id = self
+            .next_window_class_id
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("window class ID space is exhausted"))?;
+        let next_class_atom = self
+            .next_window_class_atom
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("window class atom space is exhausted"))?;
+        // Module, callback, class references, limits, and both allocators are
+        // checked before this synchronous owner publishes the class.
+        let next_generation = self.next_generation()?;
+        let class = RuntimeWindowClass {
+            id,
+            atom,
+            local: true,
+            registration,
+        };
+        self.next_window_class_id = next_class_id;
+        self.next_window_class_atom = next_class_atom;
+        self.generation = next_generation;
+        let previous_name = self.window_class_name_index.insert(key, id);
+        let previous_atom = self.window_class_atom_index.insert(atom, id);
+        let previous_class = self.window_classes.insert(id, class);
+        debug_assert!(previous_name.is_none());
+        debug_assert!(previous_atom.is_none());
+        debug_assert!(previous_class.is_none());
+        Ok(atom)
     }
 
-    pub(super) fn preflight_window_class_registration(
-        &self,
-        plan: &RuntimeWindowClassRegistrationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-class-registration-plan-stale",
-                "User32 state changed after window class registration planning",
-            ));
-        }
-        match &plan.disposition {
-            RuntimeWindowClassRegistrationDisposition::Existing(expected) => {
-                let key = window_class_key(&expected.registration)?;
-                if self.window_classes.get(&expected.id) != Some(expected)
-                    || self.window_class_name_index.get(&key) != Some(&expected.id)
-                    || self.window_class_atom_index.get(&expected.atom) != Some(&expected.id)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "window-class-registration-plan-stale",
-                        "existing window class identity changed after planning",
-                    ));
-                }
-                self.validate_window_class_references(&expected.registration)?;
-            }
-            RuntimeWindowClassRegistrationDisposition::Create { key, class, .. } => {
-                if self.next_window_class_id != class.id.0
-                    || self.next_window_class_atom != u32::from(class.atom)
-                    || self.window_classes.contains_key(&class.id)
-                    || self.window_class_name_index.contains_key(key)
-                    || self.window_class_atom_index.contains_key(&class.atom)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "window-class-registration-plan-stale",
-                        "window class allocators or indexes changed after planning",
-                    ));
-                }
-                self.validate_window_class_references(&class.registration)?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_window_class_registration(
-        &mut self,
-        plan: RuntimeWindowClassRegistrationPlan,
-    ) -> Result<RuntimeRegisterClassExAResult, RuntimeStateError> {
-        self.preflight_window_class_registration(&plan)?;
-        match plan.disposition {
-            RuntimeWindowClassRegistrationDisposition::Existing(class) => {
-                Ok(RuntimeRegisterClassExAResult {
-                    class_id: class.id,
-                    atom: class.atom,
-                    already_registered: true,
-                })
-            }
-            RuntimeWindowClassRegistrationDisposition::Create {
-                key,
-                class,
-                next_class_id,
-                next_class_atom,
-                next_generation,
-            } => {
-                let result = RuntimeRegisterClassExAResult {
-                    class_id: class.id,
-                    atom: class.atom,
-                    already_registered: false,
-                };
-                self.next_window_class_id = next_class_id;
-                self.next_window_class_atom = next_class_atom;
-                self.generation = next_generation;
-                let previous_name = self.window_class_name_index.insert(key, class.id);
-                let previous_atom = self.window_class_atom_index.insert(class.atom, class.id);
-                let previous_class = self.window_classes.insert(class.id, class);
-                debug_assert!(previous_name.is_none());
-                debug_assert!(previous_atom.is_none());
-                debug_assert!(previous_class.is_none());
-                Ok(result)
-            }
-        }
-    }
-
-    pub(super) fn plan_window_creation(
+    pub(super) fn checked_window_creation(
         &self,
         request: RuntimeWindowCreationRequest,
-    ) -> Result<RuntimeWindowCreationPlan, RuntimeStateError> {
+    ) -> Result<RuntimeWindow, RuntimeStateError> {
         validate_window_creation_request(&request)?;
         self.validate_window_creation_references(&request)?;
         if self.windows.len() >= RUNTIME_WINDOW_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-limit-exceeded",
+            return Err(RuntimeStateError::new(
                 "logical window count exceeds the runtime bound",
             ));
         }
         let id = RuntimeWindowId(self.next_window_id);
         if id.0 == 0 || self.windows.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-id-collision",
+            return Err(RuntimeStateError::new(
                 "logical window allocator selected an invalid or live identity",
             ));
         }
@@ -1681,393 +913,143 @@ impl RuntimeUser32 {
                 .ime_window_handle_index
                 .contains_key(&self.next_window_handle)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-handle-collision",
+            return Err(RuntimeStateError::new(
                 "logical HWND allocator selected an invalid or live handle",
             ));
         }
-        let next_window_id = self.next_window_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-id-space-exhausted",
-                "logical window ID space is exhausted",
-            )
-        })?;
-        let next_window_handle = self.next_window_handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-handle-space-exhausted",
-                "logical HWND space is exhausted",
-            )
-        })?;
-        Ok(RuntimeWindowCreationPlan {
-            expected_generation: self.generation,
-            disposition: RuntimeWindowCreationDisposition::Create {
-                window: RuntimeWindow {
-                    id,
-                    handle: self.next_window_handle,
-                    namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
-                    creation: request,
-                    lifecycle: RuntimeWindowLifecycle::Creating {
-                        message: RuntimeWindowCreationMessage::NonClientCreate,
-                    },
-                    visible: false,
-                    topmost: false,
-                    pending_update_rect: None,
-                    paint_generation: 0,
-                    small_icon: None,
-                },
-                next_window_id,
-                next_window_handle,
-                next_generation: self.next_generation()?,
+        self.next_window_id
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("logical window ID space is exhausted"))?;
+        self.next_window_handle
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("logical HWND space is exhausted"))?;
+        self.next_generation()?;
+        Ok(RuntimeWindow {
+            id,
+            handle: self.next_window_handle,
+            creation: request,
+            lifecycle: RuntimeWindowLifecycle::Creating {
+                message: RuntimeWindowCreationMessage::NonClientCreate,
             },
+            visible: false,
+            topmost: false,
+            pending_update_rect: None,
+            paint_generation: 0,
+            small_icon: None,
         })
     }
 
-    #[cfg(test)]
-    pub(super) fn window_creation_result(
-        &self,
-        plan: &RuntimeWindowCreationPlan,
-    ) -> RuntimeCreateWindowExAResult {
-        match &plan.disposition {
-            RuntimeWindowCreationDisposition::Create { window, .. } => {
-                RuntimeCreateWindowExAResult {
-                    window_id: window.id,
-                    handle: window.handle,
-                }
-            }
-        }
-    }
-
-    pub(super) fn window_creation_preview<'a>(
-        &self,
-        plan: &'a RuntimeWindowCreationPlan,
-    ) -> &'a RuntimeWindow {
-        match &plan.disposition {
-            RuntimeWindowCreationDisposition::Create { window, .. } => window,
-        }
-    }
-
-    pub(super) fn preflight_window_creation(
-        &self,
-        plan: &RuntimeWindowCreationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-creation-plan-stale",
-                "User32 state changed after logical window creation planning",
-            ));
-        }
-        match &plan.disposition {
-            RuntimeWindowCreationDisposition::Create { window, .. } => {
-                if self.next_window_id != window.id.0
-                    || self.next_window_handle != window.handle
-                    || self.windows.contains_key(&window.id)
-                    || self.window_handle_index.contains_key(&window.handle)
-                    || self.ime_window_handle_index.contains_key(&window.handle)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "window-creation-plan-stale",
-                        "logical window allocators or indexes changed after planning",
-                    ));
-                }
-                self.validate_window_creation_references(&window.creation)?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_window_creation(
+    pub(super) fn publish_window_creation(
         &mut self,
-        plan: RuntimeWindowCreationPlan,
-    ) -> Result<RuntimeCreateWindowExAResult, RuntimeStateError> {
-        self.preflight_window_creation(&plan)?;
-        match plan.disposition {
-            RuntimeWindowCreationDisposition::Create {
-                window,
-                next_window_id,
-                next_window_handle,
-                next_generation,
-            } => {
-                let result = RuntimeCreateWindowExAResult {
-                    window_id: window.id,
-                    handle: window.handle,
-                };
-                self.next_window_id = next_window_id;
-                self.next_window_handle = next_window_handle;
-                self.generation = next_generation;
-                let previous_handle = self.window_handle_index.insert(window.handle, window.id);
-                let previous_window = self.windows.insert(window.id, window);
-                debug_assert!(previous_handle.is_none());
-                debug_assert!(previous_window.is_none());
-                Ok(result)
-            }
-        }
+        window: RuntimeWindow,
+    ) -> (RuntimeWindowId, u32) {
+        let result = (window.id, window.handle);
+        self.next_window_id += 1;
+        self.next_window_handle += 1;
+        self.generation += 1;
+        let previous_handle = self.window_handle_index.insert(window.handle, window.id);
+        let previous_window = self.windows.insert(window.id, window);
+        debug_assert!(previous_handle.is_none());
+        debug_assert!(previous_window.is_none());
+        result
     }
 
-    pub(super) fn plan_system_menu(
-        &self,
+    pub(super) fn get_system_menu(
+        &mut self,
         window_handle: u32,
         close_item_command: u32,
-    ) -> Result<RuntimeSystemMenuPlan, RuntimeStateError> {
+    ) -> Result<Option<u32>, RuntimeStateError> {
         if close_item_command == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "system-menu-close-command-invalid",
+            return Err(RuntimeStateError::new(
                 "logical system menu requires a nonzero close-item command",
             ));
         }
-        let owner_window = self.window(window_handle)?.clone();
+        let Some(owner_window) = self.window_option(window_handle)? else {
+            return Ok(None);
+        };
         if owner_window.lifecycle != RuntimeWindowLifecycle::Created {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "system-menu-window-lifecycle-state-invalid",
+            return Err(RuntimeStateError::new(
                 "logical system menu requires a created owner window",
             ));
         }
         if let Some(id) = self.system_menu_window_index.get(&owner_window.id) {
-            let menu = self.system_menus.get(id).cloned().ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "system-menu-window-index-dangling",
+            let menu = self.system_menus.get(id).ok_or_else(|| {
+                RuntimeStateError::new(
                     "logical window system-menu index does not resolve to a live menu",
                 )
             })?;
-            self.validate_system_menu_identity(&menu)?;
+            self.validate_system_menu_identity(menu)?;
             if menu.close_item_command != close_item_command {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "system-menu-close-command-mismatch",
+                return Err(RuntimeStateError::new(
                     "logical system menu close-item command differs from its creation contract",
                 ));
             }
-            return Ok(RuntimeSystemMenuPlan {
-                expected_menu_generation: self.menu_generation,
-                owner_window,
-                disposition: RuntimeSystemMenuDisposition::Existing(menu),
-            });
+            return Ok(Some(menu.handle));
         }
         if self.system_menus.len() >= RUNTIME_SYSTEM_MENU_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "system-menu-limit-exceeded",
+            return Err(RuntimeStateError::new(
                 "logical system-menu count exceeds the runtime bound",
             ));
         }
         let id = RuntimeMenuId(self.next_menu_id);
         if id.0 == 0 || self.system_menus.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "system-menu-id-collision",
+            return Err(RuntimeStateError::new(
                 "logical system-menu allocator selected an invalid or live identity",
             ));
         }
         if self.next_menu_handle < RUNTIME_MENU_HANDLE_BASE
             || self.menu_handle_index.contains_key(&self.next_menu_handle)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "system-menu-handle-collision",
+            return Err(RuntimeStateError::new(
                 "logical HMENU allocator selected an invalid or live handle",
             ));
         }
         let next_menu_id = self.next_menu_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "system-menu-id-space-exhausted",
-                "logical system-menu identity space is exhausted",
-            )
+            RuntimeStateError::new("logical system-menu identity space is exhausted")
         })?;
-        let next_menu_handle = self.next_menu_handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "system-menu-handle-space-exhausted",
-                "logical HMENU space is exhausted",
-            )
-        })?;
-        let next_menu_generation = self.next_menu_generation()?;
-        Ok(RuntimeSystemMenuPlan {
-            expected_menu_generation: self.menu_generation,
-            owner_window: owner_window.clone(),
-            disposition: RuntimeSystemMenuDisposition::Create {
-                menu: RuntimeSystemMenu {
-                    id,
-                    handle: self.next_menu_handle,
-                    namespace: LOGICAL_MENU_HANDLE_NAMESPACE.to_owned(),
-                    owner_window_id: owner_window.id,
-                    owner_window_handle: owner_window.handle,
-                    close_item_command,
-                    close_item_enabled: true,
-                    generation: next_menu_generation,
-                },
-                next_menu_id,
-                next_menu_handle,
-                next_menu_generation,
-            },
-        })
+        let next_menu_handle = self
+            .next_menu_handle
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("logical HMENU space is exhausted"))?;
+        let menu = RuntimeSystemMenu {
+            id,
+            handle: self.next_menu_handle,
+            owner_window_id: owner_window.id,
+            owner_window_handle: owner_window.handle,
+            close_item_command,
+            close_item_enabled: true,
+        };
+        let handle = menu.handle;
+        // All identity, lifetime, capacity and overflow checks precede publication.
+        self.next_menu_id = next_menu_id;
+        self.next_menu_handle = next_menu_handle;
+        self.system_menu_window_index
+            .insert(menu.owner_window_id, menu.id);
+        self.menu_handle_index.insert(menu.handle, menu.id);
+        self.system_menus.insert(menu.id, menu);
+        Ok(Some(handle))
     }
 
-    pub(super) fn preflight_system_menu(
-        &self,
-        plan: &RuntimeSystemMenuPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.menu_generation != plan.expected_menu_generation
-            || self.windows.get(&plan.owner_window.id) != Some(&plan.owner_window)
-            || self.window_handle_index.get(&plan.owner_window.handle)
-                != Some(&plan.owner_window.id)
-            || plan.owner_window.lifecycle != RuntimeWindowLifecycle::Created
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "system-menu-plan-stale",
-                "logical system-menu collection or owner window changed after planning",
-            ));
-        }
-        match &plan.disposition {
-            RuntimeSystemMenuDisposition::Existing(menu) => {
-                if self.system_menus.get(&menu.id) != Some(menu)
-                    || self.system_menu_window_index.get(&menu.owner_window_id) != Some(&menu.id)
-                    || self.menu_handle_index.get(&menu.handle) != Some(&menu.id)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "system-menu-plan-stale",
-                        "logical system-menu identity changed after planning",
-                    ));
-                }
-                self.validate_system_menu_identity(menu)?;
-            }
-            RuntimeSystemMenuDisposition::Create { menu, .. } => {
-                if self.next_menu_id != menu.id.0
-                    || self.next_menu_handle != menu.handle
-                    || self.system_menus.contains_key(&menu.id)
-                    || self
-                        .system_menu_window_index
-                        .contains_key(&menu.owner_window_id)
-                    || self.menu_handle_index.contains_key(&menu.handle)
-                    || menu.owner_window_id != plan.owner_window.id
-                    || menu.owner_window_handle != plan.owner_window.handle
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "system-menu-plan-stale",
-                        "logical system-menu allocators, indexes, or owner relation changed after planning",
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_system_menu(
-        &mut self,
-        plan: RuntimeSystemMenuPlan,
-    ) -> Result<RuntimeGetSystemMenuResult, RuntimeStateError> {
-        self.preflight_system_menu(&plan)?;
-        match plan.disposition {
-            RuntimeSystemMenuDisposition::Existing(menu) => Ok(RuntimeGetSystemMenuResult {
-                menu_id: menu.id,
-                handle: menu.handle,
-                already_created: true,
-            }),
-            RuntimeSystemMenuDisposition::Create {
-                menu,
-                next_menu_id,
-                next_menu_handle,
-                next_menu_generation,
-            } => {
-                let result = RuntimeGetSystemMenuResult {
-                    menu_id: menu.id,
-                    handle: menu.handle,
-                    already_created: false,
-                };
-                self.next_menu_id = next_menu_id;
-                self.next_menu_handle = next_menu_handle;
-                self.menu_generation = next_menu_generation;
-                let previous_window = self
-                    .system_menu_window_index
-                    .insert(menu.owner_window_id, menu.id);
-                let previous_handle = self.menu_handle_index.insert(menu.handle, menu.id);
-                let previous_menu = self.system_menus.insert(menu.id, menu);
-                debug_assert!(previous_window.is_none());
-                debug_assert!(previous_handle.is_none());
-                debug_assert!(previous_menu.is_none());
-                Ok(result)
-            }
-        }
-    }
-
-    pub(super) fn plan_enable_system_menu_close_item(
+    pub(super) fn enable_system_menu_close_item(
         &self,
         menu_handle: u32,
         close_item_command: u32,
-    ) -> Result<RuntimeSystemMenuItemPlan, RuntimeStateError> {
-        let menu = self.system_menu(menu_handle)?.clone();
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        let Some(menu) = self.system_menu_option(menu_handle)? else {
+            return Ok(None);
+        };
         if close_item_command == 0 || menu.close_item_command != close_item_command {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "system-menu-close-command-mismatch",
+            return Err(RuntimeStateError::new(
                 "EnableMenuItem command does not identify the logical system close item",
             ));
         }
         if !menu.close_item_enabled {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "system-menu-close-item-state-invalid",
+            return Err(RuntimeStateError::new(
                 "the bounded logical system menu must begin with an enabled close item",
             ));
         }
-        let owner_window = self.window_by_id(menu.owner_window_id)?.clone();
-        Ok(RuntimeSystemMenuItemPlan {
-            expected_menu_generation: self.menu_generation,
-            owner_window,
-            disposition: RuntimeSystemMenuItemDisposition::Unchanged(menu),
-        })
-    }
 
-    pub(super) fn preflight_enable_system_menu_close_item(
-        &self,
-        plan: &RuntimeSystemMenuItemPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.menu_generation != plan.expected_menu_generation
-            || self.windows.get(&plan.owner_window.id) != Some(&plan.owner_window)
-            || self.window_handle_index.get(&plan.owner_window.handle)
-                != Some(&plan.owner_window.id)
-            || plan.owner_window.lifecycle != RuntimeWindowLifecycle::Created
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "system-menu-item-plan-stale",
-                "logical system-menu collection or owner window changed after item planning",
-            ));
-        }
-        let RuntimeSystemMenuItemDisposition::Unchanged(menu) = &plan.disposition;
-        if self.system_menus.get(&menu.id) != Some(menu)
-            || self.system_menu_window_index.get(&menu.owner_window_id) != Some(&menu.id)
-            || self.menu_handle_index.get(&menu.handle) != Some(&menu.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "system-menu-item-plan-stale",
-                "logical system-menu item identity changed after planning",
-            ));
-        }
-        self.validate_system_menu_identity(menu)
-    }
-
-    pub(super) fn commit_enable_system_menu_close_item(
-        &mut self,
-        plan: RuntimeSystemMenuItemPlan,
-    ) -> Result<RuntimeEnableMenuItemResult, RuntimeStateError> {
-        self.preflight_enable_system_menu_close_item(&plan)?;
-        Ok(RuntimeEnableMenuItemResult {
-            previous_state: 0,
-            enabled: true,
-            changed: false,
-        })
+        Ok(Some(0))
     }
 
     pub(super) fn resolve_ime_app_window_target(
@@ -2084,47 +1066,34 @@ impl RuntimeUser32 {
         })
     }
 
-    pub(super) fn plan_default_ime_window(
+    pub(super) fn validate_default_ime_window(
         &self,
         window_handle: u32,
         owner_thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeDefaultImeWindowPlan, RuntimeStateError> {
-        let app_window = self.window(window_handle)?.clone();
-        self.validate_created_window_owner(&app_window, owner_thread_id)?;
+    ) -> Result<RuntimeImeAppWindowTarget, RuntimeStateError> {
+        let target = self.resolve_ime_app_window_target(window_handle, owner_thread_id)?;
         if let Some(id) = self.default_ime_windows.get(&owner_thread_id) {
-            let window = self.ime_windows.get(id).cloned().ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "default-ime-window-index-dangling",
+            let window = self.ime_windows.get(id).ok_or_else(|| {
+                RuntimeStateError::new(
                     "default IME window index does not resolve to a live logical window",
                 )
             })?;
-            self.validate_ime_window_identity(&window)?;
+            self.validate_ime_window_identity(window)?;
             if window.owner_thread_id != owner_thread_id {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "default-ime-window-owner-mismatch",
+                return Err(RuntimeStateError::new(
                     "default IME window index resolves to a different owner thread",
                 ));
             }
-            return Ok(RuntimeDefaultImeWindowPlan {
-                expected_generation: self.generation,
-                app_window,
-                disposition: RuntimeDefaultImeWindowDisposition::Existing(window),
-            });
+            return Ok(target);
         }
         if self.ime_windows.len() >= RUNTIME_DEFAULT_IME_WINDOW_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "default-ime-window-limit-exceeded",
+            return Err(RuntimeStateError::new(
                 "logical default IME window count exceeds the runtime bound",
             ));
         }
         let id = RuntimeImeWindowId(self.next_ime_window_id);
         if id.0 == 0 || self.ime_windows.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "default-ime-window-id-collision",
+            return Err(RuntimeStateError::new(
                 "logical default IME window allocator selected an invalid or live identity",
             ));
         }
@@ -2136,168 +1105,55 @@ impl RuntimeUser32 {
                 .ime_window_handle_index
                 .contains_key(&self.next_window_handle)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "default-ime-window-handle-collision",
+            return Err(RuntimeStateError::new(
                 "logical HWND allocator selected an invalid or live IME window handle",
             ));
         }
-        let next_ime_window_id = self.next_ime_window_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "default-ime-window-id-space-exhausted",
-                "logical default IME window identity space is exhausted",
-            )
+        self.next_ime_window_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::new("logical default IME window identity space is exhausted")
         })?;
-        let next_window_handle = self.next_window_handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-handle-space-exhausted",
-                "logical HWND space is exhausted",
-            )
-        })?;
-        let next_generation = self.next_generation()?;
-        Ok(RuntimeDefaultImeWindowPlan {
-            expected_generation: self.generation,
-            app_window,
-            disposition: RuntimeDefaultImeWindowDisposition::Create {
-                window: RuntimeImeWindow {
-                    id,
-                    handle: self.next_window_handle,
-                    namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
-                    owner_thread_id,
-                    class_name: "IME".to_owned(),
-                    status_window_request: None,
-                    generation: next_generation,
-                },
-                next_ime_window_id,
-                next_window_handle,
-                next_generation,
-            },
-        })
+        self.next_window_handle
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("logical HWND space is exhausted"))?;
+        self.next_generation()?;
+        Ok(target)
     }
 
-    pub(super) fn default_ime_window_target(
-        &self,
-        plan: &RuntimeDefaultImeWindowPlan,
-    ) -> RuntimeImeAppWindowTarget {
-        RuntimeImeAppWindowTarget {
-            window_id: plan.app_window.id,
-            window_handle: plan.app_window.handle,
-            owner_thread_id: plan.app_window.creation.owner_thread_id,
+    // Called synchronously after validate_default_ime_window, with no intervening
+    // User32 mutation. IMM32 publication may occur between validation and here.
+    pub(super) fn ensure_default_ime_window(&mut self, owner_thread_id: RuntimeThreadId) -> u32 {
+        if let Some(id) = self.default_ime_windows.get(&owner_thread_id) {
+            return self.ime_windows[id].handle;
         }
+        let window = RuntimeImeWindow {
+            id: RuntimeImeWindowId(self.next_ime_window_id),
+            handle: self.next_window_handle,
+            owner_thread_id,
+            class_name: "IME".to_owned(),
+            status_window_request: None,
+        };
+        let handle = window.handle;
+        self.next_ime_window_id += 1;
+        self.next_window_handle += 1;
+        self.generation += 1;
+        self.ime_window_handle_index
+            .insert(window.handle, window.id);
+        self.default_ime_windows.insert(owner_thread_id, window.id);
+        self.ime_windows.insert(window.id, window);
+        handle
     }
 
-    pub(super) fn preflight_default_ime_window(
-        &self,
-        plan: &RuntimeDefaultImeWindowPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.windows.get(&plan.app_window.id) != Some(&plan.app_window)
-            || self.window_handle_index.get(&plan.app_window.handle) != Some(&plan.app_window.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "default-ime-window-plan-stale",
-                "User32 app-window state changed after default IME window planning",
-            ));
-        }
-        self.validate_created_window_owner(
-            &plan.app_window,
-            plan.app_window.creation.owner_thread_id,
-        )?;
-        match &plan.disposition {
-            RuntimeDefaultImeWindowDisposition::Existing(window) => {
-                self.validate_ime_window_identity(window)?;
-                if self.default_ime_windows.get(&window.owner_thread_id) != Some(&window.id)
-                    || self.ime_windows.get(&window.id) != Some(window)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "default-ime-window-plan-stale",
-                        "default IME window identity changed after planning",
-                    ));
-                }
-            }
-            RuntimeDefaultImeWindowDisposition::Create { window, .. } => {
-                if self.next_ime_window_id != window.id.0
-                    || self.next_window_handle != window.handle
-                    || self.ime_windows.len() >= RUNTIME_DEFAULT_IME_WINDOW_LIMIT
-                    || self.ime_windows.contains_key(&window.id)
-                    || self.ime_window_handle_index.contains_key(&window.handle)
-                    || self.window_handle_index.contains_key(&window.handle)
-                    || self
-                        .default_ime_windows
-                        .contains_key(&window.owner_thread_id)
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-user32",
-                        "default-ime-window-plan-stale",
-                        "default IME window allocators or indexes changed after planning",
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_default_ime_window_preflighted(
-        &mut self,
-        plan: RuntimeDefaultImeWindowPlan,
-    ) -> RuntimeDefaultImeWindowResult {
-        debug_assert!(self.preflight_default_ime_window(&plan).is_ok());
-        match plan.disposition {
-            RuntimeDefaultImeWindowDisposition::Existing(window) => RuntimeDefaultImeWindowResult {
-                ime_window_id: window.id,
-                handle: window.handle,
-                already_created: true,
-            },
-            RuntimeDefaultImeWindowDisposition::Create {
-                window,
-                next_ime_window_id,
-                next_window_handle,
-                next_generation,
-            } => {
-                let result = RuntimeDefaultImeWindowResult {
-                    ime_window_id: window.id,
-                    handle: window.handle,
-                    already_created: false,
-                };
-                self.next_ime_window_id = next_ime_window_id;
-                self.next_window_handle = next_window_handle;
-                self.generation = next_generation;
-                let previous_handle = self
-                    .ime_window_handle_index
-                    .insert(window.handle, window.id);
-                let previous_default = self
-                    .default_ime_windows
-                    .insert(window.owner_thread_id, window.id);
-                let previous_window = self.ime_windows.insert(window.id, window);
-                debug_assert!(previous_handle.is_none());
-                debug_assert!(previous_default.is_none());
-                debug_assert!(previous_window.is_none());
-                result
-            }
-        }
-    }
-
-    pub(super) fn plan_window_creation_callback(
+    fn window_creation_callback_disposition(
         &self,
         window_id: RuntimeWindowId,
         expected_message: RuntimeWindowCreationMessage,
         result: u32,
-    ) -> Result<RuntimeWindowCreationCallbackPlan, RuntimeStateError> {
+    ) -> Result<RuntimeWindowCreationCallbackDisposition, RuntimeStateError> {
         let previous = self.windows.get(&window_id).cloned().ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-user32",
-                "window-id-unknown",
-                "logical window creation callback identifies no live window",
-            )
+            RuntimeStateError::new("logical window creation callback identifies no live window")
         })?;
         if self.window_handle_index.get(&previous.handle) != Some(&window_id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-handle-index-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical HWND index does not match its window identity",
             ));
         }
@@ -2306,9 +1162,7 @@ impl RuntimeUser32 {
                 message: expected_message,
             })
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-creation-callback-order-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical window creation callback is not the expected synchronous message",
             ));
         }
@@ -2323,7 +1177,8 @@ impl RuntimeUser32 {
                 action: RuntimeWindowCreationCallbackAction::Aborted {
                     window: previous.clone(),
                 },
-                previous,
+                window_id: previous.id,
+                window_handle: previous.handle,
                 next_generation,
             }
         } else {
@@ -2348,7 +1203,6 @@ impl RuntimeUser32 {
                         window: next.clone(),
                         next_message,
                     },
-                    previous,
                     next: Box::new(next),
                     next_generation,
                 }
@@ -2358,86 +1212,57 @@ impl RuntimeUser32 {
                     action: RuntimeWindowCreationCallbackAction::Created {
                         window: next.clone(),
                     },
-                    previous,
                     next: Box::new(next),
                     next_generation,
                 }
             }
         };
-        Ok(RuntimeWindowCreationCallbackPlan {
-            expected_generation: self.generation,
-            disposition,
+        Ok(disposition)
+    }
+
+    pub(super) fn preview_window_creation_callback(
+        &self,
+        window_id: RuntimeWindowId,
+        message: RuntimeWindowCreationMessage,
+        result: u32,
+    ) -> Result<RuntimeWindowCreationCallbackAction, RuntimeStateError> {
+        let disposition = self.window_creation_callback_disposition(window_id, message, result)?;
+        Ok(match disposition {
+            RuntimeWindowCreationCallbackDisposition::Update { action, .. }
+            | RuntimeWindowCreationCallbackDisposition::Remove { action, .. } => action,
         })
     }
 
-    pub(super) fn window_creation_callback_action<'a>(
-        &self,
-        plan: &'a RuntimeWindowCreationCallbackPlan,
-    ) -> &'a RuntimeWindowCreationCallbackAction {
-        match &plan.disposition {
-            RuntimeWindowCreationCallbackDisposition::Update { action, .. }
-            | RuntimeWindowCreationCallbackDisposition::Remove { action, .. } => action,
-        }
-    }
-
-    pub(super) fn preflight_window_creation_callback(
-        &self,
-        plan: &RuntimeWindowCreationCallbackPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-creation-callback-plan-stale",
-                "User32 state changed after logical window callback planning",
-            ));
-        }
-        let previous = match &plan.disposition {
-            RuntimeWindowCreationCallbackDisposition::Update { previous, .. }
-            | RuntimeWindowCreationCallbackDisposition::Remove { previous, .. } => previous,
-        };
-        if self.windows.get(&previous.id) != Some(previous)
-            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-creation-callback-plan-stale",
-                "logical window identity changed after callback planning",
-            ));
-        }
-        self.validate_window_creation_references(&previous.creation)
-    }
-
-    pub(super) fn commit_window_creation_callback(
+    pub(super) fn complete_window_creation_callback(
         &mut self,
-        plan: RuntimeWindowCreationCallbackPlan,
+        window_id: RuntimeWindowId,
+        message: RuntimeWindowCreationMessage,
+        result: u32,
     ) -> Result<RuntimeWindowCreationCallbackAction, RuntimeStateError> {
-        self.preflight_window_creation_callback(&plan)?;
-        match plan.disposition {
+        let disposition = self.window_creation_callback_disposition(window_id, message, result)?;
+        Ok(match disposition {
             RuntimeWindowCreationCallbackDisposition::Update {
                 next,
                 action,
                 next_generation,
-                ..
             } => {
                 let next = *next;
                 self.generation = next_generation;
-                let previous = self.windows.insert(next.id, next);
-                debug_assert!(previous.is_some());
-                Ok(action)
+                self.windows.insert(next.id, next);
+                action
             }
             RuntimeWindowCreationCallbackDisposition::Remove {
-                previous,
+                window_id,
+                window_handle,
                 action,
                 next_generation,
             } => {
                 self.generation = next_generation;
-                let removed_handle = self.window_handle_index.remove(&previous.handle);
-                let removed_window = self.windows.remove(&previous.id);
-                debug_assert_eq!(removed_handle, Some(previous.id));
-                debug_assert_eq!(removed_window.as_ref(), Some(&previous));
-                Ok(action)
+                self.window_handle_index.remove(&window_handle);
+                self.windows.remove(&window_id);
+                action
             }
-        }
+        })
     }
 
     fn validate_window_creation_references(
@@ -2448,20 +1273,14 @@ impl RuntimeUser32 {
             .window_classes
             .get(&request.class.class_id)
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "window-class-id-unknown",
-                    "logical window refers to a non-live process-local class",
-                )
+                RuntimeStateError::new("logical window refers to a non-live process-local class")
             })?;
         if class.atom != request.class.atom
             || class.registration.module.module_id != request.class.module_id
             || class.registration.module != request.instance
             || self.window_class_atom_index.get(&class.atom) != Some(&class.id)
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "window-class-reference-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical window class identity, ATOM, and module do not match",
             ));
         }
@@ -2477,36 +1296,24 @@ impl RuntimeUser32 {
             .flatten()
         {
             let icon = self.icons.get(&reference.icon_id).ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "window-class-icon-unknown",
-                    "window class refers to a non-live logical icon identity",
-                )
+                RuntimeStateError::new("window class refers to a non-live logical icon identity")
             })?;
             if icon.handle != reference.handle
                 || self.handle_index.get(&reference.handle) != Some(&reference.icon_id)
             {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "window-class-icon-mismatch",
+                return Err(RuntimeStateError::new(
                     "window class icon ID and logical handle do not identify the same icon",
                 ));
             }
         }
         if let Some(reference) = registration.cursor {
             let cursor = self.cursors.get(&reference.cursor_id).ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "window-class-cursor-unknown",
-                    "window class refers to a non-live logical cursor identity",
-                )
+                RuntimeStateError::new("window class refers to a non-live logical cursor identity")
             })?;
             if cursor.handle != reference.handle
                 || self.cursor_handle_index.get(&reference.handle) != Some(&reference.cursor_id)
             {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "window-class-cursor-mismatch",
+                return Err(RuntimeStateError::new(
                     "window class cursor ID and logical handle do not identify the same cursor",
                 ));
             }
@@ -2514,153 +1321,50 @@ impl RuntimeUser32 {
         Ok(())
     }
 
-    pub(super) fn plan_process_teardown(
+    pub(super) fn icon_option(
         &self,
-    ) -> Result<Option<RuntimeUser32TeardownPlan>, RuntimeStateError> {
-        if self.icons.is_empty()
-            && self.cursors.is_empty()
-            && self.current_cursor.is_none()
-            && self.window_classes.is_empty()
-            && self.windows.is_empty()
-            && self.paint_sessions.is_empty()
-            && self.system_menus.is_empty()
-            && self.ime_windows.is_empty()
-            && self.default_ime_windows.is_empty()
-            && self.active_windows.is_empty()
-            && self.focused_windows.is_empty()
-            && self.foreground_window.is_none()
-        {
+        handle: u32,
+    ) -> Result<Option<&RuntimeIcon>, RuntimeStateError> {
+        let Some(id) = self.handle_index.get(&handle).copied() else {
             return Ok(None);
+        };
+        match self.icons.get(&id) {
+            Some(icon) if icon.id == id && icon.handle == handle => Ok(Some(icon)),
+            _ => Err(RuntimeStateError::new(
+                "logical HICON index does not resolve to the indexed icon identity",
+            )),
         }
-        Ok(Some(RuntimeUser32TeardownPlan {
-            expected_generation: self.generation,
-            next_generation: self.next_generation()?,
-            expected_menu_generation: self.menu_generation,
-            next_menu_generation: if self.system_menus.is_empty() {
-                self.menu_generation
-            } else {
-                self.next_menu_generation()?
-            },
-            retired_icons: self.icons.len(),
-            retired_cursors: self.cursors.len(),
-            expected_current_cursor: self.current_cursor,
-            retired_window_classes: self.window_classes.len(),
-            retired_windows: self.windows.len(),
-            retired_paint_sessions: self.paint_sessions.len(),
-            retired_system_menus: self.system_menus.len(),
-            retired_ime_windows: self.ime_windows.len(),
-            retired_default_ime_windows: self.default_ime_windows.len(),
-            retired_active_windows: self.active_windows.len(),
-            retired_focused_windows: self.focused_windows.len(),
-            retired_foreground_window: self.foreground_window.is_some(),
-        }))
-    }
-
-    pub(super) fn preflight_process_teardown(
-        &self,
-        plan: &RuntimeUser32TeardownPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.menu_generation != plan.expected_menu_generation
-            || self.icons.len() != plan.retired_icons
-            || self.resource_index.len() != plan.retired_icons
-            || self.handle_index.len() != plan.retired_icons
-            || self.cursors.len() != plan.retired_cursors
-            || self.cursor_source_index.len() != plan.retired_cursors
-            || self.cursor_handle_index.len() != plan.retired_cursors
-            || self.current_cursor != plan.expected_current_cursor
-            || self.window_classes.len() != plan.retired_window_classes
-            || self.window_class_name_index.len() != plan.retired_window_classes
-            || self.window_class_atom_index.len() != plan.retired_window_classes
-            || self.windows.len() != plan.retired_windows
-            || self.window_handle_index.len() != plan.retired_windows
-            || self.paint_sessions.len() != plan.retired_paint_sessions
-            || self.system_menus.len() != plan.retired_system_menus
-            || self.system_menu_window_index.len() != plan.retired_system_menus
-            || self.menu_handle_index.len() != plan.retired_system_menus
-            || self.ime_windows.len() != plan.retired_ime_windows
-            || self.ime_window_handle_index.len() != plan.retired_ime_windows
-            || self.default_ime_windows.len() != plan.retired_default_ime_windows
-            || self.active_windows.len() != plan.retired_active_windows
-            || self.focused_windows.len() != plan.retired_focused_windows
-            || self.foreground_window.is_some() != plan.retired_foreground_window
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "user32-teardown-plan-stale",
-                "User32 resource state changed after process teardown planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_process_teardown(&mut self, plan: RuntimeUser32TeardownPlan) {
-        debug_assert!(self.preflight_process_teardown(&plan).is_ok());
-        self.windows.clear();
-        self.window_handle_index.clear();
-        self.paint_sessions.clear();
-        self.system_menus.clear();
-        self.system_menu_window_index.clear();
-        self.menu_handle_index.clear();
-        self.ime_windows.clear();
-        self.ime_window_handle_index.clear();
-        self.default_ime_windows.clear();
-        self.active_windows.clear();
-        self.focused_windows.clear();
-        self.foreground_window = None;
-        self.window_classes.clear();
-        self.window_class_name_index.clear();
-        self.window_class_atom_index.clear();
-        self.icons.clear();
-        self.resource_index.clear();
-        self.handle_index.clear();
-        self.cursors.clear();
-        self.cursor_source_index.clear();
-        self.cursor_handle_index.clear();
-        self.current_cursor = None;
-        self.generation = plan.next_generation;
-        self.menu_generation = plan.next_menu_generation;
     }
 
     pub fn icon(&self, handle: u32) -> Result<&RuntimeIcon, RuntimeStateError> {
-        let id = self.handle_index.get(&handle).copied().ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-user32",
-                "icon-handle-unknown",
-                format!("logical HICON {handle:#010x} is not live"),
-            )
-        })?;
-        self.icons.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "icon-handle-index-dangling",
-                "logical HICON index does not resolve to a live icon",
-            )
+        self.icon_option(handle)?.ok_or_else(|| {
+            RuntimeStateError::new(format!("logical HICON {handle:#010x} is not live"))
         })
     }
 
-    pub fn icons(&self) -> &BTreeMap<RuntimeIconId, RuntimeIcon> {
+    #[cfg(test)]
+    pub(crate) fn icons(&self) -> &BTreeMap<RuntimeIconId, RuntimeIcon> {
         &self.icons
     }
 
+    pub(super) fn cursor_option(
+        &self,
+        handle: u32,
+    ) -> Result<Option<&RuntimeCursor>, RuntimeStateError> {
+        let Some(id) = self.cursor_handle_index.get(&handle).copied() else {
+            return Ok(None);
+        };
+        match self.cursors.get(&id) {
+            Some(cursor) if cursor.id == id && cursor.handle == handle => Ok(Some(cursor)),
+            _ => Err(RuntimeStateError::new(
+                "logical HCURSOR index does not resolve to the indexed cursor identity",
+            )),
+        }
+    }
+
     pub fn cursor(&self, handle: u32) -> Result<&RuntimeCursor, RuntimeStateError> {
-        let id = self
-            .cursor_handle_index
-            .get(&handle)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "cursor-handle-unknown",
-                    format!("logical HCURSOR {handle:#010x} is not live"),
-                )
-            })?;
-        self.cursors.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "cursor-handle-index-dangling",
-                "logical HCURSOR index does not resolve to a live cursor",
-            )
+        self.cursor_option(handle)?.ok_or_else(|| {
+            RuntimeStateError::new(format!("logical HCURSOR {handle:#010x} is not live"))
         })
     }
 
@@ -2669,23 +1373,18 @@ impl RuntimeUser32 {
             return Ok(None);
         };
         let cursor = self.cursors.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "current-cursor-dangling",
-                "current cursor identity does not resolve to a live cursor",
-            )
+            RuntimeStateError::new("current cursor identity does not resolve to a live cursor")
         })?;
         if self.cursor_handle_index.get(&cursor.handle) != Some(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "current-cursor-handle-index-mismatch",
+            return Err(RuntimeStateError::new(
                 "current cursor identity does not match its handle index",
             ));
         }
         Ok(Some(cursor))
     }
 
-    pub(super) fn cursor_for_source(
+    #[cfg(test)]
+    pub(crate) fn cursor_for_source(
         &self,
         source: &RuntimeCursorSource,
     ) -> Result<&RuntimeCursor, RuntimeStateError> {
@@ -2694,31 +1393,25 @@ impl RuntimeUser32 {
             .cursor_source_index
             .get(source)
             .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "cursor-source-unknown",
-                    "logical shared cursor source is not loaded",
-                )
-            })?;
+            .ok_or_else(|| RuntimeStateError::new("logical shared cursor source is not loaded"))?;
         let cursor = self.cursors.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "cursor-source-index-dangling",
+            RuntimeStateError::new(
                 "logical shared cursor source index does not resolve to a live cursor",
             )
         })?;
-        if self.cursor_handle_index.get(&cursor.handle) != Some(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "cursor-source-handle-index-mismatch",
+        if cursor.id != id
+            || &cursor.source != source
+            || self.cursor_handle_index.get(&cursor.handle) != Some(&id)
+        {
+            return Err(RuntimeStateError::new(
                 "logical shared cursor source does not match its handle index",
             ));
         }
         Ok(cursor)
     }
 
-    pub fn cursors(&self) -> &BTreeMap<RuntimeCursorId, RuntimeCursor> {
+    #[cfg(test)]
+    pub(crate) fn cursors(&self) -> &BTreeMap<RuntimeCursorId, RuntimeCursor> {
         &self.cursors
     }
 
@@ -2728,82 +1421,106 @@ impl RuntimeUser32 {
             .get(&atom)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "window-class-atom-unknown",
-                    format!("logical window class ATOM {atom:#06x} is not live"),
-                )
+                RuntimeStateError::new(format!("logical window class ATOM {atom:#06x} is not live"))
             })?;
-        self.window_classes.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-class-atom-index-dangling",
+        let class = self.window_classes.get(&id).ok_or_else(|| {
+            RuntimeStateError::new(
                 "logical window class ATOM index does not resolve to a live class",
             )
-        })
+        })?;
+        let key = RuntimeWindowClassKey {
+            module_id: class.registration.module.module_id,
+            canonical_name: class.registration.class_name.to_ascii_lowercase(),
+        };
+        if class.id != id
+            || class.atom != atom
+            || self.window_class_name_index.get(&key) != Some(&id)
+        {
+            return Err(RuntimeStateError::new(
+                "logical window class ATOM and name indexes disagree about the live class",
+            ));
+        }
+        Ok(class)
     }
 
-    pub fn window_class_by_name(
+    pub(super) fn window_class_by_name_option(
+        &self,
+        module_id: RuntimeModuleId,
+        name: &str,
+    ) -> Result<Option<&RuntimeWindowClass>, RuntimeStateError> {
+        let key = window_class_key_from_name(module_id, name)?;
+        let Some(id) = self.window_class_name_index.get(&key).copied() else {
+            return Ok(None);
+        };
+        let class = self.window_classes.get(&id).ok_or_else(|| {
+            RuntimeStateError::new(
+                "logical window class name index does not resolve to a live class",
+            )
+        })?;
+        if class.id != id
+            || class.registration.module.module_id != key.module_id
+            || class.registration.class_name.to_ascii_lowercase() != key.canonical_name
+            || self.window_class_atom_index.get(&class.atom) != Some(&id)
+        {
+            return Err(RuntimeStateError::new(
+                "logical window class name and ATOM indexes disagree about the live class",
+            ));
+        }
+        Ok(Some(class))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn window_class_by_name(
         &self,
         module_id: RuntimeModuleId,
         name: &str,
     ) -> Result<&RuntimeWindowClass, RuntimeStateError> {
-        let key = window_class_key_from_name(module_id, name)?;
-        let id = self
-            .window_class_name_index
-            .get(&key)
-            .copied()
+        self.window_class_by_name_option(module_id, name)?
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "window-class-name-unknown",
+                RuntimeStateError::new(
                     "process-local window class name is not registered for the module",
                 )
-            })?;
-        self.window_classes.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-class-name-index-dangling",
-                "logical window class name index does not resolve to a live class",
-            )
-        })
+            })
     }
 
-    pub fn window_classes(&self) -> &BTreeMap<RuntimeWindowClassId, RuntimeWindowClass> {
+    #[cfg(test)]
+    pub(crate) fn window_classes(&self) -> &BTreeMap<RuntimeWindowClassId, RuntimeWindowClass> {
         &self.window_classes
     }
 
+    pub(super) fn window_option(
+        &self,
+        handle: u32,
+    ) -> Result<Option<&RuntimeWindow>, RuntimeStateError> {
+        let Some(id) = self.window_handle_index.get(&handle).copied() else {
+            return Ok(None);
+        };
+        match self.windows.get(&id) {
+            Some(window) if window.handle == handle && window.id == id => Ok(Some(window)),
+            _ => Err(RuntimeStateError::new(
+                "logical HWND index does not resolve to the indexed window identity",
+            )),
+        }
+    }
+
     pub fn window(&self, handle: u32) -> Result<&RuntimeWindow, RuntimeStateError> {
-        let id = self
-            .window_handle_index
-            .get(&handle)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "window-handle-unknown",
-                    format!("logical HWND {handle:#010x} is not live"),
-                )
-            })?;
-        self.windows.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-handle-index-dangling",
-                "logical HWND index does not resolve to a live window",
-            )
+        self.window_option(handle)?.ok_or_else(|| {
+            RuntimeStateError::new(format!("logical HWND {handle:#010x} is not live"))
         })
     }
 
-    pub fn window_is_iconic(&self, handle: u32) -> Result<bool, RuntimeStateError> {
-        let window = self.window(handle)?;
+    pub fn window_is_iconic(&self, handle: u32) -> Result<Option<bool>, RuntimeStateError> {
+        let Some(window) = self.window_option(handle)? else {
+            return Ok(None);
+        };
         if window.lifecycle != RuntimeWindowLifecycle::Created {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-iconic-lifecycle-state-invalid",
+            return Err(RuntimeStateError::new(
                 "logical iconic-state queries require a created window",
             ));
         }
-        Ok(window.creation.effective_style & RUNTIME_WINDOW_STYLE_MINIMIZED != 0)
+        Ok(Some(
+            window.creation.effective_style & RUNTIME_WINDOW_STYLE_MINIMIZED != 0,
+        ))
     }
 
     pub fn ime_window(&self, handle: u32) -> Result<&RuntimeImeWindow, RuntimeStateError> {
@@ -2812,105 +1529,37 @@ impl RuntimeUser32 {
             .get(&handle)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "ime-window-handle-unknown",
-                    format!("logical IME HWND {handle:#010x} is not live"),
-                )
+                RuntimeStateError::new(format!("logical IME HWND {handle:#010x} is not live"))
             })?;
         let window = self.ime_windows.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "ime-window-handle-index-dangling",
-                "logical IME HWND index does not resolve to a live window",
-            )
+            RuntimeStateError::new("logical IME HWND index does not resolve to a live window")
         })?;
         self.validate_ime_window_identity(window)?;
         Ok(window)
     }
 
-    pub fn ime_windows(&self) -> &BTreeMap<RuntimeImeWindowId, RuntimeImeWindow> {
+    #[cfg(test)]
+    pub(crate) fn ime_windows(&self) -> &BTreeMap<RuntimeImeWindowId, RuntimeImeWindow> {
         &self.ime_windows
     }
 
-    pub(super) fn plan_ime_control(
-        &self,
-        window_handle: u32,
-        owner_thread_id: RuntimeThreadId,
-        request: RuntimeImeStatusWindowRequest,
-    ) -> Result<RuntimeImeControlPlan, RuntimeStateError> {
-        let previous = self.ime_window(window_handle)?.clone();
-        if previous.owner_thread_id != owner_thread_id {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "ime-window-message-owner-thread-mismatch",
-                "synchronous IME window control requires the selected owner thread",
-            ));
-        }
-        let disposition = if previous.status_window_request == Some(request) {
-            RuntimeImeControlDisposition::Unchanged(previous)
-        } else {
-            let mut next = previous.clone();
-            let next_generation = self.next_generation()?;
-            next.status_window_request = Some(request);
-            next.generation = next_generation;
-            RuntimeImeControlDisposition::Update {
-                previous,
-                next,
-                next_generation,
-            }
-        };
-        Ok(RuntimeImeControlPlan {
-            expected_generation: self.generation,
-            disposition,
-        })
-    }
-
-    pub(super) fn preflight_ime_control(
-        &self,
-        plan: &RuntimeImeControlPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "ime-window-control-plan-stale",
-                "User32 state changed after IME window control planning",
-            ));
-        }
-        let previous = match &plan.disposition {
-            RuntimeImeControlDisposition::Unchanged(previous)
-            | RuntimeImeControlDisposition::Update { previous, .. } => previous,
-        };
-        if self.ime_windows.get(&previous.id) != Some(previous)
-            || self.ime_window_handle_index.get(&previous.handle) != Some(&previous.id)
-            || self.default_ime_windows.get(&previous.owner_thread_id) != Some(&previous.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "ime-window-control-plan-stale",
-                "logical IME window identity changed after control planning",
-            ));
-        }
-        self.validate_ime_window_identity(previous)
-    }
-
-    pub(super) fn commit_ime_control(
+    pub(super) fn control_ime_status_window(
         &mut self,
-        plan: RuntimeImeControlPlan,
-    ) -> Result<RuntimeImeWindow, RuntimeStateError> {
-        self.preflight_ime_control(&plan)?;
-        match plan.disposition {
-            RuntimeImeControlDisposition::Unchanged(window) => Ok(window),
-            RuntimeImeControlDisposition::Update {
-                next,
-                next_generation,
-                ..
-            } => {
-                self.generation = next_generation;
-                self.ime_windows.insert(next.id, next.clone());
-                Ok(next)
-            }
+        window_handle: u32,
+        request: RuntimeImeStatusWindowRequest,
+    ) -> Result<(), RuntimeStateError> {
+        let previous = self.ime_window(window_handle)?;
+        if previous.status_window_request == Some(request) {
+            return Ok(());
         }
+        let id = previous.id;
+        let generation = self.next_generation()?;
+        // Built-in IME status control does not invoke guest code or leave Rust.
+        // The HWND owns the IME thread identity; the calling thread may differ.
+        let window = self.ime_windows.get_mut(&id).expect("validated IME HWND");
+        window.status_window_request = Some(request);
+        self.generation = generation;
+        Ok(())
     }
 
     pub(super) fn resolve_small_icon_window_procedure(
@@ -2918,21 +1567,15 @@ impl RuntimeUser32 {
         window_handle: u32,
         owner_thread_id: RuntimeThreadId,
         icon_handle: u32,
-        icon_width: u16,
-        icon_height: u16,
     ) -> Result<RuntimeWindowProcedure, RuntimeStateError> {
         let window = self.window(window_handle)?;
         if window.creation.owner_thread_id != owner_thread_id {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-message-owner-thread-mismatch",
+            return Err(RuntimeStateError::new(
                 "synchronous logical window messages require the selected owner thread",
             ));
         }
         if window.lifecycle != RuntimeWindowLifecycle::Created {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-message-lifecycle-state-invalid",
+            return Err(RuntimeStateError::new(
                 "synchronous logical window messages require a created window",
             ));
         }
@@ -2941,9 +1584,7 @@ impl RuntimeUser32 {
             .window_classes
             .get(&window.creation.class.class_id)
             .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "window-message-class-identity-missing",
+                RuntimeStateError::new(
                     "live logical window class identity disappeared during message resolution",
                 )
             })?;
@@ -2951,12 +1592,9 @@ impl RuntimeUser32 {
         self.validate_window_class_references(&class.registration)?;
 
         let icon = self.icon(icon_handle)?;
-        if !icon.shared || icon.resource.width != icon_width || icon.resource.height != icon_height
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "window-message-icon-variant-invalid",
-                "synchronous small-icon message requires a live shared icon of the controlled dimensions",
+        if !icon.shared {
+            return Err(RuntimeStateError::new(
+                "synchronous small-icon message requires a live shared icon",
             ));
         }
         Ok(class.registration.window_procedure.clone())
@@ -2973,9 +1611,7 @@ impl RuntimeUser32 {
             .window_classes
             .get(&window.creation.class.class_id)
             .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-user32",
-                    "window-message-class-identity-missing",
+                RuntimeStateError::new(
                     "live logical window class identity disappeared during message resolution",
                 )
             })?;
@@ -2984,298 +1620,91 @@ impl RuntimeUser32 {
         Ok(class.registration.window_procedure.clone())
     }
 
-    pub(super) fn plan_window_small_icon(
-        &self,
+    pub(super) fn set_window_small_icon(
+        &mut self,
         window_handle: u32,
         owner_thread_id: RuntimeThreadId,
         icon_handle: u32,
-        icon_width: u16,
-        icon_height: u16,
-    ) -> Result<RuntimeWindowSmallIconPlan, RuntimeStateError> {
-        self.resolve_small_icon_window_procedure(
-            window_handle,
-            owner_thread_id,
-            icon_handle,
-            icon_width,
-            icon_height,
-        )?;
-        let previous = self.window(window_handle)?.clone();
+    ) -> Result<u32, RuntimeStateError> {
+        self.resolve_small_icon_window_procedure(window_handle, owner_thread_id, icon_handle)?;
+        let previous = self.window(window_handle)?;
         self.validate_window_icon_reference(previous.small_icon)?;
+        let previous_handle = previous.small_icon.map_or(0, |icon| icon.handle);
         let icon = self.icon(icon_handle)?;
         let reference = RuntimeWindowIconReference {
             icon_id: icon.id,
             handle: icon.handle,
         };
-        let previous_handle = previous.small_icon.map_or(0, |icon| icon.handle);
-        let disposition = if previous.small_icon == Some(reference) {
-            RuntimeWindowSmallIconDisposition::Unchanged {
-                window: previous,
-                previous_handle,
-            }
-        } else {
-            let mut next = previous.clone();
-            next.small_icon = Some(reference);
-            RuntimeWindowSmallIconDisposition::Update {
-                previous,
-                next: Box::new(next),
-                previous_handle,
-                next_generation: self.next_generation()?,
-            }
-        };
-        Ok(RuntimeWindowSmallIconPlan {
-            expected_generation: self.generation,
-            disposition,
-        })
+        if previous.small_icon == Some(reference) {
+            return Ok(previous_handle);
+        }
+        let next_generation = self.next_generation()?;
+        let id = previous.id;
+        self.windows
+            .get_mut(&id)
+            .expect("validated window identity")
+            .small_icon = Some(reference);
+        self.generation = next_generation;
+        Ok(previous_handle)
     }
 
-    pub(super) fn preflight_window_small_icon(
-        &self,
-        plan: &RuntimeWindowSmallIconPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-small-icon-plan-stale",
-                "User32 state changed after logical window small-icon planning",
-            ));
-        }
-        let (previous, next) = match &plan.disposition {
-            RuntimeWindowSmallIconDisposition::Unchanged { window, .. } => (window, window),
-            RuntimeWindowSmallIconDisposition::Update { previous, next, .. } => {
-                (previous, next.as_ref())
-            }
-        };
-        if self.windows.get(&previous.id) != Some(previous)
-            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-small-icon-plan-stale",
-                "logical window identity changed after small-icon planning",
-            ));
-        }
-        self.validate_window_creation_references(&previous.creation)?;
-        self.validate_window_icon_reference(previous.small_icon)?;
-        self.validate_window_icon_reference(next.small_icon)
-    }
-
-    pub(super) fn commit_window_small_icon(
+    pub(super) fn set_window_title(
         &mut self,
-        plan: RuntimeWindowSmallIconPlan,
-    ) -> Result<u32, RuntimeStateError> {
-        self.preflight_window_small_icon(&plan)?;
-        match plan.disposition {
-            RuntimeWindowSmallIconDisposition::Unchanged {
-                previous_handle, ..
-            } => Ok(previous_handle),
-            RuntimeWindowSmallIconDisposition::Update {
-                next,
-                previous_handle,
-                next_generation,
-                ..
-            } => {
-                let next = *next;
-                self.generation = next_generation;
-                let replaced = self.windows.insert(next.id, next);
-                debug_assert!(replaced.is_some());
-                Ok(previous_handle)
-            }
-        }
-    }
-
-    pub(super) fn plan_window_title(
-        &self,
         window_handle: u32,
         owner_thread_id: RuntimeThreadId,
         title: RuntimeWindowNameA,
-    ) -> Result<RuntimeWindowTitlePlan, RuntimeStateError> {
-        let previous = self.window(window_handle)?.clone();
-        self.validate_created_window_owner(&previous, owner_thread_id)?;
-        title.windows_932_bytes()?;
-        let disposition = if previous.creation.name == title {
-            RuntimeWindowTitleDisposition::Unchanged { window: previous }
-        } else {
-            let mut next = previous.clone();
-            next.creation.name = title;
-            RuntimeWindowTitleDisposition::Update {
-                previous,
-                next: Box::new(next),
-                next_generation: self.next_generation()?,
-            }
-        };
-        Ok(RuntimeWindowTitlePlan {
-            expected_generation: self.generation,
-            disposition,
-        })
-    }
-
-    pub(super) fn preflight_window_title(
-        &self,
-        plan: &RuntimeWindowTitlePlan,
     ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-title-plan-stale",
-                "User32 state changed after logical window-title planning",
-            ));
-        }
-        let (previous, next) = match &plan.disposition {
-            RuntimeWindowTitleDisposition::Unchanged { window } => (window, window),
-            RuntimeWindowTitleDisposition::Update { previous, next, .. } => {
-                (previous, next.as_ref())
-            }
-        };
-        if self.windows.get(&previous.id) != Some(previous)
-            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-title-plan-stale",
-                "logical window identity or title changed after title planning",
-            ));
-        }
+        let previous = self.window(window_handle)?;
+        self.validate_created_window_owner(previous, owner_thread_id)?;
+        title.windows_932_bytes()?;
         self.validate_window_creation_references(&previous.creation)?;
-        self.validate_window_creation_references(&next.creation)
-    }
-
-    pub(super) fn commit_window_title(
-        &mut self,
-        plan: RuntimeWindowTitlePlan,
-    ) -> Result<RuntimeWindow, RuntimeStateError> {
-        self.preflight_window_title(&plan)?;
-        match plan.disposition {
-            RuntimeWindowTitleDisposition::Unchanged { window } => Ok(window),
-            RuntimeWindowTitleDisposition::Update {
-                next,
-                next_generation,
-                ..
-            } => {
-                let next = *next;
-                self.generation = next_generation;
-                let replaced = self.windows.insert(next.id, next.clone());
-                debug_assert!(replaced.is_some());
-                Ok(next)
-            }
+        if previous.creation.name == title {
+            return Ok(());
         }
+        let next_generation = self.next_generation()?;
+        let id = previous.id;
+        let window = self
+            .windows
+            .get_mut(&id)
+            .expect("validated window identity");
+        window.creation.name = title;
+        self.generation = next_generation;
+        Ok(())
     }
 
-    pub(super) fn plan_window_style_update(
-        &self,
+    pub(super) fn set_window_style(
+        &mut self,
         window_handle: u32,
         owner_thread_id: RuntimeThreadId,
-        requested_style: u32,
-        retained_style_mask: u32,
-    ) -> Result<RuntimeWindowStyleUpdatePlan, RuntimeStateError> {
-        let previous = self.window(window_handle)?.clone();
-        self.validate_created_window_owner(&previous, owner_thread_id)?;
+        effective_style: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        let previous = self.window(window_handle)?;
+        self.validate_created_window_owner(previous, owner_thread_id)?;
         self.validate_window_icon_reference(previous.small_icon)?;
-        let effective_style =
-            requested_style | (previous.creation.effective_style & retained_style_mask);
         let visible = effective_style & RUNTIME_WINDOW_STYLE_VISIBLE != 0;
-        let disposition = if effective_style == previous.creation.effective_style
-            && visible == previous.visible
-        {
-            RuntimeWindowStyleUpdateDisposition::Unchanged {
-                previous_effective_style: previous.creation.effective_style,
-                window: previous,
-            }
-        } else {
-            let mut next = previous.clone();
-            next.creation.effective_style = effective_style;
-            next.visible = visible;
-            RuntimeWindowStyleUpdateDisposition::Update {
-                previous_effective_style: previous.creation.effective_style,
-                previous,
-                next: Box::new(next),
-                next_generation: self.next_generation()?,
-            }
-        };
-        Ok(RuntimeWindowStyleUpdatePlan {
-            expected_generation: self.generation,
-            disposition,
-        })
+        let previous_style = previous.creation.effective_style;
+        if effective_style != previous_style || visible != previous.visible {
+            let id = previous.id;
+            let next_generation = self.next_generation()?;
+            let window = self
+                .windows
+                .get_mut(&id)
+                .expect("validated window disappeared");
+            window.creation.effective_style = effective_style;
+            window.visible = visible;
+            self.generation = next_generation;
+        }
+        Ok(previous_style)
     }
 
-    pub(super) fn preflight_window_style_update(
-        &self,
-        plan: &RuntimeWindowStyleUpdatePlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-style-plan-stale",
-                "User32 state changed after logical window style planning",
-            ));
-        }
-        let (previous, next) = match &plan.disposition {
-            RuntimeWindowStyleUpdateDisposition::Unchanged { window, .. } => (window, window),
-            RuntimeWindowStyleUpdateDisposition::Update { previous, next, .. } => {
-                (previous, next.as_ref())
-            }
-        };
-        if self.windows.get(&previous.id) != Some(previous)
-            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
-            || (next.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE != 0) != next.visible
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-style-plan-stale",
-                "logical window identity or style changed after style planning",
-            ));
-        }
-        self.validate_window_creation_references(&previous.creation)?;
-        self.validate_window_creation_references(&next.creation)?;
-        self.validate_window_icon_reference(previous.small_icon)?;
-        self.validate_window_icon_reference(next.small_icon)
-    }
-
-    pub(super) fn commit_window_style_update(
+    pub(super) fn set_window_file_drop_acceptance(
         &mut self,
-        plan: RuntimeWindowStyleUpdatePlan,
-    ) -> Result<RuntimeSetWindowStyleResult, RuntimeStateError> {
-        self.preflight_window_style_update(&plan)?;
-        match plan.disposition {
-            RuntimeWindowStyleUpdateDisposition::Unchanged {
-                window,
-                previous_effective_style,
-            } => Ok(RuntimeSetWindowStyleResult {
-                previous_effective_style,
-                effective_style: window.creation.effective_style,
-                visible: window.visible,
-                changed: false,
-            }),
-            RuntimeWindowStyleUpdateDisposition::Update {
-                next,
-                previous_effective_style,
-                next_generation,
-                ..
-            } => {
-                let next = *next;
-                let result = RuntimeSetWindowStyleResult {
-                    previous_effective_style,
-                    effective_style: next.creation.effective_style,
-                    visible: next.visible,
-                    changed: true,
-                };
-                self.generation = next_generation;
-                let replaced = self.windows.insert(next.id, next);
-                debug_assert!(replaced.is_some());
-                Ok(result)
-            }
-        }
-    }
-
-    pub(super) fn plan_window_file_drop_acceptance(
-        &self,
         window_handle: u32,
         accepts_files: bool,
-    ) -> Result<RuntimeWindowFileDropAcceptancePlan, RuntimeStateError> {
-        let previous = self.window(window_handle)?.clone();
+    ) -> Result<(), RuntimeStateError> {
+        let previous = self.window(window_handle)?;
         if previous.lifecycle != RuntimeWindowLifecycle::Created {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-file-drop-lifecycle-state-invalid",
+            return Err(RuntimeStateError::new(
                 "logical file-drop acceptance requires a created window",
             ));
         }
@@ -3284,110 +1713,19 @@ impl RuntimeUser32 {
         let previous_accepts_files = previous.creation.effective_extended_style
             & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
             != 0;
-        let disposition = if previous_accepts_files == accepts_files {
-            RuntimeWindowFileDropAcceptanceDisposition::Unchanged {
-                window: previous,
-                accepts_files,
-            }
+        if previous_accepts_files == accepts_files {
+            return Ok(());
+        }
+        let id = previous.id;
+        let generation = self.next_generation()?;
+        let window = self.windows.get_mut(&id).expect("validated HWND");
+        if accepts_files {
+            window.creation.effective_extended_style |= RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES;
         } else {
-            let mut next = previous.clone();
-            if accepts_files {
-                next.creation.effective_extended_style |=
-                    RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES;
-            } else {
-                next.creation.effective_extended_style &=
-                    !RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES;
-            }
-            RuntimeWindowFileDropAcceptanceDisposition::Update {
-                previous,
-                next: Box::new(next),
-                previous_accepts_files,
-                next_generation: self.next_generation()?,
-            }
-        };
-        Ok(RuntimeWindowFileDropAcceptancePlan {
-            expected_generation: self.generation,
-            disposition,
-        })
-    }
-
-    pub(super) fn preflight_window_file_drop_acceptance(
-        &self,
-        plan: &RuntimeWindowFileDropAcceptancePlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-file-drop-plan-stale",
-                "User32 state changed after logical file-drop acceptance planning",
-            ));
+            window.creation.effective_extended_style &= !RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES;
         }
-        let (previous, next, accepts_files) = match &plan.disposition {
-            RuntimeWindowFileDropAcceptanceDisposition::Unchanged {
-                window,
-                accepts_files,
-            } => (window, window, *accepts_files),
-            RuntimeWindowFileDropAcceptanceDisposition::Update { previous, next, .. } => (
-                previous,
-                next.as_ref(),
-                next.creation.effective_extended_style & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
-                    != 0,
-            ),
-        };
-        if self.windows.get(&previous.id) != Some(previous)
-            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
-            || next.lifecycle != RuntimeWindowLifecycle::Created
-            || (next.creation.effective_extended_style & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
-                != 0)
-                != accepts_files
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-file-drop-plan-stale",
-                "logical window identity or file-drop acceptance changed after planning",
-            ));
-        }
-        validate_window_creation_request(&next.creation)?;
-        self.validate_window_creation_references(&previous.creation)?;
-        self.validate_window_creation_references(&next.creation)?;
-        self.validate_window_icon_reference(previous.small_icon)?;
-        self.validate_window_icon_reference(next.small_icon)
-    }
-
-    pub(super) fn commit_window_file_drop_acceptance(
-        &mut self,
-        plan: RuntimeWindowFileDropAcceptancePlan,
-    ) -> Result<RuntimeWindowFileDropAcceptanceResult, RuntimeStateError> {
-        self.preflight_window_file_drop_acceptance(&plan)?;
-        match plan.disposition {
-            RuntimeWindowFileDropAcceptanceDisposition::Unchanged { accepts_files, .. } => {
-                Ok(RuntimeWindowFileDropAcceptanceResult {
-                    previous_accepts_files: accepts_files,
-                    accepts_files,
-                    changed: false,
-                })
-            }
-            RuntimeWindowFileDropAcceptanceDisposition::Update {
-                next,
-                previous_accepts_files,
-                next_generation,
-                ..
-            } => {
-                let next = *next;
-                let accepts_files = next.creation.effective_extended_style
-                    & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
-                    != 0;
-                let result = RuntimeWindowFileDropAcceptanceResult {
-                    previous_accepts_files,
-                    accepts_files,
-                    changed: true,
-                };
-                self.generation = next_generation;
-                let replaced = self.windows.insert(next.id, next);
-                debug_assert!(replaced.is_some());
-                Ok(result)
-            }
-        }
+        self.generation = generation;
+        Ok(())
     }
 
     pub(super) fn preview_set_window_pos(
@@ -3406,9 +1744,7 @@ impl RuntimeUser32 {
                 && (request.frame_change_nccalc_window_pos_flags == 0
                     || request.frame_change_changed_flags == 0))
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "set-window-pos-callback-flags-invalid",
+            return Err(RuntimeStateError::new(
                 "logical window positioning requires nonzero callback flags",
             ));
         }
@@ -3452,9 +1788,7 @@ impl RuntimeUser32 {
                     || request.next_geometry == window.creation.geometry
                     || small_icon_handle == 0 =>
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-show-state-invalid",
+                return Err(RuntimeStateError::new(
                     "initial logical window show requires a hidden non-topmost window, moved geometry, and a live small icon",
                 ));
             }
@@ -3465,9 +1799,7 @@ impl RuntimeUser32 {
                     || request.next_topmost
                     || request.next_geometry != window.creation.geometry =>
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-hide-state-invalid",
+                return Err(RuntimeStateError::new(
                     "initial logical window hide requires a visible non-topmost window with unchanged geometry",
                 ));
             }
@@ -3482,9 +1814,7 @@ impl RuntimeUser32 {
                     || self.focused_windows.contains_key(&owner_thread_id)
                     || self.foreground_window.is_some() =>
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-activation-state-invalid",
+                return Err(RuntimeStateError::new(
                     "same-geometry activation requires one visible inactive owner-thread window and no imported foreground identity",
                 ));
             }
@@ -3497,9 +1827,7 @@ impl RuntimeUser32 {
                     || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
                     || !repeat_activation =>
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-repeat-activation-state-invalid",
+                return Err(RuntimeStateError::new(
                     "repeat activation requires the visible active, focused, foreground owner-thread window with unchanged geometry",
                 ));
             }
@@ -3514,9 +1842,7 @@ impl RuntimeUser32 {
                     || self.focused_windows.get(&owner_thread_id).copied() != Some(window.id)
                     || self.foreground_window != Some(window.id) =>
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-resize-state-invalid",
+                return Err(RuntimeStateError::new(
                     "logical resize requires one visible active, focused, foreground owner-thread window and changed bounded geometry",
                 ));
             }
@@ -3531,9 +1857,7 @@ impl RuntimeUser32 {
                     || self.focused_windows.get(&owner_thread_id).copied() != Some(window.id)
                     || self.foreground_window != Some(window.id) =>
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-frame-change-move-state-invalid",
+                return Err(RuntimeStateError::new(
                     "frame-change move requires one visible active, focused, foreground owner-thread window and changed bounded position",
                 ));
             }
@@ -3567,12 +1891,12 @@ impl RuntimeUser32 {
         })
     }
 
-    pub(super) fn plan_set_window_pos_callback(
+    pub(super) fn checked_set_window_pos_callback(
         &self,
         operation: RuntimeSetWindowPosOperation,
         message: RuntimeSetWindowPosCallbackMessage,
         result: u32,
-    ) -> Result<RuntimeSetWindowPosCallbackPlan, RuntimeStateError> {
+    ) -> Result<RuntimeSetWindowPosCallbackDisposition, RuntimeStateError> {
         let previous = self
             .validate_set_window_pos_operation(operation, message)?
             .clone();
@@ -3582,14 +1906,11 @@ impl RuntimeUser32 {
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
             ) => {
                 if result != 0 {
-                    return Err(RuntimeStateError::invalid_input(
-                        "runtime-user32",
-                        "set-window-pos-window-procedure-result-invalid",
+                    return Err(RuntimeStateError::new(
                         "initial window-position callback must return the observed zero result",
                     ));
                 }
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
                         operation,
@@ -3602,9 +1923,7 @@ impl RuntimeUser32 {
                 RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
             ) => {
                 if result != operation.small_icon_handle {
-                    return Err(RuntimeStateError::invalid_input(
-                        "runtime-user32",
-                        "set-window-pos-small-icon-result-mismatch",
+                    return Err(RuntimeStateError::new(
                         "WM_GETICON callback did not return the window's live small-icon identity",
                     ));
                 }
@@ -3615,25 +1934,19 @@ impl RuntimeUser32 {
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
             ) => {
                 if result != 0 {
-                    return Err(RuntimeStateError::invalid_input(
-                        "runtime-user32",
-                        "set-window-pos-window-procedure-result-invalid",
+                    return Err(RuntimeStateError::new(
                         "initial hide callback must return the observed zero result",
                     ));
                 }
                 self.window_position_update_disposition(previous, operation)?
             }
             (RuntimeSetWindowPosVariant::InitialHide, _) => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "set-window-pos-callback-order-mismatch",
+                return Err(RuntimeStateError::new(
                     "initial hide received an out-of-order logical window callback",
                 ));
             }
             (RuntimeSetWindowPosVariant::InitialShow, _) => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "set-window-pos-callback-order-mismatch",
+                return Err(RuntimeStateError::new(
                     "initial show received an out-of-order logical window callback",
                 ));
             }
@@ -3646,7 +1959,8 @@ impl RuntimeUser32 {
                 let mut next_operation = operation;
                 next_operation.expected_generation = next_generation;
                 RuntimeSetWindowPosCallbackDisposition::Activate {
-                    previous: previous.clone(),
+                    window_id: previous.id,
+                    owner_thread_id: previous.creation.owner_thread_id,
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
                         operation: next_operation,
@@ -3662,7 +1976,6 @@ impl RuntimeUser32 {
             ) => {
                 require_set_window_pos_callback_result(result, 0, "activation WINDOWPOS")?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
                         operation,
@@ -3676,7 +1989,6 @@ impl RuntimeUser32 {
             ) => {
                 require_set_window_pos_callback_result(result, 0, "WM_ACTIVATEAPP")?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
                         operation,
@@ -3688,9 +2000,9 @@ impl RuntimeUser32 {
                 RuntimeSetWindowPosVariant::ActivateSameGeometry,
                 RuntimeSetWindowPosCallbackMessage::NonClientActivate,
             ) => {
-                require_set_window_pos_callback_result(result, 1, "WM_NCACTIVATE")?;
+                // The notification activates the nonclient area (wParam = TRUE);
+                // Windows ignores its return value.
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
                         operation,
@@ -3704,14 +2016,11 @@ impl RuntimeUser32 {
             ) => {
                 require_set_window_pos_callback_result(result, 0, "WM_ACTIVATE")?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
                 }
             }
             (RuntimeSetWindowPosVariant::ActivateSameGeometry, _) => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "set-window-pos-callback-order-mismatch",
+                return Err(RuntimeStateError::new(
                     "same-geometry activation received an out-of-order logical window callback",
                 ));
             }
@@ -3721,14 +2030,11 @@ impl RuntimeUser32 {
             ) => {
                 require_set_window_pos_callback_result(result, 0, "repeat activation WINDOWPOS")?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
                 }
             }
             (RuntimeSetWindowPosVariant::RepeatActivation, _) => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "set-window-pos-callback-order-mismatch",
+                return Err(RuntimeStateError::new(
                     "repeat activation received an out-of-order logical window callback",
                 ));
             }
@@ -3738,7 +2044,6 @@ impl RuntimeUser32 {
             ) => {
                 require_set_window_pos_callback_result(result, 0, "resize WINDOWPOS")?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
                         operation,
@@ -3756,7 +2061,6 @@ impl RuntimeUser32 {
             (RuntimeSetWindowPosVariant::Resize, RuntimeSetWindowPosCallbackMessage::Size) => {
                 require_set_window_pos_callback_result(result, 0, "WM_SIZE")?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
                         operation,
@@ -3770,14 +2074,11 @@ impl RuntimeUser32 {
             ) => {
                 require_set_window_pos_callback_result(result, 0, "resize WM_WINDOWPOSCHANGED")?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
                 }
             }
             (RuntimeSetWindowPosVariant::Resize, _) => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "set-window-pos-callback-order-mismatch",
+                return Err(RuntimeStateError::new(
                     "logical resize received an out-of-order window callback",
                 ));
             }
@@ -3787,7 +2088,6 @@ impl RuntimeUser32 {
             ) => {
                 require_set_window_pos_callback_result(result, 0, "frame-change move WINDOWPOS")?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
                         operation,
@@ -3816,124 +2116,67 @@ impl RuntimeUser32 {
                     "frame-change WM_WINDOWPOSCHANGED",
                 )?;
                 RuntimeSetWindowPosCallbackDisposition::Validate {
-                    window: previous.clone(),
                     action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
                 }
             }
             (RuntimeSetWindowPosVariant::FrameChangeMove, _) => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-user32",
-                    "set-window-pos-callback-order-mismatch",
+                return Err(RuntimeStateError::new(
                     "frame-change move received an out-of-order window callback",
                 ));
             }
         };
-        Ok(RuntimeSetWindowPosCallbackPlan {
-            expected_generation: self.generation,
-            disposition,
+        Ok(disposition)
+    }
+
+    pub(super) fn preview_set_window_pos_callback(
+        &self,
+        operation: RuntimeSetWindowPosOperation,
+        message: RuntimeSetWindowPosCallbackMessage,
+        result: u32,
+    ) -> Result<RuntimeSetWindowPosCallbackAction, RuntimeStateError> {
+        let disposition = self.checked_set_window_pos_callback(operation, message, result)?;
+        Ok(match disposition {
+            RuntimeSetWindowPosCallbackDisposition::Validate { action }
+            | RuntimeSetWindowPosCallbackDisposition::Update { action, .. }
+            | RuntimeSetWindowPosCallbackDisposition::Activate { action, .. } => action,
         })
     }
 
-    pub(super) fn set_window_pos_callback_action<'a>(
-        &self,
-        plan: &'a RuntimeSetWindowPosCallbackPlan,
-    ) -> &'a RuntimeSetWindowPosCallbackAction {
-        match &plan.disposition {
-            RuntimeSetWindowPosCallbackDisposition::Validate { action, .. }
-            | RuntimeSetWindowPosCallbackDisposition::Update { action, .. }
-            | RuntimeSetWindowPosCallbackDisposition::Activate { action, .. } => action,
-        }
-    }
-
-    pub(super) fn preflight_set_window_pos_callback(
-        &self,
-        plan: &RuntimeSetWindowPosCallbackPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-callback-plan-stale",
-                "User32 state changed after window-position callback planning",
-            ));
-        }
-        let previous = match &plan.disposition {
-            RuntimeSetWindowPosCallbackDisposition::Validate { window, .. } => window,
-            RuntimeSetWindowPosCallbackDisposition::Update { previous, .. } => previous,
-            RuntimeSetWindowPosCallbackDisposition::Activate { previous, .. } => previous,
-        };
-        if self.windows.get(&previous.id) != Some(previous)
-            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-callback-plan-stale",
-                "logical window state changed after position callback planning",
-            ));
-        }
-        self.validate_window_creation_references(&previous.creation)?;
-        self.validate_window_icon_reference(previous.small_icon)?;
-        if matches!(
-            &plan.disposition,
-            RuntimeSetWindowPosCallbackDisposition::Activate { .. }
-        ) && (self
-            .active_windows
-            .contains_key(&previous.creation.owner_thread_id)
-            || self
-                .focused_windows
-                .contains_key(&previous.creation.owner_thread_id)
-            || self.foreground_window.is_some())
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-callback-plan-stale",
-                "logical activation relations changed after callback planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_set_window_pos_callback(
+    #[cfg(test)]
+    fn complete_set_window_pos_callback(
         &mut self,
-        plan: RuntimeSetWindowPosCallbackPlan,
+        operation: RuntimeSetWindowPosOperation,
+        message: RuntimeSetWindowPosCallbackMessage,
+        result: u32,
     ) -> Result<RuntimeSetWindowPosCallbackAction, RuntimeStateError> {
-        self.preflight_set_window_pos_callback(&plan)?;
-        Ok(self.commit_preflighted_set_window_pos_callback(plan))
+        let disposition = self.checked_set_window_pos_callback(operation, message, result)?;
+        Ok(self.publish_set_window_pos_callback(disposition))
     }
 
-    pub(super) fn commit_preflighted_set_window_pos_callback(
+    pub(super) fn publish_set_window_pos_callback(
         &mut self,
-        plan: RuntimeSetWindowPosCallbackPlan,
+        disposition: RuntimeSetWindowPosCallbackDisposition,
     ) -> RuntimeSetWindowPosCallbackAction {
-        match plan.disposition {
-            RuntimeSetWindowPosCallbackDisposition::Validate { action, .. } => action,
+        match disposition {
+            RuntimeSetWindowPosCallbackDisposition::Validate { action } => action,
             RuntimeSetWindowPosCallbackDisposition::Update {
                 next,
                 action,
                 next_generation,
-                ..
             } => {
                 let next = *next;
                 self.generation = next_generation;
-                let replaced = self.windows.insert(next.id, next);
-                debug_assert!(replaced.is_some());
+                self.windows.insert(next.id, next);
                 action
             }
             RuntimeSetWindowPosCallbackDisposition::Activate {
-                previous,
+                window_id,
+                owner_thread_id,
                 action,
                 next_generation,
-                ..
             } => {
-                let replaced = self
-                    .active_windows
-                    .insert(previous.creation.owner_thread_id, previous.id);
-                debug_assert!(replaced.is_none());
-                debug_assert!(
-                    !self
-                        .focused_windows
-                        .contains_key(&previous.creation.owner_thread_id)
-                );
-                self.foreground_window = Some(previous.id);
+                self.active_windows.insert(owner_thread_id, window_id);
+                self.foreground_window = Some(window_id);
                 self.generation = next_generation;
                 action
             }
@@ -3943,10 +2186,11 @@ impl RuntimeUser32 {
     pub(super) fn preview_update_window(
         &self,
         owner_thread_id: RuntimeThreadId,
-        request: RuntimeUpdateWindowRequest,
+        window_handle: u32,
+        entry_last_error: u32,
     ) -> Result<RuntimeUpdateWindowOperation, RuntimeStateError> {
-        self.resolve_window_procedure(request.window_handle, owner_thread_id)?;
-        let window = self.window(request.window_handle)?;
+        self.resolve_window_procedure(window_handle, owner_thread_id)?;
+        let window = self.window(window_handle)?;
         self.validate_window_icon_reference(window.small_icon)?;
         let expected_update_rect = full_client_update_rect(window.creation.geometry)?;
         let target = Some(window.id);
@@ -3959,9 +2203,7 @@ impl RuntimeUser32 {
             || self.focused_windows.get(&owner_thread_id).copied() != target
             || self.foreground_window != target
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "update-window-state-invalid",
+            return Err(RuntimeStateError::new(
                 "synchronous paint requires the visible active, focused, foreground owner-thread window with one full-client update region",
             ));
         }
@@ -3969,55 +2211,23 @@ impl RuntimeUser32 {
             window_id: window.id,
             window_handle: window.handle,
             owner_thread_id,
-            expected_generation: self.generation,
             expected_paint_generation: window.paint_generation,
             update_rect: expected_update_rect,
-            entry_last_error: request.entry_last_error,
-            expected_callback_result: request.expected_callback_result,
+            entry_last_error,
         })
     }
 
-    pub(super) fn plan_update_window_callback(
+    pub(super) fn validate_update_window_callback(
         &self,
         operation: RuntimeUpdateWindowOperation,
-        result: u32,
-    ) -> Result<RuntimeUpdateWindowCallbackPlan, RuntimeStateError> {
-        if result != operation.expected_callback_result {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "update-window-callback-result-invalid",
-                "WM_PAINT callback did not return the observed bounded result",
-            ));
-        }
-        let expected_generation =
-            operation
-                .expected_generation
-                .checked_add(2)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-user32",
-                        "update-window-generation-overflow",
-                        "synchronous paint generation overflowed runtime accounting",
-                    )
-                })?;
-        if self.generation != expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "update-window-operation-stale",
-                "User32 state did not contain exactly one BeginPaint and EndPaint transition",
-            ));
-        }
-        let window = self.window_by_id(operation.window_id)?.clone();
+    ) -> Result<(), RuntimeStateError> {
+        let window = self.window_by_id(operation.window_id)?;
         let target = Some(window.id);
         let expected_paint_generation = operation
             .expected_paint_generation
             .checked_add(1)
             .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-user32",
-                    "window-paint-generation-overflow",
-                    "logical window paint generation is exhausted",
-                )
+                RuntimeStateError::new("logical window paint generation is exhausted")
             })?;
         if window.handle != operation.window_handle
             || window.creation.owner_thread_id != operation.owner_thread_id
@@ -4036,303 +2246,119 @@ impl RuntimeUser32 {
                 != target
             || self.foreground_window != target
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "update-window-operation-stale",
+            return Err(RuntimeStateError::new(
                 "logical window did not complete the expected full-client paint cycle",
             ));
         }
-        self.validate_created_window_owner(&window, operation.owner_thread_id)?;
+        self.validate_created_window_owner(window, operation.owner_thread_id)?;
         self.validate_window_icon_reference(window.small_icon)?;
-        let action = RuntimeUpdateWindowCallbackAction::Completed {
-            window: window.clone(),
-        };
-        Ok(RuntimeUpdateWindowCallbackPlan {
-            expected_generation: self.generation,
-            disposition: RuntimeUpdateWindowCallbackDisposition::Validate { window, action },
-        })
-    }
-
-    pub(super) fn update_window_callback_action<'a>(
-        &self,
-        plan: &'a RuntimeUpdateWindowCallbackPlan,
-    ) -> &'a RuntimeUpdateWindowCallbackAction {
-        match &plan.disposition {
-            RuntimeUpdateWindowCallbackDisposition::Validate { action, .. } => action,
-        }
-    }
-
-    pub(super) fn preflight_update_window_callback(
-        &self,
-        plan: &RuntimeUpdateWindowCallbackPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "update-window-callback-plan-stale",
-                "User32 state changed after WM_PAINT completion planning",
-            ));
-        }
-        let RuntimeUpdateWindowCallbackDisposition::Validate { window, .. } = &plan.disposition;
-        if self.windows.get(&window.id) != Some(window)
-            || self.window_handle_index.get(&window.handle) != Some(&window.id)
-            || window.pending_update_rect.is_some()
-            || self.paint_sessions.contains_key(&window.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "update-window-callback-plan-stale",
-                "logical window state changed after WM_PAINT completion planning",
-            ));
-        }
-        self.validate_created_window_owner(window, window.creation.owner_thread_id)?;
         self.validate_window_creation_references(&window.creation)?;
-        self.validate_window_icon_reference(window.small_icon)
+        Ok(())
     }
 
-    pub(super) fn commit_update_window_callback(
-        &mut self,
-        plan: RuntimeUpdateWindowCallbackPlan,
-    ) -> Result<RuntimeUpdateWindowCallbackAction, RuntimeStateError> {
-        self.preflight_update_window_callback(&plan)?;
-        let RuntimeUpdateWindowCallbackDisposition::Validate { action, .. } = plan.disposition;
-        Ok(action)
-    }
-
-    pub(super) fn plan_begin_paint(
+    pub(super) fn validate_begin_paint(
         &self,
         owner_thread_id: RuntimeThreadId,
-        request: RuntimeBeginPaintRequest,
+        window_handle: u32,
+        paint_struct_address: GuestAddress,
         device_context_id: RuntimeDeviceContextId,
         device_context_handle: u32,
-    ) -> Result<RuntimeBeginPaintPlan, RuntimeStateError> {
-        if request.paint_struct_address.0 == 0
-            || device_context_id.0 == 0
-            || device_context_handle == 0
-            || !request.erase
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "begin-paint-request-invalid",
+    ) -> Result<RuntimePaintSession, RuntimeStateError> {
+        if paint_struct_address.0 == 0 || device_context_id.0 == 0 || device_context_handle == 0 {
+            return Err(RuntimeStateError::new(
                 "BeginPaint requires the reached non-NULL PAINTSTRUCT, logical HDC, and erase-pending variant",
             ));
         }
-        let previous = self.window(request.window_handle)?.clone();
-        self.validate_created_window_owner(&previous, owner_thread_id)?;
-        self.validate_window_icon_reference(previous.small_icon)?;
-        let update_rect = full_client_update_rect(previous.creation.geometry)?;
-        let target = Some(previous.id);
-        if previous.pending_update_rect != Some(update_rect)
-            || self.paint_sessions.contains_key(&previous.id)
-            || !previous.visible
-            || previous.topmost
-            || previous.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+        let window = self.window(window_handle)?;
+        self.validate_created_window_owner(window, owner_thread_id)?;
+        self.validate_window_creation_references(&window.creation)?;
+        self.validate_window_icon_reference(window.small_icon)?;
+        let update_rect = full_client_update_rect(window.creation.geometry)?;
+        let target = Some(window.id);
+        if window.pending_update_rect != Some(update_rect)
+            || self.paint_sessions.contains_key(&window.id)
+            || !window.visible
+            || window.topmost
+            || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
             || self.active_windows.get(&owner_thread_id).copied() != target
             || self.focused_windows.get(&owner_thread_id).copied() != target
             || self.foreground_window != target
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "begin-paint-state-invalid",
+            return Err(RuntimeStateError::new(
                 "BeginPaint requires one visible active owner-thread window with a full-client update region and no live paint session",
             ));
         }
-        let paint_generation = previous.paint_generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "window-paint-generation-exhausted",
-                "logical window paint generation is exhausted",
-            )
+        let paint_generation = window.paint_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::new("logical window paint generation is exhausted")
         })?;
-        let paint_struct_bytes =
-            x86_paint_struct_bytes(device_context_handle, request.erase, update_rect);
+        let paint_struct_bytes = x86_paint_struct_bytes(device_context_handle, true, update_rect);
         let session = RuntimePaintSession {
-            window_id: previous.id,
-            window_handle: previous.handle,
+            window_id: window.id,
+            window_handle: window.handle,
             owner_thread_id,
             paint_generation,
             update_rect,
             device_context_id,
             device_context_handle,
-            paint_struct_address: request.paint_struct_address,
+            paint_struct_address,
             paint_struct_bytes,
         };
-        let mut next = previous.clone();
-        next.pending_update_rect = None;
-        Ok(RuntimeBeginPaintPlan {
-            expected_generation: self.generation,
-            disposition: RuntimeBeginPaintDisposition::Begin {
-                previous,
-                next: Box::new(next),
-                session,
-                next_generation: self.next_generation()?,
-            },
-        })
+        self.next_generation()?;
+        Ok(session)
     }
 
-    pub(super) fn preflight_begin_paint(
-        &self,
-        plan: &RuntimeBeginPaintPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "begin-paint-plan-stale",
-                "User32 state changed after BeginPaint planning",
-            ));
-        }
-        let RuntimeBeginPaintDisposition::Begin {
-            previous,
-            next,
-            session,
-            ..
-        } = &plan.disposition;
-        if self.windows.get(&previous.id) != Some(previous)
-            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
-            || self.paint_sessions.contains_key(&previous.id)
-            || next.id != previous.id
-            || next.handle != previous.handle
-            || next.pending_update_rect.is_some()
-            || next.paint_generation != previous.paint_generation
-            || session.window_id != previous.id
-            || session.window_handle != previous.handle
-            || session.owner_thread_id != previous.creation.owner_thread_id
-            || previous.paint_generation.checked_add(1) != Some(session.paint_generation)
-            || previous.pending_update_rect != Some(session.update_rect)
-            || session.paint_struct_bytes
-                != x86_paint_struct_bytes(session.device_context_handle, true, session.update_rect)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "begin-paint-plan-stale",
-                "logical window, update region, or paint-session identity changed after BeginPaint planning",
-            ));
-        }
-        self.validate_created_window_owner(previous, session.owner_thread_id)?;
-        self.validate_window_creation_references(&next.creation)?;
-        self.validate_window_icon_reference(next.small_icon)
+    // GDI identity and guest PAINTSTRUCT output are checked before publication.
+    pub(super) fn finish_begin_paint(&mut self, session: RuntimePaintSession) {
+        let window = self
+            .windows
+            .get_mut(&session.window_id)
+            .expect("validated paint window");
+        window.pending_update_rect = None;
+        self.paint_sessions.insert(session.window_id, session);
+        self.generation += 1;
     }
 
-    pub(super) fn commit_preflighted_begin_paint(
-        &mut self,
-        plan: RuntimeBeginPaintPlan,
-    ) -> RuntimePaintSession {
-        debug_assert!(self.preflight_begin_paint(&plan).is_ok());
-        let RuntimeBeginPaintDisposition::Begin {
-            next,
-            session,
-            next_generation,
-            ..
-        } = plan.disposition;
-        let next = *next;
-        self.generation = next_generation;
-        let replaced = self.windows.insert(next.id, next);
-        let previous_session = self
-            .paint_sessions
-            .insert(session.window_id, session.clone());
-        debug_assert!(replaced.is_some());
-        debug_assert!(previous_session.is_none());
-        session
-    }
-
-    pub(super) fn plan_end_paint(
+    pub(super) fn validate_end_paint(
         &self,
         owner_thread_id: RuntimeThreadId,
-        request: RuntimeEndPaintRequest,
-    ) -> Result<RuntimeEndPaintPlan, RuntimeStateError> {
-        let previous = self.window(request.window_handle)?.clone();
-        self.validate_created_window_owner(&previous, owner_thread_id)?;
-        let session = self
-            .paint_sessions
-            .get(&previous.id)
-            .cloned()
-            .ok_or_else(|| {
-                RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "paint-session-missing",
-                    "EndPaint requires a live BeginPaint session for the exact logical window",
-                )
-            })?;
-        if session.window_handle != request.window_handle
+        window_handle: u32,
+        paint_struct_address: GuestAddress,
+        paint_struct_bytes: &[u8],
+    ) -> Result<&RuntimePaintSession, RuntimeStateError> {
+        let window = self.window(window_handle)?;
+        self.validate_created_window_owner(window, owner_thread_id)?;
+        let session = self.paint_sessions.get(&window.id).ok_or_else(|| {
+            RuntimeStateError::new(
+                "EndPaint requires a live BeginPaint session for the exact logical window",
+            )
+        })?;
+        if session.window_handle != window_handle
             || session.owner_thread_id != owner_thread_id
-            || session.paint_struct_address != request.paint_struct_address
-            || session.paint_struct_bytes != request.paint_struct_bytes
-            || previous.pending_update_rect.is_some()
-            || previous.paint_generation.checked_add(1) != Some(session.paint_generation)
+            || session.paint_struct_address != paint_struct_address
+            || session.paint_struct_bytes != paint_struct_bytes
+            || window.pending_update_rect.is_some()
+            || window.paint_generation.checked_add(1) != Some(session.paint_generation)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "paint-session-relation-mismatch",
+            return Err(RuntimeStateError::new(
                 "EndPaint requires the exact HWND, PAINTSTRUCT bytes, owner thread, and active paint generation",
             ));
         }
-        let mut next = previous.clone();
-        next.paint_generation = session.paint_generation;
-        Ok(RuntimeEndPaintPlan {
-            expected_generation: self.generation,
-            disposition: RuntimeEndPaintDisposition::End {
-                previous,
-                next: Box::new(next),
-                session,
-                next_generation: self.next_generation()?,
-            },
-        })
+        self.validate_window_creation_references(&window.creation)?;
+        self.validate_window_icon_reference(window.small_icon)?;
+        self.next_generation()?;
+        Ok(session)
     }
 
-    pub(super) fn preflight_end_paint(
-        &self,
-        plan: &RuntimeEndPaintPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "end-paint-plan-stale",
-                "User32 state changed after EndPaint planning",
-            ));
-        }
-        let RuntimeEndPaintDisposition::End {
-            previous,
-            next,
-            session,
-            ..
-        } = &plan.disposition;
-        if self.windows.get(&previous.id) != Some(previous)
-            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
-            || self.paint_sessions.get(&previous.id) != Some(session)
-            || next.id != previous.id
-            || next.handle != previous.handle
-            || next.pending_update_rect.is_some()
-            || next.paint_generation != session.paint_generation
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "end-paint-plan-stale",
-                "logical window or paint-session identity changed after EndPaint planning",
-            ));
-        }
-        self.validate_created_window_owner(previous, session.owner_thread_id)?;
-        self.validate_window_creation_references(&next.creation)?;
-        self.validate_window_icon_reference(next.small_icon)
-    }
-
-    pub(super) fn commit_preflighted_end_paint(
-        &mut self,
-        plan: RuntimeEndPaintPlan,
-    ) -> RuntimePaintSession {
-        debug_assert!(self.preflight_end_paint(&plan).is_ok());
-        let RuntimeEndPaintDisposition::End {
-            next,
-            session,
-            next_generation,
-            ..
-        } = plan.disposition;
-        let next = *next;
-        self.generation = next_generation;
-        let replaced = self.windows.insert(next.id, next);
-        let removed = self.paint_sessions.remove(&session.window_id);
-        debug_assert!(replaced.is_some());
-        debug_assert_eq!(removed.as_ref(), Some(&session));
-        session
+    // Called only after both User32 and the owning GDI HDC pass validation;
+    // no callback or host operation can interleave with the GDI release.
+    pub(super) fn finish_end_paint(&mut self, window_id: RuntimeWindowId, paint_generation: u64) {
+        let window = self
+            .windows
+            .get_mut(&window_id)
+            .expect("validated paint window");
+        window.paint_generation = paint_generation;
+        self.paint_sessions.remove(&window_id);
+        self.generation += 1;
     }
 
     pub(super) fn require_non_paint_device_context(
@@ -4344,16 +2370,15 @@ impl RuntimeUser32 {
             session.device_context_id == device_context_id
                 || session.device_context_handle == device_context_handle
         }) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "paint-device-context-requires-end-paint",
+            return Err(RuntimeStateError::new(
                 "a BeginPaint HDC must be retired through the matching EndPaint session",
             ));
         }
         Ok(())
     }
 
-    pub fn paint_sessions(&self) -> &BTreeMap<RuntimeWindowId, RuntimePaintSession> {
+    #[cfg(test)]
+    pub(crate) fn paint_sessions(&self) -> &BTreeMap<RuntimeWindowId, RuntimePaintSession> {
         &self.paint_sessions
     }
 
@@ -4371,7 +2396,6 @@ impl RuntimeUser32 {
             action: RuntimeSetWindowPosCallbackAction::Completed {
                 window: next.clone(),
             },
-            previous,
             next: Box::new(next),
             next_generation: self.next_generation()?,
         })
@@ -4407,7 +2431,6 @@ impl RuntimeUser32 {
                 operation: next_operation,
                 next_message,
             },
-            previous,
             next: Box::new(next),
             next_generation,
         })
@@ -4426,9 +2449,7 @@ impl RuntimeUser32 {
             Some(operation.expected_generation)
         };
         if Some(self.generation) != expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-operation-stale",
+            return Err(RuntimeStateError::new(
                 "User32 state changed after window-position callback preparation",
             ));
         }
@@ -4475,9 +2496,7 @@ impl RuntimeUser32 {
             || operation.next_update_rect != derived_next_update_rect
             || window.small_icon.map_or(0, |icon| icon.handle) != operation.small_icon_handle
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-operation-stale",
+            return Err(RuntimeStateError::new(
                 "logical window state changed after window-position callback preparation",
             ));
         }
@@ -4498,9 +2517,7 @@ impl RuntimeUser32 {
                 || self.focused_windows.get(&owner_thread_id).copied() != expected_focused
                 || self.foreground_window != expected_foreground
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-activation-state-stale",
+                return Err(RuntimeStateError::new(
                     "logical active, focused, or foreground relation changed during window positioning",
                 ));
             }
@@ -4512,9 +2529,7 @@ impl RuntimeUser32 {
                 || self.focused_windows.get(&owner_thread_id).copied() != target
                 || self.foreground_window != target
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-repeat-activation-state-stale",
+                return Err(RuntimeStateError::new(
                     "logical active, focused, or foreground relation changed during repeat activation",
                 ));
             }
@@ -4529,9 +2544,7 @@ impl RuntimeUser32 {
                 || self.focused_windows.get(&owner_thread_id).copied() != target
                 || self.foreground_window != target
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-user32",
-                    "set-window-pos-geometry-state-stale",
+                return Err(RuntimeStateError::new(
                     "logical active, focused, or foreground relation changed during resize or frame-change move",
                 ));
             }
@@ -4539,82 +2552,41 @@ impl RuntimeUser32 {
         Ok(window)
     }
 
-    pub(super) fn plan_set_window_pos_focus(
+    pub(super) fn preview_set_window_pos_focus(
         &self,
         window_handle: u32,
         owner_thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeSetWindowPosFocusPlan, RuntimeStateError> {
+    ) -> Result<RuntimeSetWindowPosDefaultOperation, RuntimeStateError> {
         let window = self.window(window_handle)?.clone();
         self.validate_created_window_owner(&window, owner_thread_id)?;
         if self.active_windows.get(&owner_thread_id).copied() != Some(window.id)
             || self.focused_windows.contains_key(&owner_thread_id)
             || self.foreground_window != Some(window.id)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-focus-state-invalid",
+            return Err(RuntimeStateError::new(
                 "activation default processing requires the active foreground window without logical focus",
             ));
         }
-        let next_generation = self.next_generation()?;
-        Ok(RuntimeSetWindowPosFocusPlan {
-            expected_generation: self.generation,
-            previous_focused_window: None,
-            next_focused_window: window.id,
-            operation: RuntimeSetWindowPosDefaultOperation {
-                window_id: window.id,
-                window_handle: window.handle,
-                owner_thread_id,
-                expected_generation: next_generation,
-            },
-            window,
-            next_generation,
+        Ok(RuntimeSetWindowPosDefaultOperation {
+            window_id: window.id,
+            window_handle: window.handle,
+            owner_thread_id,
+            expected_generation: self.next_generation()?,
         })
     }
 
-    pub(super) fn set_window_pos_focus_operation(
-        &self,
-        plan: &RuntimeSetWindowPosFocusPlan,
-    ) -> RuntimeSetWindowPosDefaultOperation {
-        plan.operation
-    }
-
-    pub(super) fn preflight_set_window_pos_focus(
-        &self,
-        plan: &RuntimeSetWindowPosFocusPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.windows.get(&plan.window.id) != Some(&plan.window)
-            || self
-                .active_windows
-                .get(&plan.operation.owner_thread_id)
-                .copied()
-                != Some(plan.window.id)
-            || self
-                .focused_windows
-                .get(&plan.operation.owner_thread_id)
-                .copied()
-                != plan.previous_focused_window
-            || self.foreground_window != Some(plan.window.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-focus-plan-stale",
-                "logical activation state changed after focus planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_set_window_pos_focus(
+    pub(super) fn focus_set_window_pos_window(
         &mut self,
-        plan: RuntimeSetWindowPosFocusPlan,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
     ) -> Result<RuntimeSetWindowPosDefaultOperation, RuntimeStateError> {
-        self.preflight_set_window_pos_focus(&plan)?;
+        // Preflight of the callback frame is synchronous; no guest code or host
+        // operation can run between preview and this fresh owner validation.
+        let operation = self.preview_set_window_pos_focus(window_handle, owner_thread_id)?;
         self.focused_windows
-            .insert(plan.operation.owner_thread_id, plan.next_focused_window);
-        self.generation = plan.next_generation;
-        Ok(plan.operation)
+            .insert(owner_thread_id, operation.window_id);
+        self.generation = operation.expected_generation;
+        Ok(operation)
     }
 
     pub(super) fn set_window_pos_default_callback_action(
@@ -4643,9 +2615,7 @@ impl RuntimeUser32 {
         operation: RuntimeSetWindowPosDefaultOperation,
     ) -> Result<(), RuntimeStateError> {
         if self.generation != operation.expected_generation {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-default-operation-stale",
+            return Err(RuntimeStateError::new(
                 "User32 state changed during activation default processing",
             ));
         }
@@ -4660,9 +2630,7 @@ impl RuntimeUser32 {
                 != Some(window.id)
             || self.foreground_window != Some(window.id)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-window-pos-default-operation-stale",
+            return Err(RuntimeStateError::new(
                 "logical activation identity changed during default callback processing",
             ));
         }
@@ -4698,9 +2666,7 @@ impl RuntimeUser32 {
             || self.focused_windows.get(&owner_thread_id).copied() != Some(window.id)
             || self.foreground_window != Some(window.id)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "set-focus-current-window-relation-mismatch",
+            return Err(RuntimeStateError::new(
                 "bounded SetFocus requires the current-thread active, focused, foreground logical window",
             ));
         }
@@ -4722,16 +2688,12 @@ impl RuntimeUser32 {
         owner_thread_id: RuntimeThreadId,
     ) -> Result<(), RuntimeStateError> {
         if window.creation.owner_thread_id != owner_thread_id {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-message-owner-thread-mismatch",
+            return Err(RuntimeStateError::new(
                 "synchronous logical window messages require the selected owner thread",
             ));
         }
         if window.lifecycle != RuntimeWindowLifecycle::Created {
-            return Err(RuntimeStateError::conflict(
-                "runtime-user32",
-                "window-message-lifecycle-state-invalid",
+            return Err(RuntimeStateError::new(
                 "synchronous logical window messages require a created window",
             ));
         }
@@ -4744,15 +2706,12 @@ impl RuntimeUser32 {
     ) -> Result<(), RuntimeStateError> {
         if window.id.0 == 0
             || window.handle < RUNTIME_WINDOW_HANDLE_BASE
-            || window.namespace != LOGICAL_WINDOW_HANDLE_NAMESPACE
             || window.class_name != "IME"
             || self.ime_window_handle_index.get(&window.handle) != Some(&window.id)
             || self.window_handle_index.contains_key(&window.handle)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "ime-window-record-inconsistent",
-                "logical default IME window does not match its namespace or indexes",
+            return Err(RuntimeStateError::new(
+                "logical default IME window does not match its indexes",
             ));
         }
         Ok(())
@@ -4767,9 +2726,7 @@ impl RuntimeUser32 {
         };
         let icon = self.icon(reference.handle)?;
         if icon.id != reference.icon_id {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-icon-reference-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical window icon handle and icon identity do not match",
             ));
         }
@@ -4777,51 +2734,51 @@ impl RuntimeUser32 {
     }
 
     pub fn window_by_id(&self, id: RuntimeWindowId) -> Result<&RuntimeWindow, RuntimeStateError> {
-        let window = self.windows.get(&id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-user32",
-                "window-id-unknown",
-                "logical window ID is not live",
-            )
-        })?;
+        let window = self
+            .windows
+            .get(&id)
+            .ok_or_else(|| RuntimeStateError::new("logical window ID is not live"))?;
         if self.window_handle_index.get(&window.handle) != Some(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "window-handle-index-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical window ID does not match its HWND index",
             ));
         }
         Ok(window)
     }
 
-    pub fn windows(&self) -> &BTreeMap<RuntimeWindowId, RuntimeWindow> {
+    #[cfg(test)]
+    pub(crate) fn windows(&self) -> &BTreeMap<RuntimeWindowId, RuntimeWindow> {
         &self.windows
     }
 
-    pub fn system_menu(&self, handle: u32) -> Result<&RuntimeSystemMenu, RuntimeStateError> {
-        let id = self
-            .menu_handle_index
-            .get(&handle)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-user32",
-                    "menu-handle-unknown",
-                    format!("logical HMENU {handle:#010x} is not live"),
-                )
-            })?;
+    pub(super) fn system_menu_option(
+        &self,
+        handle: u32,
+    ) -> Result<Option<&RuntimeSystemMenu>, RuntimeStateError> {
+        let Some(id) = self.menu_handle_index.get(&handle).copied() else {
+            return Ok(None);
+        };
         let menu = self.system_menus.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "menu-handle-index-dangling",
-                "logical HMENU index does not resolve to a live menu",
-            )
+            RuntimeStateError::new("logical HMENU index does not resolve to a live menu")
         })?;
+        if menu.id != id || menu.handle != handle {
+            return Err(RuntimeStateError::new(
+                "logical HMENU index does not match its menu identity",
+            ));
+        }
         self.validate_system_menu_identity(menu)?;
-        Ok(menu)
+        Ok(Some(menu))
     }
 
-    pub fn system_menus(&self) -> &BTreeMap<RuntimeMenuId, RuntimeSystemMenu> {
+    #[cfg(test)]
+    pub(crate) fn system_menu(&self, handle: u32) -> Result<&RuntimeSystemMenu, RuntimeStateError> {
+        self.system_menu_option(handle)?.ok_or_else(|| {
+            RuntimeStateError::new(format!("logical HMENU {handle:#010x} is not live"))
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn system_menus(&self) -> &BTreeMap<RuntimeMenuId, RuntimeSystemMenu> {
         &self.system_menus
     }
 
@@ -4830,19 +2787,12 @@ impl RuntimeUser32 {
         menu: &RuntimeSystemMenu,
     ) -> Result<(), RuntimeStateError> {
         let owner_window = self.windows.get(&menu.owner_window_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "system-menu-owner-window-missing",
-                "logical system menu refers to a non-live owner window",
-            )
+            RuntimeStateError::new("logical system menu refers to a non-live owner window")
         })?;
         if menu.id.0 == 0
             || menu.handle < RUNTIME_MENU_HANDLE_BASE
-            || menu.namespace != LOGICAL_MENU_HANDLE_NAMESPACE
             || menu.close_item_command == 0
             || !menu.close_item_enabled
-            || menu.generation == 0
-            || menu.generation > self.menu_generation
             || owner_window.handle != menu.owner_window_handle
             || owner_window.lifecycle != RuntimeWindowLifecycle::Created
             || self.window_handle_index.get(&menu.owner_window_handle)
@@ -4850,48 +2800,17 @@ impl RuntimeUser32 {
             || self.system_menu_window_index.get(&menu.owner_window_id) != Some(&menu.id)
             || self.menu_handle_index.get(&menu.handle) != Some(&menu.id)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-user32",
-                "system-menu-identity-invalid",
+            return Err(RuntimeStateError::new(
                 "logical system menu identity, owner relation, or close-item state is inconsistent",
             ));
         }
         Ok(())
     }
 
-    pub(super) fn is_empty(&self) -> bool {
-        self.icons.is_empty()
-            && self.cursors.is_empty()
-            && self.current_cursor.is_none()
-            && self.window_classes.is_empty()
-            && self.windows.is_empty()
-            && self.paint_sessions.is_empty()
-            && self.system_menus.is_empty()
-            && self.ime_windows.is_empty()
-            && self.default_ime_windows.is_empty()
-            && self.active_windows.is_empty()
-            && self.focused_windows.is_empty()
-            && self.foreground_window.is_none()
-    }
-
     fn next_generation(&self) -> Result<u64, RuntimeStateError> {
-        self.generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "user32-generation-exhausted",
-                "User32 resource generation is exhausted",
-            )
-        })
-    }
-
-    fn next_menu_generation(&self) -> Result<u64, RuntimeStateError> {
-        self.menu_generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-user32",
-                "system-menu-generation-exhausted",
-                "logical system-menu generation is exhausted",
-            )
-        })
+        self.generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("User32 resource generation is exhausted"))
     }
 }
 
@@ -4901,11 +2820,9 @@ fn require_set_window_pos_callback_result(
     callback: &'static str,
 ) -> Result<(), RuntimeStateError> {
     if actual != expected {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "set-window-pos-window-procedure-result-invalid",
-            format!("{callback} must return the observed value {expected:#010x}"),
-        ));
+        return Err(RuntimeStateError::new(format!(
+            "{callback} must return the observed value {expected:#010x}"
+        )));
     }
     Ok(())
 }
@@ -4913,11 +2830,6 @@ fn require_set_window_pos_callback_result(
 fn validate_icon_resource(resource: &RuntimeIconResource) -> Result<(), RuntimeStateError> {
     if resource.module_id.0 == 0
         || resource.module_load_base.0 == 0
-        || resource.module_source_sha256.len() != 64
-        || !resource
-            .module_source_sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         || resource.group_resource_id > u32::from(u16::MAX)
         || resource.language_id > u32::from(u16::MAX)
         || resource.icon_resource_id > u32::from(u16::MAX)
@@ -4932,9 +2844,7 @@ fn validate_icon_resource(resource: &RuntimeIconResource) -> Result<(), RuntimeS
         || resource.planes == 0
         || resource.bits_per_pixel == 0
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "icon-resource-invalid",
+        return Err(RuntimeStateError::new(
             "shared icon resource identity and dimensions must be bounded PE32 metadata",
         ));
     }
@@ -4947,9 +2857,7 @@ fn validate_cursor_source(source: &RuntimeCursorSource) -> Result<(), RuntimeSta
             resource_id,
             cursor: RuntimeSystemCursorKind::Arrow,
         } if *resource_id == RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID => Ok(()),
-        RuntimeCursorSource::SystemPredefined { .. } => Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "system-cursor-source-invalid",
+        RuntimeCursorSource::SystemPredefined { .. } => Err(RuntimeStateError::new(
             "logical system cursor source does not match its predefined cursor identity",
         )),
         RuntimeCursorSource::ModuleResource { resource } => validate_cursor_resource(resource),
@@ -4959,11 +2867,6 @@ fn validate_cursor_source(source: &RuntimeCursorSource) -> Result<(), RuntimeSta
 fn validate_cursor_resource(resource: &RuntimeCursorResource) -> Result<(), RuntimeStateError> {
     if resource.module_id.0 == 0
         || resource.module_load_base.0 == 0
-        || resource.module_source_sha256.len() != 64
-        || !resource
-            .module_source_sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         || resource.group_resource_id > u32::from(u16::MAX)
         || resource.language_id > u32::from(u16::MAX)
         || resource.cursor_resource_id > u32::from(u16::MAX)
@@ -4980,9 +2883,7 @@ fn validate_cursor_resource(resource: &RuntimeCursorResource) -> Result<(), Runt
         || resource.hotspot_x >= resource.width
         || resource.hotspot_y >= resource.height
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "cursor-resource-invalid",
+        return Err(RuntimeStateError::new(
             "shared cursor resource identity, dimensions, and hotspot must be bounded PE32 metadata",
         ));
     }
@@ -5001,21 +2902,12 @@ fn validate_window_class_registration(
         .map(GuestAddress);
     if module.module_id.0 == 0
         || module.load_base.0 == 0
-        || module.source_sha256.len() != 64
-        || !module
-            .source_sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
         || window_procedure.module_id != module.module_id
         || window_procedure.address.0 == 0
         || window_procedure.rva.0 == 0
         || expected_window_procedure_address != Some(window_procedure.address)
-        || window_procedure.calling_convention != RuntimeWindowProcedureCallingConvention::Stdcall
-        || window_procedure.argument_bytes != RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "window-class-module-or-procedure-invalid",
+        return Err(RuntimeStateError::new(
             "window class requires a mapped module identity and same-module x86 stdcall WndProc descriptor",
         ));
     }
@@ -5026,20 +2918,15 @@ fn validate_window_class_registration(
     Ok(())
 }
 
-fn validate_window_class_name(
-    name: &RuntimeWindowClassNameA,
-    allow_empty: bool,
-) -> Result<(), RuntimeStateError> {
-    if (!allow_empty && name.value.is_empty())
-        || name.value.len() > RUNTIME_WINDOW_CLASS_NAME_A_LIMIT
-        || !name.value.is_ascii()
-        || name.value.as_bytes().contains(&0)
-        || name.encoding != RUNTIME_WINDOW_CLASS_NAME_A_ENCODING
+fn validate_window_class_name(name: &str, allow_empty: bool) -> Result<(), RuntimeStateError> {
+    let (bytes, _, had_errors) = SHIFT_JIS.encode(name);
+    if (!allow_empty && name.is_empty())
+        || had_errors
+        || bytes.len() > RUNTIME_WINDOW_CLASS_NAME_A_LIMIT
+        || name.contains('\0')
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "window-class-name-invalid",
-            "window class and menu names require bounded copied Windows-932 ASCII text",
+        return Err(RuntimeStateError::new(
+            "window class and menu names require bounded copied Windows-932 text",
         ));
     }
     Ok(())
@@ -5049,16 +2936,12 @@ fn full_client_update_rect(
     geometry: RuntimeWindowGeometry,
 ) -> Result<RuntimeRect, RuntimeStateError> {
     let right = i32::try_from(geometry.client_width).map_err(|_| {
-        RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "window-update-region-invalid",
+        RuntimeStateError::new(
             "logical update-region width must fit the x86 RECT coordinate domain",
         )
     })?;
     let bottom = i32::try_from(geometry.client_height).map_err(|_| {
-        RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "window-update-region-invalid",
+        RuntimeStateError::new(
             "logical update-region height must fit the x86 RECT coordinate domain",
         )
     })?;
@@ -5130,9 +3013,7 @@ fn validate_position_geometry_transition(
                 || (next.x != previous.x && next.y != previous.y))
     };
     if !valid {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "set-window-pos-geometry-transition-invalid",
+        return Err(RuntimeStateError::new(
             "bounded positioning must preserve non-client extents and either preserve all sizes or perform the reached same-position resize",
         ));
     }
@@ -5176,9 +3057,7 @@ fn validate_window_creation_request(
         || outer_right > i64::from(i32::MAX)
         || outer_bottom > i64::from(i32::MAX)
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "window-creation-request-invalid",
+        return Err(RuntimeStateError::new(
             "logical window creation requires bounded copied text, a live class/module relation, NULL unowned relations, and contained client geometry",
         ));
     }
@@ -5188,26 +3067,22 @@ fn validate_window_creation_request(
 fn window_class_key(
     registration: &RuntimeWindowClassRegistration,
 ) -> Result<RuntimeWindowClassKey, RuntimeStateError> {
-    window_class_key_from_name(
-        registration.module.module_id,
-        &registration.class_name.value,
-    )
+    window_class_key_from_name(registration.module.module_id, &registration.class_name)
 }
 
 fn window_class_key_from_name(
     module_id: RuntimeModuleId,
     name: &str,
 ) -> Result<RuntimeWindowClassKey, RuntimeStateError> {
+    let (bytes, _, had_errors) = SHIFT_JIS.encode(name);
     if module_id.0 == 0
         || name.is_empty()
-        || name.len() > RUNTIME_WINDOW_CLASS_NAME_A_LIMIT
-        || !name.is_ascii()
-        || name.as_bytes().contains(&0)
+        || had_errors
+        || bytes.len() > RUNTIME_WINDOW_CLASS_NAME_A_LIMIT
+        || name.contains('\0')
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-user32",
-            "window-class-key-invalid",
-            "window class lookup requires a live module and bounded nonempty ASCII name",
+        return Err(RuntimeStateError::new(
+            "window class lookup requires a live module and bounded nonempty Windows-932 name",
         ));
     }
     Ok(RuntimeWindowClassKey {
@@ -5221,58 +3096,99 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shared_icon_plans_reuse_identity_and_teardown_atomically() {
+    fn window_lookup_distinguishes_absence_from_a_dangling_handle_index() {
+        let mut user32 = RuntimeUser32::default();
+        let handle = RUNTIME_WINDOW_HANDLE_BASE;
+        assert!(user32.window_option(handle).unwrap().is_none());
+        user32
+            .window_handle_index
+            .insert(handle, RuntimeWindowId(1));
+        user32.window_option(handle).unwrap_err();
+        user32.window(handle).unwrap_err();
+    }
+
+    #[test]
+    fn window_lookup_rejects_forged_handle_alias_without_exposing_the_window() {
+        let (mut user32, handle, _) = created_window_with_small_icon();
+        let window_id = user32.window(handle).unwrap().id;
+        let forged_handle = handle + 1;
+        assert!(user32.window_option(forged_handle).unwrap().is_none());
+        user32.window_handle_index.insert(forged_handle, window_id);
+        user32.window_option(forged_handle).unwrap_err();
+        assert_eq!(user32.window(handle).unwrap().id, window_id);
+    }
+
+    #[test]
+    fn icon_and_cursor_lookups_reject_forged_handle_aliases() {
+        let mut user32 = RuntimeUser32::default();
+        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
+        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        let forged_icon = icon + 1;
+        let forged_cursor = cursor + 1;
+        assert!(user32.icon_option(forged_icon).unwrap().is_none());
+        assert!(user32.cursor_option(forged_cursor).unwrap().is_none());
+        user32.icon(forged_icon).unwrap_err();
+        user32.cursor(forged_cursor).unwrap_err();
+        user32
+            .handle_index
+            .insert(forged_icon, user32.icon(icon).unwrap().id);
+        user32
+            .cursor_handle_index
+            .insert(forged_cursor, user32.cursor(cursor).unwrap().id);
+        let before = user32.clone();
+        user32.icon_option(forged_icon).unwrap_err();
+        user32.cursor_option(forged_cursor).unwrap_err();
+        user32.icon(forged_icon).unwrap_err();
+        user32.cursor(forged_cursor).unwrap_err();
+        user32.set_current_cursor(Some(forged_cursor)).unwrap_err();
+        assert_eq!(user32, before);
+        assert_eq!(user32.icon(icon).unwrap().id, user32.icon(icon).unwrap().id);
+        assert_eq!(
+            user32.cursor(cursor).unwrap().id,
+            user32.cursor(cursor).unwrap().id
+        );
+    }
+
+    #[test]
+    fn icon_resource_and_cursor_source_indexes_reject_live_identity_aliases() {
+        let mut user32 = RuntimeUser32::default();
+        let first_icon = resource(101, 3, 0x3000);
+        let second_icon = resource(102, 4, 0x4000);
+        let first_cursor = arrow_cursor();
+        let second_cursor = module_cursor(106, 5, 0x6000);
+        let icon = user32.load_shared_icon(second_icon).unwrap();
+        let cursor = user32.load_shared_cursor(second_cursor).unwrap();
+        let icon_id = user32.icon(icon).unwrap().id;
+        let cursor_id = user32.cursor(cursor).unwrap().id;
+        user32.resource_index.insert(first_icon.clone(), icon_id);
+        user32
+            .cursor_source_index
+            .insert(first_cursor.clone(), cursor_id);
+        let before = user32.clone();
+        user32.load_shared_icon(first_icon).unwrap_err();
+        user32.load_shared_cursor(first_cursor.clone()).unwrap_err();
+        user32.cursor_for_source(&first_cursor).unwrap_err();
+        assert_eq!(user32, before);
+    }
+
+    #[test]
+    fn shared_icons_reuse_identity() {
         let mut user32 = RuntimeUser32::default();
         let first_resource = resource(101, 3, 0x3000);
-        let first_plan = user32
-            .plan_shared_icon_load(first_resource.clone())
-            .unwrap();
         assert!(user32.icons().is_empty());
-        let first = user32.commit_shared_icon_load(first_plan).unwrap();
-        assert_eq!(first.icon_id, RuntimeIconId(1));
-        assert_eq!(first.handle, RUNTIME_ICON_HANDLE_BASE);
-        assert!(!first.already_loaded);
+        let first = user32.load_shared_icon(first_resource.clone()).unwrap();
+        assert_eq!(user32.icon(first).unwrap().id, RuntimeIconId(1));
+        assert_eq!(first, RUNTIME_ICON_HANDLE_BASE);
 
-        let repeated_plan = user32
-            .plan_shared_icon_load(first_resource)
-            .expect("repeated icon plan");
-        let repeated = user32.commit_shared_icon_load(repeated_plan).unwrap();
-        assert_eq!(repeated.icon_id, first.icon_id);
-        assert_eq!(repeated.handle, first.handle);
-        assert!(repeated.already_loaded);
+        let before_reuse = user32.clone();
+        let repeated = user32.load_shared_icon(first_resource).unwrap();
+        assert_eq!(repeated, first);
+        assert_eq!(user32, before_reuse);
 
-        let stale = user32
-            .plan_shared_icon_load(resource(102, 4, 0x4000))
-            .unwrap();
-        let intervening_plan = user32
-            .plan_shared_icon_load(resource(103, 5, 0x5000))
-            .unwrap();
-        user32.commit_shared_icon_load(intervening_plan).unwrap();
-        let before_stale = user32.clone();
-        assert_eq!(
-            user32.commit_shared_icon_load(stale).unwrap_err().code,
-            "icon-load-plan-stale"
-        );
-        assert_eq!(user32, before_stale);
+        let next = user32.load_shared_icon(resource(102, 4, 0x4000)).unwrap();
+        assert_eq!(user32.icon(next).unwrap().id, RuntimeIconId(2));
 
-        let stale_teardown = user32.plan_process_teardown().unwrap().unwrap();
-        let later_plan = user32
-            .plan_shared_icon_load(resource(104, 6, 0x6000))
-            .unwrap();
-        user32.commit_shared_icon_load(later_plan).unwrap();
-        assert_eq!(
-            user32
-                .preflight_process_teardown(&stale_teardown)
-                .unwrap_err()
-                .code,
-            "user32-teardown-plan-stale"
-        );
-        let teardown = user32.plan_process_teardown().unwrap().unwrap();
-        user32.preflight_process_teardown(&teardown).unwrap();
-        user32.commit_process_teardown(teardown);
-        assert!(user32.icons().is_empty());
-        assert!(user32.resource_index.is_empty());
-        assert!(user32.handle_index.is_empty());
+        assert_eq!(user32.icons().len(), 2);
     }
 
     #[test]
@@ -5280,112 +3196,77 @@ mod tests {
         let mut user32 = RuntimeUser32::default();
         for ordinal in 1..=RUNTIME_SHARED_ICON_LIMIT {
             let ordinal = u32::try_from(ordinal).unwrap();
-            let plan = user32
-                .plan_shared_icon_load(resource(ordinal, ordinal, 0x3000 + ordinal))
+            let result = user32
+                .load_shared_icon(resource(ordinal, ordinal, 0x3000 + ordinal))
                 .unwrap();
-            let result = user32.commit_shared_icon_load(plan).unwrap();
-            assert_eq!(result.icon_id.0, u64::from(ordinal));
+            assert_eq!(user32.icon(result).unwrap().id.0, u64::from(ordinal));
         }
         let before = user32.clone();
-        let error = user32
-            .plan_shared_icon_load(resource(4_097, 4_097, 0x5000))
+        let _error = user32
+            .load_shared_icon(resource(4_097, 4_097, 0x5000))
             .expect_err("shared icon capacity must be bounded");
-        assert_eq!(
-            error.class,
-            super::super::RuntimeStateErrorClass::ResourceLimit
-        );
-        assert_eq!(error.code, "shared-icon-limit-exceeded");
+
         assert_eq!(user32, before);
     }
 
     #[test]
-    fn shared_cursor_identity_and_cross_resource_plans_are_atomic() {
+    fn shared_cursor_identity_selection_and_failures_are_atomic() {
         let mut user32 = RuntimeUser32::default();
-        let stale_cursor = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
-        let icon_plan = user32
-            .plan_shared_icon_load(resource(101, 3, 0x3000))
-            .unwrap();
-        user32.commit_shared_icon_load(icon_plan).unwrap();
-        let before_stale = user32.clone();
-        assert_eq!(
-            user32
-                .commit_shared_cursor_load(stale_cursor)
-                .unwrap_err()
-                .code,
-            "cursor-load-plan-stale"
-        );
-        assert_eq!(user32, before_stale);
+        user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
 
-        let first_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
-        let first = user32.commit_shared_cursor_load(first_plan).unwrap();
-        assert_eq!(first.cursor_id, RuntimeCursorId(1));
-        assert_eq!(first.handle, RUNTIME_CURSOR_HANDLE_BASE);
-        assert!(!first.already_loaded);
+        let first = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        assert_eq!(user32.cursor(first).unwrap().id, RuntimeCursorId(1));
+        assert_eq!(first, RUNTIME_CURSOR_HANDLE_BASE);
+
         assert_eq!(
             user32.current_cursor().unwrap().map(|cursor| cursor.id),
-            Some(first.cursor_id)
+            Some(user32.cursor(first).unwrap().id)
         );
-        let repeated_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
-        let repeated = user32.commit_shared_cursor_load(repeated_plan).unwrap();
-        assert_eq!(repeated.cursor_id, first.cursor_id);
-        assert_eq!(repeated.handle, first.handle);
-        assert!(repeated.already_loaded);
+        let before_reuse = user32.clone();
+        let repeated = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        assert_eq!(repeated, first);
+        assert_eq!(user32, before_reuse);
+
         assert_eq!(user32.cursors().len(), 1);
 
-        let module_plan = user32
-            .plan_shared_cursor_load(module_cursor(106, 5, 0x6000))
+        let module = user32
+            .load_shared_cursor(module_cursor(106, 5, 0x6000))
             .unwrap();
-        let module = user32.commit_shared_cursor_load(module_plan).unwrap();
-        assert_eq!(module.cursor_id, RuntimeCursorId(2));
-        assert_eq!(module.handle, RUNTIME_CURSOR_HANDLE_BASE + 1);
-        assert!(!module.already_loaded);
+        assert_eq!(user32.cursor(module).unwrap().id, RuntimeCursorId(2));
+        assert_eq!(module, RUNTIME_CURSOR_HANDLE_BASE + 1);
+
+        let before_reuse = user32.clone();
         let repeated_module = user32
-            .commit_shared_cursor_load(
-                user32
-                    .plan_shared_cursor_load(module_cursor(106, 5, 0x6000))
-                    .unwrap(),
-            )
+            .load_shared_cursor(module_cursor(106, 5, 0x6000))
             .unwrap();
-        assert_eq!(repeated_module.cursor_id, module.cursor_id);
-        assert_eq!(repeated_module.handle, module.handle);
-        assert!(repeated_module.already_loaded);
+        assert_eq!(repeated_module, module);
+        assert_eq!(user32, before_reuse);
+
         assert_eq!(user32.cursors().len(), 2);
         assert_eq!(
             user32.current_cursor().unwrap().map(|cursor| cursor.id),
-            Some(first.cursor_id)
+            Some(user32.cursor(first).unwrap().id)
         );
 
-        let select_module = user32.plan_cursor_selection(Some(module.handle)).unwrap();
-        assert_eq!(
-            user32.commit_cursor_selection(select_module).unwrap(),
-            first.handle
-        );
+        assert_eq!(user32.set_current_cursor(Some(module)).unwrap(), first);
         assert_eq!(
             user32.current_cursor().unwrap().map(|cursor| cursor.id),
-            Some(module.cursor_id)
+            Some(user32.cursor(module).unwrap().id)
         );
-        let clear = user32.plan_cursor_selection(None).unwrap();
-        assert_eq!(
-            user32.commit_cursor_selection(clear).unwrap(),
-            module.handle
-        );
+        assert_eq!(user32.set_current_cursor(None).unwrap(), module);
         assert_eq!(user32.current_cursor().unwrap(), None);
 
         let before_invalid_handle = user32.clone();
-        assert_eq!(
-            user32
-                .plan_cursor_selection(Some(RUNTIME_CURSOR_HANDLE_BASE + 99))
-                .unwrap_err()
-                .code,
-            "cursor-handle-unknown"
-        );
+        user32
+            .set_current_cursor(Some(RUNTIME_CURSOR_HANDLE_BASE + 99))
+            .unwrap_err();
         assert_eq!(user32, before_invalid_handle);
 
         // Re-loading an existing arrow is a resource lookup, not an implicit SetCursor call.
-        let repeated_after_clear = user32
-            .commit_shared_cursor_load(user32.plan_shared_cursor_load(arrow_cursor()).unwrap())
-            .unwrap();
-        assert!(repeated_after_clear.already_loaded);
+        let before_reload = user32.clone();
+        let repeated_after_clear = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        assert_eq!(repeated_after_clear, first);
+        assert_eq!(user32, before_reload);
         assert_eq!(user32.current_cursor().unwrap(), None);
 
         let invalid = RuntimeCursorSource::SystemPredefined {
@@ -5393,20 +3274,8 @@ mod tests {
             cursor: RuntimeSystemCursorKind::Arrow,
         };
         let before_invalid = user32.clone();
-        assert_eq!(
-            user32.plan_shared_cursor_load(invalid).unwrap_err().code,
-            "system-cursor-source-invalid"
-        );
+        user32.load_shared_cursor(invalid).unwrap_err();
         assert_eq!(user32, before_invalid);
-
-        let teardown = user32.plan_process_teardown().unwrap().unwrap();
-        user32.preflight_process_teardown(&teardown).unwrap();
-        user32.commit_process_teardown(teardown);
-        assert!(user32.icons().is_empty());
-        assert!(user32.cursors().is_empty());
-        assert!(user32.cursor_source_index.is_empty());
-        assert!(user32.cursor_handle_index.is_empty());
-        assert_eq!(user32.current_cursor().unwrap(), None);
     }
 
     #[test]
@@ -5415,209 +3284,255 @@ mod tests {
         for ordinal in 1..=RUNTIME_SHARED_CURSOR_LIMIT {
             let ordinal = u32::try_from(ordinal).unwrap();
             let source = module_cursor(ordinal, ordinal, 0x4000 + ordinal * 0x1000);
-            let plan = user32.plan_shared_cursor_load(source).unwrap();
-            let result = user32.commit_shared_cursor_load(plan).unwrap();
-            assert_eq!(result.cursor_id.0, u64::from(ordinal));
+            let result = user32.load_shared_cursor(source).unwrap();
+            assert_eq!(user32.cursor(result).unwrap().id.0, u64::from(ordinal));
         }
         let before = user32.clone();
-        let error = user32
-            .plan_shared_cursor_load(module_cursor(257, 257, 0x0010_5000))
+        let _error = user32
+            .load_shared_cursor(module_cursor(257, 257, 0x0010_5000))
             .expect_err("shared cursor capacity must be bounded");
-        assert_eq!(
-            error.class,
-            super::super::RuntimeStateErrorClass::ResourceLimit
-        );
-        assert_eq!(error.code, "shared-cursor-limit-exceeded");
+
         assert_eq!(user32, before);
+    }
+
+    #[test]
+    fn window_class_indexes_reject_live_class_aliases() {
+        let mut user32 = RuntimeUser32::default();
+        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
+        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        let first = user32
+            .register_window_class(window_class_registration(
+                &user32,
+                icon,
+                cursor,
+                "First fixture",
+                0x28,
+                0x92550,
+            ))
+            .unwrap();
+        let second = user32
+            .register_window_class(window_class_registration(
+                &user32,
+                icon,
+                cursor,
+                "Second fixture",
+                0x3020,
+                0x2e6e0,
+            ))
+            .unwrap();
+        let first_id = user32.window_class(first).unwrap().id;
+        let second_id = user32.window_class(second).unwrap().id;
+        let key = window_class_key_from_name(RuntimeModuleId(1), "First fixture").unwrap();
+        assert!(
+            user32
+                .window_class_by_name_option(RuntimeModuleId(1), "Missing fixture")
+                .unwrap()
+                .is_none()
+        );
+        user32
+            .window_class_name_index
+            .insert(key.clone(), second_id);
+        let before = user32.clone();
+        user32
+            .window_class_by_name_option(RuntimeModuleId(1), "First fixture")
+            .unwrap_err();
+        user32
+            .register_window_class(window_class_registration(
+                &user32,
+                icon,
+                cursor,
+                "First fixture",
+                0x28,
+                0x92550,
+            ))
+            .unwrap_err();
+        assert_eq!(user32, before);
+        user32.window_class_name_index.insert(key, first_id);
+        user32.window_class_atom_index.insert(first, second_id);
+        user32.window_class(first).unwrap_err();
+        user32
+            .window_class_by_name_option(RuntimeModuleId(1), "First fixture")
+            .unwrap_err();
     }
 
     #[test]
     fn window_class_registration_is_module_scoped_case_folded_and_failure_atomic() {
         let mut user32 = RuntimeUser32::default();
-        let icon_plan = user32
-            .plan_shared_icon_load(resource(101, 3, 0x3000))
-            .unwrap();
-        let icon = user32.commit_shared_icon_load(icon_plan).unwrap();
-        let cursor_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
-        let cursor = user32.commit_shared_cursor_load(cursor_plan).unwrap();
+        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
+        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
 
         let main_registration =
-            window_class_registration(icon, cursor, "BGI - Main window", 0x28, 0x92550);
-        let main_plan = user32
-            .plan_window_class_registration(main_registration.clone())
-            .unwrap();
+            window_class_registration(&user32, icon, cursor, "Main fixture window", 0x28, 0x92550);
         assert!(user32.window_classes().is_empty());
-        let main = user32.commit_window_class_registration(main_plan).unwrap();
-        assert_eq!(main.class_id, RuntimeWindowClassId(1));
-        assert_eq!(main.atom, RUNTIME_WINDOW_CLASS_ATOM_BASE);
-        assert!(!main.already_registered);
+        let main = user32
+            .register_window_class(main_registration.clone())
+            .unwrap();
         assert_eq!(
-            user32.window_class(main.atom).unwrap().registration,
+            user32.window_class(main).unwrap().id,
+            RuntimeWindowClassId(1)
+        );
+        assert_eq!(main, RUNTIME_WINDOW_CLASS_ATOM_BASE);
+        assert_eq!(
+            user32.window_class(main).unwrap().registration,
             main_registration
         );
         assert_eq!(
             user32
-                .window_class_by_name(RuntimeModuleId(1), "bgi - MAIN WINDOW")
+                .window_class_by_name(RuntimeModuleId(1), "MAIN FIXTURE WINDOW")
                 .unwrap()
                 .id,
-            main.class_id
+            user32.window_class(main).unwrap().id
         );
 
         let mut duplicate_registration = main_registration.clone();
-        duplicate_registration.class_name.value = "bgi - main WINDOW".to_owned();
+        duplicate_registration.class_name = "main fixture WINDOW".to_owned();
         let generation_before_duplicate = user32.generation;
-        let duplicate_plan = user32
-            .plan_window_class_registration(duplicate_registration)
-            .unwrap();
         let duplicate = user32
-            .commit_window_class_registration(duplicate_plan)
+            .register_window_class(duplicate_registration)
             .unwrap();
-        assert_eq!(duplicate.class_id, main.class_id);
-        assert_eq!(duplicate.atom, main.atom);
-        assert!(duplicate.already_registered);
+        assert_eq!(duplicate, 0);
         assert_eq!(user32.generation, generation_before_duplicate);
         assert_eq!(user32.window_classes().len(), 1);
 
-        let child_plan = user32
-            .plan_window_class_registration(window_class_registration(
+        let child = user32
+            .register_window_class(window_class_registration(
+                &user32,
                 icon,
                 cursor,
-                "BGI - Child window",
+                "Child fixture window",
                 0x3020,
                 0x2e6e0,
             ))
             .unwrap();
-        let child = user32.commit_window_class_registration(child_plan).unwrap();
-        assert_eq!(child.class_id, RuntimeWindowClassId(2));
-        assert_eq!(child.atom, RUNTIME_WINDOW_CLASS_ATOM_BASE + 1);
-
-        let stale = user32
-            .plan_window_class_registration(window_class_registration(
-                icon,
-                cursor,
-                "stale class",
-                0x28,
-                0x92550,
-            ))
-            .unwrap();
-        let intervening_icon = user32
-            .plan_shared_icon_load(resource(102, 4, 0x4000))
-            .unwrap();
-        user32.commit_shared_icon_load(intervening_icon).unwrap();
-        let before_stale = user32.clone();
         assert_eq!(
-            user32
-                .commit_window_class_registration(stale)
-                .unwrap_err()
-                .code,
-            "window-class-registration-plan-stale"
+            user32.window_class(child).unwrap().id,
+            RuntimeWindowClassId(2)
         );
-        assert_eq!(user32, before_stale);
+        assert_eq!(child, RUNTIME_WINDOW_CLASS_ATOM_BASE + 1);
 
         let mut bad_reference =
-            window_class_registration(icon, cursor, "bad reference", 0x28, 0x92550);
+            window_class_registration(&user32, icon, cursor, "bad reference", 0x28, 0x92550);
         bad_reference.icon.as_mut().unwrap().handle ^= 1;
         let before_bad_reference = user32.clone();
-        assert_eq!(
-            user32
-                .plan_window_class_registration(bad_reference)
-                .unwrap_err()
-                .code,
-            "window-class-icon-mismatch"
-        );
+        user32.register_window_class(bad_reference).unwrap_err();
         assert_eq!(user32, before_bad_reference);
-
-        let teardown = user32.plan_process_teardown().unwrap().unwrap();
-        user32.preflight_process_teardown(&teardown).unwrap();
-        user32.commit_process_teardown(teardown);
-        assert!(user32.is_empty());
-        assert!(user32.window_class_name_index.is_empty());
-        assert!(user32.window_class_atom_index.is_empty());
-        assert_eq!(
-            user32
-                .window_class(main.atom)
-                .expect_err("process teardown retires class ATOM")
-                .code,
-            "window-class-atom-unknown"
-        );
     }
 
     #[test]
     fn invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity() {
         let mut user32 = RuntimeUser32::default();
-        let icon_plan = user32
-            .plan_shared_icon_load(resource(101, 3, 0x3000))
-            .unwrap();
-        let icon = user32.commit_shared_icon_load(icon_plan).unwrap();
-        let cursor_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
-        let cursor = user32.commit_shared_cursor_load(cursor_plan).unwrap();
-        let valid = window_class_registration(icon, cursor, "valid class", 0x28, 0x92550);
+        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
+        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        let valid = window_class_registration(&user32, icon, cursor, "valid class", 0x28, 0x92550);
 
-        for (invalid, expected_code) in [
+        for invalid in [
             {
                 let mut invalid = valid.clone();
-                invalid.module.source_sha256 = "A".repeat(64);
-                (invalid, "window-class-module-or-procedure-invalid")
+                invalid.module.module_id = RuntimeModuleId(0);
+                invalid
             },
             {
                 let mut invalid = valid.clone();
                 invalid.window_procedure.address.0 += 1;
-                (invalid, "window-class-module-or-procedure-invalid")
+                invalid
             },
             {
                 let mut invalid = valid.clone();
-                invalid.class_name.value = "class-\u{3042}".to_owned();
-                (invalid, "window-class-name-invalid")
+                invalid.class_name = "class-\u{1f600}".to_owned();
+                invalid
             },
         ] {
             let before = user32.clone();
-            let error = user32.plan_window_class_registration(invalid).unwrap_err();
-            assert_eq!(error.code, expected_code);
+            user32.register_window_class(invalid).unwrap_err();
             assert_eq!(user32, before);
         }
 
         user32.next_window_class_atom = u32::from(u16::MAX) + 1;
         let before_exhaustion = user32.clone();
-        let error = user32
-            .plan_window_class_registration(valid)
+        user32
+            .register_window_class(valid)
             .expect_err("logical ATOM space must be bounded");
-        assert_eq!(error.code, "window-class-atom-space-exhausted");
         assert_eq!(user32, before_exhaustion);
+    }
+
+    #[test]
+    fn window_class_capacity_and_allocator_failure_preserve_state() {
+        let mut user32 = RuntimeUser32::default();
+        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
+        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        for ordinal in 0..RUNTIME_WINDOW_CLASS_LIMIT {
+            let registration = window_class_registration(
+                &user32,
+                icon,
+                cursor,
+                &format!("class {ordinal}"),
+                0x28,
+                0x92550,
+            );
+            let class = user32.register_window_class(registration).unwrap();
+            assert_eq!(user32.window_class(class).unwrap().id.0, ordinal as u64 + 1);
+        }
+        let registration =
+            window_class_registration(&user32, icon, cursor, "over capacity", 0x28, 0x92550);
+        let before = user32.clone();
+        assert!(user32.register_window_class(registration.clone()).is_err());
+        assert_eq!(user32, before);
+        // Reuse does not allocate even at capacity.
+        assert_eq!(
+            user32
+                .register_window_class(window_class_registration(
+                    &user32, icon, cursor, "CLASS 0", 0x28, 0x92550,
+                ))
+                .unwrap(),
+            0
+        );
+        assert_eq!(user32, before);
+
+        let mut user32 = RuntimeUser32::default();
+        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
+        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        let registration =
+            window_class_registration(&user32, icon, cursor, "new class", 0x28, 0x92550);
+        user32.next_window_class_id = u64::MAX;
+        let before = user32.clone();
+        assert!(user32.register_window_class(registration.clone()).is_err());
+        assert_eq!(user32, before);
+        user32.next_window_class_id = 1;
+        user32.generation = u64::MAX;
+        let before = user32.clone();
+        assert!(user32.register_window_class(registration).is_err());
+        assert_eq!(user32, before);
     }
 
     #[test]
     fn logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks() {
         let mut user32 = RuntimeUser32::default();
-        let icon_plan = user32
-            .plan_shared_icon_load(resource(101, 3, 0x3000))
-            .unwrap();
-        let icon = user32.commit_shared_icon_load(icon_plan).unwrap();
-        let cursor_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
-        let cursor = user32.commit_shared_cursor_load(cursor_plan).unwrap();
-        let class_plan = user32
-            .plan_window_class_registration(window_class_registration(
+        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
+        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
+        let class = user32
+            .register_window_class(window_class_registration(
+                &user32,
                 icon,
                 cursor,
-                "BGI - Main window",
+                "Main fixture window",
                 0x28,
                 0x92550,
             ))
             .unwrap();
-        let class = user32.commit_window_class_registration(class_plan).unwrap();
 
-        let creation = window_creation_request(class);
-        let creation_plan = user32.plan_window_creation(creation.clone()).unwrap();
-        let preview = user32.window_creation_result(&creation_plan);
-        assert_eq!(preview.window_id, RuntimeWindowId(1));
-        assert_eq!(preview.handle, RUNTIME_WINDOW_HANDLE_BASE);
+        let creation = window_creation_request(&user32, class);
+        let creation_plan = user32.checked_window_creation(creation.clone()).unwrap();
+        let preview = (creation_plan.id, creation_plan.handle);
+        assert_eq!(preview.0, RuntimeWindowId(1));
+        assert_eq!(preview.1, RUNTIME_WINDOW_HANDLE_BASE);
         assert!(
             user32.windows().is_empty(),
             "planning must not publish HWND state"
         );
-        let created = user32.commit_window_creation(creation_plan).unwrap();
+        let created = user32.publish_window_creation(creation_plan);
         assert_eq!(created, preview);
         assert_eq!(
-            user32.window(created.handle).unwrap().lifecycle,
+            user32.window(created.1).unwrap().lifecycle,
             RuntimeWindowLifecycle::Creating {
                 message: RuntimeWindowCreationMessage::NonClientCreate,
             }
@@ -5646,11 +3561,14 @@ mod tests {
             ),
             (RuntimeWindowCreationMessage::Move, 0, None),
         ] {
-            let plan = user32
-                .plan_window_creation_callback(created.window_id, message, result)
+            let plan = (created.0, message, result);
+            let preview = user32
+                .preview_window_creation_callback(plan.0, plan.1, plan.2)
+                .unwrap()
+                .clone();
+            let action = user32
+                .complete_window_creation_callback(plan.0, plan.1, plan.2)
                 .unwrap();
-            let preview = user32.window_creation_callback_action(&plan).clone();
-            let action = user32.commit_window_creation_callback(plan).unwrap();
             assert_eq!(action, preview);
             match (action, next) {
                 (
@@ -5664,82 +3582,126 @@ mod tests {
             }
         }
         assert_eq!(
-            user32.window(created.handle).unwrap().lifecycle,
+            user32.window(created.1).unwrap().lifecycle,
             RuntimeWindowLifecycle::Created
         );
 
-        let rejected_plan = user32.plan_window_creation(creation.clone()).unwrap();
-        let rejected = user32.commit_window_creation(rejected_plan).unwrap();
-        assert_eq!(rejected.window_id, RuntimeWindowId(2));
-        assert_eq!(rejected.handle, RUNTIME_WINDOW_HANDLE_BASE + 1);
-        let abort_plan = user32
-            .plan_window_creation_callback(
-                rejected.window_id,
-                RuntimeWindowCreationMessage::NonClientCreate,
-                0,
-            )
-            .unwrap();
+        let rejected_plan = user32.checked_window_creation(creation.clone()).unwrap();
+        let rejected = user32.publish_window_creation(rejected_plan);
+        assert_eq!(rejected.0, RuntimeWindowId(2));
+        assert_eq!(rejected.1, RUNTIME_WINDOW_HANDLE_BASE + 1);
+        let abort_plan = (rejected.0, RuntimeWindowCreationMessage::NonClientCreate, 0);
         assert!(matches!(
-            user32.commit_window_creation_callback(abort_plan).unwrap(),
+            user32
+                .complete_window_creation_callback(abort_plan.0, abort_plan.1, abort_plan.2)
+                .unwrap(),
             RuntimeWindowCreationCallbackAction::Aborted { .. }
         ));
-        assert_eq!(
-            user32.window(rejected.handle).unwrap_err().code,
-            "window-handle-unknown"
-        );
+        user32.window(rejected.1).unwrap_err();
         assert_eq!(user32.windows().len(), 1);
 
-        let create_rejected_plan = user32.plan_window_creation(creation).unwrap();
-        let create_rejected = user32.commit_window_creation(create_rejected_plan).unwrap();
-        let first = user32
-            .plan_window_creation_callback(
-                create_rejected.window_id,
-                RuntimeWindowCreationMessage::NonClientCreate,
-                1,
-            )
-            .unwrap();
-        user32.commit_window_creation_callback(first).unwrap();
-        let second = user32
-            .plan_window_creation_callback(
-                create_rejected.window_id,
-                RuntimeWindowCreationMessage::NonClientCalculate,
-                0,
-            )
-            .unwrap();
-        user32.commit_window_creation_callback(second).unwrap();
-        let create_abort = user32
-            .plan_window_creation_callback(
-                create_rejected.window_id,
-                RuntimeWindowCreationMessage::Create,
-                u32::MAX,
-            )
-            .unwrap();
-        user32
-            .commit_window_creation_callback(create_abort)
-            .unwrap();
-        assert_eq!(
-            user32.window(create_rejected.handle).unwrap_err().code,
-            "window-handle-unknown"
+        let create_rejected_plan = user32.checked_window_creation(creation).unwrap();
+        let create_rejected = user32.publish_window_creation(create_rejected_plan);
+        let first = (
+            create_rejected.0,
+            RuntimeWindowCreationMessage::NonClientCreate,
+            1,
         );
+        user32
+            .complete_window_creation_callback(first.0, first.1, first.2)
+            .unwrap();
+        let second = (
+            create_rejected.0,
+            RuntimeWindowCreationMessage::NonClientCalculate,
+            0,
+        );
+        user32
+            .complete_window_creation_callback(second.0, second.1, second.2)
+            .unwrap();
+        let create_abort = (
+            create_rejected.0,
+            RuntimeWindowCreationMessage::Create,
+            u32::MAX,
+        );
+        user32
+            .complete_window_creation_callback(create_abort.0, create_abort.1, create_abort.2)
+            .unwrap();
+        user32.window(create_rejected.1).unwrap_err();
         assert_eq!(user32.windows().len(), 1);
     }
 
     #[test]
-    fn small_icon_and_window_position_plans_are_atomic_and_reject_stale_commits() {
+    fn nonclient_activation_notification_ignores_the_guest_return_value() {
+        for result in [0, 1, u32::MAX] {
+            let (mut user32, window_handle, _) = created_window_with_small_icon();
+            let owner_thread_id = RuntimeThreadId(0x2000);
+            user32
+                .set_window_style(window_handle, owner_thread_id, 0x90ca_0000)
+                .unwrap();
+            let geometry = user32.window(window_handle).unwrap().creation.geometry;
+            let mut operation = user32
+                .preview_set_window_pos(
+                    owner_thread_id,
+                    RuntimeSetWindowPosRequest {
+                        window_handle,
+                        variant: RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                        next_geometry: geometry,
+                        next_visible: true,
+                        next_topmost: false,
+                        entry_last_error: 0x1234_5678,
+                        callback_flags: 0x010a,
+                        callback_insert_after: 0xffff_fffe,
+                        activation_insert_after: 0,
+                        activation_internal_flags: 3,
+                        resize_nccalc_window_pos_flags: 0x190e,
+                        resize_changed_flags: 0x110e,
+                        frame_change_nccalc_window_pos_flags: 0x1825,
+                        frame_change_changed_flags: 0x0825,
+                    },
+                )
+                .unwrap();
+            for message in [
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+                RuntimeSetWindowPosCallbackMessage::ActivationWindowPositionChanging,
+                RuntimeSetWindowPosCallbackMessage::ActivateApplication,
+            ] {
+                let RuntimeSetWindowPosCallbackAction::Continue {
+                    operation: next, ..
+                } = user32
+                    .complete_set_window_pos_callback(operation, message, 0)
+                    .unwrap()
+                else {
+                    panic!("activation must continue to the nonclient notification");
+                };
+                operation = next;
+            }
+            let before = user32.clone();
+            assert!(matches!(
+                user32
+                    .complete_set_window_pos_callback(
+                        operation,
+                        RuntimeSetWindowPosCallbackMessage::NonClientActivate,
+                        result,
+                    )
+                    .unwrap(),
+                RuntimeSetWindowPosCallbackAction::Continue {
+                    next_message: RuntimeSetWindowPosCallbackMessage::Activate,
+                    ..
+                }
+            ));
+            assert_eq!(user32, before);
+        }
+    }
+
+    #[test]
+    fn small_icon_updates_directly_and_window_position_callbacks_validate_live_operations() {
         let (mut user32, window_handle, small_icon_handle) = created_window_with_small_icon();
         let initial = user32.window(window_handle).unwrap().clone();
-        let repeated_icon = user32
-            .plan_window_small_icon(
-                window_handle,
-                RuntimeThreadId(0x2000),
-                small_icon_handle,
-                16,
-                16,
-            )
-            .unwrap();
         let before_repeated = user32.clone();
         assert_eq!(
-            user32.commit_window_small_icon(repeated_icon).unwrap(),
+            user32
+                .set_window_small_icon(window_handle, RuntimeThreadId(0x2000), small_icon_handle)
+                .unwrap(),
             small_icon_handle
         );
         assert_eq!(user32, before_repeated);
@@ -5775,15 +3737,19 @@ mod tests {
                 },
             )
             .unwrap();
-        let first_callback = user32
-            .plan_set_window_pos_callback(
-                show,
-                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-                0,
-            )
-            .unwrap();
+        let first_callback = (
+            show,
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            0,
+        );
         assert!(matches!(
-            user32.set_window_pos_callback_action(&first_callback),
+            user32
+                .preview_set_window_pos_callback(
+                    first_callback.0,
+                    first_callback.1,
+                    first_callback.2
+                )
+                .unwrap(),
             RuntimeSetWindowPosCallbackAction::Continue {
                 next_message: RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
                 ..
@@ -5791,22 +3757,20 @@ mod tests {
         ));
         let before_first_callback = user32.clone();
         user32
-            .commit_set_window_pos_callback(first_callback)
+            .complete_set_window_pos_callback(first_callback.0, first_callback.1, first_callback.2)
             .unwrap();
         assert_eq!(
             user32, before_first_callback,
             "the first synchronous callback must not publish geometry or visibility"
         );
-        let final_callback = user32
-            .plan_set_window_pos_callback(
-                show,
-                RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
-                small_icon_handle,
-            )
-            .unwrap();
+        let final_callback = (
+            show,
+            RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
+            small_icon_handle,
+        );
         assert_eq!(user32.window(window_handle).unwrap(), &initial);
         let shown = user32
-            .commit_set_window_pos_callback(final_callback)
+            .complete_set_window_pos_callback(final_callback.0, final_callback.1, final_callback.2)
             .unwrap();
         let RuntimeSetWindowPosCallbackAction::Completed { window: shown } = shown else {
             panic!("show must complete after the icon relation is validated");
@@ -5837,27 +3801,20 @@ mod tests {
                 },
             )
             .unwrap();
-        let stale_hide = user32
-            .plan_set_window_pos_callback(
-                hide,
-                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-                0,
-            )
-            .unwrap();
+        let stale_hide = (
+            hide,
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            0,
+        );
         let mut intervening_resource = resource(102, 5, 0x5000);
         intervening_resource.width = 16;
         intervening_resource.height = 16;
         intervening_resource.icon_data_size = 1_128;
-        let intervening = user32.plan_shared_icon_load(intervening_resource).unwrap();
-        user32.commit_shared_icon_load(intervening).unwrap();
+        user32.load_shared_icon(intervening_resource).unwrap();
         let before_stale = user32.clone();
-        assert_eq!(
-            user32
-                .commit_set_window_pos_callback(stale_hide)
-                .unwrap_err()
-                .code,
-            "set-window-pos-callback-plan-stale"
-        );
+        user32
+            .complete_set_window_pos_callback(stale_hide.0, stale_hide.1, stale_hide.2)
+            .unwrap_err();
         assert_eq!(user32, before_stale);
         assert!(user32.window(window_handle).unwrap().visible);
 
@@ -5882,15 +3839,15 @@ mod tests {
                 },
             )
             .unwrap();
-        let hide_plan = user32
-            .plan_set_window_pos_callback(
-                fresh_hide,
-                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-                0,
-            )
+        let hide_plan = (
+            fresh_hide,
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            0,
+        );
+        let duplicate = hide_plan;
+        let hidden = user32
+            .complete_set_window_pos_callback(hide_plan.0, hide_plan.1, hide_plan.2)
             .unwrap();
-        let duplicate = hide_plan.clone();
-        let hidden = user32.commit_set_window_pos_callback(hide_plan).unwrap();
         assert!(matches!(
             hidden,
             RuntimeSetWindowPosCallbackAction::Completed { ref window }
@@ -5899,54 +3856,24 @@ mod tests {
                     && window.creation.effective_style == 0x84ca_0000
         ));
         let before_duplicate = user32.clone();
-        assert_eq!(
-            user32
-                .commit_set_window_pos_callback(duplicate)
-                .unwrap_err()
-                .code,
-            "set-window-pos-callback-plan-stale"
-        );
+        user32
+            .complete_set_window_pos_callback(duplicate.0, duplicate.1, duplicate.2)
+            .unwrap_err();
         assert_eq!(user32, before_duplicate);
 
-        let style_plan = user32
-            .plan_window_style_update(
-                window_handle,
-                RuntimeThreadId(0x2000),
-                0x90ca_0000,
-                0x0400_0000,
-            )
+        let style = user32
+            .set_window_style(window_handle, RuntimeThreadId(0x2000), 0x90ca_0000)
             .unwrap();
-        let stale_style = style_plan.clone();
-        let style = user32.commit_window_style_update(style_plan).unwrap();
-        assert_eq!(style.previous_effective_style, 0x84ca_0000);
-        assert_eq!(style.effective_style, 0x94ca_0000);
-        assert!(style.visible);
-        assert!(style.changed);
-        assert_eq!(
-            user32
-                .commit_window_style_update(stale_style)
-                .unwrap_err()
-                .code,
-            "window-style-plan-stale"
-        );
-
-        let repeated = user32
-            .plan_window_style_update(
-                window_handle,
-                RuntimeThreadId(0x2000),
-                0x90ca_0000,
-                0x0400_0000,
-            )
-            .unwrap();
+        assert_eq!(style, 0x84ca_0000);
+        let updated = user32.window(window_handle).unwrap();
+        assert_eq!(updated.creation.effective_style, 0x90ca_0000);
+        assert!(updated.visible);
         let before_repeated = user32.clone();
         assert_eq!(
-            user32.commit_window_style_update(repeated).unwrap(),
-            RuntimeSetWindowStyleResult {
-                previous_effective_style: 0x94ca_0000,
-                effective_style: 0x94ca_0000,
-                visible: true,
-                changed: false,
-            }
+            user32
+                .set_window_style(window_handle, RuntimeThreadId(0x2000), 0x90ca_0000)
+                .unwrap(),
+            0x90ca_0000
         );
         assert_eq!(user32, before_repeated);
 
@@ -5977,33 +3904,29 @@ mod tests {
             .unwrap();
         assert_eq!(repeat.variant, RuntimeSetWindowPosVariant::RepeatActivation);
         let before_wrong_result = user32.clone();
-        assert_eq!(
-            user32
-                .plan_set_window_pos_callback(
-                    repeat,
-                    RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
-                    1,
-                )
-                .unwrap_err()
-                .code,
-            "set-window-pos-window-procedure-result-invalid"
-        );
-        assert_eq!(user32, before_wrong_result);
-        let repeat_plan = user32
-            .plan_set_window_pos_callback(
+        user32
+            .preview_set_window_pos_callback(
                 repeat,
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
-                0,
+                1,
             )
-            .unwrap();
+            .unwrap_err();
+        assert_eq!(user32, before_wrong_result);
+        let repeat_plan = (
+            repeat,
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+            0,
+        );
         assert!(matches!(
-            user32.set_window_pos_callback_action(&repeat_plan),
+            user32.preview_set_window_pos_callback(repeat_plan.0, repeat_plan.1, repeat_plan.2).unwrap(),
             RuntimeSetWindowPosCallbackAction::Completed { window }
-                if window == user32.window(window_handle).unwrap()
+                if &window == user32.window(window_handle).unwrap()
         ));
         let before_repeat_commit = user32.clone();
         assert!(matches!(
-            user32.commit_set_window_pos_callback(repeat_plan).unwrap(),
+            user32
+                .complete_set_window_pos_callback(repeat_plan.0, repeat_plan.1, repeat_plan.2)
+                .unwrap(),
             RuntimeSetWindowPosCallbackAction::Completed { .. }
         ));
         assert_eq!(user32, before_repeat_commit);
@@ -6041,29 +3964,25 @@ mod tests {
             RuntimeSetWindowPosVariant::FrameChangeMove
         );
         let before_wrong_move_result = user32.clone();
-        assert_eq!(
-            user32
-                .plan_set_window_pos_callback(
-                    move_operation,
-                    RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
-                    1,
-                )
-                .unwrap_err()
-                .code,
-            "set-window-pos-window-procedure-result-invalid"
-        );
-        assert_eq!(user32, before_wrong_move_result);
-
-        let changing = user32
-            .plan_set_window_pos_callback(
+        user32
+            .preview_set_window_pos_callback(
                 move_operation,
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
-                0,
+                1,
             )
-            .unwrap();
+            .unwrap_err();
+        assert_eq!(user32, before_wrong_move_result);
+
+        let changing = (
+            move_operation,
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+            0,
+        );
         let before_changing = user32.clone();
         assert!(matches!(
-            user32.commit_set_window_pos_callback(changing).unwrap(),
+            user32
+                .complete_set_window_pos_callback(changing.0, changing.1, changing.2)
+                .unwrap(),
             RuntimeSetWindowPosCallbackAction::Continue {
                 next_message: RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
                 ..
@@ -6071,15 +3990,15 @@ mod tests {
         ));
         assert_eq!(user32, before_changing);
 
-        let nccalc = user32
-            .plan_set_window_pos_callback(
-                move_operation,
-                RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
-                0,
-            )
+        let nccalc = (
+            move_operation,
+            RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
+            0,
+        );
+        let stale_nccalc = nccalc;
+        let moved = user32
+            .complete_set_window_pos_callback(nccalc.0, nccalc.1, nccalc.2)
             .unwrap();
-        let stale_nccalc = nccalc.clone();
-        let moved = user32.commit_set_window_pos_callback(nccalc).unwrap();
         let RuntimeSetWindowPosCallbackAction::Continue {
             window: moved_window,
             operation: moved_operation,
@@ -6091,25 +4010,19 @@ mod tests {
         assert_eq!(moved_window.creation.geometry, move_geometry);
         assert_eq!(user32.window(window_handle).unwrap(), &moved_window);
         let before_stale_nccalc = user32.clone();
-        assert_eq!(
-            user32
-                .commit_set_window_pos_callback(stale_nccalc)
-                .unwrap_err()
-                .code,
-            "set-window-pos-callback-plan-stale"
-        );
+        user32
+            .complete_set_window_pos_callback(stale_nccalc.0, stale_nccalc.1, stale_nccalc.2)
+            .unwrap_err();
         assert_eq!(user32, before_stale_nccalc);
 
-        let changed = user32
-            .plan_set_window_pos_callback(
-                moved_operation,
-                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-                0,
-            )
-            .unwrap();
+        let changed = (
+            moved_operation,
+            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            0,
+        );
         let before_changed = user32.clone();
         assert!(matches!(
-            user32.commit_set_window_pos_callback(changed).unwrap(),
+            user32.complete_set_window_pos_callback(changed.0, changed.1, changed.2).unwrap(),
             RuntimeSetWindowPosCallbackAction::Completed { window }
                 if window == moved_window
         ));
@@ -6135,47 +4048,57 @@ mod tests {
         assert_eq!(user32.foreground_window, Some(moved_window.id));
 
         let update = user32
-            .preview_update_window(
-                owner_thread_id,
-                RuntimeUpdateWindowRequest {
-                    window_handle,
-                    entry_last_error: 0x1234_5678,
-                    expected_callback_result: 0,
-                },
-            )
+            .preview_update_window(owner_thread_id, window_handle, 0x1234_5678)
             .unwrap();
         assert_eq!(update.update_rect, full_client_update_rect);
-        let before_wrong_paint_result = user32.clone();
-        assert_eq!(
-            user32
-                .plan_update_window_callback(update, 1)
-                .unwrap_err()
-                .code,
-            "update-window-callback-result-invalid"
-        );
-        assert_eq!(user32, before_wrong_paint_result);
-        assert_eq!(
-            user32
-                .plan_update_window_callback(update, 0)
-                .unwrap_err()
-                .code,
-            "update-window-operation-stale",
-            "WM_PAINT completion must not consume the update region without BeginPaint/EndPaint"
-        );
-        let begin = user32
-            .plan_begin_paint(
-                owner_thread_id,
-                RuntimeBeginPaintRequest {
+        user32.validate_update_window_callback(update).unwrap_err();
+        let paint_struct_address = GuestAddress(0x2000);
+        let mut exhausted = user32.clone();
+        exhausted.generation = u64::MAX;
+        let before_exhausted = exhausted.clone();
+        assert!(
+            exhausted
+                .validate_begin_paint(
+                    owner_thread_id,
                     window_handle,
-                    paint_struct_address: GuestAddress(0x2000),
-                    erase: true,
-                },
+                    paint_struct_address,
+                    RuntimeDeviceContextId(1),
+                    0x4701_0001
+                )
+                .is_err()
+        );
+        assert_eq!(exhausted, before_exhausted);
+        let mut exhausted = user32.clone();
+        exhausted
+            .windows
+            .get_mut(&window_id)
+            .unwrap()
+            .paint_generation = u64::MAX;
+        let before_exhausted = exhausted.clone();
+        assert!(
+            exhausted
+                .validate_begin_paint(
+                    owner_thread_id,
+                    window_handle,
+                    paint_struct_address,
+                    RuntimeDeviceContextId(1),
+                    0x4701_0001
+                )
+                .is_err()
+        );
+        assert_eq!(exhausted, before_exhausted);
+        let begin = user32
+            .validate_begin_paint(
+                owner_thread_id,
+                window_handle,
+                paint_struct_address,
                 RuntimeDeviceContextId(1),
                 0x4701_0001,
             )
             .unwrap();
-        let stale_begin = begin.clone();
-        let session = user32.commit_preflighted_begin_paint(begin);
+        let window_id = begin.window_id;
+        user32.finish_begin_paint(begin);
+        let session = user32.paint_sessions[&window_id].clone();
         assert_eq!(session.update_rect, full_client_update_rect);
         assert_eq!(session.paint_generation, 1);
         assert_eq!(session.paint_struct_bytes.len(), 64);
@@ -6184,165 +4107,148 @@ mod tests {
             None,
             "BeginPaint must consume the update region"
         );
-        assert_eq!(
-            user32.preflight_begin_paint(&stale_begin).unwrap_err().code,
-            "begin-paint-plan-stale"
+        let before_duplicate = user32.clone();
+        assert!(
+            user32
+                .validate_begin_paint(
+                    owner_thread_id,
+                    window_handle,
+                    paint_struct_address,
+                    RuntimeDeviceContextId(2),
+                    0x4701_0002
+                )
+                .is_err()
         );
+        assert_eq!(user32, before_duplicate);
         let mut corrupted_bytes = session.paint_struct_bytes.clone();
         corrupted_bytes[4] = 0;
         let before_wrong_end = user32.clone();
-        assert_eq!(
-            user32
-                .plan_end_paint(
-                    owner_thread_id,
-                    RuntimeEndPaintRequest {
-                        window_handle,
-                        paint_struct_address: session.paint_struct_address,
-                        paint_struct_bytes: corrupted_bytes,
-                    },
-                )
-                .unwrap_err()
-                .code,
-            "paint-session-relation-mismatch"
-        );
-        assert_eq!(user32, before_wrong_end);
-        let end = user32
-            .plan_end_paint(
+        user32
+            .validate_end_paint(
                 owner_thread_id,
-                RuntimeEndPaintRequest {
+                window_handle,
+                session.paint_struct_address,
+                &corrupted_bytes,
+            )
+            .unwrap_err();
+        assert_eq!(user32, before_wrong_end);
+        let mut exhausted = user32.clone();
+        exhausted.generation = u64::MAX;
+        let before_exhausted = exhausted.clone();
+        assert!(
+            exhausted
+                .validate_end_paint(
+                    owner_thread_id,
                     window_handle,
-                    paint_struct_address: session.paint_struct_address,
-                    paint_struct_bytes: session.paint_struct_bytes.clone(),
-                },
+                    session.paint_struct_address,
+                    &session.paint_struct_bytes
+                )
+                .is_err()
+        );
+        assert_eq!(exhausted, before_exhausted);
+        let end = user32
+            .validate_end_paint(
+                owner_thread_id,
+                window_handle,
+                session.paint_struct_address,
+                &session.paint_struct_bytes,
             )
             .unwrap();
-        let stale_end = end.clone();
-        assert_eq!(user32.commit_preflighted_end_paint(end), session);
+        assert_eq!(end, &session);
+        user32.finish_end_paint(end.window_id, end.paint_generation);
         assert!(user32.paint_sessions.is_empty());
         assert_eq!(user32.window(window_handle).unwrap().paint_generation, 1);
-        assert_eq!(
-            user32.preflight_end_paint(&stale_end).unwrap_err().code,
-            "end-paint-plan-stale"
-        );
-
-        let paint = user32.plan_update_window_callback(update, 0).unwrap();
-        assert!(matches!(
-            user32.update_window_callback_action(&paint),
-            RuntimeUpdateWindowCallbackAction::Completed { window }
-                if window.pending_update_rect.is_none() && window.paint_generation == 1
-        ));
-        let before_paint_completion = user32.clone();
-        let RuntimeUpdateWindowCallbackAction::Completed { window: painted } =
-            user32.commit_update_window_callback(paint).unwrap();
-        assert!(painted.pending_update_rect.is_none());
-        assert_eq!(user32.window(window_handle).unwrap(), &painted);
-        assert_eq!(user32, before_paint_completion);
-        assert_eq!(
+        let before_duplicate = user32.clone();
+        assert!(
             user32
-                .preview_update_window(
+                .validate_end_paint(
                     owner_thread_id,
-                    RuntimeUpdateWindowRequest {
-                        window_handle,
-                        entry_last_error: 0,
-                        expected_callback_result: 0,
-                    },
+                    window_handle,
+                    session.paint_struct_address,
+                    &session.paint_struct_bytes
                 )
-                .unwrap_err()
-                .code,
-            "update-window-state-invalid"
+                .is_err()
         );
+        assert_eq!(user32, before_duplicate);
+
+        let title = RuntimeWindowNameA {
+            value: "Paint callback title".to_owned(),
+        };
+        user32
+            .set_window_title(window_handle, owner_thread_id, title.clone())
+            .unwrap();
+        user32
+            .validate_update_window_callback(update)
+            .expect("unrelated title update must not invalidate a completed paint cycle");
+        let painted = user32.window(window_handle).unwrap();
+        assert_eq!(painted.creation.name, title);
+        assert!(painted.pending_update_rect.is_none());
+        assert_eq!(painted.paint_generation, 1);
+        user32
+            .preview_update_window(owner_thread_id, window_handle, 0)
+            .unwrap_err();
 
         let before_unknown = user32.clone();
-        assert_eq!(
-            user32
-                .plan_window_style_update(
-                    window_handle + 1,
-                    RuntimeThreadId(0x2000),
-                    0x90ca_0000,
-                    0x0400_0000,
-                )
-                .unwrap_err()
-                .code,
-            "window-handle-unknown"
-        );
+        user32
+            .set_window_style(window_handle + 1, RuntimeThreadId(0x2000), 0x90ca_0000)
+            .unwrap_err();
         assert_eq!(user32, before_unknown);
     }
 
     #[test]
-    fn window_title_plan_copies_windows_932_and_rejects_stale_or_invalid_changes_atomically() {
+    fn window_title_copies_windows_932_and_rejects_invalid_changes_atomically() {
         let (mut user32, window_handle, _) = created_window_with_small_icon();
         let title = RuntimeWindowNameA {
-            value: "サクラノ詩".to_owned(),
-            encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
+            value: "日本語".to_owned(),
         };
         assert_eq!(
             title.windows_932_bytes().unwrap(),
-            [0x83, 0x54, 0x83, 0x4e, 0x83, 0x89, 0x83, 0x6d, 0x8e, 0x8d]
+            [0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]
         );
-        let plan = user32
-            .plan_window_title(window_handle, RuntimeThreadId(0x2000), title.clone())
+        user32
+            .set_window_title(window_handle, RuntimeThreadId(0x2000), title.clone())
             .unwrap();
-        let before_commit = user32.clone();
-        assert_ne!(
-            before_commit.window(window_handle).unwrap().creation.name,
-            title
-        );
-        let updated = user32.commit_window_title(plan).unwrap();
+        let updated = user32.window(window_handle).unwrap().clone();
         assert_eq!(updated.creation.name, title);
+        user32
+            .set_window_title(window_handle, RuntimeThreadId(0x2000), title.clone())
+            .unwrap();
         assert_eq!(user32.window(window_handle).unwrap(), &updated);
 
-        let repeated = user32
-            .plan_window_title(window_handle, RuntimeThreadId(0x2000), title.clone())
-            .unwrap();
-        let before_repeated = user32.clone();
-        assert_eq!(user32.commit_window_title(repeated).unwrap(), updated);
-        assert_eq!(user32, before_repeated);
-
-        let stale = user32
-            .plan_window_title(
-                window_handle,
-                RuntimeThreadId(0x2000),
-                RuntimeWindowNameA {
-                    value: "next".to_owned(),
-                    encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
-                },
-            )
-            .unwrap();
-        let mut intervening_resource = resource(103, 7, 0x7000);
-        intervening_resource.width = 16;
-        intervening_resource.height = 16;
-        intervening_resource.icon_data_size = 1_128;
-        let intervening = user32.plan_shared_icon_load(intervening_resource).unwrap();
-        user32.commit_shared_icon_load(intervening).unwrap();
-        let before_stale = user32.clone();
-        assert_eq!(
-            user32.commit_window_title(stale).unwrap_err().code,
-            "window-title-plan-stale"
-        );
-        assert_eq!(user32, before_stale);
-
-        for (owner, value, code) in [
-            (
-                RuntimeThreadId(0x2001),
-                "other",
-                "window-message-owner-thread-mismatch",
-            ),
-            (RuntimeThreadId(0x2000), "title-😀", "window-name-a-invalid"),
+        for (owner, value) in [
+            (RuntimeThreadId(0x2001), "other"),
+            (RuntimeThreadId(0x2000), "title-😀"),
         ] {
-            let before = user32.clone();
-            let error = user32
-                .plan_window_title(
+            user32
+                .set_window_title(
                     window_handle,
                     owner,
                     RuntimeWindowNameA {
                         value: value.to_owned(),
-                        encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
                     },
                 )
-                .unwrap_err();
-            assert_eq!(error.code, code);
-            assert_eq!(user32, before);
+                .expect_err("foreign owner or unencodable title must be rejected");
+            assert_eq!(user32.window(window_handle).unwrap(), &updated);
+            assert_eq!(user32.windows().len(), 1);
         }
+        user32
+            .set_window_title(
+                window_handle,
+                RuntimeThreadId(0x2000),
+                RuntimeWindowNameA {
+                    value: String::new(),
+                },
+            )
+            .unwrap();
+        assert!(
+            user32
+                .window(window_handle)
+                .unwrap()
+                .creation
+                .name
+                .value
+                .is_empty()
+        );
     }
 
     #[test]
@@ -6358,18 +4264,9 @@ mod tests {
             0
         );
 
-        let enable = user32
-            .plan_window_file_drop_acceptance(window_handle, true)
+        user32
+            .set_window_file_drop_acceptance(window_handle, true)
             .unwrap();
-        let duplicate = enable.clone();
-        assert_eq!(
-            user32.commit_window_file_drop_acceptance(enable).unwrap(),
-            RuntimeWindowFileDropAcceptanceResult {
-                previous_accepts_files: false,
-                accepts_files: true,
-                changed: true,
-            }
-        );
         assert_ne!(
             user32
                 .window(window_handle)
@@ -6379,41 +4276,15 @@ mod tests {
                 & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
             0
         );
-        let before_duplicate = user32.clone();
-        assert_eq!(
-            user32
-                .commit_window_file_drop_acceptance(duplicate)
-                .unwrap_err()
-                .code,
-            "window-file-drop-plan-stale"
-        );
-        assert_eq!(user32, before_duplicate);
-
-        let repeated = user32
-            .plan_window_file_drop_acceptance(window_handle, true)
-            .unwrap();
         let before_repeated = user32.clone();
-        assert_eq!(
-            user32.commit_window_file_drop_acceptance(repeated).unwrap(),
-            RuntimeWindowFileDropAcceptanceResult {
-                previous_accepts_files: true,
-                accepts_files: true,
-                changed: false,
-            }
-        );
+        user32
+            .set_window_file_drop_acceptance(window_handle, true)
+            .unwrap();
         assert_eq!(user32, before_repeated);
 
-        let disable = user32
-            .plan_window_file_drop_acceptance(window_handle, false)
+        user32
+            .set_window_file_drop_acceptance(window_handle, false)
             .unwrap();
-        assert_eq!(
-            user32.commit_window_file_drop_acceptance(disable).unwrap(),
-            RuntimeWindowFileDropAcceptanceResult {
-                previous_accepts_files: true,
-                accepts_files: false,
-                changed: true,
-            }
-        );
         assert_eq!(
             user32
                 .window(window_handle)
@@ -6425,96 +4296,169 @@ mod tests {
         );
 
         let before_unknown = user32.clone();
+        user32
+            .set_window_file_drop_acceptance(window_handle + 2, true)
+            .unwrap_err();
+        assert_eq!(user32, before_unknown);
+    }
+
+    #[test]
+    fn system_menu_creation_checks_all_allocators_before_publication() {
+        for exhausted in 0..2 {
+            let (mut user32, window_handle, _) = created_window_with_small_icon();
+            let next_id = user32.next_menu_id;
+            let next_handle = user32.next_menu_handle;
+            match exhausted {
+                0 => user32.next_menu_id = u64::MAX,
+                _ => user32.next_menu_handle = u32::MAX,
+            }
+            let before = user32.clone();
+            assert!(user32.get_system_menu(window_handle, 0xf060).is_err());
+            assert_eq!(user32, before);
+            assert!(user32.system_menus.is_empty());
+            assert!(user32.system_menu_window_index.is_empty());
+            assert!(user32.menu_handle_index.is_empty());
+            user32.next_menu_id = next_id;
+            user32.next_menu_handle = next_handle;
+            let handle = user32
+                .get_system_menu(window_handle, 0xf060)
+                .unwrap()
+                .unwrap();
+            assert_eq!(handle, next_handle);
+            let menu = user32.system_menu(handle).unwrap();
+            assert_eq!(menu.id, RuntimeMenuId(next_id));
+            assert_eq!(menu.owner_window_handle, window_handle);
+            assert_eq!(user32.system_menus.len(), 1);
+            assert_eq!(user32.system_menu_window_index.len(), 1);
+            assert_eq!(user32.menu_handle_index.len(), 1);
+            assert_eq!(
+                user32.get_system_menu(window_handle, 0xf060).unwrap(),
+                Some(handle)
+            );
+        }
+    }
+
+    #[test]
+    fn window_style_changes_validate_owner_and_capacity_before_mutation() {
+        let (mut user32, window_handle, _) = created_window_with_small_icon();
+        let before = user32.clone();
+        assert!(
+            user32
+                .set_window_style(window_handle, RuntimeThreadId(0x9999), 0x90ca_0000)
+                .is_err()
+        );
+        assert_eq!(user32, before);
+        user32.generation = u64::MAX;
+        let exhausted = user32.clone();
+        assert!(
+            user32
+                .set_window_style(window_handle, RuntimeThreadId(0x2000), 0x90ca_0000)
+                .is_err()
+        );
+        assert_eq!(user32, exhausted);
+        let unchanged_style = user32
+            .window(window_handle)
+            .unwrap()
+            .creation
+            .effective_style;
         assert_eq!(
             user32
-                .plan_window_file_drop_acceptance(window_handle + 2, true)
-                .unwrap_err()
-                .code,
-            "window-handle-unknown"
+                .set_window_style(window_handle, RuntimeThreadId(0x2000), unchanged_style)
+                .unwrap(),
+            unchanged_style
+        );
+        assert_eq!(user32, exhausted);
+    }
+
+    #[test]
+    fn system_menu_lookup_rejects_forged_handle_alias() {
+        let (mut user32, window_handle, _) = created_window_with_small_icon();
+        let handle = user32
+            .get_system_menu(window_handle, 0xf060)
+            .unwrap()
+            .unwrap();
+        let alias = handle + 1;
+        assert!(user32.system_menu_option(alias).unwrap().is_none());
+        let before_unknown = user32.clone();
+        assert_eq!(
+            user32.enable_system_menu_close_item(alias, 0xf060).unwrap(),
+            None
+        );
+        assert_eq!(
+            user32.get_system_menu(window_handle + 1, 0xf060).unwrap(),
+            None
         );
         assert_eq!(user32, before_unknown);
+        user32.menu_handle_index.insert(alias, RuntimeMenuId(1));
+        let before = user32.clone();
+        user32.system_menu_option(alias).unwrap_err();
+        user32.system_menu(alias).unwrap_err();
+        user32
+            .enable_system_menu_close_item(alias, 0xf060)
+            .unwrap_err();
+        assert_eq!(user32, before);
+        assert!(user32.system_menu_option(handle).unwrap().is_some());
     }
 
     #[test]
     fn system_menu_identity_is_window_owned_reentrant_and_failure_atomic() {
         let (mut user32, window_handle, _) = created_window_with_small_icon();
-        let pending_window_update = user32
-            .plan_window_style_update(
-                window_handle,
-                RuntimeThreadId(0x2000),
-                0x90ca_0000,
-                0x0400_0000,
-            )
-            .unwrap();
         let user32_generation = user32.generation;
-        let first_plan = user32.plan_system_menu(window_handle, 0xf060).unwrap();
-        assert!(user32.system_menus().is_empty());
-        let first = user32.commit_system_menu(first_plan).unwrap();
-        assert_eq!(first.menu_id, RuntimeMenuId(1));
-        assert_eq!(first.handle, RUNTIME_MENU_HANDLE_BASE);
-        assert!(!first.already_created);
+        let first = user32
+            .get_system_menu(window_handle, 0xf060)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first, RUNTIME_MENU_HANDLE_BASE);
         assert_eq!(user32.generation, user32_generation);
-        assert_eq!(user32.menu_generation, 1);
 
-        let menu = user32.system_menu(first.handle).unwrap();
+        let menu = user32.system_menu(first).unwrap();
+        assert_eq!(menu.id, RuntimeMenuId(1));
         assert_eq!(menu.owner_window_handle, window_handle);
         assert_eq!(menu.close_item_command, 0xf060);
         assert!(menu.close_item_enabled);
-        assert_eq!(menu.namespace, LOGICAL_MENU_HANDLE_NAMESPACE);
 
         let style = user32
-            .commit_window_style_update(pending_window_update)
-            .expect("menu allocation must not stale a pending window mutation");
-        assert!(style.changed);
+            .set_window_style(window_handle, RuntimeThreadId(0x2000), 0x90ca_0000)
+            .expect("window style update preserves the live system menu");
+        assert_ne!(style, 0x90ca_0000);
+        assert_eq!(
+            user32
+                .window(window_handle)
+                .unwrap()
+                .creation
+                .effective_style,
+            0x90ca_0000
+        );
         let repeated = user32
-            .commit_system_menu(user32.plan_system_menu(window_handle, 0xf060).unwrap())
+            .get_system_menu(window_handle, 0xf060)
+            .unwrap()
             .unwrap();
-        assert_eq!(repeated.menu_id, first.menu_id);
-        assert_eq!(repeated.handle, first.handle);
-        assert!(repeated.already_created);
+        assert_eq!(repeated, first);
         assert_eq!(user32.system_menus().len(), 1);
 
-        let menu_generation = user32.menu_generation;
         let enabled = user32
-            .commit_enable_system_menu_close_item(
-                user32
-                    .plan_enable_system_menu_close_item(first.handle, 0xf060)
-                    .unwrap(),
-            )
+            .enable_system_menu_close_item(first, 0xf060)
+            .unwrap()
             .unwrap();
-        assert_eq!(
-            enabled,
-            RuntimeEnableMenuItemResult {
-                previous_state: 0,
-                enabled: true,
-                changed: false,
-            }
-        );
-        assert_eq!(user32.menu_generation, menu_generation);
+        assert_eq!(enabled, 0);
 
-        for error in [
+        let before_invalid_item = user32.clone();
+        assert!(user32.enable_system_menu_close_item(first, 0xf061).is_err());
+        assert_eq!(
             user32
-                .plan_enable_system_menu_close_item(first.handle, 0xf061)
-                .unwrap_err(),
-            user32
-                .plan_enable_system_menu_close_item(first.handle + 1, 0xf060)
-                .unwrap_err(),
-        ] {
-            assert!(matches!(
-                error.code,
-                "system-menu-close-command-mismatch" | "menu-handle-unknown"
-            ));
-        }
+                .enable_system_menu_close_item(first + 1, 0xf060)
+                .unwrap(),
+            None
+        );
+        assert_eq!(user32, before_invalid_item);
         let before_exhaustion = user32.clone();
         user32.next_menu_handle = u32::MAX;
         let exhausted = user32.clone();
-        let other_window = user32
-            .commit_window_creation(
-                user32
-                    .plan_window_creation(user32.window(window_handle).unwrap().creation.clone())
-                    .unwrap(),
-            )
-            .unwrap();
+        let other_window = user32.publish_window_creation(
+            user32
+                .checked_window_creation(user32.window(window_handle).unwrap().creation.clone())
+                .unwrap(),
+        );
         for (message, result) in [
             (RuntimeWindowCreationMessage::NonClientCreate, 1),
             (RuntimeWindowCreationMessage::NonClientCalculate, 0),
@@ -6522,27 +4466,15 @@ mod tests {
             (RuntimeWindowCreationMessage::Size, 0),
             (RuntimeWindowCreationMessage::Move, 0),
         ] {
-            let plan = user32
-                .plan_window_creation_callback(other_window.window_id, message, result)
-                .unwrap();
-            user32.commit_window_creation_callback(plan).unwrap();
-        }
-        assert_eq!(
+            let plan = (other_window.0, message, result);
             user32
-                .plan_system_menu(other_window.handle, 0xf060)
-                .unwrap_err()
-                .code,
-            "system-menu-handle-space-exhausted"
-        );
+                .complete_window_creation_callback(plan.0, plan.1, plan.2)
+                .unwrap();
+        }
+        user32.get_system_menu(other_window.1, 0xf060).unwrap_err();
         assert_eq!(user32.next_menu_handle, u32::MAX);
         assert_eq!(user32.system_menus(), exhausted.system_menus());
         user32.next_menu_handle = before_exhaustion.next_menu_handle;
-
-        let teardown = user32.plan_process_teardown().unwrap().unwrap();
-        user32.preflight_process_teardown(&teardown).unwrap();
-        user32.commit_process_teardown(teardown);
-        assert!(user32.is_empty());
-        assert!(user32.system_menu(first.handle).is_err());
     }
 
     fn resource(
@@ -6553,7 +4485,6 @@ mod tests {
         RuntimeIconResource {
             module_id: RuntimeModuleId(1),
             module_load_base: GuestAddress(0x1000_0000),
-            module_source_sha256: "0".repeat(64),
             group_resource_id,
             language_id: 1_041,
             icon_resource_id,
@@ -6570,43 +4501,28 @@ mod tests {
 
     fn created_window_with_small_icon() -> (RuntimeUser32, u32, u32) {
         let mut user32 = RuntimeUser32::default();
-        let large_icon = user32
-            .commit_shared_icon_load(
-                user32
-                    .plan_shared_icon_load(resource(101, 3, 0x3000))
-                    .unwrap(),
-            )
-            .unwrap();
+        let large_icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
         let mut small_resource = resource(101, 4, 0x4000);
         small_resource.width = 16;
         small_resource.height = 16;
         small_resource.icon_data_size = 1_128;
-        let small_icon = user32
-            .commit_shared_icon_load(user32.plan_shared_icon_load(small_resource).unwrap())
-            .unwrap();
-        let cursor = user32
-            .commit_shared_cursor_load(user32.plan_shared_cursor_load(arrow_cursor()).unwrap())
-            .unwrap();
+        let small_icon = user32.load_shared_icon(small_resource).unwrap();
+        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
         let class = user32
-            .commit_window_class_registration(
-                user32
-                    .plan_window_class_registration(window_class_registration(
-                        large_icon,
-                        cursor,
-                        "BGI - Main window",
-                        0x28,
-                        0x92550,
-                    ))
-                    .unwrap(),
-            )
+            .register_window_class(window_class_registration(
+                &user32,
+                large_icon,
+                cursor,
+                "Main fixture window",
+                0x28,
+                0x92550,
+            ))
             .unwrap();
-        let created = user32
-            .commit_window_creation(
-                user32
-                    .plan_window_creation(window_creation_request(class))
-                    .unwrap(),
-            )
-            .unwrap();
+        let created = user32.publish_window_creation(
+            user32
+                .checked_window_creation(window_creation_request(&user32, class))
+                .unwrap(),
+        );
         for (message, result) in [
             (RuntimeWindowCreationMessage::NonClientCreate, 1),
             (RuntimeWindowCreationMessage::NonClientCalculate, 0),
@@ -6614,29 +4530,25 @@ mod tests {
             (RuntimeWindowCreationMessage::Size, 0),
             (RuntimeWindowCreationMessage::Move, 0),
         ] {
-            let plan = user32
-                .plan_window_creation_callback(created.window_id, message, result)
+            let plan = (created.0, message, result);
+            user32
+                .complete_window_creation_callback(plan.0, plan.1, plan.2)
                 .unwrap();
-            user32.commit_window_creation_callback(plan).unwrap();
         }
-        let icon_plan = user32
-            .plan_window_small_icon(
-                created.handle,
-                RuntimeThreadId(0x2000),
-                small_icon.handle,
-                16,
-                16,
-            )
-            .unwrap();
-        assert_eq!(user32.commit_window_small_icon(icon_plan).unwrap(), 0);
-        (user32, created.handle, small_icon.handle)
+        assert_eq!(
+            user32
+                .set_window_small_icon(created.1, RuntimeThreadId(0x2000), small_icon)
+                .unwrap(),
+            0
+        );
+        (user32, created.1, small_icon)
     }
 
     #[test]
     fn iconic_state_queries_use_effective_style_without_mutating_window_authority() {
         let (mut user32, window_handle, _) = created_window_with_small_icon();
         let before_normal = user32.clone();
-        assert!(!user32.window_is_iconic(window_handle).unwrap());
+        assert_eq!(user32.window_is_iconic(window_handle).unwrap(), Some(false));
         assert_eq!(user32, before_normal);
 
         let window_id = user32.window_handle_index[&window_handle];
@@ -6647,24 +4559,36 @@ mod tests {
             .creation
             .effective_style |= RUNTIME_WINDOW_STYLE_MINIMIZED;
         let before_minimized = user32.clone();
-        assert!(user32.window_is_iconic(window_handle).unwrap());
+        assert_eq!(user32.window_is_iconic(window_handle).unwrap(), Some(true));
         assert_eq!(user32, before_minimized);
 
         user32.windows.get_mut(&window_id).unwrap().lifecycle = RuntimeWindowLifecycle::Creating {
             message: RuntimeWindowCreationMessage::Move,
         };
         let before_creating = user32.clone();
-        assert_eq!(
-            user32.window_is_iconic(window_handle).unwrap_err().code,
-            "window-iconic-lifecycle-state-invalid"
-        );
+        user32.window_is_iconic(window_handle).unwrap_err();
         assert_eq!(user32, before_creating);
 
-        assert_eq!(
-            user32.window_is_iconic(0x1234).unwrap_err().code,
-            "window-handle-unknown"
-        );
+        assert_eq!(user32.window_is_iconic(0x1234).unwrap(), None);
         assert_eq!(user32, before_creating);
+    }
+
+    #[test]
+    fn default_ime_window_rejects_exhaustion_without_publishing_a_hwnd() {
+        for exhausted in 0..3 {
+            let (mut user32, handle, _) = created_window_with_small_icon();
+            let owner = user32.window(handle).unwrap().creation.owner_thread_id;
+            match exhausted {
+                0 => user32.next_window_handle = u32::MAX,
+                1 => user32.next_ime_window_id = u64::MAX,
+                _ => user32.generation = u64::MAX,
+            }
+            let before = user32.clone();
+            assert!(user32.validate_default_ime_window(handle, owner).is_err());
+            assert_eq!(user32, before);
+            assert!(user32.ime_windows.is_empty());
+            assert!(user32.default_ime_windows.is_empty());
+        }
     }
 
     #[test]
@@ -6675,60 +4599,43 @@ mod tests {
             .unwrap()
             .creation
             .owner_thread_id;
-        let plan = user32
-            .plan_default_ime_window(app_window_handle, owner_thread_id)
+        user32
+            .validate_default_ime_window(app_window_handle, owner_thread_id)
             .unwrap();
-        user32.preflight_default_ime_window(&plan).unwrap();
-        let result = user32.commit_default_ime_window_preflighted(plan);
-        assert_eq!(result.handle, app_window_handle + 1);
-        assert!(!result.already_created);
-        let ime = user32.ime_window(result.handle).unwrap();
+        let handle = user32.ensure_default_ime_window(owner_thread_id);
+        assert_eq!(handle, app_window_handle + 1);
+        let ime = user32.ime_window(handle).unwrap();
         assert_eq!(ime.class_name, "IME");
         assert_eq!(ime.owner_thread_id, owner_thread_id);
         assert_eq!(ime.status_window_request, None);
 
-        let repeated = user32
-            .plan_default_ime_window(app_window_handle, owner_thread_id)
+        user32
+            .validate_default_ime_window(app_window_handle, owner_thread_id)
             .unwrap();
-        let repeated = user32.commit_default_ime_window_preflighted(repeated);
-        assert_eq!(repeated.handle, result.handle);
-        assert!(repeated.already_created);
+        let before_repeated = user32.clone();
+        let repeated = user32.ensure_default_ime_window(owner_thread_id);
+        assert_eq!(repeated, handle);
+        assert_eq!(user32, before_repeated);
 
-        let close = user32
-            .plan_ime_control(
-                result.handle,
-                owner_thread_id,
-                RuntimeImeStatusWindowRequest::Close,
-            )
+        user32
+            .control_ime_status_window(handle, RuntimeImeStatusWindowRequest::Close)
             .unwrap();
-        user32.commit_ime_control(close).unwrap();
         assert_eq!(
-            user32
-                .ime_window(result.handle)
-                .unwrap()
-                .status_window_request,
+            user32.ime_window(handle).unwrap().status_window_request,
             Some(RuntimeImeStatusWindowRequest::Close)
         );
-        let open = user32
-            .plan_ime_control(
-                result.handle,
-                owner_thread_id,
-                RuntimeImeStatusWindowRequest::Open,
-            )
+        let before_repeated_close = user32.clone();
+        user32
+            .control_ime_status_window(handle, RuntimeImeStatusWindowRequest::Close)
             .unwrap();
-        user32.commit_ime_control(open).unwrap();
+        assert_eq!(user32, before_repeated_close);
+        user32
+            .control_ime_status_window(handle, RuntimeImeStatusWindowRequest::Open)
+            .unwrap();
         assert_eq!(
-            user32
-                .ime_window(result.handle)
-                .unwrap()
-                .status_window_request,
+            user32.ime_window(handle).unwrap().status_window_request,
             Some(RuntimeImeStatusWindowRequest::Open)
         );
-
-        let teardown = user32.plan_process_teardown().unwrap().unwrap();
-        user32.preflight_process_teardown(&teardown).unwrap();
-        user32.commit_process_teardown(teardown);
-        assert!(user32.is_empty());
     }
 
     fn arrow_cursor() -> RuntimeCursorSource {
@@ -6747,7 +4654,6 @@ mod tests {
             resource: RuntimeCursorResource {
                 module_id: RuntimeModuleId(1),
                 module_load_base: GuestAddress(0x1000_0000),
-                module_source_sha256: "0".repeat(64),
                 group_resource_id,
                 language_id: 1_041,
                 cursor_resource_id,
@@ -6766,8 +4672,9 @@ mod tests {
     }
 
     fn window_class_registration(
-        icon: RuntimeLoadIconAResult,
-        cursor: RuntimeLoadCursorAResult,
+        user32: &RuntimeUser32,
+        icon: u32,
+        cursor: u32,
         name: &str,
         style: u32,
         window_procedure_rva: u32,
@@ -6776,54 +4683,45 @@ mod tests {
             module: RuntimeWindowClassModule {
                 module_id: RuntimeModuleId(1),
                 load_base: GuestAddress(0x1000_0000),
-                source_sha256: "0".repeat(64),
             },
             style,
             window_procedure: RuntimeWindowProcedure {
                 module_id: RuntimeModuleId(1),
                 address: GuestAddress(0x1000_0000 + window_procedure_rva),
                 rva: Rva(window_procedure_rva),
-                calling_convention: RuntimeWindowProcedureCallingConvention::Stdcall,
-                argument_bytes: RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
             },
             class_extra_bytes: 0,
             window_extra_bytes: 0,
             icon: Some(RuntimeWindowClassIconReference {
-                icon_id: icon.icon_id,
-                handle: icon.handle,
+                icon_id: user32.icon(icon).unwrap().id,
+                handle: icon,
             }),
             cursor: Some(RuntimeWindowClassCursorReference {
-                cursor_id: cursor.cursor_id,
-                handle: cursor.handle,
+                cursor_id: user32.cursor(cursor).unwrap().id,
+                handle: cursor,
             }),
             background_brush: 0,
             menu_name: None,
-            class_name: RuntimeWindowClassNameA {
-                value: name.to_owned(),
-                encoding: RUNTIME_WINDOW_CLASS_NAME_A_ENCODING.to_owned(),
-            },
+            class_name: name.to_owned(),
             small_icon: None,
         }
     }
 
-    fn window_creation_request(
-        class: RuntimeRegisterClassExAResult,
-    ) -> RuntimeWindowCreationRequest {
+    fn window_creation_request(user32: &RuntimeUser32, atom: u16) -> RuntimeWindowCreationRequest {
+        let class = user32.window_class(atom).unwrap();
         RuntimeWindowCreationRequest {
             owner_thread_id: RuntimeThreadId(0x2000),
             class: RuntimeWindowClassReference {
-                class_id: class.class_id,
+                class_id: class.id,
                 atom: class.atom,
                 module_id: RuntimeModuleId(1),
             },
             instance: RuntimeWindowClassModule {
                 module_id: RuntimeModuleId(1),
                 load_base: GuestAddress(0x1000_0000),
-                source_sha256: "0".repeat(64),
             },
             name: RuntimeWindowNameA {
                 value: "Ethornell - BURIKO General Interpreter".to_owned(),
-                encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
             },
             extended_style: 0x0004_0000,
             effective_extended_style: 0x0004_0100,

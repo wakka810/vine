@@ -3,96 +3,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
-    <title>Vine Runtime</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>Vine</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; background: #111; color: #eee; margin: 2rem auto; max-width: 800px; padding: 0 1rem; }
+      header { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+      button { background: #292929; color: inherit; border: 1px solid #777; border-radius: 4px; padding: .6rem; cursor: pointer; text-align: left; }
+      button:disabled { opacity: .4; cursor: default; }
+      ul { padding: 0; list-style: none; }
+      li button { width: 100%; margin-bottom: .25rem; }
+      output { display: block; margin: 1rem 0; overflow-wrap: anywhere; }
+      #status[role="alert"] { white-space: pre-wrap; }
+      #game-surface { display: block; max-width: 100%; height: auto; }
+      body:has(#game-surface) #listing { display: none; }
+      .guest-message-box { color: #111; background: #f5f5f5; border: 1px solid #777; border-radius: 6px; max-width: min(36rem, 85vw); }
+      .guest-message-box::backdrop { background: #0007; }
+      .guest-message-box h2 { font-size: 1.1rem; margin-top: 0; }
+      .guest-message-box p { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 55vh; overflow: auto; }
+      .guest-message-buttons { display: flex; justify-content: flex-end; gap: .5rem; }
+      .guest-message-buttons button { color: #111; background: #eee; text-align: center; min-width: 5rem; }
+    </style>
   </head>
-  <body data-check-status="idle">
-    <header class="app-header">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">V</span>
-        <div>
-          <h1>Vine Runtime</h1>
-          <p>Chrome Worker checkpoint</p>
-        </div>
-      </div>
-      <div class="session-state" aria-live="polite">
-        <span id="status-dot" class="status-dot" data-phase="idle"></span>
-        <span id="session-status">Ready</span>
-      </div>
-    </header>
-
-    <nav class="command-bar" aria-label="Runtime commands">
-      <button id="run-button" class="primary-command" type="button">
-        <i data-lucide="play"></i>
-        <span>Run</span>
-      </button>
-      <button id="cancel-button" type="button" disabled>
-        <i data-lucide="square"></i>
-        <span>Cancel</span>
-      </button>
-      <button id="reset-button" class="icon-command" type="button" title="Reset view" aria-label="Reset view">
-        <i data-lucide="rotate-ccw"></i>
-      </button>
-      <span class="command-separator"></span>
-      <span class="runtime-target"><i data-lucide="cpu"></i> PE32 / i386</span>
-    </nav>
-
-    <main class="workbench">
-      <section class="surface-panel" aria-labelledby="surface-heading">
-        <div class="section-heading">
-          <div>
-            <span class="eyebrow">Output</span>
-            <h2 id="surface-heading">Guest surface</h2>
-          </div>
-          <span class="format-label">RGBA8 · 2 × 2</span>
-        </div>
-        <div class="canvas-stage">
-          <canvas id="surface" width="2" height="2" aria-label="Guest pixel surface"></canvas>
-          <div class="axis-label axis-x">0&nbsp;&nbsp;1</div>
-          <div class="axis-label axis-y">0<br />1</div>
-        </div>
-      </section>
-
-      <section class="telemetry-panel" aria-labelledby="telemetry-heading">
-        <div class="section-heading compact">
-          <div>
-            <span class="eyebrow">Live</span>
-            <h2 id="telemetry-heading">Session telemetry</h2>
-          </div>
-        </div>
-        <dl class="metric-grid">
-          <div><dt>Instructions</dt><dd id="metric-instructions">0</dd></div>
-          <div><dt>Budget yields</dt><dd id="metric-yields">0</dd></div>
-          <div><dt>Callbacks / depth</dt><dd id="metric-callbacks">0 / 0</dd></div>
-          <div><dt>Generation</dt><dd id="metric-generation">0</dd></div>
-          <div class="wide"><dt>Main heartbeat / max gap</dt><dd id="heartbeat-value">0 / 0 ms</dd></div>
-        </dl>
-        <div class="service-strip">
-          <div>
-            <i data-lucide="volume-2"></i>
-            <span>Audio</span>
-            <strong id="audio-value">Idle</strong>
-          </div>
-          <div>
-            <i data-lucide="database"></i>
-            <span>Storage</span>
-            <strong id="storage-value">--</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="timeline-panel" aria-labelledby="timeline-heading">
-        <div class="section-heading compact">
-          <div>
-            <span class="eyebrow">Scheduler</span>
-            <h2 id="timeline-heading">Session timeline</h2>
-          </div>
-        </div>
-        <ol id="timeline" class="timeline" aria-live="polite"></ol>
-      </section>
-    </main>
-
-    <script type="module" src="./main.js"></script>
+  <body>
+    <header><button id="choose">Choose game directory</button><button id="back" disabled>Up</button><button id="launch" disabled>Launch selected executable</button></header>
+    <output id="location" aria-label="Current folder"></output>
+    <ul id="listing" aria-label="Folders and executables"></ul>
+    <output id="status" role="status">Choose a directory to browse executables.</output>
+    <div id="surface"></div>
+    <script type="module" src="./play.js"></script>
   </body>
 </html>

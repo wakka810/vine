@@ -6,21 +6,6 @@ import type {
   MemoryRegionSnapshot,
 } from "./memory-transport.js";
 
-export interface ExecutionEngineIdentity {
-  schema: "vine.execution-engine-profile";
-  schemaVersion: 1;
-  engine: string;
-  sourceRevision: string;
-  cpuContextAbi: {
-    version: number;
-    bytes: number;
-  };
-  artifact: {
-    bytes: number;
-    sha256: string;
-  };
-}
-
 export interface ExecutionBootstrap {
   entryPoint: number;
   initialStackPointer: number;
@@ -53,7 +38,6 @@ export type ExecutionStop =
   | { kind: "halt" };
 
 export interface ExecutionCpuContext {
-  version: number;
   byteLength: number;
   opaqueWords: Uint32Array;
   eax: number;
@@ -79,79 +63,22 @@ export interface ExecutionSlice {
   stop: ExecutionStop;
   instructions: number;
   context: ExecutionCpuContext;
-  executionIsland?: {
-    fastApiCompletions: number;
-    writebackBatches: number;
-    writebackPages: number;
-    mirroredDeltaPages: number;
-    nativeHeapPages?: number;
-    generation: bigint;
-  };
 }
-
-export interface ExecutionClockSample {
-  retiredInstructions: number;
-  hostElapsedTime100ns: bigint;
-}
-
-export type CpuRegisterUpdate =
-  | { action: "preserve" }
-  | { action: "set"; value: number };
 
 export interface CpuResume {
   instructionPointer: number;
   stackPointer: number;
-  eax: CpuRegisterUpdate;
-  edx: CpuRegisterUpdate;
-  eflags: CpuRegisterUpdate;
-}
-
-export interface ExecutionCacheEffectCounts {
-  tlbFlushes: number;
-  instructionFetchInvalidations: number;
-  generatedCodeInvalidations: number;
+  eax: number | null;
 }
 
 export interface ExecutionEngineOptions {
   maximumPhysicalPages: number;
-  disableJit?: boolean;
-  relaxJitInstructionBudget?: boolean;
-  jitHotnessThreshold?: number;
 }
-
-export interface ExecutionEngineMemoryCapacity {
-  initialPhysicalPoolBytes: number;
-  physicalPoolBytes: number;
-  maximumPhysicalPoolBytes: number;
-  maximumPhysicalPages: number;
-  mappedGuestPages: number;
-  pageTablePages: number;
-  freePhysicalPages: number;
-  growths: number;
-  releasedPages: number;
-  reusedPages: number;
-}
-
-export interface ExecutionEnginePerformanceMetrics {
-  jitCompilations: number;
-  jitClears: number;
-  jitActiveFunctions: number;
-  jitInstructions: number;
-  interpretedInstructions: number;
-}
-
-export type ExecutionEngineFactory = (options: ExecutionEngineOptions) => ExecutionEngine;
 
 export interface ExecutionEngine {
-  identity(): ExecutionEngineIdentity;
   initialize(reflection: MemoryReflection, bootstrap: ExecutionBootstrap): void;
   rebuildMemory(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void;
-  memoryContractState(): string;
-  cacheEffectCounts(): Readonly<ExecutionCacheEffectCounts>;
-  performanceMetrics(): Readonly<ExecutionEnginePerformanceMetrics>;
-  memoryCapacity(): Readonly<ExecutionEngineMemoryCapacity>;
-  linearMemoryBytes(): number;
-  executeBudget(instructionBudget: number, clock?: ExecutionClockSample): ExecutionSlice;
+  executeBudget(instructionBudget: number): ExecutionSlice;
   createCpuContext(bootstrap: ExecutionThreadBootstrap): ExecutionCpuContext;
   saveCpuContext(): ExecutionCpuContext;
   restoreCpuContext(context: ExecutionCpuContext): void;
@@ -166,20 +93,4 @@ export interface ExecutionEngine {
   collectChangedPageViews(): DirtyMirrorPage[];
   applyMemoryDelta(delta: HostMemoryDelta): void;
   applyCacheEffects(effects: CacheEffects): void;
-}
-
-export class ExecutionMemoryAccessFault extends Error {
-  readonly code: "execution-address-unmapped" | "execution-read-protection";
-  readonly address: number;
-
-  constructor(
-    code: "execution-address-unmapped" | "execution-read-protection",
-    address: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ExecutionMemoryAccessFault";
-    this.code = code;
-    this.address = address;
-  }
 }

@@ -1,63 +1,33 @@
+use crate::win32::{ERROR_INVALID_PARAMETER, ERROR_NEGATIVE_SEEK};
+use encoding_rs::SHIFT_JIS;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write;
-
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::memory::GuestAddress;
 
-use super::{RuntimeHandle, RuntimeStateError};
+use super::RuntimeStateError;
 
-pub const RUNTIME_SOURCE_SNAPSHOT_SCHEMA: &str = "vine.source-snapshot-manifest";
-pub const RUNTIME_SOURCE_SNAPSHOT_VERSION: u32 = 1;
-pub const RUNTIME_SOURCE_FILE_NAMESPACE: &str = "vine.runtime-source-file.v1";
-pub const RUNTIME_FILE_SEARCH_NAMESPACE: &str = "vine.runtime-file-search.v1";
 pub const RUNTIME_FILE_SEARCH_LIMIT: usize = 4096;
-pub const RUNTIME_SOURCE_READ_SERVICE: &str = "storage.source-read.v1";
-pub const RUNTIME_SOURCE_READ_TRANSPORT_VERSION: u32 = 1;
-pub const RUNTIME_SOURCE_READ_REQUEST_BYTES: usize = 24;
-pub const RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES: usize = 32;
+pub const RUNTIME_SOURCE_READ_SERVICE: &str = "storage.source-read";
+pub const RUNTIME_SOURCE_READ_REQUEST_BYTES: usize = 20;
+pub const RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES: usize = 28;
 pub const RUNTIME_SOURCE_FILE_LIMIT: usize = 4096;
 pub const RUNTIME_SOURCE_READ_MAX_BYTES: u32 = 2 * 1024 * 1024;
-pub const RUNTIME_WRITABLE_PROFILE_SCHEMA: &str = "vine.writable-profile-snapshot";
-pub const RUNTIME_WRITABLE_PROFILE_VERSION: u32 = 3;
-pub const RUNTIME_WRITABLE_PROFILE_FILE_LIMIT: usize = 128;
-pub const RUNTIME_WRITABLE_PROFILE_DIRECTORY_LIMIT: usize = 64;
-pub const RUNTIME_WRITABLE_PROFILE_MAX_BYTES: u64 = 16 * 1024 * 1024;
+pub const RUNTIME_OPFS_READ_SERVICE: &str = "browser.opfs-read";
 pub const RUNTIME_WRITABLE_FILE_MAX_IO_BYTES: u32 = 1024 * 1024;
-pub const RUNTIME_WRITABLE_READ_SERVICE: &str = "storage.profile-read.v1";
-pub const RUNTIME_WRITABLE_COMMIT_SERVICE: &str = "storage.profile-commit.v1";
-pub const RUNTIME_WRITABLE_COMMIT_TRANSPORT_VERSION: u32 = 1;
-pub const RUNTIME_WRITABLE_COMMIT_REQUEST_BYTES: usize = 28;
-pub const RUNTIME_WRITABLE_COMMIT_RESPONSE_BYTES: usize = 32;
-pub const RUNTIME_WRITABLE_DELETE_SERVICE: &str = "storage.profile-delete.v1";
-pub const RUNTIME_WRITABLE_DELETE_TRANSPORT_VERSION: u32 = 1;
-pub const RUNTIME_WRITABLE_DELETE_REQUEST_BYTES: usize = 16;
-pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE: &str = "storage.profile-directory-create.v1";
-pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_TRANSPORT_VERSION: u32 = 1;
-pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_REQUEST_BYTES: usize = 16;
-pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_RESPONSE_BYTES: usize = 32;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSourceSnapshotManifest {
-    pub schema: String,
-    pub schema_version: u32,
-    pub title_fingerprint: String,
-    pub snapshot_id: String,
     pub mount: RuntimeSourceMountManifest,
     pub files: Vec<RuntimeSourceFileManifest>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSourceMountManifest {
     pub source_id: u32,
     pub root_path_a: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSourceFileManifest {
     pub object_id: u32,
     pub relative_path_a: Vec<u8>,
@@ -65,137 +35,65 @@ pub struct RuntimeSourceFileManifest {
     pub sha256: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeSourceSnapshot {
-    pub title_fingerprint: String,
-    pub snapshot_id: String,
+#[derive(Debug)]
+pub(crate) struct RuntimeSourceSnapshot {
     pub source_id: u32,
-    pub root_path_a: Vec<u8>,
     pub files: BTreeMap<u32, RuntimeSourceFileDescriptor>,
-    #[serde(skip)]
     path_index: BTreeMap<Vec<u8>, u32>,
-    #[serde(skip)]
+    // Case-folded lookup key -> original normalized spelling for FindFirstFileA.
+    directories: BTreeMap<Vec<u8>, Vec<u8>>,
     root_identity: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeSourceFileDescriptor {
-    pub object_id: u32,
+#[derive(Debug)]
+pub(crate) struct RuntimeSourceFileDescriptor {
     pub relative_path_a: Vec<u8>,
     pub byte_length: u64,
-    pub sha256: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RuntimeWritableProfileManifest {
-    pub schema: String,
-    pub schema_version: u32,
-    pub title_fingerprint: String,
-    pub profile_id: String,
-    pub root_path_a: Vec<u8>,
-    pub quota_bytes: u64,
-    pub files: Vec<RuntimeWritableFileManifest>,
-    pub directories: Vec<RuntimeWritableDirectoryManifest>,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct RuntimeSourceFileId(pub u64);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RuntimeWritableFileManifest {
-    pub object_id: u32,
-    pub relative_path_a: Vec<u8>,
-    pub exists: bool,
-    pub generation: u64,
-    pub byte_length: u64,
-    pub sha256: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RuntimeWritableDirectoryManifest {
-    pub directory_id: u32,
-    pub relative_path_a: Vec<u8>,
-    pub exists: bool,
-    pub generation: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableProfile {
-    pub title_fingerprint: String,
-    pub profile_id: String,
-    pub root_path_a: Vec<u8>,
-    pub quota_bytes: u64,
-    pub files: BTreeMap<u32, RuntimeWritableFile>,
-    pub directories: BTreeMap<u32, RuntimeWritableDirectory>,
-    #[serde(skip)]
-    path_index: BTreeMap<Vec<u8>, u32>,
-    #[serde(skip)]
-    directory_path_index: BTreeMap<Vec<u8>, u32>,
-    #[serde(skip)]
-    root_identity: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableFile {
-    pub object_id: u32,
-    pub relative_path_a: Vec<u8>,
-    pub exists: bool,
-    pub generation: u64,
-    pub byte_length: u64,
-    pub sha256: Option<String>,
-    pub dirty: bool,
-    #[serde(skip)]
-    content_loaded: bool,
-    #[serde(skip)]
-    committed_bytes: Vec<u8>,
-    #[serde(skip)]
-    working_bytes: Vec<u8>,
-    #[serde(skip)]
-    dirty_base_generation: Option<u64>,
-    #[serde(skip)]
-    revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableDirectory {
-    pub directory_id: u32,
-    pub relative_path_a: Vec<u8>,
-    pub exists: bool,
-    pub generation: u64,
-    #[serde(skip)]
-    revision: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
-pub struct RuntimeSourceFileId(pub u64);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeFileSearchId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeFileSearchEntryKind {
     RegularFile,
     Directory,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeFileSearchEntry {
     pub file_name_a: Vec<u8>,
     pub kind: RuntimeFileSearchEntryKind,
     pub byte_length: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+impl RuntimeFileSearchEntry {
+    pub(super) fn encode_find_data_a(&self) -> Result<Vec<u8>, RuntimeStateError> {
+        if self.file_name_a.is_empty()
+            || self.file_name_a.len() >= 260
+            || self.file_name_a.contains(&0)
+        {
+            return Err(RuntimeStateError::new(
+                "file search result name does not fit WIN32_FIND_DATAA.cFileName",
+            ));
+        }
+        let mut bytes = vec![0; 320];
+        let attributes: u32 = match self.kind {
+            RuntimeFileSearchEntryKind::RegularFile => 0x20,
+            RuntimeFileSearchEntryKind::Directory => 0x30,
+        };
+        bytes[0..4].copy_from_slice(&attributes.to_le_bytes());
+        bytes[28..32].copy_from_slice(&((self.byte_length >> 32) as u32).to_le_bytes());
+        bytes[32..36].copy_from_slice(&(self.byte_length as u32).to_le_bytes());
+        bytes[44..44 + self.file_name_a.len()].copy_from_slice(&self.file_name_a);
+        Ok(bytes)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeFileSearch {
     pub id: RuntimeFileSearchId,
     pub normalized_pattern_a: Vec<u8>,
@@ -203,23 +101,13 @@ pub struct RuntimeFileSearch {
     pub next_index: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeFindFirstFileResult {
-    pub search: RuntimeFileSearch,
-    pub handle: RuntimeHandle,
-    pub entry: RuntimeFileSearchEntry,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum RuntimeFileBacking {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeFileBacking {
     ImmutableSource { source_id: u32, object_id: u32 },
-    WritableProfile { object_id: u32 },
+    Opfs { byte_length: u64 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimePathResolution {
     RegularFile,
     Directory,
@@ -227,9 +115,8 @@ pub enum RuntimePathResolution {
     MissingPath,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeSourceFile {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeSourceFile {
     pub id: RuntimeSourceFileId,
     pub backing: RuntimeFileBacking,
     pub normalized_path_a: Vec<u8>,
@@ -239,229 +126,15 @@ pub struct RuntimeSourceFile {
     pub flags_and_attributes: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeOpenSourceFileResult {
-    pub file: RuntimeSourceFile,
-    pub handle: RuntimeHandle,
-    pub existed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableReadResult {
-    pub file_id: RuntimeSourceFileId,
-    pub object_id: u32,
-    pub cursor_before: u64,
-    pub cursor_after: u64,
-    pub transferred_bytes: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableWriteResult {
-    pub file_id: RuntimeSourceFileId,
-    pub object_id: u32,
-    pub cursor_before: u64,
-    pub cursor_after: u64,
-    pub transferred_bytes: u32,
-    pub byte_length: u64,
-    pub revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableCommitRequest {
-    pub request_id: u64,
-    pub file_id: RuntimeSourceFileId,
-    pub object_id: u32,
-    pub base_generation: u64,
-    pub byte_length: u64,
-    pub content_sha256: String,
-    pub close_after_commit: bool,
-}
-
-impl RuntimeWritableCommitRequest {
-    pub fn encode_host_payload(&self) -> [u8; RUNTIME_WRITABLE_COMMIT_REQUEST_BYTES] {
-        let words = [
-            RUNTIME_WRITABLE_COMMIT_TRANSPORT_VERSION,
-            self.object_id,
-            self.base_generation as u32,
-            (self.base_generation >> 32) as u32,
-            self.byte_length as u32,
-            (self.byte_length >> 32) as u32,
-            u32::from(self.close_after_commit),
-        ];
-        let mut payload = [0; RUNTIME_WRITABLE_COMMIT_REQUEST_BYTES];
-        for (word, destination) in words.into_iter().zip(payload.chunks_exact_mut(4)) {
-            destination.copy_from_slice(&word.to_le_bytes());
-        }
-        payload
-    }
+#[derive(Debug)]
+pub(crate) enum SourceOpenOutcome<T> {
+    Opened(T),
+    Missing,
+    SharingViolation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuntimeWritableCommitHostResponse {
-    pub request_id: u64,
-    pub object_id: u32,
-    pub base_generation: u64,
-    pub committed_generation: u64,
-    pub win32_error: u32,
-}
-
-impl RuntimeWritableCommitHostResponse {
-    pub fn decode_binary(request_id: u64, control: &[u8]) -> Result<Self, RuntimeStateError> {
-        if control.len() != RUNTIME_WRITABLE_COMMIT_RESPONSE_BYTES {
-            return Err(vfs_invalid(
-                "writable-commit-response-size-invalid",
-                "writable commit response must contain eight little-endian words",
-            ));
-        }
-        let words: [u32; 8] = std::array::from_fn(|index| {
-            let offset = index * 4;
-            u32::from_le_bytes(
-                control[offset..offset + 4]
-                    .try_into()
-                    .expect("four-byte writable commit response chunk"),
-            )
-        });
-        if words[0] != RUNTIME_WRITABLE_COMMIT_TRANSPORT_VERSION || words[7] != 0 {
-            return Err(vfs_invalid(
-                "writable-commit-response-version-invalid",
-                "writable commit response uses an unsupported version or reserved word",
-            ));
-        }
-        Ok(Self {
-            request_id,
-            object_id: words[1],
-            base_generation: u64::from(words[2]) | (u64::from(words[3]) << 32),
-            committed_generation: u64::from(words[4]) | (u64::from(words[5]) << 32),
-            win32_error: words[6],
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableCommitCompletion {
-    pub request: RuntimeWritableCommitRequest,
-    pub succeeded: bool,
-    pub committed_generation: u64,
-    pub win32_error: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableDeleteRequest {
-    pub request_id: u64,
-    pub object_id: u32,
-    pub relative_path_a: Vec<u8>,
-    pub base_generation: u64,
-}
-
-impl RuntimeWritableDeleteRequest {
-    pub fn encode_host_payload(&self) -> [u8; RUNTIME_WRITABLE_DELETE_REQUEST_BYTES] {
-        let words = [
-            RUNTIME_WRITABLE_DELETE_TRANSPORT_VERSION,
-            self.object_id,
-            self.base_generation as u32,
-            (self.base_generation >> 32) as u32,
-        ];
-        let mut payload = [0; RUNTIME_WRITABLE_DELETE_REQUEST_BYTES];
-        for (word, destination) in words.into_iter().zip(payload.chunks_exact_mut(4)) {
-            destination.copy_from_slice(&word.to_le_bytes());
-        }
-        payload
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableDeleteCompletion {
-    pub request: RuntimeWritableDeleteRequest,
-    pub succeeded: bool,
-    pub committed_generation: u64,
-    pub win32_error: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableDirectoryCreateRequest {
-    pub request_id: u64,
-    pub directory_id: u32,
-    pub relative_path_a: Vec<u8>,
-    pub base_generation: u64,
-}
-
-impl RuntimeWritableDirectoryCreateRequest {
-    pub fn encode_host_payload(&self) -> [u8; RUNTIME_WRITABLE_DIRECTORY_CREATE_REQUEST_BYTES] {
-        let words = [
-            RUNTIME_WRITABLE_DIRECTORY_CREATE_TRANSPORT_VERSION,
-            self.directory_id,
-            self.base_generation as u32,
-            (self.base_generation >> 32) as u32,
-        ];
-        let mut payload = [0; RUNTIME_WRITABLE_DIRECTORY_CREATE_REQUEST_BYTES];
-        for (word, destination) in words.into_iter().zip(payload.chunks_exact_mut(4)) {
-            destination.copy_from_slice(&word.to_le_bytes());
-        }
-        payload
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuntimeWritableDirectoryCreateHostResponse {
-    pub request_id: u64,
-    pub directory_id: u32,
-    pub base_generation: u64,
-    pub committed_generation: u64,
-    pub win32_error: u32,
-}
-
-impl RuntimeWritableDirectoryCreateHostResponse {
-    pub fn decode_binary(request_id: u64, control: &[u8]) -> Result<Self, RuntimeStateError> {
-        if control.len() != RUNTIME_WRITABLE_DIRECTORY_CREATE_RESPONSE_BYTES {
-            return Err(vfs_invalid(
-                "writable-directory-create-response-size-invalid",
-                "writable directory create response must contain eight little-endian words",
-            ));
-        }
-        let words: [u32; 8] = std::array::from_fn(|index| {
-            let offset = index * 4;
-            u32::from_le_bytes(
-                control[offset..offset + 4]
-                    .try_into()
-                    .expect("four-byte writable directory create response chunk"),
-            )
-        });
-        if words[0] != RUNTIME_WRITABLE_DIRECTORY_CREATE_TRANSPORT_VERSION || words[7] != 0 {
-            return Err(vfs_invalid(
-                "writable-directory-create-response-version-invalid",
-                "writable directory create response uses an unsupported version or reserved word",
-            ));
-        }
-        Ok(Self {
-            request_id,
-            directory_id: words[1],
-            base_generation: u64::from(words[2]) | (u64::from(words[3]) << 32),
-            committed_generation: u64::from(words[4]) | (u64::from(words[5]) << 32),
-            win32_error: words[6],
-        })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWritableDirectoryCreateCompletion {
-    pub request: RuntimeWritableDirectoryCreateRequest,
-    pub succeeded: bool,
-    pub committed_generation: u64,
-    pub win32_error: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeSourceReadRequest {
+pub(crate) struct RuntimeSourceReadRequest {
     pub request_id: u64,
     pub file_id: RuntimeSourceFileId,
     pub source_id: u32,
@@ -473,7 +146,6 @@ pub struct RuntimeSourceReadRequest {
 impl RuntimeSourceReadRequest {
     pub fn encode_host_payload(self) -> [u8; RUNTIME_SOURCE_READ_REQUEST_BYTES] {
         let words = [
-            RUNTIME_SOURCE_READ_TRANSPORT_VERSION,
             self.source_id,
             self.object_id,
             self.offset as u32,
@@ -488,7 +160,7 @@ impl RuntimeSourceReadRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct RuntimeSourceReadHostResponse {
     pub request_id: u64,
     pub source_id: u32,
@@ -507,12 +179,11 @@ impl RuntimeSourceReadHostResponse {
         payload: &[u8],
     ) -> Result<Self, RuntimeStateError> {
         if control.len() != RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES {
-            return Err(vfs_invalid(
-                "source-read-response-control-size-invalid",
-                "source read response control must contain eight little-endian words",
+            return Err(RuntimeStateError::new(
+                "source read response control must contain seven little-endian words",
             ));
         }
-        let words: [u32; 8] = std::array::from_fn(|index| {
+        let words: [u32; 7] = std::array::from_fn(|index| {
             let offset = index * 4;
             u32::from_le_bytes(
                 control[offset..offset + 4]
@@ -520,18 +191,11 @@ impl RuntimeSourceReadHostResponse {
                     .expect("four-byte source read response control chunk"),
             )
         });
-        if words[0] != RUNTIME_SOURCE_READ_TRANSPORT_VERSION {
-            return Err(vfs_invalid(
-                "source-read-response-version-unsupported",
-                "source read response uses an unsupported transport version",
-            ));
-        }
-        let requested_bytes = words[5];
-        let transferred_bytes = words[6];
-        let win32_error = words[7];
+        let requested_bytes = words[4];
+        let transferred_bytes = words[5];
+        let win32_error = words[6];
         if requested_bytes == 0 || requested_bytes > RUNTIME_SOURCE_READ_MAX_BYTES {
-            return Err(vfs_invalid(
-                "source-read-response-request-size-invalid",
+            return Err(RuntimeStateError::new(
                 "source read response request size exceeds the transport contract",
             ));
         }
@@ -542,16 +206,15 @@ impl RuntimeSourceReadHostResponse {
             transferred_bytes == 0 && payload.is_empty()
         };
         if !valid_payload {
-            return Err(vfs_invalid(
-                "source-read-response-payload-invalid",
+            return Err(RuntimeStateError::new(
                 "source read response payload does not match its result metadata",
             ));
         }
         Ok(Self {
             request_id,
-            source_id: words[1],
-            object_id: words[2],
-            offset: u64::from(words[3]) | (u64::from(words[4]) << 32),
+            source_id: words[0],
+            object_id: words[1],
+            offset: u64::from(words[2]) | (u64::from(words[3]) << 32),
             requested_bytes,
             transferred_bytes,
             win32_error,
@@ -560,373 +223,85 @@ impl RuntimeSourceReadHostResponse {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeSourceReadCompletion {
-    pub request: RuntimeSourceReadRequest,
-    pub succeeded: bool,
-    pub transferred_bytes: u32,
-    pub win32_error: u32,
-    pub cursor_before: u64,
-    pub cursor_after: u64,
-    pub content_sha256: String,
-}
+// The selected directory spelling and its Rust-matched immediate children.
+pub(super) type SourceSearchSelection = (Vec<u8>, Vec<(Vec<u8>, bool)>);
+pub(super) type SourceSearchBatchEntry = (Vec<u8>, Option<(u64, String)>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) struct RuntimeFiles {
     snapshot: Option<RuntimeSourceSnapshot>,
-    writable_profile: Option<RuntimeWritableProfile>,
     open_files: BTreeMap<RuntimeSourceFileId, RuntimeSourceFile>,
     pending_reads: BTreeMap<u64, RuntimePendingSourceRead>,
-    pending_commits: BTreeMap<u64, RuntimePendingWritableCommit>,
-    pending_deletes: BTreeMap<u64, RuntimePendingWritableDelete>,
-    pending_directory_creates: BTreeMap<u64, RuntimePendingWritableDirectoryCreate>,
     searches: BTreeMap<RuntimeFileSearchId, RuntimeFileSearch>,
     next_file_id: u64,
     next_search_id: u64,
-    catalog_revision: u64,
 }
 
 impl Default for RuntimeFiles {
     fn default() -> Self {
         Self {
             snapshot: None,
-            writable_profile: None,
             open_files: BTreeMap::new(),
             pending_reads: BTreeMap::new(),
-            pending_commits: BTreeMap::new(),
-            pending_deletes: BTreeMap::new(),
-            pending_directory_creates: BTreeMap::new(),
             searches: BTreeMap::new(),
             next_file_id: 1,
             next_search_id: 1,
-            catalog_revision: 0,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSourceSnapshotRegistrationPlan {
-    next: RuntimeSourceSnapshot,
-    expected_catalog_revision: u64,
-    next_catalog_revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableProfileRegistrationPlan {
-    next: RuntimeWritableProfile,
-    expected_catalog_revision: u64,
-    next_catalog_revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableProfileHydrationPlan {
-    previous: RuntimeWritableFile,
-    next: RuntimeWritableFile,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSourceFileOpenPlan {
-    expected_next_file_id: u64,
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct RuntimeSourceFileOpen {
     next_file_id: u64,
     file: RuntimeSourceFile,
-    existed: bool,
-    previous_writable: Option<RuntimeWritableFile>,
-    next_writable: Option<RuntimeWritableFile>,
-    expected_catalog_revision: u64,
-    next_catalog_revision: u64,
 }
 
-impl RuntimeSourceFileOpenPlan {
+impl RuntimeSourceFileOpen {
     pub(super) const fn file_id(&self) -> RuntimeSourceFileId {
         self.file.id
     }
 
-    pub(super) const fn existed(&self) -> bool {
-        self.existed
-    }
-
-    #[cfg(test)]
-    pub(super) fn file(&self) -> &RuntimeSourceFile {
-        &self.file
+    pub(super) fn confirmed_opfs(mut self, byte_length: u64) -> Self {
+        debug_assert!(matches!(self.file.backing, RuntimeFileBacking::Opfs { .. }));
+        self.file.backing = RuntimeFileBacking::Opfs { byte_length };
+        self
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeFileSearchOpenPlan {
-    expected_next_search_id: u64,
-    next_search_id: u64,
-    expected_catalog_revision: u64,
-    search: RuntimeFileSearch,
-}
-
-impl RuntimeFileSearchOpenPlan {
-    pub(super) const fn search_id(&self) -> RuntimeFileSearchId {
-        self.search.id
-    }
-
-    pub(super) fn first_entry(&self) -> &RuntimeFileSearchEntry {
-        self.search
-            .entries
-            .first()
-            .expect("file search open plans require at least one entry")
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeFileSearchAdvancePlan {
-    previous: RuntimeFileSearch,
-    next: RuntimeFileSearch,
-    entry: RuntimeFileSearchEntry,
-}
-
-impl RuntimeFileSearchAdvancePlan {
-    pub(super) fn entry(&self) -> &RuntimeFileSearchEntry {
-        &self.entry
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeFileSearchRetirementPlan {
-    previous: RuntimeFileSearch,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSourceFileRetirementPlan {
-    previous: RuntimeSourceFile,
-    pending_reads: Vec<RuntimePendingSourceRead>,
-    pending_commits: Vec<RuntimePendingWritableCommit>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSourceFileSeekPlan {
-    previous: RuntimeSourceFile,
-    next: RuntimeSourceFile,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableReadPlan {
-    previous_file: RuntimeSourceFile,
-    next_file: RuntimeSourceFile,
-    bytes: Vec<u8>,
-    result: RuntimeWritableReadResult,
-}
-
-impl RuntimeWritableReadPlan {
-    pub(super) fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    pub(super) const fn result(&self) -> RuntimeWritableReadResult {
-        self.result
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableWritePlan {
-    previous_file: RuntimeSourceFile,
-    next_file: RuntimeSourceFile,
-    previous_writable: RuntimeWritableFile,
-    next_writable: RuntimeWritableFile,
-    result: RuntimeWritableWriteResult,
-    expected_catalog_revision: u64,
-    next_catalog_revision: u64,
-}
-
-impl RuntimeWritableWritePlan {
-    pub(super) const fn result(&self) -> RuntimeWritableWriteResult {
-        self.result
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 struct RuntimePendingSourceRead {
     request: RuntimeSourceReadRequest,
     buffer: GuestAddress,
     bytes_read: GuestAddress,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RuntimePendingWritableCommit {
-    request: RuntimeWritableCommitRequest,
-    expected_revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RuntimePendingWritableDelete {
-    request: RuntimeWritableDeleteRequest,
-    expected_revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RuntimePendingWritableDirectoryCreate {
-    request: RuntimeWritableDirectoryCreateRequest,
-    expected_revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableCommitBeginPlan {
-    pending: RuntimePendingWritableCommit,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableCommitCompletionPlan {
-    pending: RuntimePendingWritableCommit,
-    previous_writable: RuntimeWritableFile,
-    next_writable: RuntimeWritableFile,
-    completion: RuntimeWritableCommitCompletion,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableDeleteBeginPlan {
-    pending: RuntimePendingWritableDelete,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableDeleteCompletionPlan {
-    pending: RuntimePendingWritableDelete,
-    previous_writable: RuntimeWritableFile,
-    next_writable: RuntimeWritableFile,
-    completion: RuntimeWritableDeleteCompletion,
-    expected_catalog_revision: u64,
-    next_catalog_revision: u64,
-}
-
-impl RuntimeWritableDeleteCompletionPlan {
-    pub(super) fn completion(&self) -> &RuntimeWritableDeleteCompletion {
-        &self.completion
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableDirectoryCreateBeginPlan {
-    pending: RuntimePendingWritableDirectoryCreate,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableDirectoryCreateCompletionPlan {
-    pending: RuntimePendingWritableDirectoryCreate,
-    previous_directory: RuntimeWritableDirectory,
-    next_directory: RuntimeWritableDirectory,
-    completion: RuntimeWritableDirectoryCreateCompletion,
-    expected_catalog_revision: u64,
-    next_catalog_revision: u64,
-}
-
-impl RuntimeWritableDirectoryCreateCompletionPlan {
-    pub(super) fn completion(&self) -> &RuntimeWritableDirectoryCreateCompletion {
-        &self.completion
-    }
-}
-
-impl RuntimeWritableCommitCompletionPlan {
-    pub(super) fn completion(&self) -> &RuntimeWritableCommitCompletion {
-        &self.completion
-    }
-
-    pub(super) const fn closes_file(&self) -> bool {
-        self.pending.request.close_after_commit && self.completion.succeeded
-    }
-
-    pub(super) const fn file_id(&self) -> RuntimeSourceFileId {
-        self.pending.request.file_id
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSourceReadBeginPlan {
-    pending: RuntimePendingSourceRead,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) struct RuntimeSourceReadCompletionPlan {
-    pending: RuntimePendingSourceRead,
-    previous_file: RuntimeSourceFile,
-    next_file: RuntimeSourceFile,
-    response: RuntimeSourceReadHostResponse,
-    completion: RuntimeSourceReadCompletion,
+    request_id: u64,
+    file_id: RuntimeSourceFileId,
+    buffer: GuestAddress,
+    bytes_read: GuestAddress,
+    next_cursor: u64,
+    service: &'static str,
 }
 
 impl RuntimeSourceReadCompletionPlan {
-    pub(super) fn response(&self) -> &RuntimeSourceReadHostResponse {
-        &self.response
-    }
-
     pub(super) const fn buffer(&self) -> GuestAddress {
-        self.pending.buffer
+        self.buffer
     }
 
     pub(super) const fn bytes_read(&self) -> GuestAddress {
-        self.pending.bytes_read
-    }
-
-    pub(super) fn completion(&self) -> &RuntimeSourceReadCompletion {
-        &self.completion
+        self.bytes_read
     }
 
     pub(super) const fn service(&self) -> &'static str {
-        if self.pending.request.source_id == 0 {
-            RUNTIME_WRITABLE_READ_SERVICE
-        } else {
-            RUNTIME_SOURCE_READ_SERVICE
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSourceReadCancellationPlan {
-    requests: Vec<RuntimePendingSourceRead>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableCommitCancellationPlan {
-    requests: Vec<RuntimePendingWritableCommit>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableDeleteCancellationPlan {
-    requests: Vec<RuntimePendingWritableDelete>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeWritableDirectoryCreateCancellationPlan {
-    requests: Vec<RuntimePendingWritableDirectoryCreate>,
-}
-
-impl RuntimeWritableCommitCancellationPlan {
-    pub(super) fn request_ids(&self) -> impl Iterator<Item = u64> + '_ {
-        self.requests
-            .iter()
-            .map(|pending| pending.request.request_id)
-    }
-}
-
-impl RuntimeSourceReadCancellationPlan {
-    pub(super) fn request_ids(&self) -> impl Iterator<Item = u64> + '_ {
-        self.requests
-            .iter()
-            .map(|pending| pending.request.request_id)
+        self.service
     }
 }
 
 impl RuntimeFiles {
-    fn plan_catalog_change(&self) -> Result<(u64, u64), RuntimeStateError> {
-        let next = self.catalog_revision.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "file-catalog-revision-exhausted",
-                "runtime file catalog revision space is exhausted",
-            )
-        })?;
-        Ok((self.catalog_revision, next))
-    }
-
     pub(super) fn snapshot(&self) -> Option<&RuntimeSourceSnapshot> {
         self.snapshot.as_ref()
-    }
-
-    pub(super) fn writable_profile(&self) -> Option<&RuntimeWritableProfile> {
-        self.writable_profile.as_ref()
     }
 
     pub(super) fn resolve_path_kind(
@@ -936,21 +311,13 @@ impl RuntimeFiles {
     ) -> Result<RuntimePathResolution, RuntimeStateError> {
         let normalized = resolve_path(requested_path, current_directory)?;
         let root_identity = self
-            .writable_profile
+            .snapshot
             .as_ref()
-            .map(|profile| profile.root_identity.as_slice())
-            .or_else(|| {
-                self.snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.root_identity.as_slice())
-            })
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "file-mount-unregistered",
-                    "runtime process has no immutable source or writable profile mount",
-                )
-            })?;
+                RuntimeStateError::new("runtime process has no selected source directory")
+            })?
+            .root_identity
+            .as_slice();
         if normalized.identity == root_identity {
             return Ok(RuntimePathResolution::Directory);
         }
@@ -961,48 +328,6 @@ impl RuntimeFiles {
             return Ok(RuntimePathResolution::MissingPath);
         }
         let relative = &normalized.identity[root_identity.len() + 1..];
-        if let Some(directory_id) = self
-            .writable_profile
-            .as_ref()
-            .and_then(|profile| profile.directory_path_index.get(relative).copied())
-        {
-            let profile = self
-                .writable_profile
-                .as_ref()
-                .expect("writable directory path requires profile");
-            let directory = profile.directories.get(&directory_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-vfs",
-                    "writable-directory-path-index-corrupt",
-                    "writable directory path index points to a missing identity",
-                )
-            })?;
-            if directory.exists {
-                return Ok(RuntimePathResolution::Directory);
-            }
-        }
-        if let Some(object_id) = self
-            .writable_profile
-            .as_ref()
-            .and_then(|profile| profile.path_index.get(relative).copied())
-        {
-            let profile = self
-                .writable_profile
-                .as_ref()
-                .expect("writable path requires profile");
-            let file = profile.files.get(&object_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-vfs",
-                    "writable-path-index-corrupt",
-                    "writable path index points to a missing object",
-                )
-            })?;
-            return Ok(if file.exists {
-                RuntimePathResolution::RegularFile
-            } else {
-                RuntimePathResolution::MissingFile
-            });
-        }
         if let Some(object_id) = self
             .snapshot
             .as_ref()
@@ -1013,9 +338,7 @@ impl RuntimeFiles {
                 .as_ref()
                 .expect("source path requires snapshot");
             if !snapshot.files.contains_key(&object_id) {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-vfs",
-                    "source-path-index-corrupt",
+                return Err(RuntimeStateError::new(
                     "source path index points to a missing object descriptor",
                 ));
             }
@@ -1024,12 +347,10 @@ impl RuntimeFiles {
         if self.registered_directory_exists(relative) {
             return Ok(RuntimePathResolution::Directory);
         }
-        let parent = relative
-            .iter()
-            .rposition(|byte| *byte == b'\\')
-            .map_or(&[][..], |separator| &relative[..separator]);
+        let components = normalize_components(relative, false)?;
+        let parent = components[..components.len() - 1].join(&b"\\"[..]);
         Ok(
-            if parent.is_empty() || self.registered_directory_exists(parent) {
+            if parent.is_empty() || self.registered_directory_exists(&parent) {
                 RuntimePathResolution::MissingFile
             } else {
                 RuntimePathResolution::MissingPath
@@ -1043,56 +364,36 @@ impl RuntimeFiles {
                 && path.starts_with(relative)
                 && (relative.is_empty() || path.get(relative.len()) == Some(&b'\\'))
         };
-        self.snapshot
-            .as_ref()
-            .is_some_and(|snapshot| snapshot.path_index.keys().any(|path| is_descendant(path)))
-            || self.writable_profile.as_ref().is_some_and(|profile| {
-                profile.path_index.keys().any(|path| is_descendant(path))
-                    || profile
-                        .directory_path_index
-                        .iter()
-                        .any(|(path, directory_id)| {
-                            profile
-                                .directories
-                                .get(directory_id)
-                                .is_some_and(|directory| directory.exists)
-                                && (path.as_slice() == relative || is_descendant(path))
-                        })
-            })
+        self.snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.directories.contains_key(relative)
+                || snapshot.path_index.keys().any(|path| is_descendant(path))
+                || snapshot.directories.keys().any(|path| is_descendant(path))
+        })
     }
 
     fn enumerate_file_search_entries(
         &self,
         pattern: &ResolvedFileSearchPattern,
-        maximum_matches: usize,
-    ) -> Result<Vec<RuntimeFileSearchEntry>, RuntimeStateError> {
+    ) -> Result<Option<Vec<RuntimeFileSearchEntry>>, RuntimeStateError> {
         let root_identity = self
-            .writable_profile
+            .snapshot
             .as_ref()
-            .map(|profile| profile.root_identity.as_slice())
-            .or_else(|| {
-                self.snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.root_identity.as_slice())
-            })
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "file-mount-unregistered",
-                    "file search requires an immutable source or writable profile mount",
-                )
-            })?;
+                RuntimeStateError::new("file search requires a selected source directory")
+            })?
+            .root_identity
+            .as_slice();
         let directory_relative = if pattern.directory_identity == root_identity {
             &[][..]
+        } else if pattern.directory_identity.starts_with(root_identity)
+            && pattern.directory_identity.get(root_identity.len()) == Some(&b'\\')
+        {
+            &pattern.directory_identity[root_identity.len() + 1..]
         } else {
-            relative_to_mount(&pattern.directory_identity, root_identity)?
+            return Ok(None);
         };
         if !directory_relative.is_empty() && !self.registered_directory_exists(directory_relative) {
-            return Err(RuntimeStateError::not_found(
-                "runtime-vfs",
-                "file-search-directory-missing",
-                "file search directory is not registered in the runtime VFS",
-            ));
+            return Ok(None);
         }
 
         let mut candidates = BTreeMap::<Vec<u8>, RuntimeFileSearchEntry>::new();
@@ -1123,25 +424,8 @@ impl RuntimeFiles {
                     descriptor.byte_length,
                 );
             }
-        }
-        if let Some(profile) = self.writable_profile.as_ref() {
-            for file in profile.files.values().filter(|file| file.exists) {
-                insert_path(
-                    &file.relative_path_a,
-                    RuntimeFileSearchEntryKind::RegularFile,
-                    file.byte_length,
-                );
-            }
-            for directory in profile
-                .directories
-                .values()
-                .filter(|directory| directory.exists)
-            {
-                insert_path(
-                    &directory.relative_path_a,
-                    RuntimeFileSearchEntryKind::Directory,
-                    0,
-                );
+            for path in snapshot.directories.values() {
+                insert_path(path, RuntimeFileSearchEntryKind::Directory, 0);
             }
         }
 
@@ -1150,763 +434,120 @@ impl RuntimeFiles {
             if !windows_932_wildcard_matches(&pattern.file_name_pattern, &candidate.file_name_a)? {
                 continue;
             }
-            if entries.len() == maximum_matches {
-                return Err(RuntimeStateError::resource_limit(
-                    "runtime-vfs",
-                    "file-search-match-limit-exceeded",
+            if entries.len() == RUNTIME_FILE_SEARCH_LIMIT {
+                return Err(RuntimeStateError::new(
                     "file search result count exceeds the policy bound",
                 ));
             }
             entries.push(candidate);
         }
-        Ok(entries)
-    }
-
-    pub(super) fn plan_writable_delete(
-        &self,
-        requested_path: &[u8],
-        current_directory: &[u8],
-        request_id: u64,
-    ) -> Result<RuntimeWritableDeleteBeginPlan, RuntimeStateError> {
-        let normalized = resolve_path(requested_path, current_directory)?;
-        let profile = self.writable_profile.as_ref().ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-vfs",
-                "writable-profile-missing",
-                "file deletion requires a registered writable profile",
-            )
-        })?;
-        let relative = relative_to_mount(&normalized.identity, &profile.root_identity)?;
-        let object_id = profile.path_index.get(relative).copied().ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-vfs",
-                "writable-file-delete-unregistered",
-                "file deletion path is outside the writable profile allowlist",
-            )
-        })?;
-        let writable = profile.files.get(&object_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-vfs",
-                "writable-file-path-index-corrupt",
-                "writable file path index points to a missing identity",
-            )
-        })?;
-        if !writable.exists {
-            return Err(RuntimeStateError::not_found(
-                "runtime-vfs",
-                "writable-file-delete-missing",
-                "the writable file does not exist",
-            ));
-        }
-        if writable.dirty
-            || self.open_files.values().any(|file| {
-                matches!(
-                    file.backing,
-                    RuntimeFileBacking::WritableProfile { object_id: open_id }
-                        if open_id == object_id
-                )
-            })
-            || self
-                .pending_commits
-                .values()
-                .any(|pending| pending.request.object_id == object_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-delete-sharing-violation",
-                "the writable file is open or owns a pending operation",
-            ));
-        }
-        if self
-            .pending_deletes
-            .values()
-            .any(|pending| pending.request.object_id == object_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-delete-pending",
-                "the writable file already owns a pending durable deletion",
-            ));
-        }
-        Ok(RuntimeWritableDeleteBeginPlan {
-            pending: RuntimePendingWritableDelete {
-                request: RuntimeWritableDeleteRequest {
-                    request_id,
-                    object_id,
-                    relative_path_a: writable.relative_path_a.clone(),
-                    base_generation: writable.generation,
-                },
-                expected_revision: writable.revision,
-            },
-        })
-    }
-
-    pub(super) fn preflight_writable_delete(
-        &self,
-        plan: &RuntimeWritableDeleteBeginPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let pending = &plan.pending;
-        let writable = self.writable_file(pending.request.object_id)?;
-        if !writable.exists
-            || writable.dirty
-            || writable.generation != pending.request.base_generation
-            || writable.revision != pending.expected_revision
-            || writable.relative_path_a != pending.request.relative_path_a
-            || self
-                .pending_deletes
-                .contains_key(&pending.request.request_id)
-            || self
-                .pending_deletes
-                .values()
-                .any(|existing| existing.request.object_id == pending.request.object_id)
-            || self.open_files.values().any(|file| {
-                matches!(
-                    file.backing,
-                    RuntimeFileBacking::WritableProfile { object_id }
-                        if object_id == pending.request.object_id
-                )
-            })
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-delete-plan-stale",
-                "writable file state changed after delete planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_writable_delete_begin(
-        &mut self,
-        plan: RuntimeWritableDeleteBeginPlan,
-    ) -> RuntimeWritableDeleteRequest {
-        debug_assert!(self.preflight_writable_delete(&plan).is_ok());
-        let request = plan.pending.request.clone();
-        let previous = self
-            .pending_deletes
-            .insert(request.request_id, plan.pending);
-        debug_assert!(previous.is_none());
-        request
-    }
-
-    pub(super) fn writable_delete_request(
-        &self,
-        request_id: u64,
-    ) -> Result<&RuntimeWritableDeleteRequest, RuntimeStateError> {
-        self.pending_deletes
-            .get(&request_id)
-            .map(|pending| &pending.request)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "writable-file-delete-request-unknown",
-                    "file delete metadata does not identify a pending request",
-                )
-            })
-    }
-
-    pub(super) fn plan_writable_delete_completion(
-        &self,
-        response: RuntimeWritableCommitHostResponse,
-    ) -> Result<RuntimeWritableDeleteCompletionPlan, RuntimeStateError> {
-        let pending = self
-            .pending_deletes
-            .get(&response.request_id)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "writable-file-delete-request-unknown",
-                    "file delete completion does not identify a pending request",
-                )
-            })?
-            .clone();
-        let previous_writable = self.writable_file(pending.request.object_id)?.clone();
-        if response.object_id != pending.request.object_id
-            || response.base_generation != pending.request.base_generation
-            || !previous_writable.exists
-            || previous_writable.dirty
-            || previous_writable.generation != pending.request.base_generation
-            || previous_writable.revision != pending.expected_revision
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-delete-completion-identity-mismatch",
-                "file delete completion identity or generation is stale",
-            ));
-        }
-        let succeeded = response.win32_error == 0;
-        let expected_generation = response.base_generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "writable-generation-exhausted",
-                "writable profile generation space is exhausted",
-            )
-        })?;
-        if (succeeded && response.committed_generation != expected_generation)
-            || (!succeeded && response.committed_generation != response.base_generation)
-        {
-            return Err(vfs_invalid(
-                "writable-file-delete-completion-generation-invalid",
-                "file delete response generation does not match success or failure semantics",
-            ));
-        }
-        let mut next_writable = previous_writable.clone();
-        if succeeded {
-            next_writable.exists = false;
-            next_writable.generation = 0;
-            next_writable.byte_length = 0;
-            next_writable.sha256 = None;
-            next_writable.dirty = false;
-            next_writable.content_loaded = true;
-            next_writable.committed_bytes.clear();
-            next_writable.working_bytes.clear();
-            next_writable.dirty_base_generation = None;
-            next_writable.revision = next_writable.revision.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-vfs",
-                    "writable-file-revision-exhausted",
-                    "writable file revision space is exhausted",
-                )
-            })?;
-        }
-        let (expected_catalog_revision, next_catalog_revision) = if succeeded {
-            self.plan_catalog_change()?
-        } else {
-            (self.catalog_revision, self.catalog_revision)
-        };
-        Ok(RuntimeWritableDeleteCompletionPlan {
-            pending: pending.clone(),
-            previous_writable,
-            next_writable,
-            completion: RuntimeWritableDeleteCompletion {
-                request: pending.request,
-                succeeded,
-                committed_generation: response.committed_generation,
-                win32_error: response.win32_error,
-            },
-            expected_catalog_revision,
-            next_catalog_revision,
-        })
-    }
-
-    pub(super) fn preflight_writable_delete_completion(
-        &self,
-        plan: &RuntimeWritableDeleteCompletionPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.pending_deletes.get(&plan.pending.request.request_id) != Some(&plan.pending)
-            || self.catalog_revision != plan.expected_catalog_revision
-            || self.writable_file(plan.previous_writable.object_id)? != &plan.previous_writable
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-delete-completion-plan-stale",
-                "writable file state changed after delete completion planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_writable_delete_completion(
-        &mut self,
-        plan: RuntimeWritableDeleteCompletionPlan,
-    ) -> RuntimeWritableDeleteCompletion {
-        debug_assert!(self.preflight_writable_delete_completion(&plan).is_ok());
-        self.pending_deletes
-            .remove(&plan.pending.request.request_id);
-        self.catalog_revision = plan.next_catalog_revision;
-        self.writable_profile
-            .as_mut()
-            .expect("validated writable delete profile")
-            .files
-            .insert(plan.next_writable.object_id, plan.next_writable);
-        plan.completion
-    }
-
-    pub(super) fn plan_writable_directory_create(
-        &self,
-        requested_path: &[u8],
-        current_directory: &[u8],
-        request_id: u64,
-    ) -> Result<RuntimeWritableDirectoryCreateBeginPlan, RuntimeStateError> {
-        let normalized = resolve_path(requested_path, current_directory)?;
-        let profile = self.writable_profile.as_ref().ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-vfs",
-                "writable-profile-missing",
-                "directory creation requires a registered writable profile",
-            )
-        })?;
-        if normalized.identity == profile.root_identity {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-directory-already-exists",
-                "the writable profile mount root already exists",
-            ));
-        }
-        let relative = relative_to_mount(&normalized.identity, &profile.root_identity)?;
-        if profile.path_index.contains_key(relative)
-            || self
-                .snapshot
-                .as_ref()
-                .is_some_and(|snapshot| snapshot.path_index.contains_key(relative))
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-directory-file-conflict",
-                "directory creation path identifies a registered file",
-            ));
-        }
-        let directory_id = profile
-            .directory_path_index
-            .get(relative)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "writable-directory-unregistered",
-                    "directory creation path is outside the writable profile allowlist",
-                )
-            })?;
-        let directory = profile.directories.get(&directory_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-vfs",
-                "writable-directory-path-index-corrupt",
-                "writable directory path index points to a missing identity",
-            )
-        })?;
-        if directory.exists {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-directory-already-exists",
-                "the writable directory already exists",
-            ));
-        }
-        if self
-            .pending_directory_creates
-            .values()
-            .any(|pending| pending.request.directory_id == directory_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-directory-create-pending",
-                "the writable directory already owns a pending durable create",
-            ));
-        }
-        let parent = relative
-            .iter()
-            .rposition(|byte| *byte == b'\\')
-            .map_or(&[][..], |separator| &relative[..separator]);
-        if !parent.is_empty() && !self.registered_directory_exists(parent) {
-            return Err(RuntimeStateError::not_found(
-                "runtime-vfs",
-                "writable-directory-parent-missing",
-                "the writable directory parent does not exist",
-            ));
-        }
-        Ok(RuntimeWritableDirectoryCreateBeginPlan {
-            pending: RuntimePendingWritableDirectoryCreate {
-                request: RuntimeWritableDirectoryCreateRequest {
-                    request_id,
-                    directory_id,
-                    relative_path_a: directory.relative_path_a.clone(),
-                    base_generation: directory.generation,
-                },
-                expected_revision: directory.revision,
-            },
-        })
-    }
-
-    pub(super) fn preflight_writable_directory_create(
-        &self,
-        plan: &RuntimeWritableDirectoryCreateBeginPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let pending = &plan.pending;
-        let directory = self.writable_directory(pending.request.directory_id)?;
-        if directory.exists
-            || directory.generation != pending.request.base_generation
-            || directory.revision != pending.expected_revision
-            || directory.relative_path_a != pending.request.relative_path_a
-            || self
-                .pending_directory_creates
-                .contains_key(&pending.request.request_id)
-            || self
-                .pending_directory_creates
-                .values()
-                .any(|existing| existing.request.directory_id == pending.request.directory_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-directory-create-plan-stale",
-                "writable directory state changed after create planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_writable_directory_create_begin(
-        &mut self,
-        plan: RuntimeWritableDirectoryCreateBeginPlan,
-    ) -> RuntimeWritableDirectoryCreateRequest {
-        debug_assert!(self.preflight_writable_directory_create(&plan).is_ok());
-        let request = plan.pending.request.clone();
-        let previous = self
-            .pending_directory_creates
-            .insert(request.request_id, plan.pending);
-        debug_assert!(previous.is_none());
-        request
-    }
-
-    pub(super) fn writable_directory_create_request(
-        &self,
-        request_id: u64,
-    ) -> Result<&RuntimeWritableDirectoryCreateRequest, RuntimeStateError> {
-        self.pending_directory_creates
-            .get(&request_id)
-            .map(|pending| &pending.request)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "writable-directory-create-request-unknown",
-                    "directory create metadata does not identify a pending request",
-                )
-            })
-    }
-
-    pub(super) fn plan_writable_directory_create_completion(
-        &self,
-        response: RuntimeWritableDirectoryCreateHostResponse,
-    ) -> Result<RuntimeWritableDirectoryCreateCompletionPlan, RuntimeStateError> {
-        let pending = self
-            .pending_directory_creates
-            .get(&response.request_id)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "writable-directory-create-request-unknown",
-                    "directory create completion does not identify a pending request",
-                )
-            })?
-            .clone();
-        let previous_directory = self
-            .writable_directory(pending.request.directory_id)?
-            .clone();
-        if response.directory_id != pending.request.directory_id
-            || response.base_generation != pending.request.base_generation
-            || previous_directory.exists
-            || previous_directory.generation != pending.request.base_generation
-            || previous_directory.revision != pending.expected_revision
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-directory-create-completion-identity-mismatch",
-                "directory create completion identity or generation is stale",
-            ));
-        }
-        let succeeded = response.win32_error == 0;
-        let expected_generation = response.base_generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "writable-directory-generation-exhausted",
-                "writable directory generation space is exhausted",
-            )
-        })?;
-        if (succeeded && response.committed_generation != expected_generation)
-            || (!succeeded && response.committed_generation != response.base_generation)
-        {
-            return Err(vfs_invalid(
-                "writable-directory-create-completion-generation-invalid",
-                "directory create response generation does not match success or failure semantics",
-            ));
-        }
-        let mut next_directory = previous_directory.clone();
-        if succeeded {
-            next_directory.exists = true;
-            next_directory.generation = response.committed_generation;
-            next_directory.revision = next_directory.revision.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-vfs",
-                    "writable-directory-revision-exhausted",
-                    "writable directory revision space is exhausted",
-                )
-            })?;
-        }
-        let (expected_catalog_revision, next_catalog_revision) = if succeeded {
-            self.plan_catalog_change()?
-        } else {
-            (self.catalog_revision, self.catalog_revision)
-        };
-        Ok(RuntimeWritableDirectoryCreateCompletionPlan {
-            pending: pending.clone(),
-            previous_directory,
-            next_directory,
-            completion: RuntimeWritableDirectoryCreateCompletion {
-                request: pending.request,
-                succeeded,
-                committed_generation: response.committed_generation,
-                win32_error: response.win32_error,
-            },
-            expected_catalog_revision,
-            next_catalog_revision,
-        })
-    }
-
-    pub(super) fn preflight_writable_directory_create_completion(
-        &self,
-        plan: &RuntimeWritableDirectoryCreateCompletionPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self
-            .pending_directory_creates
-            .get(&plan.pending.request.request_id)
-            != Some(&plan.pending)
-            || self.catalog_revision != plan.expected_catalog_revision
-            || self.writable_directory(plan.previous_directory.directory_id)?
-                != &plan.previous_directory
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-directory-create-completion-plan-stale",
-                "writable directory state changed after completion planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_writable_directory_create_completion(
-        &mut self,
-        plan: RuntimeWritableDirectoryCreateCompletionPlan,
-    ) -> RuntimeWritableDirectoryCreateCompletion {
-        debug_assert!(
-            self.preflight_writable_directory_create_completion(&plan)
-                .is_ok()
-        );
-        self.pending_directory_creates
-            .remove(&plan.pending.request.request_id);
-        self.catalog_revision = plan.next_catalog_revision;
-        self.writable_profile
-            .as_mut()
-            .expect("validated writable directory profile")
-            .directories
-            .insert(plan.next_directory.directory_id, plan.next_directory);
-        plan.completion
+        Ok(Some(entries))
     }
 
     pub(super) fn open_file(
         &self,
         id: RuntimeSourceFileId,
     ) -> Result<&RuntimeSourceFile, RuntimeStateError> {
-        self.open_files.get(&id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-vfs",
-                "source-file-id-unknown",
-                "logical source file identity is not open",
-            )
-        })
-    }
-
-    pub(super) fn open_file_ids(&self) -> impl Iterator<Item = RuntimeSourceFileId> + '_ {
-        self.open_files.keys().copied()
+        self.open_files
+            .get(&id)
+            .ok_or_else(|| RuntimeStateError::new("logical source file identity is not open"))
     }
 
     pub(super) fn file_search(
         &self,
         id: RuntimeFileSearchId,
     ) -> Result<&RuntimeFileSearch, RuntimeStateError> {
-        self.searches.get(&id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-vfs",
-                "file-search-id-unknown",
-                "logical file search identity is not open",
-            )
-        })
+        self.searches
+            .get(&id)
+            .ok_or_else(|| RuntimeStateError::new("logical file search identity is not open"))
     }
 
-    pub(super) fn file_search_ids(&self) -> impl Iterator<Item = RuntimeFileSearchId> + '_ {
-        self.searches.keys().copied()
-    }
-
-    pub(super) fn plan_find_first(
+    pub(super) fn new_file_search(
         &self,
         requested_pattern: &[u8],
         current_directory: &[u8],
-        maximum_matches: usize,
-    ) -> Result<Option<RuntimeFileSearchOpenPlan>, RuntimeStateError> {
-        if maximum_matches == 0 || maximum_matches > RUNTIME_FILE_SEARCH_LIMIT {
-            return Err(vfs_invalid(
-                "file-search-match-limit-invalid",
-                "file search requires one bounded nonzero match limit",
-            ));
-        }
+    ) -> Result<Result<Option<RuntimeFileSearch>, u32>, RuntimeStateError> {
         if self.searches.len() >= RUNTIME_FILE_SEARCH_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "file-search-limit-exceeded",
+            return Err(RuntimeStateError::new(
                 "logical file search count exceeds the runtime bound",
             ));
         }
         let pattern = resolve_file_search_pattern(requested_pattern, current_directory)?;
-        let entries = self.enumerate_file_search_entries(&pattern, maximum_matches)?;
+        let Some(entries) = self.enumerate_file_search_entries(&pattern)? else {
+            return Ok(Err(3)); // ERROR_PATH_NOT_FOUND
+        };
         if entries.is_empty() {
-            return Ok(None);
+            return Ok(Ok(None));
         }
         let id = RuntimeFileSearchId(self.next_search_id);
-        let next_search_id = self.next_search_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "file-search-id-space-exhausted",
-                "logical file search identifier space is exhausted",
-            )
+        self.next_search_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::new("logical file search identifier space is exhausted")
         })?;
-        Ok(Some(RuntimeFileSearchOpenPlan {
-            expected_next_search_id: self.next_search_id,
-            next_search_id,
-            expected_catalog_revision: self.catalog_revision,
-            search: RuntimeFileSearch {
-                id,
-                normalized_pattern_a: pattern.normalized_pattern_a,
-                entries,
-                next_index: 1,
-            },
-        }))
-    }
-
-    pub(super) fn preflight_find_first(
-        &self,
-        plan: &RuntimeFileSearchOpenPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.next_search_id != plan.expected_next_search_id
-            || self.catalog_revision != plan.expected_catalog_revision
-            || self.searches.contains_key(&plan.search.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "file-search-open-plan-stale",
-                "file catalog or search allocator changed after search planning",
+        if self.searches.contains_key(&id) {
+            return Err(RuntimeStateError::new(
+                "file search allocator selected a live identity",
             ));
         }
-        Ok(())
+        Ok(Ok(Some(RuntimeFileSearch {
+            id,
+            normalized_pattern_a: pattern.normalized_pattern_a,
+            entries,
+            next_index: 1,
+        })))
     }
 
-    pub(super) fn commit_find_first(
-        &mut self,
-        plan: RuntimeFileSearchOpenPlan,
-    ) -> RuntimeFileSearch {
-        debug_assert!(self.preflight_find_first(&plan).is_ok());
-        self.next_search_id = plan.next_search_id;
-        let search = plan.search;
-        let previous = self.searches.insert(search.id, search.clone());
-        debug_assert!(previous.is_none());
-        search
+    // Published only after the aggregate has validated the handle and guest output.
+    pub(super) fn insert_file_search(&mut self, search: RuntimeFileSearch) {
+        self.next_search_id += 1;
+        self.searches.insert(search.id, search);
     }
 
-    pub(super) fn plan_find_next(
+    pub(super) fn next_file_search_entry(
         &self,
         id: RuntimeFileSearchId,
-    ) -> Result<Option<RuntimeFileSearchAdvancePlan>, RuntimeStateError> {
-        let previous = self.file_search(id)?.clone();
-        let Some(entry) = previous.entries.get(previous.next_index).cloned() else {
-            return Ok(None);
-        };
-        let mut next = previous.clone();
-        next.next_index = next.next_index.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "file-search-cursor-overflow",
-                "logical file search cursor overflowed host accounting",
-            )
-        })?;
-        Ok(Some(RuntimeFileSearchAdvancePlan {
-            previous,
-            next,
-            entry,
-        }))
-    }
-
-    pub(super) fn preflight_find_next(
-        &self,
-        plan: &RuntimeFileSearchAdvancePlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.searches.get(&plan.previous.id) != Some(&plan.previous) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "file-search-advance-plan-stale",
-                "file search state changed after advance planning",
+    ) -> Result<Option<&RuntimeFileSearchEntry>, RuntimeStateError> {
+        let search = self.file_search(id)?;
+        if search.next_index > search.entries.len() {
+            return Err(RuntimeStateError::new(
+                "file search cursor is outside its result list",
             ));
         }
-        Ok(())
+        Ok(search.entries.get(search.next_index))
     }
 
-    pub(super) fn commit_find_next(
-        &mut self,
-        plan: RuntimeFileSearchAdvancePlan,
-    ) -> RuntimeFileSearchEntry {
-        debug_assert!(self.preflight_find_next(&plan).is_ok());
-        self.searches.insert(plan.next.id, plan.next);
-        plan.entry
-    }
-
-    pub(super) fn plan_file_search_retirement(
-        &self,
-        id: RuntimeFileSearchId,
-    ) -> Result<RuntimeFileSearchRetirementPlan, RuntimeStateError> {
-        Ok(RuntimeFileSearchRetirementPlan {
-            previous: self.file_search(id)?.clone(),
-        })
-    }
-
-    pub(super) fn preflight_file_search_retirement(
-        &self,
-        plan: &RuntimeFileSearchRetirementPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.searches.get(&plan.previous.id) != Some(&plan.previous) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "file-search-retirement-plan-stale",
-                "file search state changed after retirement planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_file_search_retirement(
-        &mut self,
-        plan: RuntimeFileSearchRetirementPlan,
-    ) -> RuntimeFileSearch {
-        debug_assert!(self.preflight_file_search_retirement(&plan).is_ok());
+    // A successful guest write is the only intervening operation after entry validation.
+    pub(super) fn advance_file_search(&mut self, id: RuntimeFileSearchId) {
         self.searches
-            .remove(&plan.previous.id)
-            .expect("preflighted file search retirement")
+            .get_mut(&id)
+            .expect("validated file search cursor")
+            .next_index += 1;
     }
 
-    pub(super) fn plan_snapshot_registration(
-        &self,
+    // The aggregate checks the search and its handle before either owner changes.
+    pub(super) fn retire_file_search(&mut self, id: RuntimeFileSearchId) {
+        self.searches
+            .remove(&id)
+            .expect("validated file search retirement");
+    }
+
+    pub(super) fn register_snapshot(
+        &mut self,
         manifest: RuntimeSourceSnapshotManifest,
-    ) -> Result<RuntimeSourceSnapshotRegistrationPlan, RuntimeStateError> {
+    ) -> Result<(), RuntimeStateError> {
         if self.snapshot.is_some()
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
-            || !self.pending_commits.is_empty()
-            || !self.pending_deletes.is_empty()
-            || !self.pending_directory_creates.is_empty()
             || !self.searches.is_empty()
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-snapshot-already-registered",
+            return Err(RuntimeStateError::new(
                 "runtime source snapshot registration is process-static",
             ));
         }
-        if manifest.schema != RUNTIME_SOURCE_SNAPSHOT_SCHEMA
-            || manifest.schema_version != RUNTIME_SOURCE_SNAPSHOT_VERSION
-            || manifest.title_fingerprint.is_empty()
-            || manifest.title_fingerprint.len() > 128
-            || manifest.snapshot_id.is_empty()
-            || manifest.snapshot_id.len() > 128
-            || manifest.mount.source_id == 0
+        if manifest.mount.source_id == 0
             || manifest.files.is_empty()
             || manifest.files.len() > RUNTIME_SOURCE_FILE_LIMIT
         {
-            return Err(vfs_invalid(
-                "source-snapshot-manifest-invalid",
+            return Err(RuntimeStateError::new(
                 "source snapshot manifest identity or bounds are invalid",
             ));
         }
@@ -1918,342 +559,422 @@ impl RuntimeFiles {
                 || file.byte_length > u64::from(u32::MAX)
                 || !is_sha256(&file.sha256)
             {
-                return Err(vfs_invalid(
-                    "source-file-manifest-invalid",
+                return Err(RuntimeStateError::new(
                     "source file manifest identity, size, or hash is invalid",
                 ));
             }
             let relative = normalize_relative_path(&file.relative_path_a)?;
             let identity = windows_932_ascii_fold(&relative);
             if files.contains_key(&file.object_id) || path_index.contains_key(&identity) {
-                return Err(vfs_invalid(
-                    "source-file-manifest-duplicate",
+                return Err(RuntimeStateError::new(
                     "source file object or case-insensitive path identity is duplicated",
                 ));
             }
+
             path_index.insert(identity, file.object_id);
             files.insert(
                 file.object_id,
                 RuntimeSourceFileDescriptor {
-                    object_id: file.object_id,
                     relative_path_a: relative,
                     byte_length: file.byte_length,
-                    sha256: file.sha256.to_ascii_lowercase(),
                 },
             );
         }
         let next = RuntimeSourceSnapshot {
-            title_fingerprint: manifest.title_fingerprint,
-            snapshot_id: manifest.snapshot_id,
             source_id: manifest.mount.source_id,
-            root_path_a: root.bytes_with_nul,
             files,
             path_index,
+            directories: BTreeMap::new(),
             root_identity: root.identity,
         };
-        validate_source_profile_separation(&next, self.writable_profile.as_ref())?;
-        let (expected_catalog_revision, next_catalog_revision) = self.plan_catalog_change()?;
-        Ok(RuntimeSourceSnapshotRegistrationPlan {
-            next,
-            expected_catalog_revision,
-            next_catalog_revision,
-        })
-    }
-
-    pub(super) fn commit_snapshot_registration(
-        &mut self,
-        plan: RuntimeSourceSnapshotRegistrationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.snapshot.is_some()
-            || !self.open_files.is_empty()
-            || !self.pending_reads.is_empty()
-            || !self.pending_commits.is_empty()
-            || !self.pending_deletes.is_empty()
-            || !self.pending_directory_creates.is_empty()
-            || !self.searches.is_empty()
-            || self.catalog_revision != plan.expected_catalog_revision
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-snapshot-registration-plan-stale",
-                "source file state changed after snapshot registration planning",
-            ));
-        }
-        self.snapshot = Some(plan.next);
-        self.catalog_revision = plan.next_catalog_revision;
+        self.snapshot = Some(next);
         Ok(())
     }
 
-    pub(super) fn plan_writable_profile_registration(
-        &self,
-        manifest: RuntimeWritableProfileManifest,
-    ) -> Result<RuntimeWritableProfileRegistrationPlan, RuntimeStateError> {
-        if self.writable_profile.is_some()
-            || !self.open_files.is_empty()
-            || !self.pending_reads.is_empty()
-            || !self.pending_commits.is_empty()
-            || !self.pending_deletes.is_empty()
-            || !self.pending_directory_creates.is_empty()
-            || !self.searches.is_empty()
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-profile-already-registered",
-                "runtime writable profile registration is process-static",
-            ));
-        }
-        if manifest.schema != RUNTIME_WRITABLE_PROFILE_SCHEMA
-            || manifest.schema_version != RUNTIME_WRITABLE_PROFILE_VERSION
-            || manifest.title_fingerprint.is_empty()
-            || manifest.title_fingerprint.len() > 128
-            || manifest.profile_id.is_empty()
-            || manifest.profile_id.len() > 128
-            || manifest.quota_bytes == 0
-            || manifest.quota_bytes > RUNTIME_WRITABLE_PROFILE_MAX_BYTES
-            || manifest.files.is_empty()
-            || manifest.files.len() > RUNTIME_WRITABLE_PROFILE_FILE_LIMIT
-            || manifest.directories.len() > RUNTIME_WRITABLE_PROFILE_DIRECTORY_LIMIT
-        {
-            return Err(vfs_invalid(
-                "writable-profile-manifest-invalid",
-                "writable profile manifest identity, quota, or file bounds are invalid",
-            ));
-        }
-        let root = normalize_absolute_path(&manifest.root_path_a)?;
-        let mut files = BTreeMap::new();
-        let mut path_index = BTreeMap::new();
-        let mut total_bytes = 0_u64;
-        for file in manifest.files {
-            let relative = normalize_relative_path(&file.relative_path_a)?;
-            let identity = windows_932_ascii_fold(&relative);
-            let valid_content = if file.exists {
-                file.generation > 0
-                    && file.byte_length <= manifest.quota_bytes
-                    && file.sha256.as_ref().is_some_and(|hash| is_sha256(hash))
-            } else {
-                file.generation == 0 && file.byte_length == 0 && file.sha256.is_none()
-            };
-            if file.object_id == 0 || !valid_content {
-                return Err(vfs_invalid(
-                    "writable-file-manifest-invalid",
-                    "writable file manifest existence, generation, content, or hash is invalid",
-                ));
-            }
-            if files.contains_key(&file.object_id) || path_index.contains_key(&identity) {
-                return Err(vfs_invalid(
-                    "writable-file-manifest-duplicate",
-                    "writable file object or case-insensitive path identity is duplicated",
-                ));
-            }
-            total_bytes = total_bytes.checked_add(file.byte_length).ok_or_else(|| {
-                vfs_invalid(
-                    "writable-profile-quota-invalid",
-                    "writable profile content accounting overflowed",
-                )
-            })?;
-            let sha256 = file.sha256.map(|hash| hash.to_ascii_lowercase());
-            path_index.insert(identity, file.object_id);
-            files.insert(
-                file.object_id,
-                RuntimeWritableFile {
-                    object_id: file.object_id,
-                    relative_path_a: relative,
-                    exists: file.exists,
-                    generation: file.generation,
-                    byte_length: file.byte_length,
-                    sha256,
-                    dirty: false,
-                    content_loaded: !file.exists,
-                    committed_bytes: Vec::new(),
-                    working_bytes: Vec::new(),
-                    dirty_base_generation: None,
-                    revision: 0,
-                },
-            );
-        }
-        let mut directories = BTreeMap::new();
-        let mut directory_path_index = BTreeMap::new();
-        for directory in manifest.directories {
-            let relative = normalize_relative_path(&directory.relative_path_a)?;
-            let identity = windows_932_ascii_fold(&relative);
-            let valid_state = if directory.exists {
-                directory.generation > 0
-            } else {
-                directory.generation == 0
-            };
-            if directory.directory_id == 0 || !valid_state {
-                return Err(vfs_invalid(
-                    "writable-directory-manifest-invalid",
-                    "writable directory manifest identity, existence, or generation is invalid",
-                ));
-            }
-            if directories.contains_key(&directory.directory_id)
-                || directory_path_index.contains_key(&identity)
-                || path_index.contains_key(&identity)
-            {
-                return Err(vfs_invalid(
-                    "writable-directory-manifest-duplicate",
-                    "writable directory identity or case-insensitive path is duplicated or conflicts with a file",
-                ));
-            }
-            directory_path_index.insert(identity, directory.directory_id);
-            directories.insert(
-                directory.directory_id,
-                RuntimeWritableDirectory {
-                    directory_id: directory.directory_id,
-                    relative_path_a: relative,
-                    exists: directory.exists,
-                    generation: directory.generation,
-                    revision: 0,
-                },
-            );
-        }
-        if total_bytes > manifest.quota_bytes {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "writable-profile-quota-exceeded",
-                "writable profile snapshot exceeds its declared quota",
-            ));
-        }
-        let next = RuntimeWritableProfile {
-            title_fingerprint: manifest.title_fingerprint,
-            profile_id: manifest.profile_id,
-            root_path_a: root.bytes_with_nul,
-            quota_bytes: manifest.quota_bytes,
-            files,
-            directories,
-            path_index,
-            directory_path_index,
-            root_identity: root.identity,
-        };
-        validate_source_profile_separation_opt(self.snapshot.as_ref(), &next)?;
-        let (expected_catalog_revision, next_catalog_revision) = self.plan_catalog_change()?;
-        Ok(RuntimeWritableProfileRegistrationPlan {
-            next,
-            expected_catalog_revision,
-            next_catalog_revision,
-        })
-    }
-
-    pub(super) fn commit_writable_profile_registration(
-        &mut self,
-        plan: RuntimeWritableProfileRegistrationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.writable_profile.is_some()
-            || !self.open_files.is_empty()
-            || !self.pending_reads.is_empty()
-            || !self.pending_commits.is_empty()
-            || !self.pending_deletes.is_empty()
-            || !self.pending_directory_creates.is_empty()
-            || !self.searches.is_empty()
-            || self.catalog_revision != plan.expected_catalog_revision
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-profile-registration-plan-stale",
-                "writable profile state changed after registration planning",
-            ));
-        }
-        validate_source_profile_separation_opt(self.snapshot.as_ref(), &plan.next)?;
-        self.writable_profile = Some(plan.next);
-        self.catalog_revision = plan.next_catalog_revision;
-        Ok(())
-    }
-
-    pub(super) fn plan_writable_profile_hydration(
-        &self,
-        object_id: u32,
-        generation: u64,
-        bytes: &[u8],
-    ) -> Result<RuntimeWritableProfileHydrationPlan, RuntimeStateError> {
-        if !self.open_files.is_empty()
-            || !self.pending_reads.is_empty()
-            || !self.pending_commits.is_empty()
-            || !self.pending_deletes.is_empty()
-            || !self.pending_directory_creates.is_empty()
-            || !self.searches.is_empty()
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-profile-hydration-after-use",
-                "writable profile bytes must hydrate before file use",
-            ));
-        }
-        let previous = self.writable_file(object_id)?.clone();
-        if !previous.exists
-            || previous.content_loaded
-            || previous.generation != generation
-            || u64::try_from(bytes.len()) != Ok(previous.byte_length)
-            || previous
-                .sha256
-                .as_deref()
-                .is_none_or(|expected| !expected.eq_ignore_ascii_case(&hex_sha256(bytes)))
-        {
-            return Err(vfs_invalid(
-                "writable-profile-hydration-invalid",
-                "writable profile hydration bytes do not match unloaded object metadata",
-            ));
-        }
-        let committed_bytes = copy_writable_content(bytes)?;
-        let working_bytes = copy_writable_content(bytes)?;
-        let mut next = previous.clone();
-        next.content_loaded = true;
-        next.committed_bytes = committed_bytes;
-        next.working_bytes = working_bytes;
-        Ok(RuntimeWritableProfileHydrationPlan { previous, next })
-    }
-
-    pub(super) fn commit_writable_profile_hydration(
-        &mut self,
-        plan: RuntimeWritableProfileHydrationPlan,
-    ) -> Result<&RuntimeWritableFile, RuntimeStateError> {
-        if !self.open_files.is_empty()
-            || !self.pending_reads.is_empty()
-            || !self.pending_commits.is_empty()
-            || !self.pending_deletes.is_empty()
-            || !self.pending_directory_creates.is_empty()
-            || !self.searches.is_empty()
-            || self
-                .writable_profile
-                .as_ref()
-                .and_then(|profile| profile.files.get(&plan.previous.object_id))
-                != Some(&plan.previous)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-profile-hydration-plan-stale",
-                "writable profile state changed after hydration planning",
-            ));
-        }
-        let object_id = plan.next.object_id;
-        self.writable_profile
-            .as_mut()
-            .expect("validated writable hydration profile")
-            .files
-            .insert(object_id, plan.next);
-        self.writable_file(object_id)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_open(
+    pub(super) fn source_lookup_relative_path(
         &self,
         requested_path: &[u8],
         current_directory: &[u8],
-        desired_access: u32,
-        share_mode: u32,
-        flags_and_attributes: u32,
-    ) -> Result<Option<RuntimeSourceFileOpenPlan>, RuntimeStateError> {
-        self.plan_open_with_disposition(
-            requested_path,
-            current_directory,
-            desired_access,
-            share_mode,
-            3,
-            flags_and_attributes,
-        )
+    ) -> Result<Option<Vec<u8>>, RuntimeStateError> {
+        let normalized = resolve_path(requested_path, current_directory)?;
+        let snapshot = self
+            .snapshot
+            .as_ref()
+            .ok_or_else(|| RuntimeStateError::new("source lookup requires a selected directory"))?;
+        let relative = relative_to_mount(&normalized.identity, &snapshot.root_identity)?;
+        if snapshot.path_index.contains_key(relative) || self.registered_directory_exists(relative)
+        {
+            return Ok(None);
+        }
+        let relative_start = snapshot.root_identity.len() + 1;
+        let relative_bytes = normalized
+            .bytes_with_nul
+            .get(relative_start..normalized.bytes_with_nul.len() - 1)
+            .ok_or_else(|| {
+                RuntimeStateError::new(
+                    "source lookup path does not lie under the selected directory",
+                )
+            })?;
+        Ok(Some(normalize_relative_path(relative_bytes)?))
     }
 
-    pub(super) fn plan_open_with_disposition(
+    // Windows failures are returned directly here. The browser receives only a
+    // decoded relative path, never a DOS drive or a path outside this mount.
+    pub(super) fn opfs_relative_path(
+        &self,
+        requested: &[u8],
+        current_directory: &[u8],
+    ) -> Result<String, u32> {
+        let body = nul_terminated_body(requested).map_err(|_| 123_u32)?;
+        // Root-relative and UNC paths are not relative to this game's tree.
+        if body.first().is_some_and(|byte| is_separator(*byte)) {
+            return Err(3);
+        }
+        let normalized = resolve_path(requested, current_directory).map_err(|_| 123_u32)?;
+        let snapshot = self.snapshot.as_ref().ok_or(3_u32)?;
+        if normalized.identity == snapshot.root_identity {
+            return Err(183);
+        }
+        let identity =
+            relative_to_mount(&normalized.identity, &snapshot.root_identity).map_err(|_| 3_u32)?;
+        let components = normalize_components(identity, false).map_err(|_| 123_u32)?;
+        let mut prefix = Vec::new();
+        for component in components.iter().take(components.len() - 1) {
+            if !prefix.is_empty() {
+                prefix.push(b'\\');
+            }
+            prefix.extend_from_slice(component);
+            if snapshot.path_index.contains_key(&prefix) {
+                return Err(3); // An immutable source file cannot contain an OPFS child.
+            }
+        }
+        let relative = &normalized.bytes_with_nul
+            [snapshot.root_identity.len() + 1..normalized.bytes_with_nul.len() - 1];
+        let decoded = encoding_rs::SHIFT_JIS
+            .decode_without_bom_handling_and_without_replacement(relative)
+            .ok_or(123_u32)?;
+        Ok(decoded.replace('\\', "/"))
+    }
+
+    // The source view may contain a parent directory that OPFS has not yet
+    // mirrored. Only those checked source parents may be created by the host;
+    // an arbitrary missing parent must still fail CreateDirectoryA.
+    pub(super) fn opfs_create_directory_path(
+        &self,
+        requested: &[u8],
+        current_directory: &[u8],
+    ) -> Result<(String, u8), u32> {
+        let relative_path = self.opfs_relative_path(requested, current_directory)?;
+        let normalized = resolve_path(requested, current_directory).map_err(|_| 123_u32)?;
+        let snapshot = self.snapshot.as_ref().ok_or(3_u32)?;
+        let relative =
+            relative_to_mount(&normalized.identity, &snapshot.root_identity).map_err(|_| 3_u32)?;
+        if snapshot.path_index.contains_key(relative) || self.registered_directory_exists(relative)
+        {
+            return Err(183);
+        }
+        let mut prefix = Vec::new();
+        let mut source_parents = 0_u8;
+        let components = normalize_components(relative, false).map_err(|_| 123_u32)?;
+        for (index, component) in components.iter().take(components.len() - 1).enumerate() {
+            if !prefix.is_empty() {
+                prefix.push(b'\\');
+            }
+            prefix.extend_from_slice(component);
+            if snapshot.path_index.contains_key(&prefix) {
+                return Err(3); // A source file cannot be a parent directory.
+            }
+            if self.registered_directory_exists(&prefix) {
+                source_parents = u8::try_from(index + 1).map_err(|_| 123_u32)?;
+            } else {
+                break;
+            }
+        }
+        Ok((relative_path, source_parents))
+    }
+
+    pub(super) fn opfs_delete_path(
+        &self,
+        requested: &[u8],
+        current_directory: &[u8],
+    ) -> Result<(String, u8), u32> {
+        let relative_path = self.opfs_relative_path(requested, current_directory)?;
+        let normalized = resolve_path(requested, current_directory).map_err(|_| 123_u32)?;
+        let snapshot = self.snapshot.as_ref().ok_or(3_u32)?;
+        let relative =
+            relative_to_mount(&normalized.identity, &snapshot.root_identity).map_err(|_| 3_u32)?;
+        if snapshot.path_index.contains_key(relative) || self.registered_directory_exists(relative)
+        {
+            return Err(5); // Immutable source or directory.
+        }
+        if self.open_files.values().any(|file| {
+            resolve_path(&file.normalized_path_a, current_directory)
+                .is_ok_and(|open| open.identity == normalized.identity)
+        }) {
+            return Err(32); // An open file cannot be removed while its handle is live.
+        }
+        let components = normalize_components(relative, false).map_err(|_| 123_u32)?;
+        let parent = components[..components.len() - 1].join(&b"\\"[..]);
+        let missing_error = if parent.is_empty() || self.registered_directory_exists(&parent) {
+            2 // OPFS may lack a parent that exists in the immutable source view.
+        } else {
+            3
+        };
+        Ok((relative_path, missing_error))
+    }
+
+    // The browser enumerates a directory capability, but matching and DOS path
+    // identity remain Rust decisions. Only a wildcard in the final component
+    // can trigger a directory listing.
+    pub(super) fn source_search_directory(
+        &self,
+        requested: &[u8],
+        current_directory: &[u8],
+    ) -> Result<Option<Vec<u8>>, RuntimeStateError> {
+        let pattern = resolve_file_search_pattern(requested, current_directory)?;
+        if !pattern
+            .file_name_pattern
+            .iter()
+            .any(|byte| matches!(byte, b'*' | b'?'))
+        {
+            return Ok(None);
+        }
+        let snapshot = self
+            .snapshot
+            .as_ref()
+            .ok_or_else(|| RuntimeStateError::new("source search requires a selected directory"))?;
+        if pattern.directory_identity == snapshot.root_identity {
+            return Ok(Some(Vec::new()));
+        }
+        relative_to_mount(&pattern.directory_identity, &snapshot.root_identity)?;
+        // The spelling used to inspect the browser directory must still pass
+        // the same Windows-932 component validation as a literal lookup.
+        let prefix = &pattern.normalized_pattern_a
+            [..pattern.normalized_pattern_a.len() - 1 - pattern.file_name_pattern.len()];
+        let start = snapshot.root_identity.len() + 1;
+        Ok(Some(normalize_relative_path(
+            &prefix[start..prefix.len() - 1],
+        )?))
+    }
+
+    pub(super) fn source_search_matches(
+        &self,
+        requested: &[u8],
+        current_directory: &[u8],
+        actual_segments: &[String],
+        names: &[(String, bool)],
+    ) -> Result<SourceSearchSelection, RuntimeStateError> {
+        if names.len() > RUNTIME_SOURCE_FILE_LIMIT {
+            return Err(RuntimeStateError::new(
+                "browser directory exceeds the bounded source file count",
+            ));
+        }
+        let pattern = resolve_file_search_pattern(requested, current_directory)?;
+        let parent = self
+            .source_search_directory(requested, current_directory)?
+            .ok_or_else(|| RuntimeStateError::new("source search requires a wildcard"))?;
+        let mut actual = Vec::new();
+        if actual_segments.len() > 256 {
+            return Err(RuntimeStateError::new(
+                "browser directory has too many components",
+            ));
+        }
+        for segment in actual_segments {
+            let (encoded, _, had_errors) = SHIFT_JIS.encode(segment);
+            if had_errors || validate_component(&encoded).is_err() {
+                return Err(RuntimeStateError::new(
+                    "browser directory name is not a Windows-932 component",
+                ));
+            }
+            if !actual.is_empty() {
+                actual.push(b'\\');
+            }
+            actual.extend_from_slice(&encoded);
+        }
+        if windows_932_ascii_fold(&actual) != windows_932_ascii_fold(&parent) {
+            return Err(RuntimeStateError::new(
+                "browser directory does not match the requested Windows path",
+            ));
+        }
+        let snapshot = self.snapshot.as_ref().expect("validated source mount");
+        let mut selected = BTreeMap::new();
+        let mut seen = BTreeSet::new();
+        for (name, is_file) in names {
+            let (encoded, _, had_errors) = SHIFT_JIS.encode(name);
+            if had_errors || validate_component(&encoded).is_err() {
+                continue; // This browser name cannot be expressed as a DOS filename.
+            }
+            let name_bytes = encoded.as_ref();
+            if !seen.insert(windows_932_ascii_fold(name_bytes)) {
+                return Err(RuntimeStateError::new(
+                    "browser directory contains colliding Windows path names",
+                ));
+            }
+            if !windows_932_wildcard_matches(&pattern.file_name_pattern, name_bytes)? {
+                continue;
+            }
+            let mut path = actual.clone();
+            if !path.is_empty() {
+                path.push(b'\\');
+            }
+            path.extend_from_slice(name_bytes);
+            if path.len() > 260 {
+                continue;
+            }
+            let identity = windows_932_ascii_fold(&path);
+            if snapshot.path_index.contains_key(&identity)
+                || snapshot.directories.contains_key(&identity)
+            {
+                continue;
+            }
+            if selected.insert(identity, (path, *is_file)).is_some() {
+                return Err(RuntimeStateError::new(
+                    "browser directory contains colliding Windows path names",
+                ));
+            }
+        }
+        Ok((actual, selected.into_values().collect()))
+    }
+
+    pub(super) fn register_source_search_batch(
+        &mut self,
+        parent: &[u8],
+        entries: Vec<SourceSearchBatchEntry>,
+    ) -> Result<Vec<(usize, u32)>, RuntimeStateError> {
+        if entries.len() > RUNTIME_SOURCE_FILE_LIMIT {
+            return Err(RuntimeStateError::new("too many source search entries"));
+        }
+        let snapshot = self.snapshot.as_mut().ok_or_else(|| {
+            RuntimeStateError::new("source search registration requires a selected directory")
+        })?;
+        let mut next_id = snapshot.files.keys().next_back().copied().unwrap_or(0);
+        let mut files = BTreeMap::new();
+        let mut paths = BTreeMap::new();
+        let mut directories = BTreeMap::new();
+        let mut registered = Vec::new();
+        let parent = (!parent.is_empty()).then(|| (None, (parent.to_vec(), None)));
+        for (index, (path, info)) in parent.into_iter().chain(
+            entries
+                .into_iter()
+                .enumerate()
+                .map(|(index, entry)| (Some(index), entry)),
+        ) {
+            if let Some((byte_length, sha256)) = info {
+                next_id = next_id
+                    .checked_add(1)
+                    .ok_or_else(|| RuntimeStateError::new("source file identities exhausted"))?;
+                if byte_length > u64::from(u32::MAX) || !is_sha256(&sha256) {
+                    return Err(RuntimeStateError::new(
+                        "source file length or SHA-256 is invalid",
+                    ));
+                }
+                if snapshot.files.len() + files.len() >= RUNTIME_SOURCE_FILE_LIMIT {
+                    return Err(RuntimeStateError::new(
+                        "source directory exceeds the number of registered files",
+                    ));
+                }
+                let path = normalize_relative_path(&path)?;
+                let identity = windows_932_ascii_fold(&path);
+                if snapshot.path_index.contains_key(&identity)
+                    || paths.contains_key(&identity)
+                    || snapshot.directories.contains_key(&identity)
+                    || directories.contains_key(&identity)
+                {
+                    return Err(RuntimeStateError::new(
+                        "source Windows path is already registered",
+                    ));
+                }
+
+                paths.insert(identity, next_id);
+                files.insert(
+                    next_id,
+                    RuntimeSourceFileDescriptor {
+                        relative_path_a: path,
+                        byte_length,
+                    },
+                );
+                registered.push((index.expect("only entries can register files"), next_id));
+            } else {
+                let path = normalize_relative_path(&path)?;
+                let identity = windows_932_ascii_fold(&path);
+                if snapshot.path_index.contains_key(&identity) || paths.contains_key(&identity) {
+                    return Err(RuntimeStateError::new(
+                        "source directory conflicts with a registered file",
+                    ));
+                }
+                if !snapshot.directories.contains_key(&identity) {
+                    directories.entry(identity).or_insert(path);
+                }
+            }
+        }
+        snapshot.files.extend(files);
+        snapshot.path_index.extend(paths);
+        snapshot.directories.extend(directories);
+        Ok(registered)
+    }
+
+    pub(super) fn register_source_directory(
+        &mut self,
+        relative_path_a: &[u8],
+    ) -> Result<(), RuntimeStateError> {
+        let normalized = normalize_relative_path(relative_path_a)?;
+        let identity = windows_932_ascii_fold(&normalized);
+        let snapshot = self.snapshot.as_mut().ok_or_else(|| {
+            RuntimeStateError::new("source directory lookup requires a selected directory")
+        })?;
+        if snapshot.path_index.contains_key(&identity) {
+            return Err(RuntimeStateError::new(
+                "source directory conflicts with a registered file",
+            ));
+        }
+        if snapshot.directories.contains_key(&identity) {
+            return Ok(());
+        }
+        snapshot.directories.insert(identity, normalized);
+        Ok(())
+    }
+
+    pub(super) fn register_source_file(
+        &mut self,
+        file: RuntimeSourceFileManifest,
+    ) -> Result<(), RuntimeStateError> {
+        let snapshot = self.snapshot.as_mut().ok_or_else(|| {
+            RuntimeStateError::new("source file registration requires a mounted source directory")
+        })?;
+        if file.object_id == 0 || file.byte_length > u64::from(u32::MAX) || !is_sha256(&file.sha256)
+        {
+            return Err(RuntimeStateError::new(
+                "source file identity, length, or SHA-256 is invalid",
+            ));
+        }
+        if snapshot.files.len() >= RUNTIME_SOURCE_FILE_LIMIT {
+            return Err(RuntimeStateError::new(
+                "source directory exceeds the number of registered files",
+            ));
+        }
+        let path = normalize_relative_path(&file.relative_path_a)?;
+        let identity = windows_932_ascii_fold(&path);
+        if snapshot.files.contains_key(&file.object_id)
+            || snapshot.path_index.contains_key(&identity)
+            || snapshot.directories.contains_key(&identity)
+        {
+            return Err(RuntimeStateError::new(
+                "source file object or Windows path is already registered",
+            ));
+        }
+
+        snapshot.path_index.insert(identity, file.object_id);
+        snapshot.files.insert(
+            file.object_id,
+            RuntimeSourceFileDescriptor {
+                relative_path_a: path,
+                byte_length: file.byte_length,
+            },
+        );
+        Ok(())
+    }
+
+    pub(super) fn prepare_open_with_disposition(
         &self,
         requested_path: &[u8],
         current_directory: &[u8],
@@ -2261,126 +982,33 @@ impl RuntimeFiles {
         share_mode: u32,
         creation_disposition: u32,
         flags_and_attributes: u32,
-    ) -> Result<Option<RuntimeSourceFileOpenPlan>, RuntimeStateError> {
+    ) -> Result<SourceOpenOutcome<RuntimeSourceFileOpen>, RuntimeStateError> {
         let normalized = resolve_path(requested_path, current_directory)?;
-        let root_identity = self
-            .writable_profile
-            .as_ref()
-            .map(|profile| profile.root_identity.as_slice())
-            .or_else(|| {
-                self.snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.root_identity.as_slice())
-            })
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "file-mount-unregistered",
-                    "runtime process has no immutable source or writable profile mount",
-                )
-            })?;
-        let relative = relative_to_mount(&normalized.identity, root_identity)?;
+        let snapshot = self.snapshot.as_ref().ok_or_else(|| {
+            RuntimeStateError::new("runtime process has no selected source directory")
+        })?;
+        let relative = relative_to_mount(&normalized.identity, &snapshot.root_identity)?;
         if self.open_files.len() >= RUNTIME_SOURCE_FILE_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "open-file-limit-exceeded",
+            return Err(RuntimeStateError::new(
                 "logical file count exceeds the runtime bound",
             ));
         }
-        let writable = self
-            .writable_profile
-            .as_ref()
-            .and_then(|profile| profile.path_index.get(relative).copied());
-        let source = self
-            .snapshot
-            .as_ref()
-            .and_then(|snapshot| snapshot.path_index.get(relative).copied());
-        let (backing, existed, previous_writable, next_writable) = if let Some(object_id) = writable
-        {
-            let profile = self
-                .writable_profile
-                .as_ref()
-                .expect("profile path requires profile");
-            let previous = profile.files.get(&object_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-vfs",
-                    "writable-path-index-corrupt",
-                    "writable path index points to a missing object",
-                )
-            })?;
-            if self
-                .pending_commits
-                .values()
-                .any(|pending| pending.request.object_id == object_id)
-            {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-vfs",
-                    "writable-file-commit-pending",
-                    "writable file cannot open while its durable commit is pending",
-                ));
-            }
-            if self
-                .pending_deletes
-                .values()
-                .any(|pending| pending.request.object_id == object_id)
-            {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-vfs",
-                    "writable-file-delete-pending",
-                    "writable file cannot open while its durable deletion is pending",
-                ));
-            }
-            let existed = previous.exists;
-            let mut next = previous.clone();
-            match creation_disposition {
-                2 => stage_writable_replacement(&mut next)?,
-                3 if !existed => return Ok(None),
-                3 => {}
-                4 if !existed => stage_writable_replacement(&mut next)?,
-                4 => {}
-                _ => {
-                    return Err(vfs_invalid(
-                        "writable-open-disposition-invalid",
-                        "writable profile open requires CREATE_ALWAYS, OPEN_EXISTING, or OPEN_ALWAYS",
-                    ));
-                }
-            }
-            (
-                RuntimeFileBacking::WritableProfile { object_id },
-                existed,
-                Some(previous.clone()),
-                Some(next),
-            )
-        } else if let Some(object_id) = source {
-            if creation_disposition != 3 || desired_access & 0x4000_0000 != 0 {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-vfs",
-                    "immutable-source-write-denied",
-                    "immutable source files cannot be created, truncated, or opened for write",
-                ));
-            }
-            let snapshot = self
-                .snapshot
-                .as_ref()
-                .expect("source path requires snapshot");
-            if !snapshot.files.contains_key(&object_id) {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-vfs",
-                    "source-path-index-corrupt",
-                    "source path index points to a missing object descriptor",
-                ));
-            }
-            (
-                RuntimeFileBacking::ImmutableSource {
-                    source_id: snapshot.source_id,
-                    object_id,
-                },
-                true,
-                None,
-                None,
-            )
-        } else {
-            return Ok(None);
+        let Some(object_id) = snapshot.path_index.get(relative).copied() else {
+            return Ok(SourceOpenOutcome::Missing);
+        };
+        if creation_disposition != 3 || desired_access & 0x4000_0000 != 0 {
+            return Err(RuntimeStateError::new(
+                "immutable source files cannot be created, truncated, or opened for write",
+            ));
+        }
+        if !snapshot.files.contains_key(&object_id) {
+            return Err(RuntimeStateError::new(
+                "source path index points to a missing object descriptor",
+            ));
+        }
+        let backing = RuntimeFileBacking::ImmutableSource {
+            source_id: snapshot.source_id,
+            object_id,
         };
         for open in self
             .open_files
@@ -2393,29 +1021,14 @@ impl RuntimeFiles {
                 open.desired_access,
                 open.share_mode,
             ) {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-vfs",
-                    "source-file-sharing-violation",
-                    "logical file access conflicts with an existing share mode",
-                ));
+                return Ok(SourceOpenOutcome::SharingViolation);
             }
         }
         let id = RuntimeSourceFileId(self.next_file_id);
         let next_file_id = self.next_file_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "source-file-id-space-exhausted",
-                "logical source file identifier space is exhausted",
-            )
+            RuntimeStateError::new("logical source file identifier space is exhausted")
         })?;
-        let (expected_catalog_revision, next_catalog_revision) =
-            if previous_writable != next_writable {
-                self.plan_catalog_change()?
-            } else {
-                (self.catalog_revision, self.catalog_revision)
-            };
-        Ok(Some(RuntimeSourceFileOpenPlan {
-            expected_next_file_id: self.next_file_id,
+        Ok(SourceOpenOutcome::Opened(RuntimeSourceFileOpen {
             next_file_id,
             file: RuntimeSourceFile {
                 id,
@@ -2426,257 +1039,141 @@ impl RuntimeFiles {
                 share_mode,
                 flags_and_attributes,
             },
-            existed,
-            previous_writable,
-            next_writable,
-            expected_catalog_revision,
-            next_catalog_revision,
         }))
     }
 
-    pub(super) fn preflight_open(
+    // This open leaves Rust while OPFS checks/creates the physical file. The
+    // candidate handle and file ID are reserved by the aggregate before that
+    // browser work; no logical file is published until durable completion.
+    pub(super) fn prepare_opfs_open(
         &self,
-        plan: &RuntimeSourceFileOpenPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.next_file_id != plan.expected_next_file_id
-            || self.catalog_revision != plan.expected_catalog_revision
-            || self.open_files.contains_key(&plan.file.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-file-open-plan-stale",
-                "source file state changed after open planning",
-            ));
+        requested_path: &[u8],
+        current_directory: &[u8],
+        desired_access: u32,
+        share_mode: u32,
+        flags_and_attributes: u32,
+    ) -> Result<(RuntimeSourceFileOpen, String, u8, u8), u32> {
+        let (relative_path, source_parents) = self
+            .opfs_create_directory_path(requested_path, current_directory)
+            .map_err(|error| if error == 183 { 5 } else { error })?;
+        let source_missing = match self.resolve_path_kind(requested_path, current_directory) {
+            Ok(RuntimePathResolution::MissingFile) => 2,
+            Ok(RuntimePathResolution::MissingPath) => 3,
+            Ok(RuntimePathResolution::RegularFile | RuntimePathResolution::Directory) => 5,
+            Err(_) => return Err(5),
+        };
+        if source_missing == 5 {
+            return Err(5);
         }
-        match (
-            &plan.previous_writable,
-            &plan.next_writable,
-            plan.file.backing,
-        ) {
-            (Some(previous), Some(_), RuntimeFileBacking::WritableProfile { object_id })
-                if self
-                    .writable_profile
-                    .as_ref()
-                    .and_then(|profile| profile.files.get(&object_id))
-                    == Some(previous) => {}
-            (
-                None,
-                None,
-                RuntimeFileBacking::ImmutableSource {
-                    source_id,
-                    object_id,
-                },
-            ) if self.snapshot.as_ref().is_some_and(|snapshot| {
-                snapshot.source_id == source_id && snapshot.files.contains_key(&object_id)
-            }) => {}
-            _ => {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-vfs",
-                    "source-file-open-plan-stale",
-                    "file backing changed after open planning",
-                ));
+        let normalized = resolve_path(requested_path, current_directory).map_err(|_| 123_u32)?;
+        let snapshot = self.snapshot.as_ref().ok_or(3_u32)?;
+        let relative =
+            relative_to_mount(&normalized.identity, &snapshot.root_identity).map_err(|_| 3_u32)?;
+        if snapshot.path_index.contains_key(relative) || self.registered_directory_exists(relative)
+        {
+            return Err(5); // The selected source is immutable.
+        }
+        if self.open_files.len() >= RUNTIME_SOURCE_FILE_LIMIT {
+            return Err(4);
+        }
+        for open in self.open_files.values() {
+            if resolve_path(&open.normalized_path_a, current_directory)
+                .is_ok_and(|path| path.identity == normalized.identity)
+                && file_access_conflicts(
+                    desired_access,
+                    share_mode,
+                    open.desired_access,
+                    open.share_mode,
+                )
+            {
+                return Err(32);
             }
+        }
+        let id = RuntimeSourceFileId(self.next_file_id);
+        let next_file_id = self.next_file_id.checked_add(1).ok_or(4_u32)?;
+        Ok((
+            RuntimeSourceFileOpen {
+                next_file_id,
+                file: RuntimeSourceFile {
+                    id,
+                    backing: RuntimeFileBacking::Opfs { byte_length: 0 },
+                    normalized_path_a: normalized.bytes_with_nul,
+                    cursor: 0,
+                    desired_access,
+                    share_mode,
+                    flags_and_attributes,
+                },
+            },
+            relative_path,
+            source_missing,
+            source_parents,
+        ))
+    }
+
+    pub(super) fn preflight_opfs_open(
+        &self,
+        prepared: &RuntimeSourceFileOpen,
+        current_directory: &[u8],
+    ) -> Result<(), RuntimeStateError> {
+        let (current, _, _, _) = self
+            .prepare_opfs_open(
+                &prepared.file.normalized_path_a,
+                current_directory,
+                prepared.file.desired_access,
+                prepared.file.share_mode,
+                prepared.file.flags_and_attributes,
+            )
+            .map_err(|_| {
+                RuntimeStateError::new(
+                    "file path, sharing, or capacity changed while awaiting OPFS",
+                )
+            })?;
+        if &current != prepared {
+            return Err(RuntimeStateError::new(
+                "file identity changed while awaiting OPFS",
+            ));
         }
         Ok(())
     }
 
-    pub(super) fn commit_open(&mut self, plan: RuntimeSourceFileOpenPlan) -> RuntimeSourceFile {
-        debug_assert!(self.preflight_open(&plan).is_ok());
-        self.next_file_id = plan.next_file_id;
-        self.catalog_revision = plan.next_catalog_revision;
-        if let (Some(_), Some(next)) = (plan.previous_writable, plan.next_writable) {
-            let profile = self
-                .writable_profile
-                .as_mut()
-                .expect("validated writable open requires a profile");
-            profile.files.insert(next.object_id, next);
-        }
-        let file = plan.file;
-        let previous = self.open_files.insert(file.id, file.clone());
+    // No Rust state can change between prepare_open and this publication: the
+    // aggregate registers the object/handle first, then calls this infallible
+    // mutation without leaving Rust or invoking a guest callback.
+    pub(super) fn open_validated(
+        &mut self,
+        prepared: RuntimeSourceFileOpen,
+    ) -> RuntimeSourceFileId {
+        self.next_file_id = prepared.next_file_id;
+        let id = prepared.file.id;
+        let previous = self.open_files.insert(id, prepared.file);
         debug_assert!(previous.is_none());
-        file
+        id
     }
 
-    pub(super) fn plan_retirement(
+    pub(super) fn validate_retirement(
         &self,
         id: RuntimeSourceFileId,
-    ) -> Result<RuntimeSourceFileRetirementPlan, RuntimeStateError> {
-        let previous = self.open_file(id)?.clone();
+    ) -> Result<(), RuntimeStateError> {
+        self.open_file(id)?;
         if self
             .pending_reads
             .values()
             .any(|pending| pending.request.file_id == id)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-file-read-pending",
+            return Err(RuntimeStateError::new(
                 "logical source file cannot close while a read is pending",
             ));
         }
-        if self
-            .pending_commits
-            .values()
-            .any(|pending| pending.request.file_id == id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-commit-pending",
-                "logical writable file cannot close while a commit is pending",
-            ));
-        }
-        if let RuntimeFileBacking::WritableProfile { object_id } = previous.backing
-            && self.writable_file(object_id)?.dirty
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-dirty",
-                "dirty writable file requires a durable commit before close",
-            ));
-        }
-        Ok(RuntimeSourceFileRetirementPlan {
-            previous,
-            pending_reads: Vec::new(),
-            pending_commits: Vec::new(),
-        })
-    }
-
-    pub(super) fn plan_process_retirement(
-        &self,
-        id: RuntimeSourceFileId,
-        cancelling_request_ids: &BTreeSet<u64>,
-    ) -> Result<RuntimeSourceFileRetirementPlan, RuntimeStateError> {
-        let previous = self.open_file(id)?.clone();
-        let pending_reads = self
-            .pending_reads
-            .values()
-            .filter(|pending| pending.request.file_id == id)
-            .cloned()
-            .collect::<Vec<_>>();
-        let pending_commits = self
-            .pending_commits
-            .values()
-            .filter(|pending| pending.request.file_id == id)
-            .cloned()
-            .collect::<Vec<_>>();
-        if pending_reads
-            .iter()
-            .any(|pending| !cancelling_request_ids.contains(&pending.request.request_id))
-            || pending_commits
-                .iter()
-                .any(|pending| !cancelling_request_ids.contains(&pending.request.request_id))
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-file-read-survives-process-teardown",
-                "process teardown cannot retire a source file with an uncancelled read",
-            ));
-        }
-        Ok(RuntimeSourceFileRetirementPlan {
-            previous,
-            pending_reads,
-            pending_commits,
-        })
-    }
-
-    pub(super) fn plan_retirement_after_commit(
-        &self,
-        commit: &RuntimeWritableCommitCompletionPlan,
-    ) -> Result<RuntimeSourceFileRetirementPlan, RuntimeStateError> {
-        if !commit.closes_file() {
-            return Err(vfs_invalid(
-                "writable-retirement-without-close",
-                "writable commit retirement requires a successful close request",
-            ));
-        }
-        let previous = self.open_file(commit.file_id())?.clone();
-        let pending_reads = self
-            .pending_reads
-            .values()
-            .filter(|pending| pending.request.file_id == previous.id)
-            .cloned()
-            .collect::<Vec<_>>();
-        let pending_commits = self
-            .pending_commits
-            .values()
-            .filter(|pending| pending.request.file_id == previous.id)
-            .cloned()
-            .collect::<Vec<_>>();
-        if !pending_reads.is_empty() || pending_commits != [commit.pending.clone()] {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-close-operation-conflict",
-                "writable close commit is not the file's only pending operation",
-            ));
-        }
-        Ok(RuntimeSourceFileRetirementPlan {
-            previous,
-            pending_reads,
-            pending_commits,
-        })
-    }
-
-    pub(super) fn commit_retirement(&mut self, plan: RuntimeSourceFileRetirementPlan) {
-        debug_assert_eq!(self.open_files.get(&plan.previous.id), Some(&plan.previous));
-        debug_assert!(
-            !self
-                .pending_reads
-                .values()
-                .any(|pending| pending.request.file_id == plan.previous.id)
-        );
-        self.open_files.remove(&plan.previous.id);
-        if let RuntimeFileBacking::WritableProfile { object_id } = plan.previous.backing
-            && !self
-                .open_files
-                .values()
-                .any(|file| file.backing == plan.previous.backing)
-            && self
-                .writable_profile
-                .as_ref()
-                .and_then(|profile| profile.files.get(&object_id))
-                .is_some_and(|file| file.dirty)
-        {
-            let file = self
-                .writable_profile
-                .as_mut()
-                .and_then(|profile| profile.files.get_mut(&object_id))
-                .expect("validated writable retirement object");
-            discard_writable_staging(file);
-        }
-    }
-
-    pub(super) fn preflight_retirement(
-        &self,
-        plan: &RuntimeSourceFileRetirementPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let pending_reads = self
-            .pending_reads
-            .values()
-            .filter(|pending| pending.request.file_id == plan.previous.id)
-            .collect::<Vec<_>>();
-        let pending_commits = self
-            .pending_commits
-            .values()
-            .filter(|pending| pending.request.file_id == plan.previous.id)
-            .collect::<Vec<_>>();
-        if self.open_files.get(&plan.previous.id) != Some(&plan.previous)
-            || pending_reads.len() != plan.pending_reads.len()
-            || pending_reads
-                .iter()
-                .zip(&plan.pending_reads)
-                .any(|(actual, expected)| *actual != expected)
-            || pending_commits.len() != plan.pending_commits.len()
-            || pending_commits
-                .iter()
-                .zip(&plan.pending_commits)
-                .any(|(actual, expected)| *actual != expected)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-file-retirement-plan-stale",
-                "source file changed after close planning",
-            ));
-        }
         Ok(())
+    }
+
+    // The aggregate has checked the file, pending I/O, and object retirement.
+    // No host work or guest callback intervenes before this removal.
+    pub(super) fn retire(&mut self, id: RuntimeSourceFileId) {
+        debug_assert!(self.validate_retirement(id).is_ok());
+        self.open_files
+            .remove(&id)
+            .expect("validated file retirement");
     }
 
     pub(super) fn file_byte_length(
@@ -2694,16 +1191,28 @@ impl RuntimeFiles {
                 .and_then(|snapshot| snapshot.files.get(&object_id))
                 .map(|file| file.byte_length)
                 .ok_or_else(|| {
-                    RuntimeStateError::runtime_defect(
-                        "runtime-vfs",
-                        "source-file-backing-missing",
-                        "open source file backing is missing from its snapshot",
-                    )
+                    RuntimeStateError::new("open source file backing is missing from its snapshot")
                 }),
-            RuntimeFileBacking::WritableProfile { object_id } => {
-                Ok(self.writable_file(object_id)?.byte_length)
-            }
+            RuntimeFileBacking::Opfs { byte_length } => Ok(byte_length),
         }
+    }
+
+    pub(super) fn finish_opfs_write(
+        &mut self,
+        id: RuntimeSourceFileId,
+        cursor: u64,
+        transferred: u32,
+    ) {
+        let file = self.open_files.get_mut(&id).expect("preflighted OPFS file");
+        let RuntimeFileBacking::Opfs { byte_length } = file.backing else {
+            unreachable!("preflighted OPFS backing");
+        };
+        debug_assert_eq!(file.cursor, cursor);
+        let end = cursor + u64::from(transferred);
+        file.cursor = end;
+        file.backing = RuntimeFileBacking::Opfs {
+            byte_length: byte_length.max(end),
+        };
     }
 
     pub(super) fn file_read_service(
@@ -2712,526 +1221,38 @@ impl RuntimeFiles {
     ) -> Result<&'static str, RuntimeStateError> {
         match self.open_file(id)?.backing {
             RuntimeFileBacking::ImmutableSource { .. } => Ok(RUNTIME_SOURCE_READ_SERVICE),
-            RuntimeFileBacking::WritableProfile { object_id } => {
-                if self.writable_file(object_id)?.dirty {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-vfs",
-                        "writable-read-requires-staged-bytes",
-                        "dirty writable file must read its Rust-owned staged bytes",
-                    ));
-                }
-                Ok(RUNTIME_WRITABLE_READ_SERVICE)
-            }
+            RuntimeFileBacking::Opfs { .. } => Ok(RUNTIME_OPFS_READ_SERVICE),
         }
     }
 
-    pub(super) fn writable_file_needs_commit(
-        &self,
-        id: RuntimeSourceFileId,
-    ) -> Result<bool, RuntimeStateError> {
-        let RuntimeFileBacking::WritableProfile { object_id } = self.open_file(id)?.backing else {
-            return Ok(false);
-        };
-        Ok(self.writable_file(object_id)?.dirty)
-    }
-
-    pub(super) fn plan_writable_read(
-        &self,
-        id: RuntimeSourceFileId,
-        requested_bytes: u32,
-    ) -> Result<RuntimeWritableReadPlan, RuntimeStateError> {
-        let previous_file = self.open_file(id)?.clone();
-        let RuntimeFileBacking::WritableProfile { object_id } = previous_file.backing else {
-            return Err(vfs_invalid(
-                "writable-read-backing-invalid",
-                "immediate writable read requires a writable profile file",
-            ));
-        };
-        if previous_file.desired_access & 0x8000_0000 == 0
-            || requested_bytes == 0
-            || requested_bytes > RUNTIME_WRITABLE_FILE_MAX_IO_BYTES
-        {
-            return Err(vfs_invalid(
-                "writable-read-variant-invalid",
-                "writable file read requires bounded nonzero bytes and GENERIC_READ access",
-            ));
-        }
-        self.require_no_pending_file_operation(id, object_id)?;
-        let writable = self.writable_file(object_id)?;
-        if !writable.content_loaded {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-profile-content-not-loaded",
-                "staged writable reads require hydrated profile bytes",
-            ));
-        }
-        let start = usize::try_from(previous_file.cursor).map_err(|_| {
-            vfs_invalid(
-                "writable-read-cursor-invalid",
-                "writable file cursor is not representable as a content offset",
-            )
-        })?;
-        let available = writable.working_bytes.len().saturating_sub(start);
-        let transferred = available.min(requested_bytes as usize);
-        let bytes = writable.working_bytes[start..start + transferred].to_vec();
-        let cursor_after = previous_file
-            .cursor
-            .checked_add(transferred as u64)
-            .ok_or_else(|| {
-                vfs_invalid(
-                    "writable-read-cursor-invalid",
-                    "writable read cursor overflowed",
-                )
-            })?;
-        let mut next_file = previous_file.clone();
-        next_file.cursor = cursor_after;
-        Ok(RuntimeWritableReadPlan {
-            previous_file,
-            next_file,
-            bytes,
-            result: RuntimeWritableReadResult {
-                file_id: id,
-                object_id,
-                cursor_before: start as u64,
-                cursor_after,
-                transferred_bytes: transferred as u32,
-            },
-        })
-    }
-
-    pub(super) fn preflight_writable_read(
-        &self,
-        plan: &RuntimeWritableReadPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.open_files.get(&plan.previous_file.id) != Some(&plan.previous_file) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-read-plan-stale",
-                "writable file changed after read planning",
-            ));
-        }
-        let RuntimeFileBacking::WritableProfile { object_id } = plan.previous_file.backing else {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-vfs",
-                "writable-read-plan-backing-invalid",
-                "writable read plan lost its profile backing",
-            ));
-        };
-        self.require_no_pending_file_operation(plan.previous_file.id, object_id)
-    }
-
-    pub(super) fn commit_writable_read(
+    pub(super) fn begin_read(
         &mut self,
-        plan: RuntimeWritableReadPlan,
-    ) -> RuntimeWritableReadResult {
-        debug_assert!(self.preflight_writable_read(&plan).is_ok());
-        self.open_files.insert(plan.next_file.id, plan.next_file);
-        plan.result
-    }
-
-    pub(super) fn plan_writable_write(
-        &self,
-        id: RuntimeSourceFileId,
-        bytes: &[u8],
-    ) -> Result<RuntimeWritableWritePlan, RuntimeStateError> {
-        let previous_file = self.open_file(id)?.clone();
-        let RuntimeFileBacking::WritableProfile { object_id } = previous_file.backing else {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "immutable-source-write-denied",
-                "immutable source files cannot be written",
-            ));
-        };
-        if previous_file.desired_access & 0x4000_0000 == 0
-            || bytes.is_empty()
-            || bytes.len() > RUNTIME_WRITABLE_FILE_MAX_IO_BYTES as usize
-        {
-            return Err(vfs_invalid(
-                "writable-write-variant-invalid",
-                "writable file write requires bounded nonzero bytes and GENERIC_WRITE access",
-            ));
-        }
-        self.require_no_pending_file_operation(id, object_id)?;
-        let profile = self.writable_profile.as_ref().ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-vfs",
-                "writable-profile-missing",
-                "writable file handle has no profile authority",
-            )
-        })?;
-        let previous_writable = self.writable_file(object_id)?.clone();
-        if !previous_writable.content_loaded {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-profile-content-not-loaded",
-                "writable file mutation requires hydrated or replaced profile bytes",
-            ));
-        }
-        let write_end = previous_file
-            .cursor
-            .checked_add(bytes.len() as u64)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-vfs",
-                    "writable-file-size-overflow",
-                    "writable file write end overflowed",
-                )
-            })?;
-        if write_end > profile.quota_bytes {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "writable-profile-quota-exceeded",
-                "writable file write exceeds the profile quota",
-            ));
-        }
-        let other_bytes = profile
-            .files
-            .values()
-            .filter(|file| file.object_id != object_id && file.exists)
-            .try_fold(0_u64, |total, file| total.checked_add(file.byte_length))
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-vfs",
-                    "writable-profile-quota-overflow",
-                    "writable profile byte accounting overflowed",
-                )
-            })?;
-        let next_length = previous_writable.byte_length.max(write_end);
-        if other_bytes
-            .checked_add(next_length)
-            .is_none_or(|total| total > profile.quota_bytes)
-        {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "writable-profile-quota-exceeded",
-                "writable profile write set exceeds its declared quota",
-            ));
-        }
-        let mut next_writable = previous_writable.clone();
-        let start = previous_file.cursor as usize;
-        let end = write_end as usize;
-        next_writable.working_bytes.resize(end, 0);
-        next_writable.working_bytes[start..end].copy_from_slice(bytes);
-        mark_writable_dirty(&mut next_writable)?;
-        let mut next_file = previous_file.clone();
-        next_file.cursor = write_end;
-        let (expected_catalog_revision, next_catalog_revision) = self.plan_catalog_change()?;
-        Ok(RuntimeWritableWritePlan {
-            previous_file,
-            next_file,
-            previous_writable,
-            next_writable: next_writable.clone(),
-            result: RuntimeWritableWriteResult {
-                file_id: id,
-                object_id,
-                cursor_before: start as u64,
-                cursor_after: write_end,
-                transferred_bytes: bytes.len() as u32,
-                byte_length: next_writable.byte_length,
-                revision: next_writable.revision,
-            },
-            expected_catalog_revision,
-            next_catalog_revision,
-        })
-    }
-
-    pub(super) fn preflight_writable_write(
-        &self,
-        plan: &RuntimeWritableWritePlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.open_files.get(&plan.previous_file.id) != Some(&plan.previous_file)
-            || self.catalog_revision != plan.expected_catalog_revision
-            || self
-                .writable_profile
-                .as_ref()
-                .and_then(|profile| profile.files.get(&plan.previous_writable.object_id))
-                != Some(&plan.previous_writable)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-write-plan-stale",
-                "writable file or profile content changed after write planning",
-            ));
-        }
-        self.require_no_pending_file_operation(
-            plan.previous_file.id,
-            plan.previous_writable.object_id,
-        )
-    }
-
-    pub(super) fn commit_writable_write(
-        &mut self,
-        plan: RuntimeWritableWritePlan,
-    ) -> RuntimeWritableWriteResult {
-        debug_assert!(self.preflight_writable_write(&plan).is_ok());
-        self.catalog_revision = plan.next_catalog_revision;
-        self.open_files.insert(plan.next_file.id, plan.next_file);
-        self.writable_profile
-            .as_mut()
-            .expect("validated writable write profile")
-            .files
-            .insert(plan.next_writable.object_id, plan.next_writable);
-        plan.result
-    }
-
-    pub(super) fn plan_writable_commit_begin(
-        &self,
-        id: RuntimeSourceFileId,
-        request_id: u64,
-        close_after_commit: bool,
-    ) -> Result<RuntimeWritableCommitBeginPlan, RuntimeStateError> {
-        let file = self.open_file(id)?;
-        let RuntimeFileBacking::WritableProfile { object_id } = file.backing else {
-            return Err(vfs_invalid(
-                "writable-commit-backing-invalid",
-                "durable commit requires a writable profile file",
-            ));
-        };
-        self.require_no_pending_file_operation(id, object_id)?;
-        let writable = self.writable_file(object_id)?;
-        let base_generation = writable.dirty_base_generation.ok_or_else(|| {
-            RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-clean",
-                "clean writable file has no durable commit to perform",
-            )
-        })?;
-        Ok(RuntimeWritableCommitBeginPlan {
-            pending: RuntimePendingWritableCommit {
-                request: RuntimeWritableCommitRequest {
-                    request_id,
-                    file_id: id,
-                    object_id,
-                    base_generation,
-                    byte_length: writable.byte_length,
-                    content_sha256: writable.sha256.clone().ok_or_else(|| {
-                        RuntimeStateError::runtime_defect(
-                            "runtime-vfs",
-                            "writable-file-dirty-hash-missing",
-                            "dirty writable file is missing its content hash",
-                        )
-                    })?,
-                    close_after_commit,
-                },
-                expected_revision: writable.revision,
-            },
-        })
-    }
-
-    pub(super) fn preflight_writable_commit_begin(
-        &self,
-        plan: &RuntimeWritableCommitBeginPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let pending = &plan.pending;
-        let file = self.open_file(pending.request.file_id)?;
-        let writable = self.writable_file(pending.request.object_id)?;
-        if file.backing
-            != (RuntimeFileBacking::WritableProfile {
-                object_id: pending.request.object_id,
-            })
-            || writable.revision != pending.expected_revision
-            || writable.dirty_base_generation != Some(pending.request.base_generation)
-            || self
-                .pending_commits
-                .contains_key(&pending.request.request_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-commit-plan-stale",
-                "writable file changed after commit planning",
-            ));
-        }
-        self.require_no_pending_file_operation(pending.request.file_id, pending.request.object_id)
-    }
-
-    pub(super) fn commit_writable_commit_begin(
-        &mut self,
-        plan: RuntimeWritableCommitBeginPlan,
-    ) -> RuntimeWritableCommitRequest {
-        debug_assert!(self.preflight_writable_commit_begin(&plan).is_ok());
-        let request = plan.pending.request.clone();
-        let previous = self
-            .pending_commits
-            .insert(request.request_id, plan.pending);
-        debug_assert!(previous.is_none());
-        request
-    }
-
-    pub(super) fn writable_commit_bytes(
-        &self,
-        request_id: u64,
-    ) -> Result<&[u8], RuntimeStateError> {
-        let pending = self.pending_commits.get(&request_id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-vfs",
-                "writable-commit-request-unknown",
-                "writable commit payload does not identify a pending request",
-            )
-        })?;
-        let writable = self.writable_file(pending.request.object_id)?;
-        if writable.revision != pending.expected_revision
-            || writable.byte_length != pending.request.byte_length
-            || writable.sha256.as_deref() != Some(&pending.request.content_sha256)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-commit-payload-stale",
-                "writable commit bytes changed after the host request began",
-            ));
-        }
-        Ok(&writable.working_bytes)
-    }
-
-    pub(super) fn writable_commit_request(
-        &self,
-        request_id: u64,
-    ) -> Result<&RuntimeWritableCommitRequest, RuntimeStateError> {
-        self.pending_commits
-            .get(&request_id)
-            .map(|pending| &pending.request)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "writable-commit-request-unknown",
-                    "writable commit metadata does not identify a pending request",
-                )
-            })
-    }
-
-    pub(super) fn plan_writable_commit_completion(
-        &self,
-        response: RuntimeWritableCommitHostResponse,
-    ) -> Result<RuntimeWritableCommitCompletionPlan, RuntimeStateError> {
-        let pending = self
-            .pending_commits
-            .get(&response.request_id)
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "writable-commit-request-unknown",
-                    "writable commit completion does not identify a pending request",
-                )
-            })?
-            .clone();
-        let previous_writable = self.writable_file(pending.request.object_id)?.clone();
-        if response.object_id != pending.request.object_id
-            || response.base_generation != pending.request.base_generation
-            || previous_writable.revision != pending.expected_revision
-            || previous_writable.dirty_base_generation != Some(pending.request.base_generation)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-commit-completion-identity-mismatch",
-                "writable commit completion identity or generation is stale",
-            ));
-        }
-        let succeeded = response.win32_error == 0;
-        let expected_generation = response.base_generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-vfs",
-                "writable-generation-exhausted",
-                "writable profile generation space is exhausted",
-            )
-        })?;
-        if (succeeded && response.committed_generation != expected_generation)
-            || (!succeeded && response.committed_generation != response.base_generation)
-        {
-            return Err(vfs_invalid(
-                "writable-commit-completion-generation-invalid",
-                "writable commit response generation does not match success or failure semantics",
-            ));
-        }
-        let mut next_writable = previous_writable.clone();
-        if succeeded {
-            next_writable.generation = response.committed_generation;
-            next_writable.committed_bytes = next_writable.working_bytes.clone();
-            next_writable.dirty = false;
-            next_writable.dirty_base_generation = None;
-        }
-        Ok(RuntimeWritableCommitCompletionPlan {
-            pending: pending.clone(),
-            previous_writable,
-            next_writable,
-            completion: RuntimeWritableCommitCompletion {
-                request: pending.request,
-                succeeded,
-                committed_generation: response.committed_generation,
-                win32_error: response.win32_error,
-            },
-        })
-    }
-
-    pub(super) fn preflight_writable_commit_completion(
-        &self,
-        plan: &RuntimeWritableCommitCompletionPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.pending_commits.get(&plan.pending.request.request_id) != Some(&plan.pending)
-            || self
-                .writable_profile
-                .as_ref()
-                .and_then(|profile| profile.files.get(&plan.previous_writable.object_id))
-                != Some(&plan.previous_writable)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-commit-completion-plan-stale",
-                "writable commit state changed after completion planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_writable_commit_completion(
-        &mut self,
-        plan: RuntimeWritableCommitCompletionPlan,
-    ) -> RuntimeWritableCommitCompletion {
-        debug_assert!(self.preflight_writable_commit_completion(&plan).is_ok());
-        self.pending_commits
-            .remove(&plan.pending.request.request_id);
-        self.writable_profile
-            .as_mut()
-            .expect("validated writable completion profile")
-            .files
-            .insert(plan.next_writable.object_id, plan.next_writable);
-        plan.completion
-    }
-
-    pub(super) fn plan_read_begin(
-        &self,
         id: RuntimeSourceFileId,
         request_id: u64,
         buffer: GuestAddress,
         bytes_read: GuestAddress,
         requested_bytes: u32,
-    ) -> Result<RuntimeSourceReadBeginPlan, RuntimeStateError> {
+    ) -> Result<RuntimeSourceReadRequest, RuntimeStateError> {
         let file = self.open_file(id)?;
         let (source_id, object_id) = match file.backing {
             RuntimeFileBacking::ImmutableSource {
                 source_id,
                 object_id,
             } => (source_id, object_id),
-            RuntimeFileBacking::WritableProfile { object_id }
-                if !self.writable_file(object_id)?.dirty =>
-            {
-                (0, object_id)
-            }
-            RuntimeFileBacking::WritableProfile { .. } => {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-vfs",
-                    "writable-read-requires-staged-bytes",
-                    "dirty writable file cannot read stale committed host bytes",
-                ));
-            }
+            RuntimeFileBacking::Opfs { .. } => (
+                0,
+                u32::try_from(file.id.0).map_err(|_| {
+                    RuntimeStateError::new("OPFS file ID exceeds the host transport")
+                })?,
+            ),
         };
         if file.desired_access & 0x8000_0000 == 0 {
-            return Err(vfs_invalid(
-                "source-read-access-denied",
+            return Err(RuntimeStateError::new(
                 "file was not opened with GENERIC_READ access",
             ));
         }
         if requested_bytes == 0 || requested_bytes > RUNTIME_SOURCE_READ_MAX_BYTES {
-            return Err(vfs_invalid(
-                "source-read-length-unsupported",
+            return Err(RuntimeStateError::new(
                 "source reads require a nonzero bounded byte count",
             ));
         }
@@ -3241,88 +1262,64 @@ impl RuntimeFiles {
                 .values()
                 .any(|pending| pending.request.file_id == id)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-read-already-pending",
+            return Err(RuntimeStateError::new(
                 "logical source file already owns a pending read",
             ));
         }
-        Ok(RuntimeSourceReadBeginPlan {
-            pending: RuntimePendingSourceRead {
-                request: RuntimeSourceReadRequest {
-                    request_id,
-                    file_id: id,
-                    source_id,
-                    object_id,
-                    offset: file.cursor,
-                    requested_bytes,
-                },
-                buffer,
-                bytes_read,
+        let pending = RuntimePendingSourceRead {
+            request: RuntimeSourceReadRequest {
+                request_id,
+                file_id: id,
+                source_id,
+                object_id,
+                offset: file.cursor,
+                requested_bytes,
             },
-        })
+            buffer,
+            bytes_read,
+        };
+        let request = pending.request;
+        self.pending_reads.insert(request_id, pending);
+        Ok(request)
     }
 
-    pub(super) fn preflight_read_begin(
+    pub(super) fn opfs_read_path(
         &self,
-        plan: &RuntimeSourceReadBeginPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let file = self.open_file(plan.pending.request.file_id)?;
-        if file.cursor != plan.pending.request.offset
-            || self
-                .pending_reads
-                .contains_key(&plan.pending.request.request_id)
-            || self
-                .pending_reads
-                .values()
-                .any(|pending| pending.request.file_id == file.id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-read-plan-stale",
-                "source file cursor or pending request state changed after planning",
-            ));
+        request_id: u64,
+        current_directory: &[u8],
+    ) -> Result<String, RuntimeStateError> {
+        let pending = self
+            .pending_reads
+            .get(&request_id)
+            .ok_or_else(|| RuntimeStateError::new("OPFS read request has no pending file"))?;
+        let file = self.open_file(pending.request.file_id)?;
+        if !matches!(file.backing, RuntimeFileBacking::Opfs { .. }) {
+            return Err(RuntimeStateError::new("read request is not an OPFS file"));
         }
-        Ok(())
-    }
-
-    pub(super) fn commit_read_begin(
-        &mut self,
-        plan: RuntimeSourceReadBeginPlan,
-    ) -> RuntimeSourceReadRequest {
-        debug_assert!(self.preflight_read_begin(&plan).is_ok());
-        let request = plan.pending.request;
-        let previous = self.pending_reads.insert(request.request_id, plan.pending);
-        debug_assert!(previous.is_none());
-        request
+        self.opfs_relative_path(&file.normalized_path_a, current_directory)
+            .map_err(|_| RuntimeStateError::new("open file left the selected game directory"))
     }
 
     pub(super) fn plan_read_completion(
         &self,
-        response: RuntimeSourceReadHostResponse,
+        response: &RuntimeSourceReadHostResponse,
     ) -> Result<RuntimeSourceReadCompletionPlan, RuntimeStateError> {
         let pending = self
             .pending_reads
             .get(&response.request_id)
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-vfs",
-                    "source-read-request-unknown",
-                    "source read completion does not identify a pending request",
-                )
+                RuntimeStateError::new("source read completion does not identify a pending request")
             })?;
         let request = pending.request;
-        let previous_file = self.open_file(request.file_id)?.clone();
+        let file = self.open_file(request.file_id)?;
         let byte_length = self.file_byte_length(request.file_id)?;
         if response.source_id != request.source_id
             || response.object_id != request.object_id
             || response.offset != request.offset
             || response.requested_bytes != request.requested_bytes
-            || previous_file.cursor != request.offset
+            || file.cursor != request.offset
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-read-completion-identity-mismatch",
+            return Err(RuntimeStateError::new(
                 "source read completion identity or cursor does not match the pending request",
             ));
         }
@@ -3330,360 +1327,122 @@ impl RuntimeFiles {
         if succeeded {
             if response.transferred_bytes as usize != response.bytes.len()
                 || response.transferred_bytes > response.requested_bytes
-                || response
-                    .offset
-                    .checked_add(u64::from(response.transferred_bytes))
-                    .is_none_or(|end| end > byte_length)
+                || (response.transferred_bytes != 0
+                    && response
+                        .offset
+                        .checked_add(u64::from(response.transferred_bytes))
+                        .is_none_or(|end| end > byte_length))
             {
-                return Err(vfs_invalid(
-                    "source-read-completion-length-invalid",
+                return Err(RuntimeStateError::new(
                     "successful source read completion has invalid byte bounds",
                 ));
             }
         } else if response.transferred_bytes != 0 || !response.bytes.is_empty() {
-            return Err(vfs_invalid(
-                "source-read-failure-payload-invalid",
+            return Err(RuntimeStateError::new(
                 "failed source read completion may not carry bytes",
             ));
         }
-        if succeeded
-            && let RuntimeFileBacking::WritableProfile { object_id } = previous_file.backing
-        {
-            let writable = self.writable_file(object_id)?;
-            let start = usize::try_from(response.offset).map_err(|_| {
-                vfs_invalid(
-                    "writable-read-completion-range-invalid",
-                    "writable read completion offset is not representable",
-                )
-            })?;
-            let end = start + response.bytes.len();
-            if writable.content_loaded
-                && writable.working_bytes.get(start..end) != Some(response.bytes.as_slice())
-            {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-vfs",
-                    "writable-read-completion-content-mismatch",
-                    "profile read host bytes differ from the registered committed generation",
-                ));
-            }
-        }
-        let mut next_file = previous_file.clone();
-        if succeeded {
-            next_file.cursor += u64::from(response.transferred_bytes);
-        }
-        let completion = RuntimeSourceReadCompletion {
-            request,
-            succeeded,
-            transferred_bytes: response.transferred_bytes,
-            win32_error: response.win32_error,
-            cursor_before: previous_file.cursor,
-            cursor_after: next_file.cursor,
-            content_sha256: hex_sha256(&response.bytes),
+        let next_cursor = file.cursor
+            + if succeeded {
+                u64::from(response.transferred_bytes)
+            } else {
+                0
+            };
+        let service = match file.backing {
+            RuntimeFileBacking::ImmutableSource { .. } => RUNTIME_SOURCE_READ_SERVICE,
+            RuntimeFileBacking::Opfs { .. } => RUNTIME_OPFS_READ_SERVICE,
         };
         Ok(RuntimeSourceReadCompletionPlan {
-            pending: pending.clone(),
-            previous_file,
-            next_file,
-            response,
-            completion,
+            request_id: request.request_id,
+            file_id: request.file_id,
+            buffer: pending.buffer,
+            bytes_read: pending.bytes_read,
+            next_cursor,
+            service,
         })
     }
 
-    pub(super) fn preflight_read_completion(
-        &self,
-        plan: &RuntimeSourceReadCompletionPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.pending_reads.get(&plan.pending.request.request_id) != Some(&plan.pending)
-            || self.open_files.get(&plan.previous_file.id) != Some(&plan.previous_file)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-read-completion-plan-stale",
-                "source read state changed after completion planning",
-            ));
-        }
-        Ok(())
+    pub(super) fn commit_read_completion(&mut self, plan: RuntimeSourceReadCompletionPlan) {
+        self.pending_reads.remove(&plan.request_id);
+        self.open_files
+            .get_mut(&plan.file_id)
+            .expect("validated read file remains live")
+            .cursor = plan.next_cursor;
     }
 
-    pub(super) fn commit_read_completion(
-        &mut self,
-        plan: RuntimeSourceReadCompletionPlan,
-    ) -> RuntimeSourceReadCompletion {
-        debug_assert!(self.preflight_read_completion(&plan).is_ok());
-        self.pending_reads.remove(&plan.pending.request.request_id);
-        self.open_files.insert(plan.next_file.id, plan.next_file);
-        plan.completion
+    pub(super) fn pending_read_ids(&self, request_ids: &[u64]) -> Vec<u64> {
+        request_ids
+            .iter()
+            .copied()
+            .filter(|id| self.pending_reads.contains_key(id))
+            .collect()
     }
 
-    pub(super) fn plan_read_cancellation(
-        &self,
-        request_ids: &[u64],
-    ) -> RuntimeSourceReadCancellationPlan {
-        let selected = request_ids.iter().copied().collect::<BTreeSet<_>>();
-        RuntimeSourceReadCancellationPlan {
-            requests: self
-                .pending_reads
+    pub(super) fn cancel_reads(&mut self, request_ids: &[u64]) {
+        assert!(
+            request_ids
                 .iter()
-                .filter_map(|(request_id, pending)| {
-                    selected.contains(request_id).then_some(pending.clone())
-                })
-                .collect(),
+                .all(|id| self.pending_reads.contains_key(id)),
+            "validated pending reads changed during thread exit"
+        );
+        for id in request_ids {
+            self.pending_reads.remove(id);
         }
     }
 
-    pub(super) fn commit_read_cancellation(&mut self, plan: RuntimeSourceReadCancellationPlan) {
-        for pending in plan.requests {
-            let removed = self.pending_reads.remove(&pending.request.request_id);
-            debug_assert_eq!(removed, Some(pending));
-        }
-    }
-
-    pub(super) fn plan_writable_commit_cancellation(
-        &self,
-        request_ids: &[u64],
-    ) -> RuntimeWritableCommitCancellationPlan {
-        let selected = request_ids.iter().copied().collect::<BTreeSet<_>>();
-        RuntimeWritableCommitCancellationPlan {
-            requests: self
-                .pending_commits
-                .iter()
-                .filter_map(|(request_id, pending)| {
-                    selected.contains(request_id).then_some(pending.clone())
-                })
-                .collect(),
-        }
-    }
-
-    pub(super) fn commit_writable_commit_cancellation(
+    pub(super) fn seek_with(
         &mut self,
-        plan: RuntimeWritableCommitCancellationPlan,
-    ) {
-        for pending in plan.requests {
-            let removed = self.pending_commits.remove(&pending.request.request_id);
-            debug_assert_eq!(removed, Some(pending));
-        }
-    }
-
-    pub(super) fn plan_writable_delete_cancellation(
-        &self,
-        request_ids: &[u64],
-    ) -> RuntimeWritableDeleteCancellationPlan {
-        let selected = request_ids.iter().copied().collect::<BTreeSet<_>>();
-        RuntimeWritableDeleteCancellationPlan {
-            requests: self
-                .pending_deletes
-                .iter()
-                .filter_map(|(request_id, pending)| {
-                    selected.contains(request_id).then_some(pending.clone())
-                })
-                .collect(),
-        }
-    }
-
-    pub(super) fn commit_writable_delete_cancellation(
-        &mut self,
-        plan: RuntimeWritableDeleteCancellationPlan,
-    ) {
-        for pending in plan.requests {
-            let removed = self.pending_deletes.remove(&pending.request.request_id);
-            debug_assert_eq!(removed, Some(pending));
-        }
-    }
-
-    pub(super) fn plan_writable_directory_create_cancellation(
-        &self,
-        request_ids: &[u64],
-    ) -> RuntimeWritableDirectoryCreateCancellationPlan {
-        let selected = request_ids.iter().copied().collect::<BTreeSet<_>>();
-        RuntimeWritableDirectoryCreateCancellationPlan {
-            requests: self
-                .pending_directory_creates
-                .iter()
-                .filter_map(|(request_id, pending)| {
-                    selected.contains(request_id).then_some(pending.clone())
-                })
-                .collect(),
-        }
-    }
-
-    pub(super) fn commit_writable_directory_create_cancellation(
-        &mut self,
-        plan: RuntimeWritableDirectoryCreateCancellationPlan,
-    ) {
-        for pending in plan.requests {
-            let removed = self
-                .pending_directory_creates
-                .remove(&pending.request.request_id);
-            debug_assert_eq!(removed, Some(pending));
-        }
-    }
-
-    pub(super) fn plan_seek(
-        &self,
         id: RuntimeSourceFileId,
         distance: i64,
         origin: u32,
-    ) -> Result<RuntimeSourceFileSeekPlan, RuntimeStateError> {
+        max_cursor: u64,
+        write_result: impl FnOnce(u64) -> Result<(), RuntimeStateError>,
+    ) -> Result<Result<u64, u32>, RuntimeStateError> {
         let file = self.open_file(id)?;
-        let object_id = match file.backing {
-            RuntimeFileBacking::ImmutableSource { object_id, .. }
-            | RuntimeFileBacking::WritableProfile { object_id } => object_id,
-        };
-        self.require_no_pending_file_operation(id, object_id)?;
+        self.require_no_pending_file_operation(id)?;
         let byte_length = self.file_byte_length(id)?;
         let base = match origin {
             0 => 0i128,
             1 => i128::from(file.cursor),
             2 => i128::from(byte_length),
             _ => {
-                return Err(vfs_invalid(
-                    "source-seek-origin-invalid",
-                    "source file seek origin is outside FILE_BEGIN/CURRENT/END",
-                ));
+                return Ok(Err(ERROR_INVALID_PARAMETER));
             }
         };
         let cursor = base + i128::from(distance);
-        let maximum = match file.backing {
-            RuntimeFileBacking::ImmutableSource { .. } => i128::from(byte_length),
-            RuntimeFileBacking::WritableProfile { .. } => i128::from(
-                self.writable_profile
-                    .as_ref()
-                    .expect("writable file requires a profile")
-                    .quota_bytes,
-            ),
-        };
-        if cursor < 0 || cursor > maximum {
-            return Err(vfs_invalid(
-                "source-seek-range-invalid",
-                "file seek result is negative or exceeds its backing bound",
-            ));
+        // Seeking beyond EOF does not extend the file. The caller's ABI bounds
+        // the result; the owned cursor and source read transport are 64-bit.
+        if cursor < 0 {
+            return Ok(Err(ERROR_NEGATIVE_SEEK));
+        }
+        if cursor > i128::from(max_cursor) {
+            return Ok(Err(ERROR_INVALID_PARAMETER));
         }
         let cursor = cursor as u64;
-        let previous = file.clone();
-        let mut next = previous.clone();
-        next.cursor = cursor;
-        Ok(RuntimeSourceFileSeekPlan { previous, next })
-    }
-
-    pub(super) fn commit_seek(
-        &mut self,
-        plan: RuntimeSourceFileSeekPlan,
-    ) -> Result<u64, RuntimeStateError> {
-        if self.open_files.get(&plan.previous.id) != Some(&plan.previous) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-file-seek-plan-stale",
-                "source file changed after seek planning",
-            ));
-        }
-        let cursor = plan.next.cursor;
-        self.open_files.insert(plan.next.id, plan.next);
-        Ok(cursor)
-    }
-
-    fn writable_file(&self, object_id: u32) -> Result<&RuntimeWritableFile, RuntimeStateError> {
-        self.writable_profile
-            .as_ref()
-            .and_then(|profile| profile.files.get(&object_id))
-            .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-vfs",
-                    "writable-file-backing-missing",
-                    "writable profile object identity is missing",
-                )
-            })
-    }
-
-    fn writable_directory(
-        &self,
-        directory_id: u32,
-    ) -> Result<&RuntimeWritableDirectory, RuntimeStateError> {
-        self.writable_profile
-            .as_ref()
-            .and_then(|profile| profile.directories.get(&directory_id))
-            .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-vfs",
-                    "writable-directory-identity-missing",
-                    "writable profile directory identity is missing",
-                )
-            })
+        write_result(cursor)?;
+        // Checked guest output has committed. Cursor publication cannot fail.
+        self.open_files
+            .get_mut(&id)
+            .expect("validated open file")
+            .cursor = cursor;
+        Ok(Ok(cursor))
     }
 
     fn require_no_pending_file_operation(
         &self,
         id: RuntimeSourceFileId,
-        object_id: u32,
     ) -> Result<(), RuntimeStateError> {
         if self
             .pending_reads
             .values()
             .any(|pending| pending.request.file_id == id)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "source-file-read-pending",
+            return Err(RuntimeStateError::new(
                 "logical file already owns a pending read",
-            ));
-        }
-        if matches!(
-            self.open_file(id)?.backing,
-            RuntimeFileBacking::WritableProfile { .. }
-        ) && self
-            .pending_commits
-            .values()
-            .any(|pending| pending.request.object_id == object_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-vfs",
-                "writable-file-commit-pending",
-                "writable file already owns a pending durable commit",
             ));
         }
         Ok(())
     }
-}
-
-fn validate_source_profile_separation(
-    source: &RuntimeSourceSnapshot,
-    profile: Option<&RuntimeWritableProfile>,
-) -> Result<(), RuntimeStateError> {
-    let Some(profile) = profile else {
-        return Ok(());
-    };
-    validate_source_profile_separation_opt(Some(source), profile)
-}
-
-fn validate_source_profile_separation_opt(
-    source: Option<&RuntimeSourceSnapshot>,
-    profile: &RuntimeWritableProfile,
-) -> Result<(), RuntimeStateError> {
-    let Some(source) = source else {
-        return Ok(());
-    };
-    if source.title_fingerprint != profile.title_fingerprint
-        || source.root_identity != profile.root_identity
-    {
-        return Err(vfs_invalid(
-            "source-profile-identity-mismatch",
-            "immutable source and writable profile require the same title and mount root",
-        ));
-    }
-    if source.path_index.keys().any(|path| {
-        profile.path_index.contains_key(path)
-            || profile.directory_path_index.contains_key(path)
-            || profile.directory_path_index.keys().any(|directory| {
-                directory.len() > path.len()
-                    && directory.starts_with(path)
-                    && directory.get(path.len()) == Some(&b'\\')
-            })
-    }) {
-        return Err(vfs_invalid(
-            "source-profile-path-overlap",
-            "writable profile paths may not shadow or descend from immutable source objects",
-        ));
-    }
-    Ok(())
 }
 
 fn file_access_conflicts(
@@ -3700,53 +1459,6 @@ fn file_access_conflicts(
         || (requested_write && open_share_mode & 2 == 0)
         || (open_read && share_mode & 1 == 0)
         || (open_write && share_mode & 2 == 0)
-}
-
-fn stage_writable_replacement(file: &mut RuntimeWritableFile) -> Result<(), RuntimeStateError> {
-    file.content_loaded = true;
-    file.working_bytes.clear();
-    mark_writable_dirty(file)
-}
-
-fn mark_writable_dirty(file: &mut RuntimeWritableFile) -> Result<(), RuntimeStateError> {
-    if file.dirty_base_generation.is_none() {
-        file.dirty_base_generation = Some(file.generation);
-    }
-    file.revision = file.revision.checked_add(1).ok_or_else(|| {
-        RuntimeStateError::resource_limit(
-            "runtime-vfs",
-            "writable-file-revision-exhausted",
-            "writable file revision space is exhausted",
-        )
-    })?;
-    file.exists = true;
-    file.byte_length = file.working_bytes.len() as u64;
-    file.sha256 = Some(hex_sha256(&file.working_bytes));
-    file.dirty = true;
-    Ok(())
-}
-
-fn discard_writable_staging(file: &mut RuntimeWritableFile) {
-    file.working_bytes = file.committed_bytes.clone();
-    file.exists = file.generation > 0;
-    file.byte_length = file.committed_bytes.len() as u64;
-    file.sha256 = file.exists.then(|| hex_sha256(&file.committed_bytes));
-    file.dirty = false;
-    file.dirty_base_generation = None;
-    file.revision = file.revision.saturating_add(1);
-}
-
-fn copy_writable_content(bytes: &[u8]) -> Result<Vec<u8>, RuntimeStateError> {
-    let mut copied = Vec::new();
-    copied.try_reserve_exact(bytes.len()).map_err(|_| {
-        RuntimeStateError::resource_limit(
-            "runtime-vfs",
-            "writable-profile-hydration-capacity-exhausted",
-            "writable profile hydration could not reserve bounded content storage",
-        )
-    })?;
-    copied.extend_from_slice(bytes);
-    Ok(copied)
 }
 
 #[derive(Debug)]
@@ -3766,7 +1478,7 @@ fn resolve_file_search_pattern(
     requested: &[u8],
     current_directory: &[u8],
 ) -> Result<ResolvedFileSearchPattern, RuntimeStateError> {
-    let body = nul_terminated_body(requested, "file-search-pattern-shape-invalid")?;
+    let body = nul_terminated_body(requested)?;
     let separators = windows_932_separator_offsets(body)?;
     let (directory, file_name_pattern) = if let Some(separator) = separators.last().copied() {
         let directory_end = if separator == 2 && is_absolute(body) {
@@ -3775,8 +1487,7 @@ fn resolve_file_search_pattern(
             separator
         };
         if directory_end == 0 || separator + 1 == body.len() {
-            return Err(vfs_invalid(
-                "file-search-pattern-shape-invalid",
+            return Err(RuntimeStateError::new(
                 "file search requires a directory and nonempty final pattern component",
             ));
         }
@@ -3812,8 +1523,7 @@ fn resolve_file_search_pattern(
 
 fn validate_file_search_component(component: &[u8]) -> Result<(), RuntimeStateError> {
     if component.is_empty() || component.len() > 260 {
-        return Err(vfs_invalid(
-            "file-search-pattern-component-invalid",
+        return Err(RuntimeStateError::new(
             "file search final component must be nonempty and at most 260 bytes",
         ));
     }
@@ -3822,14 +1532,12 @@ fn validate_file_search_component(component: &[u8]) -> Result<(), RuntimeStateEr
         let byte = component[index];
         if is_windows_932_lead_byte(byte) {
             let Some(&trail) = component.get(index + 1) else {
-                return Err(vfs_invalid(
-                    "file-search-pattern-windows-932-invalid",
+                return Err(RuntimeStateError::new(
                     "file search pattern ends in a Windows-932 lead byte",
                 ));
             };
             if !is_windows_932_trail_byte(trail) {
-                return Err(vfs_invalid(
-                    "file-search-pattern-windows-932-invalid",
+                return Err(RuntimeStateError::new(
                     "file search pattern contains an invalid Windows-932 trail byte",
                 ));
             }
@@ -3840,8 +1548,7 @@ fn validate_file_search_component(component: &[u8]) -> Result<(), RuntimeStateEr
             || byte == 0x7f
             || matches!(byte, b'"' | b'<' | b'>' | b'|' | b':' | b'\\' | b'/')
         {
-            return Err(vfs_invalid(
-                "file-search-pattern-character-invalid",
+            return Err(RuntimeStateError::new(
                 "file search pattern contains a disallowed DOS path character",
             ));
         }
@@ -3857,14 +1564,12 @@ fn windows_932_separator_offsets(bytes: &[u8]) -> Result<Vec<usize>, RuntimeStat
         let byte = bytes[index];
         if is_windows_932_lead_byte(byte) {
             let Some(&trail) = bytes.get(index + 1) else {
-                return Err(vfs_invalid(
-                    "file-search-pattern-windows-932-invalid",
+                return Err(RuntimeStateError::new(
                     "file search path ends in a Windows-932 lead byte",
                 ));
             };
             if !is_windows_932_trail_byte(trail) {
-                return Err(vfs_invalid(
-                    "file-search-pattern-windows-932-invalid",
+                return Err(RuntimeStateError::new(
                     "file search path contains an invalid Windows-932 trail byte",
                 ));
             }
@@ -3967,14 +1672,12 @@ fn windows_932_wildcard_tokens(
         let byte = bytes[index];
         if is_windows_932_lead_byte(byte) {
             let Some(&trail) = bytes.get(index + 1) else {
-                return Err(vfs_invalid(
-                    "file-search-windows-932-invalid",
+                return Err(RuntimeStateError::new(
                     "file search text ends in a Windows-932 lead byte",
                 ));
             };
             if !is_windows_932_trail_byte(trail) {
-                return Err(vfs_invalid(
-                    "file-search-windows-932-invalid",
+                return Err(RuntimeStateError::new(
                     "file search text contains an invalid Windows-932 trail byte",
                 ));
             }
@@ -4005,7 +1708,7 @@ fn resolve_path(
     requested: &[u8],
     current_directory: &[u8],
 ) -> Result<NormalizedPath, RuntimeStateError> {
-    let body = nul_terminated_body(requested, "source-file-path-shape-invalid")?;
+    let body = nul_terminated_body(requested)?;
     if is_absolute(body) {
         return normalize_absolute_path(requested);
     }
@@ -4020,10 +1723,9 @@ fn resolve_path(
 }
 
 fn normalize_absolute_path(bytes: &[u8]) -> Result<NormalizedPath, RuntimeStateError> {
-    let body = nul_terminated_body(bytes, "source-file-path-shape-invalid")?;
+    let body = nul_terminated_body(bytes)?;
     if !is_absolute(body) {
-        return Err(vfs_invalid(
-            "source-file-path-not-absolute",
+        return Err(RuntimeStateError::new(
             "source file path requires an absolute DOS drive after resolution",
         ));
     }
@@ -4045,15 +1747,13 @@ fn normalize_absolute_path(bytes: &[u8]) -> Result<NormalizedPath, RuntimeStateE
 
 fn normalize_relative_path(bytes: &[u8]) -> Result<Vec<u8>, RuntimeStateError> {
     if bytes.is_empty() || bytes.len() > 32 * 1024 || bytes.contains(&0) || is_absolute(bytes) {
-        return Err(vfs_invalid(
-            "source-relative-path-invalid",
+        return Err(RuntimeStateError::new(
             "source manifest relative path is empty, absolute, NUL-containing, or too long",
         ));
     }
     let components = normalize_components(bytes, false)?;
     if components.is_empty() {
-        return Err(vfs_invalid(
-            "source-relative-path-invalid",
+        return Err(RuntimeStateError::new(
             "source manifest relative path resolves to the mount root",
         ));
     }
@@ -4081,8 +1781,7 @@ fn normalize_components(
                     component.clear();
                 } else if component == b".." {
                     if !allow_parent || components.pop().is_none() {
-                        return Err(vfs_invalid(
-                            "source-path-parent-escape",
+                        return Err(RuntimeStateError::new(
                             "source path parent component escapes its normalized root",
                         ));
                     }
@@ -4098,14 +1797,12 @@ fn normalize_components(
         let byte = bytes[index];
         if is_windows_932_lead_byte(byte) {
             let Some(&trail) = bytes.get(index + 1) else {
-                return Err(vfs_invalid(
-                    "source-path-windows-932-invalid",
+                return Err(RuntimeStateError::new(
                     "source path ends in a Windows-932 lead byte",
                 ));
             };
             if !is_windows_932_trail_byte(trail) {
-                return Err(vfs_invalid(
-                    "source-path-windows-932-invalid",
+                return Err(RuntimeStateError::new(
                     "source path contains an invalid Windows-932 trail byte",
                 ));
             }
@@ -4116,8 +1813,7 @@ fn normalize_components(
                 || byte == 0x7f
                 || matches!(byte, b'"' | b'<' | b'>' | b'|' | b'?' | b'*' | b':')
             {
-                return Err(vfs_invalid(
-                    "source-path-character-invalid",
+                return Err(RuntimeStateError::new(
                     "source path contains a disallowed DOS path character",
                 ));
             }
@@ -4133,8 +1829,7 @@ fn validate_component(component: &[u8]) -> Result<(), RuntimeStateError> {
         .last()
         .is_some_and(|byte| matches!(byte, b'.' | b' '))
     {
-        return Err(vfs_invalid(
-            "source-path-trailing-dot-space-unsupported",
+        return Err(RuntimeStateError::new(
             "source path trailing dot/space normalization is outside the first VFS slice",
         ));
     }
@@ -4143,32 +1838,25 @@ fn validate_component(component: &[u8]) -> Result<(), RuntimeStateError> {
 
 fn relative_to_mount<'a>(path: &'a [u8], root: &[u8]) -> Result<&'a [u8], RuntimeStateError> {
     if path == root {
-        return Err(vfs_invalid(
-            "source-path-identifies-directory",
+        return Err(RuntimeStateError::new(
             "source file open path identifies the mount root directory",
         ));
     }
     if path.len() <= root.len() || !path.starts_with(root) || path.get(root.len()) != Some(&b'\\') {
-        return Err(RuntimeStateError::not_found(
-            "runtime-vfs",
-            "source-path-outside-mount",
+        return Err(RuntimeStateError::new(
             "source file path is outside the registered immutable mount",
         ));
     }
     Ok(&path[root.len() + 1..])
 }
 
-fn nul_terminated_body<'a>(
-    bytes: &'a [u8],
-    code: &'static str,
-) -> Result<&'a [u8], RuntimeStateError> {
+fn nul_terminated_body(bytes: &[u8]) -> Result<&[u8], RuntimeStateError> {
     if bytes.len() < 2
         || bytes.len() > 32 * 1024
         || bytes.last() != Some(&0)
         || bytes[..bytes.len() - 1].contains(&0)
     {
-        return Err(vfs_invalid(
-            code,
+        return Err(RuntimeStateError::new(
             "source path requires one bounded trailing-NUL ANSI string",
         ));
     }
@@ -4215,37 +1903,367 @@ fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn hex_sha256(bytes: &[u8]) -> String {
-    let mut result = String::with_capacity(64);
-    for byte in Sha256::digest(bytes) {
-        write!(&mut result, "{byte:02x}").expect("writing a digest to String cannot fail");
-    }
-    result
-}
-
-fn vfs_invalid(code: &'static str, message: &'static str) -> RuntimeStateError {
-    RuntimeStateError::invalid_input("runtime-vfs", code, message)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wildcard_source_discovery_matches_only_valid_windows_932_names_under_mount() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
+        assert_eq!(
+            files
+                .source_search_directory(b"Data\\*.dat\0", b"C:\\Vine\0")
+                .unwrap(),
+            Some(b"Data".to_vec())
+        );
+        assert_eq!(
+            files
+                .source_search_directory(b"*.dat\0", b"C:\\Vine\0")
+                .unwrap(),
+            Some(Vec::new())
+        );
+        assert_eq!(
+            files
+                .source_search_directory(b"Data\\entry.dat\0", b"C:\\Vine\0")
+                .unwrap(),
+            None
+        );
+        assert!(
+            files
+                .source_search_directory(b"D:\\outside\\*.dat\0", b"C:\\Vine\0")
+                .is_err()
+        );
+        let names = vec![
+            ("other.bin".to_owned(), true),
+            ("sample.DAT".to_owned(), true),
+            ("日本語.dat".to_owned(), true),
+            ("Sub.dat".to_owned(), false),
+            ("😀.dat".to_owned(), true),
+        ];
+        let (actual, matches) = files
+            .source_search_matches(
+                b"data\\*.dat\0",
+                b"C:\\Vine\0",
+                &["Data".to_owned()],
+                &names,
+            )
+            .unwrap();
+        assert_eq!(actual, b"Data");
+        assert_eq!(matches.len(), 3);
+        assert!(matches.contains(&(b"Data\\sample.DAT".to_vec(), true)));
+        assert!(matches.contains(&(b"Data\\Sub.dat".to_vec(), false)));
+        let (encoded, _, _) = SHIFT_JIS.encode("日本語.dat");
+        assert!(matches.contains(&([b"Data\\".as_slice(), encoded.as_ref()].concat(), true)));
+        assert!(
+            files
+                .source_search_matches(
+                    b"Data\\*.dat\0",
+                    b"C:\\Vine\0",
+                    &["Data".to_owned()],
+                    &[
+                        ("sample.DAT".to_owned(), true),
+                        ("SAMPLE.dat".to_owned(), true)
+                    ]
+                )
+                .is_err()
+        );
+
+        assert!(
+            files
+                .source_search_matches(
+                    b"Data\\*.dat\0",
+                    b"C:\\Vine\0",
+                    &["Other".to_owned()],
+                    &names
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn find_data_encoding_preserves_native_fields_and_filename_bounds() {
+        let mut entry = RuntimeFileSearchEntry {
+            file_name_a: vec![b'a'; 259],
+            kind: RuntimeFileSearchEntryKind::RegularFile,
+            byte_length: 0x1234_5678_9abc_def0,
+        };
+        let bytes = entry.encode_find_data_a().unwrap();
+        assert_eq!(bytes.len(), 320);
+        assert_eq!(&bytes[..4], &0x20_u32.to_le_bytes());
+        assert_eq!(&bytes[4..28], &[0; 24]);
+        assert_eq!(&bytes[28..32], &0x1234_5678_u32.to_le_bytes());
+        assert_eq!(&bytes[32..36], &0x9abc_def0_u32.to_le_bytes());
+        assert_eq!(&bytes[36..44], &[0; 8]);
+        assert_eq!(&bytes[44..303], &[b'a'; 259]);
+        assert_eq!(&bytes[303..], &[0; 17]);
+        entry.kind = RuntimeFileSearchEntryKind::Directory;
+        assert_eq!(
+            &entry.encode_find_data_a().unwrap()[..4],
+            &0x30_u32.to_le_bytes()
+        );
+        for name in [Vec::new(), vec![b'a'; 260], b"bad\0name".to_vec()] {
+            entry.file_name_a = name;
+            assert!(entry.encode_find_data_a().is_err());
+        }
+    }
+
+    #[test]
+    fn source_search_batch_rejects_late_errors_without_publishing_or_consuming_ids() {
+        for invalid in [
+            (b"New\\bad.dat".to_vec(), Some((1, "bad digest".to_owned()))),
+            (
+                b"New\\bad.dat".to_vec(),
+                Some((u64::from(u32::MAX) + 1, "a".repeat(64))),
+            ),
+            (b"NEW\\FIRST.DAT".to_vec(), Some((1, "a".repeat(64)))),
+            (b"NEW\\FIRST.DAT".to_vec(), None),
+            (b"..\\escape".to_vec(), None),
+        ] {
+            let mut files = RuntimeFiles::default();
+            files.register_snapshot(manifest()).unwrap();
+            let directories_before = files.snapshot().unwrap().directories.len();
+            assert!(
+                files
+                    .register_source_search_batch(
+                        b"New",
+                        vec![
+                            (b"New\\first.dat".to_vec(), Some((4, "A".repeat(64)))),
+                            invalid,
+                        ]
+                    )
+                    .is_err()
+            );
+            let snapshot = files.snapshot().unwrap();
+            assert_eq!(snapshot.files.len(), 1);
+            assert_eq!(snapshot.path_index.len(), 1);
+            assert_eq!(snapshot.directories.len(), directories_before);
+            assert!(!snapshot.directories.contains_key(b"new".as_slice()));
+            assert_eq!(
+                files
+                    .register_source_search_batch(
+                        b"New",
+                        vec![(b"New\\first.dat".to_vec(), Some((4, "A".repeat(64)))),]
+                    )
+                    .unwrap(),
+                vec![(0, 12)]
+            );
+            let snapshot = files.snapshot().unwrap();
+
+            assert_eq!(snapshot.path_index[b"new\\first.dat".as_slice()], 12);
+            assert_eq!(snapshot.directories[b"new".as_slice()], b"New");
+        }
+        let mut files = RuntimeFiles::default();
+        assert!(files.register_source_search_batch(b"", Vec::new()).is_err());
+        files.register_snapshot(manifest()).unwrap();
+        assert!(
+            files
+                .register_source_search_batch(b"", Vec::new())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            files
+                .register_source_search_batch(
+                    b"New",
+                    vec![
+                        (b"New\\folder".to_vec(), None),
+                        (b"NEW\\FOLDER".to_vec(), Some((1, "a".repeat(64)))),
+                    ]
+                )
+                .is_err()
+        );
+        assert!(
+            !files
+                .snapshot()
+                .unwrap()
+                .directories
+                .contains_key(b"new".as_slice())
+        );
+    }
+
+    #[test]
+    fn source_search_batch_checks_id_and_capacity_before_publication() {
+        let mut files = RuntimeFiles::default();
+        let mut source = manifest();
+        source.files[0].object_id = u32::MAX;
+        files.register_snapshot(source).unwrap();
+        assert!(
+            files
+                .register_source_search_batch(
+                    b"New",
+                    vec![(b"New\\one.dat".to_vec(), Some((0, "a".repeat(64)))),]
+                )
+                .is_err()
+        );
+        assert_eq!(files.snapshot().unwrap().files.len(), 1);
+        assert!(
+            !files
+                .snapshot()
+                .unwrap()
+                .directories
+                .contains_key(b"new".as_slice())
+        );
+        assert!(
+            files
+                .register_source_search_batch(b"New", Vec::new())
+                .unwrap()
+                .is_empty()
+        );
+
+        let mut files = RuntimeFiles::default();
+        let mut source = manifest();
+        source.files = (1..RUNTIME_SOURCE_FILE_LIMIT)
+            .map(|index| RuntimeSourceFileManifest {
+                object_id: u32::try_from(index).unwrap(),
+                relative_path_a: format!("Data\\{index}.dat").into_bytes(),
+                byte_length: 0,
+                sha256: "a".repeat(64),
+            })
+            .collect();
+        files.register_snapshot(source).unwrap();
+        assert!(
+            files
+                .register_source_search_batch(
+                    b"New",
+                    vec![
+                        (b"New\\one.dat".to_vec(), Some((0, "a".repeat(64)))),
+                        (b"New\\two.dat".to_vec(), Some((0, "a".repeat(64)))),
+                    ]
+                )
+                .is_err()
+        );
+        assert_eq!(
+            files.snapshot().unwrap().files.len(),
+            RUNTIME_SOURCE_FILE_LIMIT - 1
+        );
+        assert!(
+            !files
+                .snapshot()
+                .unwrap()
+                .directories
+                .contains_key(b"new".as_slice())
+        );
+        assert_eq!(
+            files
+                .register_source_search_batch(
+                    b"New",
+                    vec![(b"New\\one.dat".to_vec(), Some((0, "a".repeat(64)))),]
+                )
+                .unwrap(),
+            vec![(0, u32::try_from(RUNTIME_SOURCE_FILE_LIMIT).unwrap())]
+        );
+    }
+
+    #[test]
+    fn registered_empty_source_directory_is_enumerable_without_a_file_catalog_entry() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
+        files.register_source_directory(b"EmPtY").unwrap();
+        let search = files
+            .new_file_search(b"EMPTY\0", b"C:\\Vine\0")
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(search.entries.len(), 1);
+        assert_eq!(search.entries[0].file_name_a, b"EmPtY");
+        assert_eq!(
+            search.entries[0].kind,
+            RuntimeFileSearchEntryKind::Directory
+        );
+        assert_eq!(search.entries[0].byte_length, 0);
+        assert!(
+            files
+                .register_source_file(RuntimeSourceFileManifest {
+                    object_id: 12,
+                    relative_path_a: b"empty".to_vec(),
+                    byte_length: 0,
+                    sha256: "0".repeat(64),
+                })
+                .is_err()
+        );
+        let snapshot = files.snapshot().unwrap();
+        assert!(snapshot.directories.contains_key(b"empty".as_slice()));
+        assert!(!snapshot.files.contains_key(&12));
+        assert!(files.searches.is_empty());
+        let retry = files
+            .new_file_search(b"EMPTY\0", b"C:\\Vine\0")
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(retry.entries[0].file_name_a, b"EmPtY");
+    }
+
+    #[test]
+    fn search_construction_and_cursor_failures_preserve_existing_state() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
+        let next_search_id = files.next_search_id;
+        let search = files
+            .new_file_search(b"Data\\*\0", b"C:\\Vine\0")
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(files.next_search_id, next_search_id);
+        assert!(files.searches.is_empty());
+        assert!(matches!(
+            files.new_file_search(b"Data\\nothing.dat\0", b"C:\\Vine\0"),
+            Ok(Ok(None))
+        ));
+        for missing in [b"missing\\*\0".as_slice(), b"D:\\outside\\*\0"] {
+            assert!(matches!(
+                files.new_file_search(missing, b"C:\\Vine\0"),
+                Ok(Err(3))
+            ));
+            assert_eq!(files.next_search_id, next_search_id);
+            assert!(files.searches.is_empty());
+        }
+        let id = search.id;
+        files.insert_file_search(search);
+        assert!(files.next_file_search_entry(id).unwrap().is_none());
+        assert!(
+            files
+                .next_file_search_entry(RuntimeFileSearchId(999))
+                .is_err()
+        );
+
+        assert_eq!(files.searches.len(), 1);
+        assert_eq!(files.searches[&id].next_index, 1);
+        files.searches.get_mut(&id).unwrap().next_index = usize::MAX;
+        assert!(files.next_file_search_entry(id).is_err());
+
+        assert_eq!(files.searches[&id].next_index, usize::MAX);
+        files.searches.get_mut(&id).unwrap().next_index = 1;
+        assert!(files.next_file_search_entry(id).unwrap().is_none());
+        files.next_search_id = id.0;
+        assert!(files.new_file_search(b"Data\\*\0", b"C:\\Vine\0").is_err());
+
+        assert_eq!(files.next_search_id, id.0);
+        assert_eq!(files.searches.len(), 1);
+        assert_eq!(files.searches[&id].next_index, 1);
+        files.next_search_id = u64::MAX;
+        assert!(files.new_file_search(b"Data\\*\0", b"C:\\Vine\0").is_err());
+
+        assert_eq!(files.next_search_id, u64::MAX);
+        assert_eq!(files.searches.len(), 1);
+        files.next_search_id = id.0 + 1;
+        let retry = files
+            .new_file_search(b"Data\\*\0", b"C:\\Vine\0")
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(retry.id.0, id.0 + 1);
+        files.insert_file_search(retry);
+        assert_eq!(files.searches.len(), 2);
+        assert_eq!(files.searches[&id].next_index, 1);
+    }
 
     fn source_read_response_control(
         requested_bytes: u32,
         transferred_bytes: u32,
         win32_error: u32,
     ) -> [u8; RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES] {
-        let words = [
-            RUNTIME_SOURCE_READ_TRANSPORT_VERSION,
-            7,
-            11,
-            3,
-            0,
-            requested_bytes,
-            transferred_bytes,
-            win32_error,
-        ];
+        let words = [7, 11, 3, 0, requested_bytes, transferred_bytes, win32_error];
         let mut control = [0; RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES];
         for (word, bytes) in words.into_iter().zip(control.chunks_exact_mut(4)) {
             bytes.copy_from_slice(&word.to_le_bytes());
@@ -4255,277 +2273,413 @@ mod tests {
 
     fn manifest() -> RuntimeSourceSnapshotManifest {
         RuntimeSourceSnapshotManifest {
-            schema: RUNTIME_SOURCE_SNAPSHOT_SCHEMA.to_owned(),
-            schema_version: RUNTIME_SOURCE_SNAPSHOT_VERSION,
-            title_fingerprint: "sha256:test-title".to_owned(),
-            snapshot_id: "source-fixture-v1".to_owned(),
             mount: RuntimeSourceMountManifest {
                 source_id: 7,
                 root_path_a: b"C:\\Vine\0".to_vec(),
             },
             files: vec![RuntimeSourceFileManifest {
                 object_id: 11,
-                relative_path_a: b"Data\\BGI.gdb".to_vec(),
+                relative_path_a: b"Data\\ARC.gdb".to_vec(),
                 byte_length: 9,
                 sha256: "0".repeat(64),
             }],
         }
     }
 
-    fn writable_manifest(exists: bool, bytes: &[u8]) -> RuntimeWritableProfileManifest {
-        RuntimeWritableProfileManifest {
-            schema: RUNTIME_WRITABLE_PROFILE_SCHEMA.to_owned(),
-            schema_version: RUNTIME_WRITABLE_PROFILE_VERSION,
-            title_fingerprint: "sha256:test-title".to_owned(),
-            profile_id: "default".to_owned(),
-            root_path_a: b"C:\\Vine\0".to_vec(),
-            quota_bytes: 1024,
-            files: vec![RuntimeWritableFileManifest {
-                object_id: 21,
-                relative_path_a: b"BGI.gdb".to_vec(),
-                exists,
-                generation: u64::from(exists),
-                byte_length: if exists { bytes.len() as u64 } else { 0 },
-                sha256: exists.then(|| hex_sha256(bytes)),
-            }],
-            directories: Vec::new(),
+    #[test]
+    fn later_source_file_registration_is_sandboxed_and_failure_atomic() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
+
+        assert_eq!(
+            files
+                .source_lookup_relative_path(b"C:\\Vine\\Data\\archive.arc\0", b"C:\\Vine\0")
+                .unwrap(),
+            Some(b"Data\\archive.arc".to_vec())
+        );
+        assert!(
+            files
+                .source_lookup_relative_path(b"D:\\other.arc\0", b"C:\\Vine\0")
+                .is_err()
+        );
+        let file = RuntimeSourceFileManifest {
+            object_id: 12,
+            relative_path_a: b"Data\\archive.arc".to_vec(),
+            byte_length: 7,
+            sha256: "a".repeat(64),
+        };
+        for invalid in [
+            RuntimeSourceFileManifest {
+                relative_path_a: b"..\\outside".to_vec(),
+                ..file.clone()
+            },
+            RuntimeSourceFileManifest {
+                relative_path_a: b"data\\ARC.gdb".to_vec(),
+                ..file.clone()
+            },
+            RuntimeSourceFileManifest {
+                sha256: "invalid".to_owned(),
+                ..file.clone()
+            },
+        ] {
+            assert!(files.register_source_file(invalid).is_err());
+            let snapshot = files.snapshot().unwrap();
+            assert_eq!(snapshot.source_id, 7);
+            assert_eq!(snapshot.files.len(), 1);
+            assert_eq!(snapshot.path_index.len(), 1);
+            assert_eq!(snapshot.files[&11].byte_length, 9);
+            assert!(!snapshot.files.contains_key(&12));
+            assert!(files.open_files.is_empty());
+        }
+        files.register_source_file(file.clone()).unwrap();
+        assert_eq!(
+            files
+                .source_lookup_relative_path(b"C:\\Vine\\data\\ARCHIVE.arc\0", b"C:\\Vine\0")
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            files
+                .resolve_path_kind(b"C:\\Vine\\Data\\ARCHIVE.arc\0", b"C:\\Vine\0")
+                .unwrap(),
+            RuntimePathResolution::RegularFile
+        );
+        assert!(files.register_source_file(file).is_err());
+        let snapshot = files.snapshot().unwrap();
+        assert_eq!(snapshot.files.len(), 2);
+        assert_eq!(snapshot.path_index.len(), 2);
+        assert_eq!(snapshot.files[&11].byte_length, 9);
+        assert_eq!(snapshot.files[&12].byte_length, 7);
+
+        assert!(files.open_files.is_empty());
+        assert_eq!(files.next_file_id, 1);
+    }
+
+    #[test]
+    fn opfs_paths_preserve_spelling_and_windows_932_without_leaving_the_mount() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
+        for (path, expected) in [
+            (b"Save\\Slot01\0".as_slice(), "Save/Slot01"),
+            (b"c:\\vInE\\Save\\Slot01\0".as_slice(), "Save/Slot01"),
+            (b"Save\\\x83\x5c\0".as_slice(), "Save/ソ"),
+            (b"Data\\\x83\x5c\\slot.dat\0".as_slice(), "Data/ソ/slot.dat"),
+        ] {
+            assert_eq!(
+                files.opfs_relative_path(path, b"C:\\Vine\0").unwrap(),
+                expected
+            );
+        }
+        for (path, error) in [
+            (b"..\\Outside\0".as_slice(), 3),
+            (b"D:\\Save\0".as_slice(), 3),
+            (b"\\\\server\\share\0".as_slice(), 3),
+            (b"\\Save\0".as_slice(), 3),
+            (b"C:\\Vine\0".as_slice(), 183),
+            (b"Save\\..\\..\\Outside\0".as_slice(), 3),
+            (b"Save\0extra\0".as_slice(), 123),
+            (b"Save\\\x83\0".as_slice(), 123),
+            (b"Data\\ARC.gdb\\slot.dat\0".as_slice(), 3),
+        ] {
+            assert_eq!(files.opfs_relative_path(path, b"C:\\Vine\0"), Err(error));
         }
     }
 
-    fn writable_directory_manifest(
-        relative_path_a: &[u8],
-        exists: bool,
-    ) -> RuntimeWritableProfileManifest {
-        let mut manifest = writable_manifest(false, &[]);
-        manifest.directories.push(RuntimeWritableDirectoryManifest {
-            directory_id: 31,
-            relative_path_a: relative_path_a.to_vec(),
-            exists,
-            generation: u64::from(exists),
-        });
-        manifest
+    #[test]
+    fn opfs_directory_create_only_mirrors_verified_source_parents() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
+        for (path, expected) in [
+            (b"NewRoot\0".as_slice(), Ok(("NewRoot".to_owned(), 0))),
+            (b"Data\\Slot\0".as_slice(), Ok(("Data/Slot".to_owned(), 1))),
+            (
+                b"Data\\Sub\\Slot\0".as_slice(),
+                Ok(("Data/Sub/Slot".to_owned(), 1)),
+            ),
+            (
+                b"Data\\\x83\x5c\\Slot\0".as_slice(),
+                Ok(("Data/ソ/Slot".to_owned(), 1)),
+            ),
+            (b"Data\\ARC.gdb\\Slot\0".as_slice(), Err(3)),
+            (b"Data\\ARC.gdb\0".as_slice(), Err(183)),
+            (b"D:\\Other\\Slot\0".as_slice(), Err(3)),
+        ] {
+            assert_eq!(
+                files.opfs_create_directory_path(path, b"C:\\Vine\0"),
+                expected
+            );
+        }
     }
 
     #[test]
-    fn writable_directory_create_is_failure_atomic_and_generation_checked() {
+    fn windows_932_trailing_separator_byte_is_not_a_path_boundary() {
         let mut files = RuntimeFiles::default();
-        let registration = files
-            .plan_writable_profile_registration(writable_directory_manifest(b"UserData", false))
-            .unwrap();
-        files
-            .commit_writable_profile_registration(registration)
-            .unwrap();
+        files.register_snapshot(manifest()).unwrap();
         assert_eq!(
             files
-                .resolve_path_kind(b"C:\\Vine\\UserData\0", b"C:\\Vine\0")
+                .resolve_path_kind(b"Data\\\x83\x5c\0", b"C:\\Vine\0")
                 .unwrap(),
             RuntimePathResolution::MissingFile
         );
-
-        let failed_begin = files
-            .plan_writable_directory_create(b"UserData\0", b"C:\\Vine\0", 7)
-            .unwrap();
-        files
-            .preflight_writable_directory_create(&failed_begin)
-            .unwrap();
-        let failed_request = files.commit_writable_directory_create_begin(failed_begin);
-        assert_eq!(failed_request.directory_id, 31);
-        assert_eq!(failed_request.relative_path_a, b"UserData");
-        assert_eq!(failed_request.base_generation, 0);
-        let failed = files
-            .plan_writable_directory_create_completion(RuntimeWritableDirectoryCreateHostResponse {
-                request_id: 7,
-                directory_id: 31,
-                base_generation: 0,
-                committed_generation: 0,
-                win32_error: 29,
-            })
-            .unwrap();
-        let failed = files.commit_writable_directory_create_completion(failed);
-        assert!(!failed.succeeded);
-        assert_eq!(failed.win32_error, 29);
-        let directory = &files.writable_profile().unwrap().directories[&31];
-        assert!(!directory.exists);
-        assert_eq!(directory.generation, 0);
-        assert_eq!(directory.revision, 0);
-
-        let begin = files
-            .plan_writable_directory_create(b"c:\\vine\\userdata\0", b"C:\\Vine\0", 8)
-            .unwrap();
-        let request = files.commit_writable_directory_create_begin(begin);
-        assert_eq!(request.base_generation, 0);
-        let invalid_before = files.clone();
-        let invalid = files
-            .plan_writable_directory_create_completion(RuntimeWritableDirectoryCreateHostResponse {
-                request_id: 8,
-                directory_id: 31,
-                base_generation: 0,
-                committed_generation: 2,
-                win32_error: 0,
-            })
-            .unwrap_err();
-        assert_eq!(
-            invalid.code,
-            "writable-directory-create-completion-generation-invalid"
-        );
-        assert_eq!(files, invalid_before);
-
-        let completion = files
-            .plan_writable_directory_create_completion(RuntimeWritableDirectoryCreateHostResponse {
-                request_id: 8,
-                directory_id: 31,
-                base_generation: 0,
-                committed_generation: 1,
-                win32_error: 0,
-            })
-            .unwrap();
-        let stale_completion = completion.clone();
-        let completion = files.commit_writable_directory_create_completion(completion);
-        assert!(completion.succeeded);
-        assert_eq!(completion.committed_generation, 1);
         assert_eq!(
             files
-                .preflight_writable_directory_create_completion(&stale_completion)
-                .unwrap_err()
-                .code,
-            "writable-directory-create-completion-plan-stale"
-        );
-        assert_eq!(
-            files
-                .resolve_path_kind(b"C:\\Vine\\UserData\0", b"C:\\Vine\0")
+                .resolve_path_kind(b"Data\\\x83\x5c\\slot.dat\0", b"C:\\Vine\0")
                 .unwrap(),
-            RuntimePathResolution::Directory
+            RuntimePathResolution::MissingPath
         );
+        files.register_source_directory(b"Data\\\x83\x5c").unwrap();
         assert_eq!(
-            files
-                .plan_writable_directory_create(b"UserData\0", b"C:\\Vine\0", 9)
-                .unwrap_err()
-                .code,
-            "writable-directory-already-exists"
+            files.opfs_create_directory_path(b"Data\\\x83\x5c\\Slot\0", b"C:\\Vine\0"),
+            Ok(("Data/ソ/Slot".to_owned(), 2))
         );
     }
 
     #[test]
-    fn writable_directory_create_rejects_unregistered_parent_and_cancels_pending_request() {
+    fn opfs_file_open_preflights_source_sharing_and_handle_before_publication() {
         let mut files = RuntimeFiles::default();
-        let registration = files
-            .plan_writable_profile_registration(writable_directory_manifest(
-                b"UserData\\Save",
-                false,
-            ))
+        files.register_snapshot(manifest()).unwrap();
+        assert_eq!(
+            files
+                .prepare_opfs_open(b"Data\\ARC.gdb\0", b"C:\\Vine\0", 0x4000_0000, 0, 0x20)
+                .unwrap_err(),
+            5
+        );
+        assert_eq!(
+            files
+                .prepare_opfs_open(
+                    b"D:\\Outside\\save.dat\0",
+                    b"C:\\Vine\0",
+                    0x4000_0000,
+                    0,
+                    0x20
+                )
+                .unwrap_err(),
+            3
+        );
+        let (prepared, relative, missing, source_parents) = files
+            .prepare_opfs_open(b"Data\\save.dat\0", b"C:\\Vine\0", 0x4000_0000, 0, 0x20)
             .unwrap();
-        files
-            .commit_writable_profile_registration(registration)
+        assert_eq!(
+            (relative.as_str(), missing, source_parents),
+            ("Data/save.dat", 2, 1)
+        );
+        assert!(files.open_files.is_empty());
+        assert!(files.pending_reads.is_empty());
+        assert_eq!(files.next_file_id, 1);
+        assert_eq!(prepared.file_id().0, 1);
+        files.preflight_opfs_open(&prepared, b"C:\\Vine\0").unwrap();
+        let open = files.open_validated(prepared.confirmed_opfs(0));
+        assert_eq!(files.file_byte_length(open).unwrap(), 0);
+        assert_eq!(
+            files
+                .prepare_opfs_open(b"data\\SAVE.dat\0", b"C:\\Vine\0", 0x8000_0000, 1, 0x20)
+                .unwrap_err(),
+            32
+        );
+        assert_eq!(
+            files
+                .seek_with(open, 3, 0, i64::MAX as u64, |_| Ok(()))
+                .unwrap(),
+            Ok(3)
+        );
+        files.validate_retirement(open).unwrap();
+        files.retire(open);
+        assert!(files.open_file(open).is_err());
+        let (reopened, _, _, _) = files
+            .prepare_opfs_open(b"Data\\save.dat\0", b"C:\\Vine\0", 0x8000_0000, 1, 0x20)
             .unwrap();
-        assert_eq!(
-            files
-                .plan_writable_directory_create(b"UserData\\Save\0", b"C:\\Vine\0", 10,)
-                .unwrap_err()
-                .code,
-            "writable-directory-parent-missing"
-        );
-        assert_eq!(
-            files
-                .plan_writable_directory_create(b"Other\0", b"C:\\Vine\0", 11)
-                .unwrap_err()
-                .code,
-            "writable-directory-unregistered"
-        );
-        assert_eq!(
-            files
-                .plan_writable_directory_create(b"BGI.gdb\0", b"C:\\Vine\0", 12)
-                .unwrap_err()
-                .code,
-            "writable-directory-file-conflict"
-        );
+        assert_eq!(reopened.file_id().0, 2);
+        files.preflight_opfs_open(&reopened, b"C:\\Vine\0").unwrap();
+        let reopened = files.open_validated(reopened.confirmed_opfs(5));
+        assert_eq!(files.open_file(reopened).unwrap().cursor, 0);
+        assert_eq!(files.file_byte_length(reopened).unwrap(), 5);
+    }
 
-        let mut cancellable = RuntimeFiles::default();
-        let registration = cancellable
-            .plan_writable_profile_registration(writable_directory_manifest(b"UserData", false))
-            .unwrap();
-        cancellable
-            .commit_writable_profile_registration(registration)
-            .unwrap();
-        let begin = cancellable
-            .plan_writable_directory_create(b"UserData\0", b"C:\\Vine\0", 13)
-            .unwrap();
-        cancellable.commit_writable_directory_create_begin(begin);
-        let cancellation = cancellable.plan_writable_directory_create_cancellation(&[13]);
-        cancellable.commit_writable_directory_create_cancellation(cancellation);
+    #[test]
+    fn opfs_delete_rejects_source_directories_and_live_handles_without_mutation() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
         assert_eq!(
-            cancellable
-                .writable_directory_create_request(13)
-                .unwrap_err()
-                .code,
-            "writable-directory-create-request-unknown"
+            files.opfs_delete_path(b"Data\\ARC.gdb\0", b"C:\\Vine\0"),
+            Err(5)
         );
-        assert!(!cancellable.writable_profile().unwrap().directories[&31].exists);
+        assert_eq!(files.opfs_delete_path(b"Data\0", b"C:\\Vine\0"), Err(5));
+        assert_eq!(
+            files.opfs_delete_path(b"D:\\outside.dat\0", b"C:\\Vine\0"),
+            Err(3)
+        );
+        assert_eq!(
+            files.opfs_delete_path(b"Save.dat\0", b"C:\\Vine\0"),
+            Ok(("Save.dat".to_owned(), 2))
+        );
+        assert_eq!(
+            files.opfs_delete_path(b"Data\\missing.dat\0", b"C:\\Vine\0"),
+            Ok(("Data/missing.dat".to_owned(), 2))
+        );
+        assert_eq!(
+            files.opfs_delete_path(b"Data\\\x83\x5c\0", b"C:\\Vine\0"),
+            Ok(("Data/ソ".to_owned(), 2))
+        );
+        assert_eq!(
+            files.opfs_delete_path(b"Data\\ARC.gdb\\slot.dat\0", b"C:\\Vine\0"),
+            Err(3)
+        );
+        assert_eq!(
+            files.opfs_delete_path(b"unknown\\missing.dat\0", b"C:\\Vine\0"),
+            Ok(("unknown/missing.dat".to_owned(), 3))
+        );
+        files.open_files.insert(
+            RuntimeSourceFileId(42),
+            RuntimeSourceFile {
+                id: RuntimeSourceFileId(42),
+                backing: RuntimeFileBacking::Opfs { byte_length: 0 },
+                normalized_path_a: b"C:\\Vine\\save.DAT\0".to_vec(),
+                cursor: 0,
+                desired_access: 0x8000_0000,
+                share_mode: 1,
+                flags_and_attributes: 0x80,
+            },
+        );
+        assert_eq!(
+            files.opfs_delete_path(b"SAVE.dat\0", b"C:\\Vine\0"),
+            Err(32)
+        );
+    }
+
+    #[test]
+    fn source_registration_accepts_uppercase_digest_and_retains_path_and_length() {
+        let mut files = RuntimeFiles::default();
+        let mut source = manifest();
+        source.files[0].sha256 = "AB".repeat(32);
+        files.register_snapshot(source).unwrap();
+
+        files
+            .register_source_file(RuntimeSourceFileManifest {
+                object_id: 12,
+                relative_path_a: b"second.dat".to_vec(),
+                byte_length: 7,
+                sha256: "CD".repeat(32),
+            })
+            .unwrap();
+        let second = &files.snapshot().unwrap().files[&12];
+        assert_eq!(second.relative_path_a, b"second.dat");
+        assert_eq!(second.byte_length, 7);
+    }
+
+    #[test]
+    fn registration_rejects_duplicate_source_paths_without_mutation() {
+        let mut files = RuntimeFiles::default();
+        let mut source = manifest();
+        source.files.push(RuntimeSourceFileManifest {
+            object_id: 12,
+            relative_path_a: b"data\\arc.GDB".to_vec(),
+            byte_length: 1,
+            sha256: "0".repeat(64),
+        });
+        assert!(files.register_snapshot(source).is_err());
+        assert!(files.snapshot().is_none());
+        assert!(files.open_files.is_empty());
+        assert!(files.pending_reads.is_empty());
+        assert_eq!(files.next_file_id, 1);
+        assert_eq!(files.next_search_id, 1);
+
+        files.register_snapshot(manifest()).unwrap();
     }
 
     #[test]
     fn source_snapshot_paths_are_case_insensitive_and_mount_bounded() {
         let mut files = RuntimeFiles::default();
-        let plan = files.plan_snapshot_registration(manifest()).unwrap();
-        let stale_plan = files.plan_snapshot_registration(manifest()).unwrap();
-        files.commit_snapshot_registration(plan).unwrap();
-        let after_registration = files.clone();
-        let stale = files.commit_snapshot_registration(stale_plan).unwrap_err();
-        assert_eq!(stale.code, "source-snapshot-registration-plan-stale");
-        assert_eq!(files, after_registration);
-        let opened = files
-            .plan_open(
-                b"c:/vine/data/../DATA/bgi.GDB\0",
+        files.register_snapshot(manifest()).unwrap();
+        assert!(files.register_snapshot(manifest()).is_err());
+        assert_eq!(files.snapshot().unwrap().source_id, 7);
+        assert_eq!(files.snapshot().unwrap().files.len(), 1);
+        assert!(files.open_files.is_empty());
+        assert_eq!(files.next_file_id, 1);
+        let SourceOpenOutcome::Opened(opened) = files
+            .prepare_open_with_disposition(
+                b"c:/vine/data/../DATA/arc.GDB\0",
                 b"C:\\Vine\0",
                 0x8000_0000,
                 1,
+                3,
                 0x0800_0020,
             )
             .unwrap()
-            .unwrap();
+        else {
+            panic!("known source path must open");
+        };
         assert_eq!(
-            opened.file().backing,
+            opened.file.backing,
             RuntimeFileBacking::ImmutableSource {
                 source_id: 7,
                 object_id: 11,
             }
         );
-        let before = files.clone();
-        assert_eq!(
+        assert!(
             files
-                .plan_open(
-                    b"D:\\Vine\\Data\\BGI.gdb\0",
+                .prepare_open_with_disposition(
+                    b"D:\\Vine\\Data\\ARC.gdb\0",
                     b"C:\\Vine\0",
                     0x8000_0000,
                     1,
+                    3,
                     0x0800_0020,
                 )
-                .unwrap_err()
-                .code,
-            "source-path-outside-mount"
+                .is_err()
         );
-        assert_eq!(files, before);
+    }
+
+    #[test]
+    fn source_open_rejects_creation_truncation_and_write_without_mutation() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
+        for access in [0x8000_0000, 0x4000_0000, 0xc000_0000] {
+            for disposition in 1..=5 {
+                if access == 0x8000_0000 && disposition == 3 {
+                    continue;
+                }
+                assert!(
+                    files
+                        .prepare_open_with_disposition(
+                            b"Data\\ARC.gdb\0",
+                            b"C:\\Vine\0",
+                            access,
+                            0,
+                            disposition,
+                            0x20,
+                        )
+                        .is_err()
+                );
+            }
+        }
+        assert!(
+            matches!(
+                files
+                    .prepare_open_with_disposition(
+                        b"unlisted-save.dat\0",
+                        b"C:\\Vine\0",
+                        0xc000_0000,
+                        0,
+                        4,
+                        0x20,
+                    )
+                    .unwrap(),
+                SourceOpenOutcome::Missing
+            ),
+            "unknown writable paths must defer to OPFS"
+        );
     }
 
     #[test]
     fn path_resolution_derives_registered_directories_without_mutation() {
         let mut files = RuntimeFiles::default();
-        let source_registration = files.plan_snapshot_registration(manifest()).unwrap();
-        files
-            .commit_snapshot_registration(source_registration)
-            .unwrap();
-        let writable_registration = files
-            .plan_writable_profile_registration(writable_manifest(false, &[]))
-            .unwrap();
-        files
-            .commit_writable_profile_registration(writable_registration)
-            .unwrap();
-        let before = files.clone();
+        files.register_snapshot(manifest()).unwrap();
 
         for (path, expected) in [
             (b"C:\\Vine\0".as_slice(), RuntimePathResolution::Directory),
             (b"data\0".as_slice(), RuntimePathResolution::Directory),
             (
-                b"DATA\\bgi.GDB\0".as_slice(),
+                b"DATA\\arc.GDB\0".as_slice(),
                 RuntimePathResolution::RegularFile,
             ),
             (
@@ -4536,9 +2690,9 @@ mod tests {
                 b"Missing\\file.bin\0".as_slice(),
                 RuntimePathResolution::MissingPath,
             ),
-            (b"BGI.gdb\0".as_slice(), RuntimePathResolution::MissingFile),
+            (b"ARC.gdb\0".as_slice(), RuntimePathResolution::MissingFile),
             (
-                b"D:\\Vine\\Data\\BGI.gdb\0".as_slice(),
+                b"D:\\Vine\\Data\\ARC.gdb\0".as_slice(),
                 RuntimePathResolution::MissingPath,
             ),
         ] {
@@ -4549,45 +2703,60 @@ mod tests {
                 String::from_utf8_lossy(path)
             );
         }
-        assert_eq!(files, before);
-
-        let create = files
-            .plan_open_with_disposition(b"BGI.gdb\0", b"C:\\Vine\0", 0x4000_0000, 0, 4, 0x0800_0020)
-            .unwrap()
-            .unwrap();
-        files.commit_open(create);
-        assert_eq!(
-            files
-                .resolve_path_kind(b"bgi.GDB\0", b"C:\\Vine\0")
-                .unwrap(),
-            RuntimePathResolution::RegularFile
-        );
     }
 
     #[test]
-    fn read_plans_advance_cursor_only_after_matching_completion() {
+    fn pending_read_advances_cursor_only_after_matching_completion() {
         let mut files = RuntimeFiles::default();
-        let registration = files.plan_snapshot_registration(manifest()).unwrap();
-        files.commit_snapshot_registration(registration).unwrap();
-        let open = files
-            .plan_open(
-                b"C:\\Vine\\Data\\BGI.gdb\0",
+        files.register_snapshot(manifest()).unwrap();
+        let SourceOpenOutcome::Opened(open) = files
+            .prepare_open_with_disposition(
+                b"C:\\Vine\\Data\\ARC.gdb\0",
                 b"C:\\Vine\0",
                 0x8000_0000,
                 1,
+                3,
                 0x0800_0020,
             )
             .unwrap()
-            .unwrap();
+        else {
+            panic!("known source path must open");
+        };
         let id = open.file_id();
-        files.commit_open(open);
-        let begin = files
-            .plan_read_begin(id, 3, GuestAddress(0x1000), GuestAddress(0x2000), 4)
+        files.open_validated(open);
+        files
+            .begin_read(id, 3, GuestAddress(0x1000), GuestAddress(0x2000), 4)
             .unwrap();
         assert_eq!(files.open_file(id).unwrap().cursor, 0);
-        files.commit_read_begin(begin);
 
-        let before = files.clone();
+        assert!(files.validate_retirement(id).is_err());
+        assert!(
+            files
+                .seek_with(id, 1, 0, i64::MAX as u64, |_| Ok(()))
+                .is_err()
+        );
+        assert_eq!(files.open_file(id).unwrap().cursor, 0);
+        assert_eq!(files.pending_reads.len(), 1);
+        assert_eq!(files.pending_reads[&3].request.file_id, id);
+        for request_id in [3, 4] {
+            assert!(
+                files
+                    .begin_read(
+                        id,
+                        request_id,
+                        GuestAddress(0x3000),
+                        GuestAddress(0x4000),
+                        2
+                    )
+                    .is_err()
+            );
+            assert_eq!(files.pending_reads.len(), 1);
+            let pending = &files.pending_reads[&3];
+            assert_eq!(pending.buffer, GuestAddress(0x1000));
+            assert_eq!(pending.bytes_read, GuestAddress(0x2000));
+            assert_eq!(pending.request.requested_bytes, 4);
+            assert_eq!(files.open_file(id).unwrap().cursor, 0);
+        }
         let mut wrong = RuntimeSourceReadHostResponse {
             request_id: 3,
             source_id: 7,
@@ -4599,30 +2768,109 @@ mod tests {
             bytes: vec![1, 2, 3, 4],
         };
         wrong.object_id = 12;
-        assert_eq!(
-            files.plan_read_completion(wrong).unwrap_err().code,
-            "source-read-completion-identity-mismatch"
-        );
-        assert_eq!(files, before);
+        assert!(files.plan_read_completion(&wrong).is_err());
+        assert_eq!(files.open_file(id).unwrap().cursor, 0);
+        assert_eq!(files.pending_reads.len(), 1);
+        assert_eq!(files.pending_reads[&3].request.object_id, 11);
 
-        let plan = files
-            .plan_read_completion(RuntimeSourceReadHostResponse {
-                request_id: 3,
-                source_id: 7,
-                object_id: 11,
-                offset: 0,
-                requested_bytes: 4,
-                transferred_bytes: 4,
-                win32_error: 0,
-                bytes: vec![1, 2, 3, 4],
-            })
-            .unwrap();
+        wrong.object_id = 11;
+        let plan = files.plan_read_completion(&wrong).unwrap();
         assert_eq!(plan.buffer(), GuestAddress(0x1000));
         assert_eq!(plan.bytes_read(), GuestAddress(0x2000));
-        let completion = files.commit_read_completion(plan);
-        assert!(completion.succeeded);
-        assert_eq!(completion.cursor_after, 4);
+        files.commit_read_completion(plan);
         assert_eq!(files.open_file(id).unwrap().cursor, 4);
+        assert!(files.pending_reads.is_empty());
+        assert!(files.plan_read_completion(&wrong).is_err());
+        assert_eq!(files.open_file(id).unwrap().cursor, 4);
+        files.validate_retirement(id).unwrap();
+    }
+
+    #[test]
+    fn seek_beyond_eof_returns_zero_on_read_without_moving_the_cursor() {
+        let mut files = RuntimeFiles::default();
+        files.register_snapshot(manifest()).unwrap();
+        let SourceOpenOutcome::Opened(prepared) = files
+            .prepare_open_with_disposition(
+                b"Data\\ARC.gdb\0",
+                b"C:\\Vine\0",
+                0x8000_0000,
+                1,
+                3,
+                0x20,
+            )
+            .unwrap()
+        else {
+            panic!("known source file must open");
+        };
+        let id = files.open_validated(prepared);
+        assert_eq!(
+            files
+                .seek_with(id, 10, 0, i64::MAX as u64, |_| Ok(()))
+                .unwrap(),
+            Ok(10)
+        );
+        let request = files
+            .begin_read(id, 40, GuestAddress(0x1000), GuestAddress(0x2000), 4)
+            .unwrap();
+        assert_eq!(request.offset, 10);
+        let empty = RuntimeSourceReadHostResponse {
+            request_id: 40,
+            source_id: 7,
+            object_id: 11,
+            offset: 10,
+            requested_bytes: 4,
+            transferred_bytes: 0,
+            win32_error: 0,
+            bytes: Vec::new(),
+        };
+        let mut empty = empty;
+        empty.transferred_bytes = 1;
+        empty.bytes.push(0);
+        assert!(files.plan_read_completion(&empty).is_err());
+        assert_eq!(files.open_file(id).unwrap().cursor, 10);
+        assert_eq!(files.pending_reads.len(), 1);
+        assert_eq!(files.pending_reads[&40].request.file_id, id);
+        empty.transferred_bytes = 0;
+        empty.bytes.clear();
+        files.commit_read_completion(files.plan_read_completion(&empty).unwrap());
+        assert_eq!(files.open_file(id).unwrap().cursor, 10);
+        assert_eq!(
+            files
+                .seek_with(id, -11, 1, i64::MAX as u64, |_| Ok(()))
+                .unwrap(),
+            Err(ERROR_NEGATIVE_SEEK)
+        );
+        assert_eq!(files.open_file(id).unwrap().cursor, 10);
+        assert_eq!(
+            files
+                .seek_with(id, 0, 3, i64::MAX as u64, |_| Ok(()))
+                .unwrap(),
+            Err(ERROR_INVALID_PARAMETER)
+        );
+        assert_eq!(files.open_file(id).unwrap().cursor, 10);
+        assert_eq!(
+            files
+                .seek_with(id, i64::MAX, 1, i64::MAX as u64, |_| Ok(()))
+                .unwrap(),
+            Err(ERROR_INVALID_PARAMETER)
+        );
+        assert_eq!(files.open_file(id).unwrap().cursor, 10);
+        assert_eq!(
+            files
+                .seek_with(id, -1, 1, i64::MAX as u64, |_| Ok(()))
+                .unwrap(),
+            Ok(9)
+        );
+        assert_eq!(files.open_file(id).unwrap().cursor, 9);
+        let before = files.open_file(id).unwrap().clone();
+        assert!(
+            files
+                .seek_with(id, 1, 1, i64::MAX as u64, |_| {
+                    Err(RuntimeStateError::new("checked output failed"))
+                })
+                .is_err()
+        );
+        assert_eq!(files.open_file(id).unwrap(), &before);
     }
 
     #[test]
@@ -4640,32 +2888,29 @@ mod tests {
         assert_eq!(failure.win32_error, 5);
         assert!(failure.bytes.is_empty());
 
-        let reached_large_control = source_read_response_control(1_451_826, 0, 5);
-        let reached_large =
-            RuntimeSourceReadHostResponse::decode_binary(11, &reached_large_control, &[]).unwrap();
-        assert_eq!(reached_large.requested_bytes, 1_451_826);
+        let maximum_control = source_read_response_control(RUNTIME_SOURCE_READ_MAX_BYTES, 0, 5);
+        let maximum =
+            RuntimeSourceReadHostResponse::decode_binary(11, &maximum_control, &[]).unwrap();
+        assert_eq!(maximum.requested_bytes, RUNTIME_SOURCE_READ_MAX_BYTES);
 
-        for (control, payload, expected_code) in [
-            (
-                source_read_response_control(0, 0, 0),
-                Vec::new(),
-                "source-read-response-request-size-invalid",
-            ),
+        for length in [
+            0,
+            RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES - 1,
+            RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES + 1,
+        ] {
+            assert!(
+                RuntimeSourceReadHostResponse::decode_binary(12, &vec![0; length], &[]).is_err()
+            );
+        }
+
+        for (control, payload) in [
+            (source_read_response_control(0, 0, 0), Vec::new()),
             (
                 source_read_response_control(RUNTIME_SOURCE_READ_MAX_BYTES + 1, 0, 0),
                 Vec::new(),
-                "source-read-response-request-size-invalid",
             ),
-            (
-                source_read_response_control(4, 5, 0),
-                vec![0; 5],
-                "source-read-response-payload-invalid",
-            ),
-            (
-                source_read_response_control(4, 3, 0),
-                vec![0; 4],
-                "source-read-response-payload-invalid",
-            ),
+            (source_read_response_control(4, 5, 0), vec![0; 5]),
+            (source_read_response_control(4, 3, 0), vec![0; 4]),
             (
                 source_read_response_control(
                     RUNTIME_SOURCE_READ_MAX_BYTES,
@@ -4673,222 +2918,56 @@ mod tests {
                     0,
                 ),
                 vec![0; RUNTIME_SOURCE_READ_MAX_BYTES as usize + 1],
-                "source-read-response-payload-invalid",
             ),
-            (
-                source_read_response_control(4, 1, 5),
-                vec![0],
-                "source-read-response-payload-invalid",
-            ),
+            (source_read_response_control(4, 1, 5), vec![0]),
         ] {
-            let error =
-                RuntimeSourceReadHostResponse::decode_binary(12, &control, &payload).unwrap_err();
-            assert_eq!(error.code, expected_code);
+            assert!(RuntimeSourceReadHostResponse::decode_binary(12, &control, &payload).is_err());
         }
     }
 
     #[test]
-    fn writable_profile_missing_create_commit_and_reopen_is_generation_atomic() {
+    fn open_prepares_without_consuming_identity_and_publishes_only_after_validation() {
         let mut files = RuntimeFiles::default();
-        let registration = files
-            .plan_writable_profile_registration(writable_manifest(false, &[]))
-            .unwrap();
-        files
-            .commit_writable_profile_registration(registration)
-            .unwrap();
-        assert!(
+        files.register_snapshot(manifest()).unwrap();
+        let SourceOpenOutcome::Opened(prepared) = files
+            .prepare_open_with_disposition(
+                b"Data\\ARC.gdb\0",
+                b"C:\\Vine\0",
+                0x8000_0000,
+                0,
+                3,
+                0x0800_0020,
+            )
+            .unwrap()
+        else {
+            panic!("known source path must open");
+        };
+        assert!(files.open_files.is_empty());
+        assert_eq!(files.next_file_id, 1);
+        assert_eq!(prepared.file_id(), RuntimeSourceFileId(1));
+        let opened = files.open_validated(prepared);
+        assert_eq!(files.open_file(opened).unwrap().id, opened);
+        assert_eq!(files.next_file_id, 2);
+        assert_eq!(files.open_files.len(), 1);
+        assert_eq!(files.open_file(opened).unwrap().share_mode, 0);
+        assert!(matches!(
             files
-                .plan_open_with_disposition(
-                    b"C:\\Vine\\BGI.gdb\0",
+                .prepare_open_with_disposition(
+                    b"data\\arc.GDB\0",
                     b"C:\\Vine\0",
                     0x8000_0000,
                     1,
                     3,
                     0x0800_0020,
                 )
-                .unwrap()
-                .is_none()
-        );
-
-        let open = files
-            .plan_open_with_disposition(
-                b"C:\\Vine\\BGI.gdb\0",
-                b"C:\\Vine\0",
-                0x4000_0000,
-                0,
-                4,
-                0x0800_0020,
-            )
-            .unwrap()
-            .unwrap();
-        assert!(!open.existed());
-        let id = open.file_id();
-        files.commit_open(open);
-        let write = files.plan_writable_write(id, b"SDC FORMAT 1.00").unwrap();
-        let stale_write = write.clone();
-        let result = files.commit_writable_write(write);
-        assert_eq!(result.transferred_bytes, 15);
-        assert_eq!(
-            files
-                .preflight_writable_write(&stale_write)
-                .unwrap_err()
-                .code,
-            "writable-write-plan-stale"
-        );
-
-        let begin = files.plan_writable_commit_begin(id, 9, true).unwrap();
-        let request = files.commit_writable_commit_begin(begin);
-        assert_eq!(request.base_generation, 0);
-        assert_eq!(files.writable_commit_bytes(9).unwrap(), b"SDC FORMAT 1.00");
-        let before_wrong = files.clone();
-        let wrong = files
-            .plan_writable_commit_completion(RuntimeWritableCommitHostResponse {
-                request_id: 9,
-                object_id: 21,
-                base_generation: 0,
-                committed_generation: 2,
-                win32_error: 0,
-            })
-            .unwrap_err();
-        assert_eq!(wrong.code, "writable-commit-completion-generation-invalid");
-        assert_eq!(files, before_wrong);
-
-        let completion = files
-            .plan_writable_commit_completion(RuntimeWritableCommitHostResponse {
-                request_id: 9,
-                object_id: 21,
-                base_generation: 0,
-                committed_generation: 1,
-                win32_error: 0,
-            })
-            .unwrap();
-        let retirement = files.plan_retirement_after_commit(&completion).unwrap();
-        let completion = files.commit_writable_commit_completion(completion);
-        assert!(completion.succeeded);
-        assert_eq!(completion.committed_generation, 1);
-        files.commit_retirement(retirement);
-        assert!(files.open_file(id).is_err());
-        let committed = &files.writable_profile().unwrap().files[&21];
-        assert_eq!(committed.generation, 1);
-        assert_eq!(
-            committed.sha256.as_deref().unwrap(),
-            hex_sha256(b"SDC FORMAT 1.00")
-        );
-        assert!(!committed.dirty);
-
-        let reopened = files
-            .plan_open_with_disposition(b"bgi.GDB\0", b"C:\\Vine\0", 0x8000_0000, 1, 3, 0x0800_0020)
-            .unwrap()
-            .unwrap();
-        assert!(reopened.existed());
-        let reopened_id = reopened.file_id();
-        files.commit_open(reopened);
-        let read = files.plan_writable_read(reopened_id, 32).unwrap();
-        assert_eq!(read.bytes(), b"SDC FORMAT 1.00");
-        assert_eq!(read.result().transferred_bytes, 15);
-    }
-
-    #[test]
-    fn writable_profile_metadata_bootstrap_hydrates_large_content_atomically() {
-        let content = vec![0xff; 4 * 1024 * 1024];
-        let manifest = RuntimeWritableProfileManifest {
-            schema: RUNTIME_WRITABLE_PROFILE_SCHEMA.to_owned(),
-            schema_version: RUNTIME_WRITABLE_PROFILE_VERSION,
-            title_fingerprint: "sha256:test-title".to_owned(),
-            profile_id: "default".to_owned(),
-            root_path_a: b"C:\\Vine\0".to_vec(),
-            quota_bytes: RUNTIME_WRITABLE_PROFILE_MAX_BYTES,
-            files: vec![RuntimeWritableFileManifest {
-                object_id: 21,
-                relative_path_a: b"BGI.gdb".to_vec(),
-                exists: true,
-                generation: 7,
-                byte_length: content.len() as u64,
-                sha256: Some(hex_sha256(&content)),
-            }],
-            directories: Vec::new(),
-        };
-        let bootstrap = serde_json::to_vec(&manifest).unwrap();
-        assert!(bootstrap.len() < 4096);
-        assert!(
-            !bootstrap
-                .windows(b"\"bytes\"".len())
-                .any(|part| part == b"\"bytes\"")
-        );
-
-        let mut files = RuntimeFiles::default();
-        let registration = files.plan_writable_profile_registration(manifest).unwrap();
-        files
-            .commit_writable_profile_registration(registration)
-            .unwrap();
-        assert!(!files.writable_profile().unwrap().files[&21].content_loaded);
-
-        let before_invalid = files.clone();
-        let invalid = files
-            .plan_writable_profile_hydration(21, 7, b"wrong")
-            .unwrap_err();
-        assert_eq!(invalid.code, "writable-profile-hydration-invalid");
-        assert_eq!(files, before_invalid);
-
-        let hydration = files
-            .plan_writable_profile_hydration(21, 7, &content)
-            .unwrap();
-        files.commit_writable_profile_hydration(hydration).unwrap();
-        let hydrated = &files.writable_profile().unwrap().files[&21];
-        assert!(hydrated.content_loaded);
-        assert_eq!(hydrated.committed_bytes, content);
-        assert_eq!(hydrated.working_bytes, content);
-    }
-
-    #[test]
-    fn writable_profile_rejects_shadow_quota_and_discards_uncommitted_exit_bytes() {
-        let mut files = RuntimeFiles::default();
-        let registration = files
-            .plan_writable_profile_registration(writable_manifest(true, b"old"))
-            .unwrap();
-        files
-            .commit_writable_profile_registration(registration)
-            .unwrap();
-        let hydration = files
-            .plan_writable_profile_hydration(21, 1, b"old")
-            .unwrap();
-        files.commit_writable_profile_hydration(hydration).unwrap();
-        let overlapping = files.plan_snapshot_registration(RuntimeSourceSnapshotManifest {
-            files: vec![RuntimeSourceFileManifest {
-                object_id: 11,
-                relative_path_a: b"BGI.gdb".to_vec(),
-                byte_length: 3,
-                sha256: hex_sha256(b"old"),
-            }],
-            ..manifest()
-        });
-        assert_eq!(overlapping.unwrap_err().code, "source-profile-path-overlap");
-
-        let open = files
-            .plan_open_with_disposition(
-                b"C:\\Vine\\BGI.gdb\0",
-                b"C:\\Vine\0",
-                0x4000_0000,
-                0,
-                4,
-                0x0800_0020,
-            )
-            .unwrap()
-            .unwrap();
-        let id = open.file_id();
-        files.commit_open(open);
-        let before_quota = files.clone();
-        let quota = files.plan_writable_write(id, &vec![0; 1025]).unwrap_err();
-        assert_eq!(quota.code, "writable-profile-quota-exceeded");
-        assert_eq!(files, before_quota);
-
-        let write = files.plan_writable_write(id, b"new").unwrap();
-        files.commit_writable_write(write);
-        let retirement = files.plan_process_retirement(id, &BTreeSet::new()).unwrap();
-        files.commit_retirement(retirement);
-        let restored = &files.writable_profile().unwrap().files[&21];
-        assert_eq!(restored.working_bytes, b"old");
-        assert_eq!(restored.generation, 1);
-        assert!(!restored.dirty);
+                .unwrap(),
+            SourceOpenOutcome::SharingViolation
+        ));
+        assert_eq!(files.open_files.len(), 1);
+        assert_eq!(files.next_file_id, 2);
+        assert_eq!(files.open_file(opened).unwrap().cursor, 0);
+        files.validate_retirement(opened).unwrap();
+        files.retire(opened);
+        assert!(files.open_files.is_empty());
     }
 }

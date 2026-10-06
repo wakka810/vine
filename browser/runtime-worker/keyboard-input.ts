@@ -1,11 +1,4 @@
-import type {
-  RuntimeKeyboardInputEvent,
-  RuntimeKeyboardSourceEventKind,
-  RuntimePointerButton,
-  RuntimePointerButtonInputEvent,
-  RuntimePointerButtonSourceEventKind,
-  RuntimePointerPositionInputEvent,
-} from "./protocol.js";
+import type { RuntimeKeyboardInputEvent, RuntimeKeyboardSourceEventKind } from "./protocol.js";
 
 const fixedVirtualKeys = new Map<string, number>([
   ["Backspace", 0x08],
@@ -79,12 +72,6 @@ export function virtualKeyForKeyboardCode(code: string): number | null {
   return null;
 }
 
-export function pointerButtonForBrowserButton(
-  button: number,
-): RuntimePointerButton | null {
-  return button === 0 ? "primary" : button === 2 ? "secondary" : null;
-}
-
 export function keyboardSourceEvent(
   sequence: number,
   kind: Extract<RuntimeKeyboardSourceEventKind, "key-down" | "key-up">,
@@ -112,37 +99,5 @@ export function focusSourceEvent(
     kind: focused ? "focus-gained" : "focus-lost",
     virtualKey: null,
     repeat: false,
-  };
-}
-
-export function pointerSourceEvent(
-  sequence: number,
-  kind: RuntimePointerButtonSourceEventKind,
-  button: number,
-  normalizedX: number,
-  normalizedY: number,
-): RuntimePointerButtonInputEvent | null {
-  const pointerButton = pointerButtonForBrowserButton(button);
-  return pointerButton === null
-    ? null
-    : {
-        sequence: String(sequence),
-        kind,
-        button: pointerButton,
-        normalizedX,
-        normalizedY,
-      };
-}
-
-export function pointerPositionSourceEvent(
-  sequence: number,
-  normalizedX: number,
-  normalizedY: number,
-): RuntimePointerPositionInputEvent {
-  return {
-    sequence: String(sequence),
-    kind: "pointer-move",
-    normalizedX,
-    normalizedY,
   };
 }

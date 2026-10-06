@@ -1,19 +1,14 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use serde::Serialize;
-
-use super::waits::{
-    RuntimeWaitRegistrationPlan, RuntimeWaitWakeCandidate, RuntimeWaitableTimerPacing, RuntimeWaits,
-};
+use super::waits::{RuntimeWaitWakeCandidate, RuntimeWaitableTimerPacing, RuntimeWaits};
 use super::{
-    RuntimeHandle, RuntimeMessageWake, RuntimeObjectId, RuntimeStateError, RuntimeThreadId,
-    RuntimeWaitCompletion, RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
+    RuntimeHandle, RuntimeObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWaitCompletion,
+    RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
 };
 
 pub const RUNTIME_API_BOUNDARY_QUANTUM: u32 = 64;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeApiBoundaryDisposition {
     #[default]
     ContinueQuantum,
@@ -22,14 +17,7 @@ pub enum RuntimeApiBoundaryDisposition {
     TerminateCurrentThread,
 }
 
-impl RuntimeApiBoundaryDisposition {
-    pub const fn continues_quantum(&self) -> bool {
-        matches!(self, Self::ContinueQuantum)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerThreadState {
     Initialized,
     Suspended {
@@ -64,8 +52,7 @@ impl SchedulerThreadState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeHostRequest {
     pub request_id: u64,
     pub thread_id: RuntimeThreadId,
@@ -73,28 +60,18 @@ pub struct RuntimeHostRequest {
     pub resume_state: SchedulerThreadState,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeHostCompletion {
     pub request_id: u64,
     pub thread_id: RuntimeThreadId,
     pub service: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeThreadExecutionSelection {
-    pub previous_thread_id: RuntimeThreadId,
-    pub thread_id: RuntimeThreadId,
-    pub state: SchedulerThreadState,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "event", content = "completion", rename_all = "kebab-case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeSchedulerEvent {
     HostCompleted(RuntimeHostCompletion),
     WaitSatisfied(RuntimeWaitCompletion),
-    MessageReady(RuntimeMessageWake),
+    MessageReady(RuntimeThreadId),
 }
 
 impl RuntimeSchedulerEvent {
@@ -102,135 +79,20 @@ impl RuntimeSchedulerEvent {
         match self {
             Self::HostCompleted(completion) => completion.thread_id,
             Self::WaitSatisfied(completion) => completion.registration.thread_id,
-            Self::MessageReady(wake) => wake.thread_id,
+            Self::MessageReady(thread_id) => *thread_id,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeScheduler {
     current_thread_id: RuntimeThreadId,
     threads: BTreeMap<RuntimeThreadId, SchedulerThreadState>,
-    #[serde(skip)]
     completed_api_boundaries_in_quantum: u32,
-    #[serde(skip)]
-    api_boundary_revision: u64,
-    #[serde(flatten)]
     waits: RuntimeWaits,
     events: VecDeque<RuntimeSchedulerEvent>,
-    #[serde(skip)]
     host_requests: BTreeMap<u64, RuntimeHostRequest>,
-    #[serde(skip)]
     next_host_request_id: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeSchedulerLanePlan {
-    thread_id: RuntimeThreadId,
-    previous: Option<SchedulerThreadState>,
-    next: SchedulerThreadState,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeSchedulerImmediateWaitPlan {
-    registration: RuntimeWaitRegistrationPlan,
-    previous_state: SchedulerThreadState,
-}
-
-impl RuntimeSchedulerImmediateWaitPlan {
-    pub(super) const fn registration(&self) -> RuntimeWaitRegistration {
-        self.registration.registration()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeSchedulerSelectionPlan {
-    previous: RuntimeThreadId,
-    next: RuntimeThreadId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeSchedulerApiBoundaryPlan {
-    disposition: RuntimeApiBoundaryDisposition,
-    previous_revision: u64,
-    next_revision: u64,
-    previous_thread_id: RuntimeThreadId,
-    previous_thread_state: SchedulerThreadState,
-    runnable_competitor: Option<RuntimeThreadId>,
-    explicit_competitor: bool,
-    previous_completed_boundaries: u32,
-    next_completed_boundaries: u32,
-    selection: Option<RuntimeSchedulerSelectionPlan>,
-}
-
-impl RuntimeSchedulerSelectionPlan {
-    pub(super) const fn previous(self) -> RuntimeThreadId {
-        self.previous
-    }
-
-    pub(super) const fn next(self) -> RuntimeThreadId {
-        self.next
-    }
-}
-
-impl RuntimeSchedulerApiBoundaryPlan {
-    pub(super) const fn selection(self) -> Option<RuntimeSchedulerSelectionPlan> {
-        self.selection
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeHostRequestPlan {
-    previous_next_request_id: u64,
-    next_request_id: u64,
-    request: RuntimeHostRequest,
-    scheduler: RuntimeSchedulerLanePlan,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeHostCompletionPlan {
-    request: RuntimeHostRequest,
-    completion: RuntimeHostCompletion,
-    scheduler: RuntimeSchedulerLanePlan,
-}
-
-impl RuntimeHostRequestPlan {
-    pub(super) fn request(&self) -> &RuntimeHostRequest {
-        &self.request
-    }
-}
-
-impl RuntimeHostCompletionPlan {
-    pub(super) fn request(&self) -> &RuntimeHostRequest {
-        &self.request
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeHostRequestCancellationPlan {
-    thread_id: RuntimeThreadId,
-    request_ids: Vec<u64>,
-}
-
-impl RuntimeHostRequestCancellationPlan {
-    pub(super) fn request_count(&self) -> usize {
-        self.request_ids.len()
-    }
-
-    pub(super) fn request_ids(&self) -> &[u64] {
-        &self.request_ids
-    }
-}
-
-impl RuntimeSchedulerLanePlan {
-    pub(super) const fn transition_after(self, next: SchedulerThreadState) -> Self {
-        Self {
-            thread_id: self.thread_id,
-            previous: Some(self.next),
-            next,
-        }
-    }
 }
 
 impl RuntimeScheduler {
@@ -239,7 +101,6 @@ impl RuntimeScheduler {
             current_thread_id: initial_thread_id,
             threads: BTreeMap::from([(initial_thread_id, SchedulerThreadState::Initialized)]),
             completed_api_boundaries_in_quantum: 0,
-            api_boundary_revision: 0,
             waits: RuntimeWaits::default(),
             events: VecDeque::new(),
             host_requests: BTreeMap::new(),
@@ -275,11 +136,13 @@ impl RuntimeScheduler {
         &self.host_requests
     }
 
-    pub(super) fn next_host_request_id(&self) -> u64 {
+    #[cfg(test)]
+    fn next_host_request_id(&self) -> u64 {
         self.next_host_request_id
     }
 
-    pub(super) fn next_wait_registration_id(&self) -> u64 {
+    #[cfg(test)]
+    pub(crate) fn next_wait_registration_id(&self) -> u64 {
         self.waits.next_registration_id()
     }
 
@@ -292,11 +155,10 @@ impl RuntimeScheduler {
         thread_id: RuntimeThreadId,
     ) -> Result<SchedulerThreadState, RuntimeStateError> {
         self.threads.get(&thread_id).copied().ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-scheduler",
-                "thread-scheduler-state-missing",
-                format!("runtime thread ID {} has no scheduler state", thread_id.0),
-            )
+            RuntimeStateError::new(format!(
+                "runtime thread ID {} has no scheduler state",
+                thread_id.0
+            ))
         })
     }
 
@@ -304,197 +166,125 @@ impl RuntimeScheduler {
         self.state(self.current_thread_id)
     }
 
-    pub(super) fn plan_registration(
+    pub(super) fn validate_registration(
         &self,
         thread_id: RuntimeThreadId,
-        state: SchedulerThreadState,
-    ) -> Result<RuntimeSchedulerLanePlan, RuntimeStateError> {
-        if self.threads.contains_key(&thread_id) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-scheduler",
-                "thread-scheduler-state-duplicate",
-                format!(
-                    "runtime thread ID {} already has a scheduler lane",
-                    thread_id.0
-                ),
-            ));
-        }
-        Ok(RuntimeSchedulerLanePlan {
-            thread_id,
-            previous: None,
-            next: state,
-        })
-    }
-
-    pub(super) fn plan_transition(
-        &self,
-        thread_id: RuntimeThreadId,
-        next: SchedulerThreadState,
-    ) -> Result<RuntimeSchedulerLanePlan, RuntimeStateError> {
-        Ok(RuntimeSchedulerLanePlan {
-            thread_id,
-            previous: Some(self.state(thread_id)?),
-            next,
-        })
-    }
-
-    pub(super) fn plan_current_transition(
-        &self,
-        next: SchedulerThreadState,
-    ) -> Result<RuntimeSchedulerLanePlan, RuntimeStateError> {
-        self.plan_transition(self.current_thread_id, next)
-    }
-
-    pub(super) fn commit_lane(&mut self, plan: RuntimeSchedulerLanePlan) {
-        debug_assert_eq!(self.threads.get(&plan.thread_id).copied(), plan.previous);
-        let previous = self.threads.insert(plan.thread_id, plan.next);
-        debug_assert_eq!(previous, plan.previous);
-    }
-
-    pub(super) fn preflight_lane_commit(
-        &self,
-        plan: &RuntimeSchedulerLanePlan,
     ) -> Result<(), RuntimeStateError> {
-        if self.threads.get(&plan.thread_id).copied() != plan.previous {
-            return Err(RuntimeStateError::conflict(
-                "runtime-scheduler",
-                "thread-scheduler-plan-stale",
-                "runtime scheduler lane changed after transition preflight",
-            ));
+        if self.threads.contains_key(&thread_id) {
+            return Err(RuntimeStateError::new(format!(
+                "runtime thread ID {} already has a scheduler lane",
+                thread_id.0
+            )));
         }
         Ok(())
     }
 
-    pub(super) fn plan_selection(
-        &self,
+    pub(super) fn register(&mut self, thread_id: RuntimeThreadId, state: SchedulerThreadState) {
+        let previous = self.threads.insert(thread_id, state);
+        assert!(
+            previous.is_none(),
+            "scheduler registration must be validated before insertion"
+        );
+    }
+
+    pub(super) fn resume_thread(
+        &mut self,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeSchedulerSelectionPlan, RuntimeStateError> {
+    ) -> Result<u32, RuntimeStateError> {
+        match self.state(thread_id)? {
+            SchedulerThreadState::Suspended { count } if count != 0 => {
+                let remaining = count - 1;
+                *self
+                    .threads
+                    .get_mut(&thread_id)
+                    .expect("validated scheduler lane") = if remaining == 0 {
+                    SchedulerThreadState::Runnable
+                } else {
+                    SchedulerThreadState::Suspended { count: remaining }
+                };
+                Ok(count)
+            }
+            SchedulerThreadState::Suspended { .. } => Err(RuntimeStateError::new(
+                "suspended scheduler state contains a zero suspend count",
+            )),
+            SchedulerThreadState::Runnable
+            | SchedulerThreadState::WaitingHost { .. }
+            | SchedulerThreadState::WaitingObject { .. }
+            | SchedulerThreadState::WaitingCriticalSection { .. }
+            | SchedulerThreadState::WaitingMessage
+            | SchedulerThreadState::InCallback { .. } => Ok(0),
+            SchedulerThreadState::Initialized
+            | SchedulerThreadState::Terminating { .. }
+            | SchedulerThreadState::Terminated { .. } => Ok(u32::MAX),
+        }
+    }
+
+    pub(super) fn start_initial_thread(&mut self, thread_id: RuntimeThreadId) {
+        let state = self
+            .threads
+            .get_mut(&thread_id)
+            .expect("validated initial scheduler lane");
+        assert_eq!(*state, SchedulerThreadState::Initialized);
+        *state = SchedulerThreadState::Runnable;
+    }
+
+    /// Publishes a synchronous transition after the aggregate validates the live lane.
+    pub(super) fn set_validated_state(
+        &mut self,
+        thread_id: RuntimeThreadId,
+        next: SchedulerThreadState,
+    ) {
+        *self
+            .threads
+            .get_mut(&thread_id)
+            .expect("validated scheduler lane") = next;
+    }
+
+    pub(super) fn select_thread(
+        &mut self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<(), RuntimeStateError> {
         self.state(thread_id)?;
-        Ok(RuntimeSchedulerSelectionPlan {
-            previous: self.current_thread_id,
-            next: thread_id,
-        })
+        self.current_thread_id = thread_id;
+        self.completed_api_boundaries_in_quantum = 0;
+        Ok(())
     }
 
-    #[cfg(test)]
-    pub(super) fn plan_next_executable_selection(
-        &self,
-    ) -> Result<Option<RuntimeSchedulerSelectionPlan>, RuntimeStateError> {
-        let thread_ids = self.threads.keys().copied().collect::<Vec<_>>();
-        let current_index = thread_ids
-            .iter()
-            .position(|thread_id| *thread_id == self.current_thread_id)
-            .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-scheduler",
-                    "current-thread-scheduler-state-missing",
-                    "current runtime thread has no scheduler lane",
-                )
-            })?;
-        for offset in 1..=thread_ids.len() {
-            let thread_id = thread_ids[(current_index + offset) % thread_ids.len()];
-            if self.state(thread_id)?.is_executable() {
-                return self.plan_selection(thread_id).map(Some);
-            }
-        }
-        Ok(None)
-    }
-
-    pub(super) fn plan_next_other_executable_selection(
-        &self,
-    ) -> Result<Option<RuntimeSchedulerSelectionPlan>, RuntimeStateError> {
-        let thread_ids = self.threads.keys().copied().collect::<Vec<_>>();
-        let current_index = thread_ids
-            .iter()
-            .position(|thread_id| *thread_id == self.current_thread_id)
-            .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-scheduler",
-                    "current-thread-scheduler-state-missing",
-                    "current runtime thread has no scheduler lane",
-                )
-            })?;
-        for offset in 1..thread_ids.len() {
-            let thread_id = thread_ids[(current_index + offset) % thread_ids.len()];
-            if self.state(thread_id)?.is_executable() {
-                return self.plan_selection(thread_id).map(Some);
-            }
-        }
-        Ok(None)
-    }
-
-    #[cfg(test)]
-    pub(super) fn plan_completed_api_boundary(
-        &self,
-        disposition: RuntimeApiBoundaryDisposition,
-    ) -> Result<RuntimeSchedulerApiBoundaryPlan, RuntimeStateError> {
-        let competitor = self
-            .plan_next_other_executable_selection()?
-            .map(|selection| selection.next);
-        self.plan_completed_api_boundary_with_competitor(disposition, competitor, false, false)
-    }
-
-    pub(super) fn plan_completed_api_boundary_with_competitor(
-        &self,
+    pub(super) fn complete_api_boundary(
+        &mut self,
         disposition: RuntimeApiBoundaryDisposition,
         runnable_competitor: Option<RuntimeThreadId>,
         force_competitor: bool,
-        explicit_competitor: bool,
-    ) -> Result<RuntimeSchedulerApiBoundaryPlan, RuntimeStateError> {
+    ) -> Result<Option<RuntimeThreadId>, RuntimeStateError> {
         if disposition == RuntimeApiBoundaryDisposition::BlockCurrentThread {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-scheduler",
-                "blocking-api-boundary-already-committed",
+            return Err(RuntimeStateError::new(
                 "a blocking API boundary must select another executable thread directly",
             ));
         }
         if disposition == RuntimeApiBoundaryDisposition::TerminateCurrentThread {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-scheduler",
-                "terminating-api-boundary-requires-thread-exit",
+            return Err(RuntimeStateError::new(
                 "a terminating API boundary must commit through the thread lifecycle owner",
             ));
         }
         let current_state = self.current_state()?;
-        let next_revision = self.api_boundary_revision.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-scheduler",
-                "api-boundary-revision-exhausted",
-                "API execution boundary plan revision is exhausted",
-            )
-        })?;
         if !current_state.is_executable() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-scheduler",
-                "api-boundary-thread-not-executable",
+            return Err(RuntimeStateError::new(
                 "an API execution boundary requires an executable current thread",
             ));
         }
         let next_executable = if let Some(thread_id) = runnable_competitor {
             if thread_id == self.current_thread_id || !self.state(thread_id)?.is_executable() {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-scheduler",
-                    "api-boundary-competitor-not-executable",
+                return Err(RuntimeStateError::new(
                     "an API execution boundary competitor must be another executable thread",
                 ));
             }
-            Some(self.plan_selection(thread_id)?)
+            Some(thread_id)
         } else {
             None
         };
         let Some(next_executable) = next_executable else {
-            return Ok(RuntimeSchedulerApiBoundaryPlan {
-                disposition,
-                previous_revision: self.api_boundary_revision,
-                next_revision,
-                previous_thread_id: self.current_thread_id,
-                previous_thread_state: current_state,
-                runnable_competitor,
-                explicit_competitor,
-                previous_completed_boundaries: self.completed_api_boundaries_in_quantum,
-                next_completed_boundaries: 0,
-                selection: None,
-            });
+            self.completed_api_boundaries_in_quantum = 0;
+            return Ok(None);
         };
         let completed = if disposition == RuntimeApiBoundaryDisposition::YieldCurrentThread {
             0
@@ -502,119 +292,27 @@ impl RuntimeScheduler {
             self.completed_api_boundaries_in_quantum
                 .checked_add(1)
                 .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-scheduler",
-                        "api-boundary-counter-overflow",
-                        "API execution boundary counter is exhausted",
-                    )
+                    RuntimeStateError::new("API execution boundary counter is exhausted")
                 })?
         };
         let select_competitor = disposition == RuntimeApiBoundaryDisposition::YieldCurrentThread
             || force_competitor
             || completed >= RUNTIME_API_BOUNDARY_QUANTUM;
-        Ok(RuntimeSchedulerApiBoundaryPlan {
-            disposition,
-            previous_revision: self.api_boundary_revision,
-            next_revision,
-            previous_thread_id: self.current_thread_id,
-            previous_thread_state: current_state,
-            runnable_competitor,
-            explicit_competitor,
-            previous_completed_boundaries: self.completed_api_boundaries_in_quantum,
-            next_completed_boundaries: if select_competitor { 0 } else { completed },
-            selection: select_competitor.then_some(next_executable),
-        })
-    }
-
-    pub(super) fn preflight_completed_api_boundary(
-        &self,
-        plan: &RuntimeSchedulerApiBoundaryPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let runnable_competitor = if plan.explicit_competitor {
-            match plan.runnable_competitor {
-                Some(thread_id)
-                    if thread_id != self.current_thread_id
-                        && self.state(thread_id)?.is_executable() =>
-                {
-                    Some(thread_id)
-                }
-                Some(_) => {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-scheduler",
-                        "api-boundary-selection-stale",
-                        "the selected API boundary competitor is no longer executable",
-                    ));
-                }
-                None => None,
-            }
+        self.completed_api_boundaries_in_quantum = if select_competitor { 0 } else { completed };
+        if select_competitor {
+            self.current_thread_id = next_executable;
+            Ok(Some(next_executable))
         } else {
-            self.plan_next_other_executable_selection()?
-                .map(|selection| selection.next)
-        };
-        if self.api_boundary_revision != plan.previous_revision
-            || self.current_thread_id != plan.previous_thread_id
-            || self.current_state()? != plan.previous_thread_state
-            || runnable_competitor != plan.runnable_competitor
-            || self.completed_api_boundaries_in_quantum != plan.previous_completed_boundaries
-            || plan.selection.is_some_and(|selection| {
-                selection.previous != plan.previous_thread_id
-                    || Some(selection.next) != plan.runnable_competitor
-            })
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-scheduler",
-                "api-boundary-plan-stale",
-                "runtime scheduler changed after API boundary preflight",
-            ));
+            Ok(None)
         }
-        if let Some(selection) = plan.selection
-            && (selection.next == self.current_thread_id
-                || !self.state(selection.next)?.is_executable())
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-scheduler",
-                "api-boundary-selection-stale",
-                "API boundary target is no longer another executable thread",
-            ));
-        }
-        Ok(())
     }
 
-    pub(super) fn commit_completed_api_boundary(&mut self, plan: RuntimeSchedulerApiBoundaryPlan) {
-        debug_assert_eq!(self.api_boundary_revision, plan.previous_revision);
-        debug_assert!(matches!(
-            plan.disposition,
-            RuntimeApiBoundaryDisposition::ContinueQuantum
-                | RuntimeApiBoundaryDisposition::YieldCurrentThread
-        ));
-        debug_assert_eq!(self.current_thread_id, plan.previous_thread_id);
-        debug_assert_eq!(self.current_state().ok(), Some(plan.previous_thread_state));
-        debug_assert_eq!(
-            self.completed_api_boundaries_in_quantum,
-            plan.previous_completed_boundaries
-        );
-        if let Some(selection) = plan.selection {
-            debug_assert_eq!(self.current_thread_id, selection.previous);
-            self.current_thread_id = selection.next;
-        }
-        self.completed_api_boundaries_in_quantum = plan.next_completed_boundaries;
-        self.api_boundary_revision = plan.next_revision;
-    }
-
-    pub(super) fn commit_selection(&mut self, plan: RuntimeSchedulerSelectionPlan) {
-        debug_assert_eq!(self.current_thread_id, plan.previous);
-        self.current_thread_id = plan.next;
-        self.completed_api_boundaries_in_quantum = 0;
-    }
-
-    pub(super) fn plan_host_request(
+    pub(super) fn checked_host_request(
         &self,
         service: String,
-    ) -> Result<RuntimeHostRequestPlan, RuntimeStateError> {
+    ) -> Result<RuntimeHostRequest, RuntimeStateError> {
         if service.is_empty() {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-host-request",
-                "host-service-empty",
+            return Err(RuntimeStateError::new(
                 "host request requires a nonempty service identity",
             ));
         }
@@ -623,157 +321,118 @@ impl RuntimeScheduler {
                 state
             }
             _ => {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-host-request",
-                    "thread-not-runnable",
+                return Err(RuntimeStateError::new(
                     "only a runnable guest thread or active callback can begin a host request",
                 ));
             }
         };
         let request_id = self.next_host_request_id;
-        let next_request_id = request_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-host-request",
-                "host-request-id-overflow",
-                "host request ID space is exhausted",
-            )
-        })?;
+        request_id
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("host request ID space is exhausted"))?;
         if self.host_requests.contains_key(&request_id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-host-request",
-                "host-request-id-duplicate",
-                format!("next host request ID {request_id} is already pending"),
-            ));
+            return Err(RuntimeStateError::new(format!(
+                "next host request ID {request_id} is already pending"
+            )));
         }
-        let request = RuntimeHostRequest {
+        Ok(RuntimeHostRequest {
             request_id,
             thread_id: self.current_thread_id,
             service,
             resume_state,
-        };
-        let scheduler =
-            self.plan_current_transition(SchedulerThreadState::WaitingHost { request_id })?;
-        Ok(RuntimeHostRequestPlan {
-            previous_next_request_id: request_id,
-            next_request_id,
-            request,
-            scheduler,
         })
     }
 
-    pub(super) fn commit_host_request(
+    pub(super) fn publish_host_request(
         &mut self,
-        plan: RuntimeHostRequestPlan,
+        request: RuntimeHostRequest,
     ) -> RuntimeHostRequest {
-        debug_assert!(
-            self.preflight_host_request(&plan).is_ok(),
-            "host request plan became stale"
-        );
-        debug_assert_eq!(self.next_host_request_id, plan.previous_next_request_id);
-        debug_assert!(!self.host_requests.contains_key(&plan.request.request_id));
-        self.next_host_request_id = plan.next_request_id;
-        let request = plan.request;
+        self.next_host_request_id = request
+            .request_id
+            .checked_add(1)
+            .expect("validated host request ID");
         let previous = self
             .host_requests
             .insert(request.request_id, request.clone());
         debug_assert!(previous.is_none());
-        self.commit_lane(plan.scheduler);
+        self.set_validated_state(
+            request.thread_id,
+            SchedulerThreadState::WaitingHost {
+                request_id: request.request_id,
+            },
+        );
         request
     }
 
-    pub(super) fn preflight_host_request(
-        &self,
-        plan: &RuntimeHostRequestPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.next_host_request_id != plan.previous_next_request_id
-            || plan.previous_next_request_id.checked_add(1) != Some(plan.next_request_id)
-            || self.host_requests.contains_key(&plan.request.request_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-host-request",
-                "host-request-plan-stale",
-                "host request allocator or pending request state changed after planning",
-            ));
-        }
-        self.preflight_lane_commit(&plan.scheduler)
-    }
-
-    pub(super) fn plan_host_completion(
+    pub(super) fn validate_host_completion(
         &self,
         request_id: u64,
-    ) -> Result<RuntimeHostCompletionPlan, RuntimeStateError> {
+    ) -> Result<RuntimeHostRequest, RuntimeStateError> {
         let request = self
             .host_requests
             .get(&request_id)
             .cloned()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-host-request",
-                    "host-request-id-unknown",
-                    format!("host request ID {request_id} is not pending"),
-                )
+                RuntimeStateError::new(format!("host request ID {request_id} is not pending"))
             })?;
         if self.state(request.thread_id)? != (SchedulerThreadState::WaitingHost { request_id }) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-host-request",
-                "host-completion-thread-state-mismatch",
+            return Err(RuntimeStateError::new(
                 "host completion does not match its owner thread wait state",
             ));
         }
-        let scheduler = self.plan_transition(request.thread_id, request.resume_state)?;
-        let completion = RuntimeHostCompletion {
-            request_id,
-            thread_id: request.thread_id,
-            service: request.service.clone(),
-        };
-        Ok(RuntimeHostCompletionPlan {
-            request,
-            completion,
-            scheduler,
-        })
+        Ok(request)
     }
 
     pub(super) fn commit_host_completion(
         &mut self,
-        plan: RuntimeHostCompletionPlan,
+        request: RuntimeHostRequest,
     ) -> RuntimeHostCompletion {
+        debug_assert_eq!(self.host_requests.get(&request.request_id), Some(&request));
         debug_assert_eq!(
-            self.host_requests.get(&plan.request.request_id),
-            Some(&plan.request)
+            self.threads.get(&request.thread_id),
+            Some(&SchedulerThreadState::WaitingHost {
+                request_id: request.request_id,
+            })
         );
-        let removed = self.host_requests.remove(&plan.request.request_id);
-        debug_assert_eq!(removed, Some(plan.request));
-        self.commit_lane(plan.scheduler);
-        let completion = plan.completion;
+        self.set_validated_state(request.thread_id, request.resume_state);
+        let removed = self.host_requests.remove(&request.request_id);
+        debug_assert_eq!(removed.as_ref(), Some(&request));
+        let completion = RuntimeHostCompletion {
+            request_id: request.request_id,
+            thread_id: request.thread_id,
+            service: request.service,
+        };
         self.commit_event(RuntimeSchedulerEvent::HostCompleted(completion.clone()));
         completion
     }
 
-    pub(super) fn plan_host_request_cancellation(
-        &self,
-        thread_id: RuntimeThreadId,
-    ) -> RuntimeHostRequestCancellationPlan {
-        RuntimeHostRequestCancellationPlan {
-            thread_id,
-            request_ids: self
-                .host_requests
-                .iter()
-                .filter_map(|(&request_id, request)| {
-                    (request.thread_id == thread_id).then_some(request_id)
-                })
-                .collect(),
-        }
+    pub(super) fn host_request_ids_for_thread(&self, thread_id: RuntimeThreadId) -> Vec<u64> {
+        self.host_requests
+            .iter()
+            .filter_map(|(&id, request)| (request.thread_id == thread_id).then_some(id))
+            .collect()
     }
 
-    pub(super) fn commit_host_request_cancellation(
+    /// Media resumes its COM continuation directly in the same handoff, so its
+    /// actual completion notification is consumed here rather than by Wasm.
+    pub(super) fn commit_consumed_host_completion(
         &mut self,
-        plan: RuntimeHostRequestCancellationPlan,
-    ) {
-        for request_id in plan.request_ids {
-            let removed = self.host_requests.remove(&request_id);
+        request: RuntimeHostRequest,
+    ) -> RuntimeHostCompletion {
+        let completion = self.commit_host_completion(request);
+        let index = self.events.iter().position(|event| {
+            matches!(event, RuntimeSchedulerEvent::HostCompleted(actual) if *actual == completion)
+        }).expect("newly committed host completion notification");
+        self.events.remove(index);
+        completion
+    }
+
+    pub(super) fn cancel_host_requests(&mut self, thread_id: RuntimeThreadId, request_ids: &[u64]) {
+        for request_id in request_ids {
+            let removed = self.host_requests.remove(request_id);
             debug_assert_eq!(
                 removed.as_ref().map(|request| request.thread_id),
-                Some(plan.thread_id)
+                Some(thread_id)
             );
         }
     }
@@ -784,16 +443,16 @@ impl RuntimeScheduler {
             .any(|request| request.thread_id == thread_id)
     }
 
-    pub(super) fn plan_wait_registration(
-        &self,
+    pub(super) fn register_wait(
+        &mut self,
         thread_id: RuntimeThreadId,
         object_id: RuntimeObjectId,
         handle: RuntimeHandle,
-    ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
-        self.waits.plan_registration(thread_id, object_id, handle)
+    ) -> Result<RuntimeWaitRegistration, RuntimeStateError> {
+        self.waits.register(thread_id, object_id, handle)
     }
 
-    pub(super) fn plan_host_wait_registration(
+    pub(super) fn checked_host_wait_registration(
         &self,
         thread_id: RuntimeThreadId,
         object_id: RuntimeObjectId,
@@ -801,8 +460,8 @@ impl RuntimeScheduler {
         timeout_deadline_time_100ns: u64,
         alertable: bool,
         pacing: RuntimeWaitableTimerPacing,
-    ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
-        self.waits.plan_registration_with_options(
+    ) -> Result<RuntimeWaitRegistration, RuntimeStateError> {
+        self.waits.checked_registration(
             thread_id,
             object_id,
             handle,
@@ -812,120 +471,26 @@ impl RuntimeScheduler {
         )
     }
 
-    pub(super) fn preflight_wait_registration(
-        &self,
-        plan: &RuntimeWaitRegistrationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        self.waits.preflight_registration(plan)
+    pub(super) fn publish_wait_registration(&mut self, plan: RuntimeWaitRegistration) {
+        self.waits.publish_registration(plan);
     }
 
-    pub(super) fn plan_immediate_wait(
-        &self,
-        thread_id: RuntimeThreadId,
+    pub(super) fn replace_timer_wait_pacing(
+        &mut self,
+        registration: RuntimeWaitRegistration,
+        pacing: RuntimeWaitableTimerPacing,
+    ) {
+        self.waits.replace_timer_pacing(registration, pacing);
+    }
+
+    pub(super) fn signal_timer_waiters(
+        &mut self,
         object_id: RuntimeObjectId,
-        handle: RuntimeHandle,
-        timeout_deadline_time_100ns: u64,
-        alertable: bool,
-    ) -> Result<RuntimeSchedulerImmediateWaitPlan, RuntimeStateError> {
-        if self.current_thread_id != thread_id {
-            return Err(RuntimeStateError::conflict(
-                "runtime-wait",
-                "immediate-wait-thread-not-current",
-                "immediate wait requires the selected runtime thread",
-            ));
-        }
-        let previous_state = self.state(thread_id)?;
-        if !previous_state.is_executable() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-wait",
-                "immediate-wait-thread-state-invalid",
-                "immediate wait requires an executable scheduler lane",
-            ));
-        }
-        let registration = self.waits.plan_registration_with_options(
-            thread_id,
-            object_id,
-            handle,
-            Some(timeout_deadline_time_100ns),
-            alertable,
-            None,
-        )?;
-        Ok(RuntimeSchedulerImmediateWaitPlan {
-            registration,
-            previous_state,
-        })
-    }
-
-    pub(super) fn preflight_immediate_wait(
-        &self,
-        plan: &RuntimeSchedulerImmediateWaitPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let registration = plan.registration();
-        if self.current_thread_id != registration.thread_id
-            || self.state(registration.thread_id)? != plan.previous_state
-            || !plan.previous_state.is_executable()
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-wait",
-                "immediate-wait-plan-stale",
-                "scheduler selection or lane changed after immediate wait planning",
-            ));
-        }
-        self.waits.preflight_registration(&plan.registration)
-    }
-
-    pub(super) fn commit_immediate_wait_begin(
-        &mut self,
-        plan: RuntimeSchedulerImmediateWaitPlan,
-    ) -> RuntimeWaitRegistration {
-        debug_assert!(
-            self.preflight_immediate_wait(&plan).is_ok(),
-            "immediate wait plan became stale"
-        );
-        let registration = self.waits.commit_registration(plan.registration);
-        let previous = self.threads.insert(
-            registration.thread_id,
-            SchedulerThreadState::WaitingObject {
-                registration_id: registration.id,
-                object_id: registration.object_id,
-            },
-        );
-        debug_assert_eq!(previous, Some(plan.previous_state));
-        registration
-    }
-
-    pub(super) fn commit_immediate_wait_complete(
-        &mut self,
-        plan: RuntimeSchedulerImmediateWaitPlan,
-    ) -> RuntimeWaitRegistration {
-        let registration = plan.registration();
-        debug_assert_eq!(
-            self.threads.get(&registration.thread_id).copied(),
-            Some(SchedulerThreadState::WaitingObject {
-                registration_id: registration.id,
-                object_id: registration.object_id,
-            })
-        );
-        debug_assert_eq!(
-            self.waits.registration_for_thread(registration.thread_id),
-            Ok(Some(registration))
-        );
-        self.waits.commit_remove(registration);
-        let previous = self
-            .threads
-            .insert(registration.thread_id, plan.previous_state);
-        debug_assert_eq!(
-            previous,
-            Some(SchedulerThreadState::WaitingObject {
-                registration_id: registration.id,
-                object_id: registration.object_id,
-            })
-        );
-        registration
-    }
-
-    pub(super) fn commit_wait_registration(&mut self, plan: RuntimeWaitRegistrationPlan) {
-        self.waits.commit_registration(plan);
+        deadline_time_100ns: u64,
+        manual_reset: bool,
+    ) {
+        self.waits
+            .signal_timer_waiters(object_id, deadline_time_100ns, manual_reset);
     }
 
     pub(super) fn wait_registration_for_thread(
@@ -962,6 +527,7 @@ impl RuntimeScheduler {
         self.events.pop_front()
     }
 
+    #[cfg(test)]
     pub(super) fn event_count_for_thread(&self, thread_id: RuntimeThreadId) -> usize {
         self.events
             .iter()
@@ -988,237 +554,199 @@ mod tests {
     const SECOND: RuntimeThreadId = RuntimeThreadId(0x1001);
 
     #[test]
-    fn lane_and_selection_plans_do_not_mutate_before_commit() {
+    fn resume_thread_decrements_only_suspended_lanes_and_preserves_waits() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
-        let registration = scheduler
-            .plan_registration(SECOND, SchedulerThreadState::Runnable)
-            .unwrap();
-        assert!(!scheduler.contains_thread(SECOND));
-        scheduler.commit_lane(registration);
-
-        let selection = scheduler.plan_selection(SECOND).unwrap();
+        scheduler.register(SECOND, SchedulerThreadState::Suspended { count: 2 });
+        assert_eq!(scheduler.resume_thread(SECOND).unwrap(), 2);
+        assert_eq!(
+            scheduler.state(SECOND).unwrap(),
+            SchedulerThreadState::Suspended { count: 1 }
+        );
+        assert_eq!(scheduler.resume_thread(SECOND).unwrap(), 1);
+        assert_eq!(
+            scheduler.state(SECOND).unwrap(),
+            SchedulerThreadState::Runnable
+        );
+        for state in [
+            SchedulerThreadState::Runnable,
+            SchedulerThreadState::WaitingHost { request_id: 7 },
+            SchedulerThreadState::WaitingObject {
+                registration_id: RuntimeWaitRegistrationId(1),
+                object_id: RuntimeObjectId(2),
+            },
+            SchedulerThreadState::WaitingCriticalSection { address: 0x1000 },
+            SchedulerThreadState::WaitingMessage,
+            SchedulerThreadState::InCallback { depth: 2 },
+        ] {
+            scheduler.threads.insert(SECOND, state);
+            assert_eq!(scheduler.resume_thread(SECOND).unwrap(), 0);
+            assert_eq!(scheduler.state(SECOND).unwrap(), state);
+            assert_eq!(scheduler.current_thread_id(), INITIAL);
+        }
+        let invalid_state = SchedulerThreadState::Suspended { count: 0 };
+        scheduler.threads.insert(SECOND, invalid_state);
+        assert!(scheduler.resume_thread(SECOND).is_err());
+        assert_eq!(scheduler.state(SECOND).unwrap(), invalid_state);
+        for state in [
+            SchedulerThreadState::Initialized,
+            SchedulerThreadState::Terminating { exit_code: 7 },
+            SchedulerThreadState::Terminated { exit_code: 7 },
+        ] {
+            scheduler.threads.insert(SECOND, state);
+            assert_eq!(scheduler.resume_thread(SECOND).unwrap(), u32::MAX);
+            assert_eq!(scheduler.state(SECOND).unwrap(), state);
+            assert_eq!(scheduler.current_thread_id(), INITIAL);
+        }
+        assert!(scheduler.resume_thread(RuntimeThreadId(0)).is_err());
+        assert_eq!(
+            scheduler.state(SECOND).unwrap(),
+            SchedulerThreadState::Terminated { exit_code: 7 }
+        );
+        assert_eq!(scheduler.threads.len(), 2);
         assert_eq!(scheduler.current_thread_id(), INITIAL);
-        scheduler.commit_selection(selection);
+    }
+
+    #[test]
+    fn lane_registration_and_selection_validate_before_mutation() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        scheduler.validate_registration(SECOND).unwrap();
+        assert!(!scheduler.contains_thread(SECOND));
+        scheduler.register(SECOND, SchedulerThreadState::Runnable);
+
+        scheduler.completed_api_boundaries_in_quantum = 3;
+        assert!(scheduler.select_thread(RuntimeThreadId(0)).is_err());
+        assert_eq!(scheduler.current_thread_id(), INITIAL);
+        assert_eq!(scheduler.completed_api_boundaries_in_quantum, 3);
+        assert_eq!(
+            scheduler.state(SECOND).unwrap(),
+            SchedulerThreadState::Runnable
+        );
+        scheduler.select_thread(SECOND).unwrap();
         assert_eq!(scheduler.current_thread_id(), SECOND);
     }
 
     #[test]
-    fn api_boundary_plan_schedules_across_callback_lanes_and_rejects_stale_commit() {
+    fn api_boundaries_preserve_callback_lanes_and_reject_invalid_competitors() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
-        let initial_running = scheduler
-            .plan_current_transition(SchedulerThreadState::Runnable)
-            .unwrap();
-        scheduler.commit_lane(initial_running);
-        let no_competitor = scheduler
-            .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::ContinueQuantum)
-            .unwrap();
-        let second_running = scheduler
-            .plan_registration(SECOND, SchedulerThreadState::Runnable)
-            .unwrap();
-        scheduler.commit_lane(second_running);
-        let before_runnable_set_stale = scheduler.clone();
+        scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
         assert_eq!(
             scheduler
-                .preflight_completed_api_boundary(&no_competitor)
-                .expect_err("a plan cannot cross a runnable-set change")
-                .code,
-            "api-boundary-plan-stale"
+                .complete_api_boundary(RuntimeApiBoundaryDisposition::ContinueQuantum, None, false)
+                .unwrap(),
+            None
         );
-        assert_eq!(scheduler, before_runnable_set_stale);
-
+        scheduler.validate_registration(SECOND).unwrap();
+        scheduler.register(SECOND, SchedulerThreadState::Runnable);
         for _ in 1..RUNTIME_API_BOUNDARY_QUANTUM {
-            let plan = scheduler
-                .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::ContinueQuantum)
-                .unwrap();
-            scheduler.preflight_completed_api_boundary(&plan).unwrap();
-            scheduler.commit_completed_api_boundary(plan);
+            assert_eq!(
+                scheduler
+                    .complete_api_boundary(
+                        RuntimeApiBoundaryDisposition::ContinueQuantum,
+                        Some(SECOND),
+                        false
+                    )
+                    .unwrap(),
+                None
+            );
         }
+        let quantum_before = scheduler.completed_api_boundaries_in_quantum;
+        assert!(
+            scheduler
+                .complete_api_boundary(
+                    RuntimeApiBoundaryDisposition::YieldCurrentThread,
+                    Some(INITIAL),
+                    false
+                )
+                .is_err()
+        );
+        assert_eq!(scheduler.current_thread_id(), INITIAL);
         assert_eq!(
             scheduler.completed_api_boundaries_in_quantum,
-            RUNTIME_API_BOUNDARY_QUANTUM - 1
+            quantum_before
         );
-
-        let enter_callback = scheduler
-            .plan_current_transition(SchedulerThreadState::InCallback { depth: 1 })
-            .unwrap();
-        scheduler.commit_lane(enter_callback);
-        let callback_boundary = scheduler
-            .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::YieldCurrentThread)
-            .unwrap();
-        assert_eq!(callback_boundary.selection().unwrap().next(), SECOND);
-        scheduler
-            .preflight_completed_api_boundary(&callback_boundary)
-            .unwrap();
-        scheduler.commit_completed_api_boundary(callback_boundary);
-        let before_duplicate_preflight = scheduler.clone();
         assert_eq!(
-            scheduler
-                .preflight_completed_api_boundary(&callback_boundary)
-                .expect_err("an API boundary plan is single-use")
-                .code,
-            "api-boundary-plan-stale"
+            scheduler.state(INITIAL).unwrap(),
+            SchedulerThreadState::Runnable
         );
-        assert_eq!(scheduler, before_duplicate_preflight);
-        assert_eq!(scheduler.current_thread_id(), SECOND);
-        assert_eq!(scheduler.completed_api_boundaries_in_quantum, 0);
-
-        let return_to_callback = scheduler
-            .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::YieldCurrentThread)
-            .unwrap();
-        assert_eq!(return_to_callback.selection().unwrap().next(), INITIAL);
-        scheduler
-            .preflight_completed_api_boundary(&return_to_callback)
-            .unwrap();
-        scheduler.commit_completed_api_boundary(return_to_callback);
-        let leave_callback = scheduler
-            .plan_current_transition(SchedulerThreadState::Runnable)
-            .unwrap();
-        scheduler.commit_lane(leave_callback);
-        let yielded = scheduler
-            .plan_completed_api_boundary(RuntimeApiBoundaryDisposition::YieldCurrentThread)
-            .unwrap();
-        assert_eq!(yielded.selection().unwrap().next(), SECOND);
+        assert_eq!(
+            scheduler.state(SECOND).unwrap(),
+            SchedulerThreadState::Runnable
+        );
+        assert!(
+            scheduler
+                .complete_api_boundary(
+                    RuntimeApiBoundaryDisposition::YieldCurrentThread,
+                    Some(RuntimeThreadId(99)),
+                    false
+                )
+                .is_err()
+        );
         assert_eq!(scheduler.current_thread_id(), INITIAL);
-
-        let explicit_selection = scheduler.plan_selection(SECOND).unwrap();
-        scheduler.commit_selection(explicit_selection);
-        let before_stale_preflight = scheduler.clone();
+        assert_eq!(
+            scheduler.completed_api_boundaries_in_quantum,
+            quantum_before
+        );
+        assert_eq!(
+            scheduler.state(INITIAL).unwrap(),
+            SchedulerThreadState::Runnable
+        );
+        assert_eq!(
+            scheduler.state(SECOND).unwrap(),
+            SchedulerThreadState::Runnable
+        );
+        scheduler.set_validated_state(INITIAL, SchedulerThreadState::InCallback { depth: 1 });
         assert_eq!(
             scheduler
-                .preflight_completed_api_boundary(&yielded)
-                .expect_err("a plan cannot cross an explicit selection")
-                .code,
-            "api-boundary-plan-stale"
+                .complete_api_boundary(
+                    RuntimeApiBoundaryDisposition::YieldCurrentThread,
+                    Some(SECOND),
+                    false
+                )
+                .unwrap(),
+            Some(SECOND)
         );
-        assert_eq!(scheduler, before_stale_preflight);
+        assert_eq!(scheduler.completed_api_boundaries_in_quantum, 0);
+        assert_eq!(
+            scheduler
+                .complete_api_boundary(
+                    RuntimeApiBoundaryDisposition::YieldCurrentThread,
+                    Some(INITIAL),
+                    false
+                )
+                .unwrap(),
+            Some(INITIAL)
+        );
+        assert_eq!(
+            scheduler.current_state().unwrap(),
+            SchedulerThreadState::InCallback { depth: 1 }
+        );
     }
 
     #[test]
-    fn next_executable_selection_wraps_and_skips_waiting_lanes() {
+    fn host_completion_resumes_its_owner_without_selecting_it() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
-        let initial_running = scheduler
-            .plan_current_transition(SchedulerThreadState::Runnable)
-            .unwrap();
-        scheduler.commit_lane(initial_running);
-        let second_running = scheduler
-            .plan_registration(SECOND, SchedulerThreadState::Runnable)
-            .unwrap();
-        scheduler.commit_lane(second_running);
+        scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
+        scheduler.validate_registration(SECOND).unwrap();
+        scheduler.register(SECOND, SchedulerThreadState::Runnable);
 
         let request = scheduler
-            .plan_host_request("initial.pending".to_owned())
+            .checked_host_request("initial.pending".to_owned())
             .unwrap();
-        let request = scheduler.commit_host_request(request);
-        let selection = scheduler
-            .plan_next_executable_selection()
-            .unwrap()
-            .expect("second thread is executable");
-        assert_eq!(selection.previous(), INITIAL);
-        assert_eq!(selection.next(), SECOND);
-        scheduler.commit_selection(selection);
+        let request = scheduler.publish_host_request(request);
+        scheduler.select_thread(SECOND).unwrap();
 
         let completion = scheduler
-            .plan_host_completion(request.request_id)
+            .validate_host_completion(request.request_id)
             .expect("completion is owned by the non-current initial thread");
         scheduler.commit_host_completion(completion);
         assert_eq!(scheduler.current_thread_id(), SECOND);
         assert_eq!(scheduler.state(INITIAL), Ok(SchedulerThreadState::Runnable));
-        assert_eq!(
-            scheduler
-                .plan_next_executable_selection()
-                .unwrap()
-                .expect("round robin wraps to initial")
-                .next(),
-            INITIAL
-        );
-    }
-
-    #[test]
-    fn lane_plan_is_mutation_free_until_commit() {
-        let mut scheduler = RuntimeScheduler::new(INITIAL);
-        let running = scheduler
-            .plan_current_transition(SchedulerThreadState::Runnable)
-            .unwrap();
-        assert_eq!(
-            scheduler.current_state(),
-            Ok(SchedulerThreadState::Initialized)
-        );
-        scheduler.commit_lane(running);
-        assert_eq!(
-            scheduler.current_state(),
-            Ok(SchedulerThreadState::Runnable)
-        );
-    }
-
-    #[test]
-    fn immediate_wait_roundtrip_commits_one_registration_and_restores_the_lane() {
-        let mut scheduler = RuntimeScheduler::new(INITIAL);
-        let running = scheduler
-            .plan_current_transition(SchedulerThreadState::Runnable)
-            .unwrap();
-        scheduler.commit_lane(running);
-        let handle =
-            RuntimeHandle::from_parts(super::super::RuntimeObjectKind::WaitableTimer, 1, 7)
-                .unwrap();
-        let before_plan = scheduler.clone();
-        let plan = scheduler
-            .plan_immediate_wait(INITIAL, RuntimeObjectId(7), handle, 100_000, true)
-            .unwrap();
-        let registration = plan.registration();
-        assert_eq!(scheduler, before_plan);
-        assert_eq!(registration.id, RuntimeWaitRegistrationId(1));
-        assert_eq!(registration.thread_id, INITIAL);
-        assert_eq!(registration.object_id, RuntimeObjectId(7));
-        assert_eq!(registration.handle, handle);
-        assert_eq!(registration.timeout_deadline_time_100ns, Some(100_000));
-        assert!(registration.alertable);
-        scheduler.preflight_immediate_wait(&plan).unwrap();
-
-        assert_eq!(scheduler.commit_immediate_wait_begin(plan), registration);
-        assert_eq!(
-            scheduler.state(INITIAL),
-            Ok(SchedulerThreadState::WaitingObject {
-                registration_id: RuntimeWaitRegistrationId(1),
-                object_id: RuntimeObjectId(7),
-            })
-        );
-        assert_eq!(
-            scheduler.wait_registrations().get(&registration.id),
-            Some(&registration)
-        );
-        assert_eq!(
-            serde_json::to_value(&scheduler).unwrap()["waitRegistrations"]["1"],
-            serde_json::json!({
-                "id": 1,
-                "threadId": 8192,
-                "objectId": 7,
-                "handle": handle.0,
-                "timeoutDeadlineTime100ns": 100_000,
-                "alertable": true,
-            })
-        );
-
-        assert_eq!(scheduler.commit_immediate_wait_complete(plan), registration);
-        assert_eq!(scheduler.state(INITIAL), Ok(SchedulerThreadState::Runnable));
-        assert!(scheduler.wait_registrations().is_empty());
-        assert!(scheduler.object_waiters().is_empty());
-        assert_eq!(scheduler.next_wait_registration_id(), 2);
-        let before_stale = scheduler.clone();
-        assert_eq!(
-            scheduler.preflight_immediate_wait(&plan).unwrap_err().code,
-            "wait-registration-plan-stale"
-        );
-        assert_eq!(scheduler, before_stale);
     }
 
     #[test]
     fn event_queue_preserves_fifo_and_thread_identity() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
-        scheduler.commit_event(RuntimeSchedulerEvent::MessageReady(RuntimeMessageWake {
-            thread_id: INITIAL,
-            message_id: super::super::RuntimeMessageId(1),
-            queue_depth: 1,
-        }));
+        scheduler.commit_event(RuntimeSchedulerEvent::MessageReady(INITIAL));
         assert_eq!(scheduler.event_count_for_thread(INITIAL), 1);
         assert!(matches!(
             scheduler.pop_event(),
@@ -1228,30 +756,12 @@ mod tests {
     }
 
     #[test]
-    fn serialization_preserves_the_existing_scheduler_shape() {
-        let scheduler = RuntimeScheduler::new(INITIAL);
-        assert_eq!(
-            serde_json::to_value(scheduler).unwrap(),
-            serde_json::json!({
-                "currentThreadId": 8192,
-                "threads": {"8192": {"state": "initialized"}},
-                "waitRegistrations": {},
-                "objectWaiters": {},
-                "events": [],
-            })
-        );
-    }
-
-    #[test]
     fn host_request_plans_do_not_mutate_and_completion_commits_one_event() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
-        let running = scheduler
-            .plan_current_transition(SchedulerThreadState::Runnable)
-            .unwrap();
-        scheduler.commit_lane(running);
+        scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
 
         let start = scheduler
-            .plan_host_request("browser.storage.read".to_owned())
+            .checked_host_request("browser.storage.read".to_owned())
             .unwrap();
         assert_eq!(
             scheduler.current_state(),
@@ -1259,7 +769,7 @@ mod tests {
         );
         assert!(scheduler.host_requests().is_empty());
         assert_eq!(scheduler.next_host_request_id(), 1);
-        let request = scheduler.commit_host_request(start);
+        let request = scheduler.publish_host_request(start);
         assert_eq!(request.request_id, 1);
         assert_eq!(scheduler.host_requests().get(&1), Some(&request));
         assert_eq!(scheduler.next_host_request_id(), 2);
@@ -1268,17 +778,18 @@ mod tests {
             Ok(SchedulerThreadState::WaitingHost { request_id: 1 })
         );
 
-        let before_unknown = scheduler.clone();
+        assert!(scheduler.validate_host_completion(2).is_err());
+        assert_eq!(scheduler.host_requests().len(), 1);
+        assert_eq!(scheduler.host_requests().get(&1), Some(&request));
+        assert_eq!(scheduler.next_host_request_id(), 2);
+        assert_eq!(scheduler.current_thread_id(), INITIAL);
         assert_eq!(
-            scheduler
-                .plan_host_completion(2)
-                .expect_err("unknown completion must not mutate")
-                .code,
-            "host-request-id-unknown"
+            scheduler.current_state().unwrap(),
+            SchedulerThreadState::WaitingHost { request_id: 1 }
         );
-        assert_eq!(scheduler, before_unknown);
+        assert!(scheduler.events().is_empty());
 
-        let completion = scheduler.plan_host_completion(1).unwrap();
+        let completion = scheduler.validate_host_completion(1).unwrap();
         assert_eq!(scheduler.host_requests().get(&1), Some(&request));
         assert!(scheduler.events().is_empty());
         let completion = scheduler.commit_host_completion(completion);
@@ -1295,33 +806,61 @@ mod tests {
     }
 
     #[test]
-    fn host_request_cancellation_plan_is_thread_scoped_and_mutation_free() {
+    fn consumed_media_completion_preserves_unrelated_host_and_message_events() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
-        let initial_running = scheduler
-            .plan_current_transition(SchedulerThreadState::Runnable)
+        scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
+        scheduler.register(SECOND, SchedulerThreadState::Runnable);
+        let request = scheduler
+            .checked_host_request("browser.sleep".to_owned())
             .unwrap();
-        scheduler.commit_lane(initial_running);
-        let second_registration = scheduler
-            .plan_registration(SECOND, SchedulerThreadState::Runnable)
+        let request = scheduler.publish_host_request(request);
+        let sleep = scheduler.commit_host_completion(request);
+        scheduler.commit_event(RuntimeSchedulerEvent::MessageReady(INITIAL));
+        scheduler.select_thread(SECOND).unwrap();
+        let request = scheduler
+            .checked_host_request("browser.media".to_owned())
             .unwrap();
-        scheduler.commit_lane(second_registration);
+        let request = scheduler.publish_host_request(request);
+        let request = scheduler
+            .validate_host_completion(request.request_id)
+            .unwrap();
+        let media = scheduler.commit_consumed_host_completion(request);
+        assert_eq!(media.thread_id, SECOND);
+        assert_eq!(
+            scheduler.state(SECOND).unwrap(),
+            SchedulerThreadState::Runnable
+        );
+        assert_eq!(
+            scheduler.pop_event(),
+            Some(RuntimeSchedulerEvent::HostCompleted(sleep))
+        );
+        assert_eq!(
+            scheduler.pop_event(),
+            Some(RuntimeSchedulerEvent::MessageReady(INITIAL))
+        );
+        assert_eq!(scheduler.pop_event(), None);
+    }
+
+    #[test]
+    fn host_request_cancellation_preserves_other_thread_requests() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
+        scheduler.validate_registration(SECOND).unwrap();
+        scheduler.register(SECOND, SchedulerThreadState::Runnable);
 
         let initial_request = scheduler
-            .plan_host_request("initial.pending".to_owned())
+            .checked_host_request("initial.pending".to_owned())
             .unwrap();
-        let initial_request = scheduler.commit_host_request(initial_request);
-        let select_second = scheduler.plan_selection(SECOND).unwrap();
-        scheduler.commit_selection(select_second);
+        let initial_request = scheduler.publish_host_request(initial_request);
+        scheduler.select_thread(SECOND).unwrap();
         let second_request = scheduler
-            .plan_host_request("second.pending".to_owned())
+            .checked_host_request("second.pending".to_owned())
             .unwrap();
-        let second_request = scheduler.commit_host_request(second_request);
+        let second_request = scheduler.publish_host_request(second_request);
 
-        let before_plan = scheduler.clone();
-        let cancellation = scheduler.plan_host_request_cancellation(INITIAL);
-        assert_eq!(cancellation.request_count(), 1);
-        assert_eq!(scheduler, before_plan);
-        scheduler.commit_host_request_cancellation(cancellation);
+        let request_ids = scheduler.host_request_ids_for_thread(INITIAL);
+        assert_eq!(request_ids, vec![initial_request.request_id]);
+        scheduler.cancel_host_requests(INITIAL, &request_ids);
         assert!(
             !scheduler
                 .host_requests()

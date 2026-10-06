@@ -1,157 +1,97 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::Serialize;
-
 use super::{
     ProcessAddressAllocationId, RuntimeComObjectId, RuntimeRect, RuntimeStateError,
     RuntimeThreadId, RuntimeWindowId,
 };
 use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
 
-pub const RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE: &str = "vine.logical-graphics-device.v1";
-pub const RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE: &str = "vine.logical-graphics-texture.v1";
-pub const RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE: &str = "vine.logical-graphics-surface.v1";
-pub const RUNTIME_GRAPHICS_VERTEX_BUFFER_ID_NAMESPACE: &str =
-    "vine.logical-graphics-vertex-buffer.v1";
-pub const RUNTIME_BROWSER_RENDERER_ID_NAMESPACE: &str = "vine.browser-renderer-resource.v1";
 pub const RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE: crate::memory::GuestAddress =
-    crate::memory::GuestAddress(0x4400_0000);
-pub const RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE: u64 = 0x0100_0000;
-pub(crate) const RUNTIME_GRAPHICS_RESOURCE_ADDRESS_OWNER: &str = "runtime-graphics-resource";
+    crate::memory::GuestAddress(0x4600_0000);
+// Share the gap after audio and before thread stacks among texels, vertex data
+// and GDI DIBs. Reservation is virtual; committed pages retain memory quotas.
+pub const RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE: u64 = 0x0a00_0000;
 pub const RUNTIME_GRAPHICS_DEVICE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_TEXTURE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT: usize = 16_384;
 pub const RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT: usize = 4_096;
-pub const RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT: usize = 1024 * 1024;
+pub const RUNTIME_GRAPHICS_TEXTURE_LOCK_DISCARD: u32 = 0x0000_2000;
 pub const RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE: u32 = 0x0000_8000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeGraphicsDeviceId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeGraphicsTextureId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeGraphicsSurfaceId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeGraphicsVertexBufferId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
-pub struct RuntimeBrowserRendererResourceId(pub u64);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RuntimeGraphicsFrontend {
-    D3d9,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsCullMode {
     None,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureFilter {
     Linear,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureOperation {
     Modulate,
     SelectArgumentOne,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureArgument {
     Diffuse,
     Texture,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsFlexibleVertexFormat {
     XyzRhwDiffuseTexture1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RuntimeGraphicsPrimitiveTopology {
-    TriangleStrip,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeGraphicsTextureBindings {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub stage_zero: Option<RuntimeGraphicsTextureId>,
 }
 
-impl RuntimeGraphicsTextureBindings {
-    fn is_pristine(&self) -> bool {
-        self.stage_zero.is_none()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsStreamSourceBinding {
     pub vertex_buffer_id: RuntimeGraphicsVertexBufferId,
     pub offset_in_bytes: u32,
     pub stride: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeGraphicsStreamSources {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_zero: Option<RuntimeGraphicsStreamSourceBinding>,
 }
 
-impl RuntimeGraphicsStreamSources {
-    fn is_pristine(&self) -> bool {
-        self.stream_zero.is_none()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone))]
 pub struct RuntimeGraphicsSamplerState {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub min_filter: Option<RuntimeGraphicsTextureFilter>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub mag_filter: Option<RuntimeGraphicsTextureFilter>,
 }
 
-impl RuntimeGraphicsSamplerState {
-    fn is_pristine(&self) -> bool {
-        self.min_filter.is_none() && self.mag_filter.is_none()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone))]
 pub struct RuntimeGraphicsSamplerStates {
-    #[serde(skip_serializing_if = "RuntimeGraphicsSamplerState::is_pristine")]
     pub sampler_zero: RuntimeGraphicsSamplerState,
 }
 
 impl RuntimeGraphicsSamplerStates {
-    fn is_pristine(&self) -> bool {
-        self.sampler_zero.is_pristine()
-    }
-
     fn current_for(
         &self,
         update: RuntimeGraphicsSamplerStateUpdate,
@@ -182,8 +122,7 @@ impl RuntimeGraphicsSamplerStates {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsSamplerStateUpdate {
     MinFilter {
         sampler: u32,
@@ -201,9 +140,7 @@ impl RuntimeGraphicsSamplerStateUpdate {
             Self::MinFilter { sampler, .. } | Self::MagFilter { sampler, .. } => sampler,
         };
         if sampler != 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-sampler-state-sampler-unsupported",
+            return Err(RuntimeStateError::new(
                 "logical sampler-state authority currently supports sampler zero only",
             ));
         }
@@ -211,46 +148,24 @@ impl RuntimeGraphicsSamplerStateUpdate {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone))]
 pub struct RuntimeGraphicsTextureStageState {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub color_operation: Option<RuntimeGraphicsTextureOperation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub color_argument_one: Option<RuntimeGraphicsTextureArgument>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub color_argument_two: Option<RuntimeGraphicsTextureArgument>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub alpha_operation: Option<RuntimeGraphicsTextureOperation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub alpha_argument_one: Option<RuntimeGraphicsTextureArgument>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub alpha_argument_two: Option<RuntimeGraphicsTextureArgument>,
 }
 
-impl RuntimeGraphicsTextureStageState {
-    fn is_pristine(&self) -> bool {
-        self.color_operation.is_none()
-            && self.color_argument_one.is_none()
-            && self.color_argument_two.is_none()
-            && self.alpha_operation.is_none()
-            && self.alpha_argument_one.is_none()
-            && self.alpha_argument_two.is_none()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone))]
 pub struct RuntimeGraphicsTextureStageStates {
-    #[serde(skip_serializing_if = "RuntimeGraphicsTextureStageState::is_pristine")]
     pub stage_zero: RuntimeGraphicsTextureStageState,
 }
 
 impl RuntimeGraphicsTextureStageStates {
-    fn is_pristine(&self) -> bool {
-        self.stage_zero.is_pristine()
-    }
-
     fn current_for(
         &self,
         update: RuntimeGraphicsTextureStageStateUpdate,
@@ -323,8 +238,7 @@ impl RuntimeGraphicsTextureStageStates {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureStageStateUpdate {
     ColorOperation {
         stage: u32,
@@ -363,9 +277,7 @@ impl RuntimeGraphicsTextureStageStateUpdate {
             | Self::AlphaArgumentTwo { stage, .. } => stage,
         };
         if stage != 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-texture-stage-state-stage-unsupported",
+            return Err(RuntimeStateError::new(
                 "logical texture-stage-state authority currently supports stage zero only",
             ));
         }
@@ -373,40 +285,30 @@ impl RuntimeGraphicsTextureStageStateUpdate {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone))]
 pub struct RuntimeGraphicsRenderStates {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub cull_mode: Option<RuntimeGraphicsCullMode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub depth_test_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub lighting_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub alpha_blend_enabled: Option<bool>,
-    #[serde(skip)]
     pub source_blend_factor: Option<RuntimeGraphicsBlendFactor>,
-    #[serde(skip)]
     pub destination_blend_factor: Option<RuntimeGraphicsBlendFactor>,
-    #[serde(skip)]
     pub blend_operation: Option<RuntimeGraphicsBlendOperation>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsBlendFactor {
     SourceAlpha,
     InverseSourceAlpha,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsBlendOperation {
     Add,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsRenderStateUpdate {
     CullMode(RuntimeGraphicsCullMode),
     DepthTestEnabled(bool),
@@ -472,40 +374,34 @@ impl RuntimeGraphicsRenderStates {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsColorFormat {
     B8g8r8x8Unorm,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureUsage {
     None,
     Dynamic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTexturePool {
     Default,
     SystemMemory,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsVertexBufferUsage {
     WriteOnly,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsVertexBufferPool {
     Managed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsTextureDescriptor {
     pub width: u32,
     pub height: u32,
@@ -515,16 +411,14 @@ pub struct RuntimeGraphicsTextureDescriptor {
     pub pool: RuntimeGraphicsTexturePool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", content = "rect", rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureDirtyRegion {
     Clean,
     Rect(RuntimeRect),
     WholeTexture,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsSurfaceDescriptor {
     pub level: u32,
     pub width: u32,
@@ -532,8 +426,7 @@ pub struct RuntimeGraphicsSurfaceDescriptor {
     pub color_format: RuntimeGraphicsColorFormat,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsVertexBufferDescriptor {
     pub byte_length: u32,
     pub usage: RuntimeGraphicsVertexBufferUsage,
@@ -541,16 +434,14 @@ pub struct RuntimeGraphicsVertexBufferDescriptor {
     pub pool: RuntimeGraphicsVertexBufferPool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsVertexBufferBacking {
     pub address_allocation_id: ProcessAddressAllocationId,
     pub memory_owner: MemoryOwnerId,
     pub range: GuestRange,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsTextureBacking {
     pub address_allocation_id: ProcessAddressAllocationId,
     pub memory_owner: MemoryOwnerId,
@@ -558,8 +449,7 @@ pub struct RuntimeGraphicsTextureBacking {
     pub row_pitch: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsTextureLock {
     pub level: u32,
     pub rect: RuntimeRect,
@@ -568,8 +458,7 @@ pub struct RuntimeGraphicsTextureLock {
     pub guest_address: GuestAddress,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsTexturePixelSource {
     pub source_texture_id: RuntimeGraphicsTextureId,
     pub source_content_generation: u64,
@@ -577,127 +466,52 @@ pub struct RuntimeGraphicsTexturePixelSource {
     pub row_pitch: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsVertexBufferLock {
-    pub offset: u32,
-    pub byte_length: u32,
-    pub flags: u32,
-    pub guest_address: GuestAddress,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsSurfaceFill {
-    pub sequence: u64,
     pub rect: RuntimeRect,
     pub color_ref: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsTextureUpdate {
-    pub sequence: u64,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureUpdate {
     pub source_texture_id: RuntimeGraphicsTextureId,
     pub source_content_generation: u64,
-    pub dirty_region: RuntimeGraphicsTextureDirtyRegion,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeGraphicsTextureContent {
     pub content_generation: u64,
     pub fills: Vec<RuntimeGraphicsSurfaceFill>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub pixel_source: Option<RuntimeGraphicsTexturePixelSource>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_update: Option<RuntimeGraphicsTextureUpdate>,
+    pub(crate) last_update: Option<RuntimeGraphicsTextureUpdate>,
 }
 
-impl RuntimeGraphicsTextureContent {
-    fn is_pristine(&self) -> bool {
-        self.content_generation == 0
-            && self.fills.is_empty()
-            && self.pixel_source.is_none()
-            && self.last_update.is_none()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsBackBufferClear {
-    pub sequence: u64,
-    pub rect: RuntimeRect,
-    pub color_argb: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsDrawTextureSnapshot {
-    pub texture_id: RuntimeGraphicsTextureId,
-    pub descriptor: RuntimeGraphicsTextureDescriptor,
-    pub generation: u64,
-    pub content: RuntimeGraphicsTextureContent,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeGraphicsDrawSubmission {
-    pub sequence: u64,
-    pub scene_sequence: u64,
-    pub primitive_topology: RuntimeGraphicsPrimitiveTopology,
-    pub start_vertex: u32,
-    pub primitive_count: u32,
-    pub vertex_count: u32,
-    pub flexible_vertex_format: RuntimeGraphicsFlexibleVertexFormat,
-    pub stream_source: RuntimeGraphicsStreamSourceBinding,
-    pub vertex_buffer_content_generation: u64,
     pub vertex_data: Vec<u8>,
-    pub render_states: RuntimeGraphicsRenderStates,
-    pub sampler_states: RuntimeGraphicsSamplerStates,
-    pub texture_stage_states: RuntimeGraphicsTextureStageStates,
-    pub texture: RuntimeGraphicsDrawTextureSnapshot,
+    pub texture_data: Vec<u8>,
+
+    pub texture_width: u32,
+    pub texture_height: u32,
+    pub texture_fills: Vec<RuntimeGraphicsSurfaceFill>,
+    pub texture_pitch: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeGraphicsBackBuffer {
-    pub content_generation: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub uniform_clear: Option<RuntimeGraphicsBackBufferClear>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub clear_color: Option<u32>,
     pub draw_submissions: Vec<RuntimeGraphicsDrawSubmission>,
 }
 
-impl RuntimeGraphicsBackBuffer {
-    fn is_pristine(&self) -> bool {
-        self.content_generation == 0
-            && self.uniform_clear.is_none()
-            && self.draw_submissions.is_empty()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsScene {
-    pub sequence: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsPresentedFrame {
-    pub sequence: u64,
-    pub back_buffer: RuntimeGraphicsBackBuffer,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsPresentMode {
     Discard,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGraphicsPresentation {
     pub width: u32,
     pub height: u32,
@@ -708,95 +522,56 @@ pub struct RuntimeGraphicsPresentation {
     pub windowed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RuntimeGraphicsRendererOwnership {
-    NonOwning,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsRendererAssociation {
-    pub namespace: String,
-    pub resource_id: RuntimeBrowserRendererResourceId,
-    pub ownership: RuntimeGraphicsRendererOwnership,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsDevice {
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+pub(crate) struct RuntimeGraphicsDevice {
     pub id: RuntimeGraphicsDeviceId,
-    pub namespace: String,
-    pub frontend: RuntimeGraphicsFrontend,
-    pub window_id: RuntimeWindowId,
-    pub window_handle: u32,
-    pub owner_thread_id: RuntimeThreadId,
+
     pub presentation: RuntimeGraphicsPresentation,
     pub com_object_id: RuntimeComObjectId,
     pub render_states: RuntimeGraphicsRenderStates,
-    #[serde(skip_serializing_if = "RuntimeGraphicsSamplerStates::is_pristine")]
     pub sampler_states: RuntimeGraphicsSamplerStates,
-    #[serde(skip_serializing_if = "RuntimeGraphicsTextureStageStates::is_pristine")]
     pub texture_stage_states: RuntimeGraphicsTextureStageStates,
-    #[serde(skip_serializing_if = "RuntimeGraphicsTextureBindings::is_pristine")]
     pub texture_bindings: RuntimeGraphicsTextureBindings,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub flexible_vertex_format: Option<RuntimeGraphicsFlexibleVertexFormat>,
-    #[serde(skip_serializing_if = "RuntimeGraphicsStreamSources::is_pristine")]
     pub stream_sources: RuntimeGraphicsStreamSources,
-    #[serde(skip_serializing_if = "RuntimeGraphicsBackBuffer::is_pristine")]
     pub back_buffer: RuntimeGraphicsBackBuffer,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_scene: Option<RuntimeGraphicsScene>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub presented_frame: Option<RuntimeGraphicsPresentedFrame>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub renderer: Option<RuntimeGraphicsRendererAssociation>,
-    pub generation: u64,
+    pub scene_active: bool,
+    pub presented_frame: Option<RuntimeGraphicsBackBuffer>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsTexture {
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+pub(crate) struct RuntimeGraphicsTexture {
     pub id: RuntimeGraphicsTextureId,
-    pub namespace: String,
     pub device_id: RuntimeGraphicsDeviceId,
     pub descriptor: RuntimeGraphicsTextureDescriptor,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub backing: Option<RuntimeGraphicsTextureBacking>,
     pub com_object_id: RuntimeComObjectId,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub active_lock: Option<RuntimeGraphicsTextureLock>,
     pub dirty_region: RuntimeGraphicsTextureDirtyRegion,
-    #[serde(skip_serializing_if = "RuntimeGraphicsTextureContent::is_pristine")]
     pub content: RuntimeGraphicsTextureContent,
-    pub generation: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsSurface {
-    pub id: RuntimeGraphicsSurfaceId,
-    pub namespace: String,
-    pub texture_id: RuntimeGraphicsTextureId,
-    pub descriptor: RuntimeGraphicsSurfaceDescriptor,
-    pub com_object_id: RuntimeComObjectId,
-    pub generation: u64,
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+pub(crate) struct RuntimeGraphicsSurface {
+    pub(crate) id: RuntimeGraphicsSurfaceId,
+    texture_id: RuntimeGraphicsTextureId,
+    pub(crate) descriptor: RuntimeGraphicsSurfaceDescriptor,
+    pub(crate) com_object_id: RuntimeComObjectId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsVertexBuffer {
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+pub(crate) struct RuntimeGraphicsVertexBuffer {
     pub id: RuntimeGraphicsVertexBufferId,
-    pub namespace: String,
     pub device_id: RuntimeGraphicsDeviceId,
     pub descriptor: RuntimeGraphicsVertexBufferDescriptor,
     pub backing: RuntimeGraphicsVertexBufferBacking,
     pub com_object_id: RuntimeComObjectId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_lock: Option<RuntimeGraphicsVertexBufferLock>,
-    pub content_generation: u64,
-    pub generation: u64,
+    pub locked: bool,
+    pub initialized: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -809,798 +584,68 @@ pub(super) struct RuntimeGraphicsWindowTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsDeviceCreateRequest {
-    pub frontend: RuntimeGraphicsFrontend,
-    pub window_handle: u32,
-    pub color_format: RuntimeGraphicsColorFormat,
-    pub back_buffer_count: u32,
-    pub sample_count: u32,
-    pub present_mode: RuntimeGraphicsPresentMode,
-    pub windowed: bool,
+pub(crate) struct RuntimeGraphicsDeviceCreationRequest {
+    pub(super) target: RuntimeGraphicsWindowTarget,
+    pub(super) color_format: RuntimeGraphicsColorFormat,
+    pub(super) back_buffer_count: u32,
+    pub(super) sample_count: u32,
+    pub(super) present_mode: RuntimeGraphicsPresentMode,
+    pub(super) windowed: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsRenderStateUpdateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub update: RuntimeGraphicsRenderStateUpdate,
-}
+#[derive(Debug)]
+struct RuntimeGraphicsDrawResolvedState<'a> {
+    vertex_memory_owner: MemoryOwnerId,
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSamplerStateUpdateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub update: RuntimeGraphicsSamplerStateUpdate,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureStageStateUpdateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub update: RuntimeGraphicsTextureStageStateUpdate,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureBindingUpdateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub stage: u32,
-    pub texture_com_object_id: Option<RuntimeComObjectId>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub format: RuntimeGraphicsFlexibleVertexFormat,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsStreamSourceUpdateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub stream: u32,
-    pub vertex_buffer_com_object_id: RuntimeComObjectId,
-    pub offset_in_bytes: u32,
-    pub stride: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsBackBufferClearRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub color_argb: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsDrawCaptureRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub primitive_topology: RuntimeGraphicsPrimitiveTopology,
-    pub start_vertex: u32,
-    pub primitive_count: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSceneBeginRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSceneEndRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsPresentRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureCreateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub descriptor: RuntimeGraphicsTextureDescriptor,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureLockRequest {
-    pub texture_com_object_id: RuntimeComObjectId,
-    pub level: u32,
-    pub rect: RuntimeRect,
-    pub flags: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureDirtyRegionMarkRequest {
-    pub texture_com_object_id: RuntimeComObjectId,
-    pub rect: Option<RuntimeRect>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureUpdateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub source_texture_com_object_id: RuntimeComObjectId,
-    pub destination_texture_com_object_id: RuntimeComObjectId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSurfaceCreateRequest {
-    pub texture_com_object_id: RuntimeComObjectId,
-    pub level: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSurfaceFillRequest {
-    pub surface_com_object_id: RuntimeComObjectId,
-    pub rect: RuntimeRect,
-    pub color_ref: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsVertexBufferCreateRequest {
-    pub device_com_object_id: RuntimeComObjectId,
-    pub descriptor: RuntimeGraphicsVertexBufferDescriptor,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsVertexBufferLockRequest {
-    pub vertex_buffer_com_object_id: RuntimeComObjectId,
-    pub offset: u32,
-    pub byte_length: u32,
-    pub flags: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeGraphicsDeviceCreationRequest {
-    pub frontend: RuntimeGraphicsFrontend,
-    pub target: RuntimeGraphicsWindowTarget,
-    pub color_format: RuntimeGraphicsColorFormat,
-    pub back_buffer_count: u32,
-    pub sample_count: u32,
-    pub present_mode: RuntimeGraphicsPresentMode,
-    pub windowed: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsDeviceCreationPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    id: RuntimeGraphicsDeviceId,
-    request: RuntimeGraphicsDeviceCreationRequest,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsRenderStateUpdatePlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    previous: Option<RuntimeGraphicsRenderStateUpdate>,
-    update: RuntimeGraphicsRenderStateUpdate,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSamplerStateUpdatePlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    previous: Option<RuntimeGraphicsSamplerStateUpdate>,
-    update: RuntimeGraphicsSamplerStateUpdate,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureStageStateUpdatePlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    previous: Option<RuntimeGraphicsTextureStageStateUpdate>,
-    update: RuntimeGraphicsTextureStageStateUpdate,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureBindingUpdatePlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    previous_texture_id: Option<RuntimeGraphicsTextureId>,
-    texture_id: Option<RuntimeGraphicsTextureId>,
-    request: RuntimeGraphicsTextureBindingUpdateRequest,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsFlexibleVertexFormatUpdatePlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    previous: Option<RuntimeGraphicsFlexibleVertexFormat>,
-    format: RuntimeGraphicsFlexibleVertexFormat,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsStreamSourceUpdatePlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    previous: Option<RuntimeGraphicsStreamSourceBinding>,
-    binding: RuntimeGraphicsStreamSourceBinding,
-    request: RuntimeGraphicsStreamSourceUpdateRequest,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsBackBufferClearPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    content_generation: u64,
-    next_content_generation: u64,
-    previous_uniform_clear: Option<RuntimeGraphicsBackBufferClear>,
-    previous_draw_submission_count: usize,
-    previous_draw_vertex_bytes: usize,
-    clear: RuntimeGraphicsBackBufferClear,
-    next_clear_sequence: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsDrawCapturePlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    content_generation: u64,
-    next_content_generation: u64,
-    expected_draw_submission_count: usize,
-    expected_draw_vertex_bytes: usize,
-    next_draw_sequence: u64,
-    vertex_buffer_id: RuntimeGraphicsVertexBufferId,
-    vertex_buffer_generation: u64,
-    texture_id: RuntimeGraphicsTextureId,
-    texture_generation: u64,
     vertex_range: GuestRange,
-    submission: RuntimeGraphicsDrawSubmission,
+
+    texture: &'a RuntimeGraphicsTexture,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RuntimeGraphicsDrawResolvedState {
-    scene: RuntimeGraphicsScene,
-    flexible_vertex_format: RuntimeGraphicsFlexibleVertexFormat,
-    stream_source: RuntimeGraphicsStreamSourceBinding,
-    vertex_buffer_id: RuntimeGraphicsVertexBufferId,
-    vertex_buffer_generation: u64,
-    vertex_buffer_content_generation: u64,
-    vertex_range: GuestRange,
-    render_states: RuntimeGraphicsRenderStates,
-    sampler_states: RuntimeGraphicsSamplerStates,
-    texture_stage_states: RuntimeGraphicsTextureStageStates,
-    texture: RuntimeGraphicsDrawTextureSnapshot,
-}
-
-impl RuntimeGraphicsDrawCapturePlan {
-    pub(crate) fn vertex_range(&self) -> GuestRange {
-        self.vertex_range
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsDrawSubmissionPlan {
-    capture: RuntimeGraphicsDrawCapturePlan,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSceneBeginPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    scene: RuntimeGraphicsScene,
-    next_scene_sequence: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSceneEndPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    scene: RuntimeGraphicsScene,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsPresentPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    device_generation: u64,
-    next_device_generation: u64,
-    next_back_buffer_content_generation: u64,
-    previous_presented_frame: Option<RuntimeGraphicsPresentedFrame>,
-    frame: RuntimeGraphicsPresentedFrame,
-    next_present_sequence: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureCreationPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    id: RuntimeGraphicsTextureId,
-    device_id: RuntimeGraphicsDeviceId,
-    request: RuntimeGraphicsTextureCreateRequest,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureBackingPlan {
-    pub address_allocation_id: ProcessAddressAllocationId,
-    pub range: GuestRange,
-    pub row_pitch: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureLockPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    texture_id: RuntimeGraphicsTextureId,
-    texture_generation: u64,
-    next_texture_generation: u64,
-    previous_backing: Option<RuntimeGraphicsTextureBacking>,
-    backing_installation: Option<RuntimeGraphicsTextureBackingPlan>,
-    lock: RuntimeGraphicsTextureLock,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureUnlockPlan {
-    expected_generation: u64,
-    texture_id: RuntimeGraphicsTextureId,
-    texture_generation: u64,
-    mutation: Option<RuntimeGraphicsTextureUnlockMutationPlan>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RuntimeGraphicsTextureUnlockMutationPlan {
-    next_generation: u64,
-    next_texture_generation: u64,
-    content_generation: u64,
-    next_content_generation: u64,
-    lock: RuntimeGraphicsTextureLock,
-    pixel_source: RuntimeGraphicsTexturePixelSource,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureDirtyRegionMarkPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    texture_id: RuntimeGraphicsTextureId,
-    texture_generation: u64,
-    next_texture_generation: u64,
-    previous_dirty_region: RuntimeGraphicsTextureDirtyRegion,
-    dirty_region: RuntimeGraphicsTextureDirtyRegion,
-    request: RuntimeGraphicsTextureDirtyRegionMarkRequest,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsTextureUpdatePlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_id: RuntimeGraphicsDeviceId,
-    source_texture_id: RuntimeGraphicsTextureId,
-    source_texture_generation: u64,
-    next_source_texture_generation: u64,
-    source_dirty_region: RuntimeGraphicsTextureDirtyRegion,
-    source_content_generation: u64,
-    destination_texture_id: RuntimeGraphicsTextureId,
-    destination_texture_generation: u64,
-    next_destination_texture_generation: u64,
-    destination_content_generation: u64,
-    next_destination_content_generation: u64,
-    destination_fills: Vec<RuntimeGraphicsSurfaceFill>,
-    destination_pixel_source: Option<RuntimeGraphicsTexturePixelSource>,
-    update: Option<RuntimeGraphicsTextureUpdate>,
-    next_update_sequence: u64,
-    request: RuntimeGraphicsTextureUpdateRequest,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSurfaceCreationPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    id: RuntimeGraphicsSurfaceId,
-    texture_id: RuntimeGraphicsTextureId,
-    request: RuntimeGraphicsSurfaceCreateRequest,
-    descriptor: RuntimeGraphicsSurfaceDescriptor,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsSurfaceFillPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    surface_id: RuntimeGraphicsSurfaceId,
-    surface_generation: u64,
-    texture_id: RuntimeGraphicsTextureId,
-    texture_generation: u64,
-    next_texture_generation: u64,
-    texture_dirty_region: RuntimeGraphicsTextureDirtyRegion,
-    next_texture_dirty_region: RuntimeGraphicsTextureDirtyRegion,
-    texture_content_generation: u64,
-    next_texture_content_generation: u64,
-    fill: Option<RuntimeGraphicsSurfaceFill>,
-    next_fill_sequence: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsVertexBufferCreationPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    id: RuntimeGraphicsVertexBufferId,
-    device_id: RuntimeGraphicsDeviceId,
-    request: RuntimeGraphicsVertexBufferCreateRequest,
-    address_allocation_id: ProcessAddressAllocationId,
-    backing_range: GuestRange,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsVertexBufferLockPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    vertex_buffer_id: RuntimeGraphicsVertexBufferId,
-    vertex_buffer_generation: u64,
-    next_vertex_buffer_generation: u64,
-    lock: RuntimeGraphicsVertexBufferLock,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsVertexBufferUnlockPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    vertex_buffer_id: RuntimeGraphicsVertexBufferId,
-    vertex_buffer_generation: u64,
-    next_vertex_buffer_generation: u64,
-    content_generation: u64,
-    next_content_generation: u64,
-    lock: RuntimeGraphicsVertexBufferLock,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsVertexBufferUnlockResult {
-    pub vertex_buffer_id: RuntimeGraphicsVertexBufferId,
-    pub generation: u64,
-    pub content_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsRenderStateUpdateResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub update: RuntimeGraphicsRenderStateUpdate,
-    pub changed: bool,
-    pub device_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsSamplerStateUpdateResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub update: RuntimeGraphicsSamplerStateUpdate,
-    pub changed: bool,
-    pub device_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsTextureStageStateUpdateResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub update: RuntimeGraphicsTextureStageStateUpdate,
-    pub changed: bool,
-    pub device_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsTextureBindingUpdateResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub stage: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub texture_id: Option<RuntimeGraphicsTextureId>,
-    pub changed: bool,
-    pub device_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsFlexibleVertexFormatUpdateResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub format: RuntimeGraphicsFlexibleVertexFormat,
-    pub changed: bool,
-    pub device_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsStreamSourceUpdateResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub stream: u32,
-    pub binding: RuntimeGraphicsStreamSourceBinding,
-    pub changed: bool,
-    pub device_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsBackBufferClearResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub device_generation: u64,
-    pub content_generation: u64,
-    pub clear: RuntimeGraphicsBackBufferClear,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsDrawSubmissionResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub device_generation: u64,
-    pub content_generation: u64,
-    pub submission: RuntimeGraphicsDrawSubmission,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsSceneBeginResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub device_generation: u64,
-    pub scene: RuntimeGraphicsScene,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsSceneEndResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub device_generation: u64,
-    pub scene: RuntimeGraphicsScene,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsPresentResult {
-    pub device_id: RuntimeGraphicsDeviceId,
-    pub device_generation: u64,
-    pub frame: RuntimeGraphicsPresentedFrame,
-    pub next_back_buffer_content_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsTextureDirtyRegionMarkResult {
-    pub texture_id: RuntimeGraphicsTextureId,
-    pub dirty_region: RuntimeGraphicsTextureDirtyRegion,
-    pub changed: bool,
-    pub texture_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsTextureUpdateResult {
-    pub source_texture_id: RuntimeGraphicsTextureId,
-    pub destination_texture_id: RuntimeGraphicsTextureId,
-    pub transferred: bool,
-    pub source_texture_generation: u64,
-    pub destination_texture_generation: u64,
-    pub destination_content_generation: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub update: Option<RuntimeGraphicsTextureUpdate>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsTextureUnlockResult {
-    pub texture_id: RuntimeGraphicsTextureId,
-    pub generation: u64,
-    pub content_generation: u64,
-    pub changed: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pixel_source: Option<RuntimeGraphicsTexturePixelSource>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGraphicsSurfaceFillResult {
-    pub surface_id: RuntimeGraphicsSurfaceId,
-    pub texture_id: RuntimeGraphicsTextureId,
-    pub texture_generation: u64,
-    pub content_generation: u64,
-    pub dirty_region: RuntimeGraphicsTextureDirtyRegion,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fill: Option<RuntimeGraphicsSurfaceFill>,
-}
-
-impl RuntimeGraphicsSurfaceCreationPlan {
-    pub(crate) fn id(&self) -> RuntimeGraphicsSurfaceId {
-        self.id
-    }
-
-    pub(crate) fn texture_id(&self) -> RuntimeGraphicsTextureId {
-        self.texture_id
-    }
-
-    pub(crate) fn descriptor(&self) -> RuntimeGraphicsSurfaceDescriptor {
-        self.descriptor
-    }
-}
-
-impl RuntimeGraphicsTextureCreationPlan {
-    pub(crate) fn id(&self) -> RuntimeGraphicsTextureId {
-        self.id
-    }
-
-    pub(crate) fn device_id(&self) -> RuntimeGraphicsDeviceId {
-        self.device_id
-    }
-
-    pub(crate) fn descriptor(&self) -> RuntimeGraphicsTextureDescriptor {
-        self.request.descriptor
-    }
-}
-
-impl RuntimeGraphicsTextureLockPlan {
-    pub(crate) fn texture_id(&self) -> RuntimeGraphicsTextureId {
-        self.texture_id
-    }
-
-    pub(crate) fn backing_installation(&self) -> Option<RuntimeGraphicsTextureBackingPlan> {
-        self.backing_installation
-    }
-
-    pub(crate) fn lock(&self) -> RuntimeGraphicsTextureLock {
-        self.lock
-    }
-}
-
-impl RuntimeGraphicsTextureUnlockPlan {
-    pub(crate) fn texture_id(&self) -> RuntimeGraphicsTextureId {
-        self.texture_id
-    }
-
-    pub(crate) fn changes_content(&self) -> bool {
-        self.mutation.is_some()
-    }
-}
-
-impl RuntimeGraphicsVertexBufferCreationPlan {
-    pub(crate) fn descriptor(&self) -> RuntimeGraphicsVertexBufferDescriptor {
-        self.request.descriptor
-    }
-
-    pub(crate) fn address_allocation_id(&self) -> ProcessAddressAllocationId {
-        self.address_allocation_id
-    }
-
-    pub(crate) fn backing_range(&self) -> GuestRange {
-        self.backing_range
-    }
-}
-
-impl RuntimeGraphicsVertexBufferLockPlan {
-    pub(crate) fn vertex_buffer_id(&self) -> RuntimeGraphicsVertexBufferId {
-        self.vertex_buffer_id
-    }
-
-    pub(crate) fn lock(&self) -> RuntimeGraphicsVertexBufferLock {
-        self.lock
-    }
-}
-
-impl RuntimeGraphicsVertexBufferUnlockPlan {
-    pub(crate) fn vertex_buffer_id(&self) -> RuntimeGraphicsVertexBufferId {
-        self.vertex_buffer_id
-    }
-}
-
-impl RuntimeGraphicsDeviceCreationPlan {
-    pub(crate) fn id(&self) -> RuntimeGraphicsDeviceId {
-        self.id
-    }
-
+impl RuntimeGraphicsDeviceCreationRequest {
     pub(crate) fn presentation(&self) -> RuntimeGraphicsPresentation {
         RuntimeGraphicsPresentation {
-            width: self.request.target.client_width,
-            height: self.request.target.client_height,
-            color_format: self.request.color_format,
-            back_buffer_count: self.request.back_buffer_count,
-            sample_count: self.request.sample_count,
-            present_mode: self.request.present_mode,
-            windowed: self.request.windowed,
+            width: self.target.client_width,
+            height: self.target.client_height,
+            color_format: self.color_format,
+            back_buffer_count: self.back_buffer_count,
+            sample_count: self.sample_count,
+            present_mode: self.present_mode,
+            windowed: self.windowed,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGraphicsComRetirementPlan {
-    expected_generation: u64,
-    next_generation: u64,
+// Validated cleanup targets consumed synchronously after the root's memory transaction.
+#[derive(Debug)]
+pub(crate) struct RuntimeGraphicsComRetirement {
     device_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsDeviceId)>,
     texture_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsTextureId)>,
     surface_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsSurfaceId)>,
     vertex_buffer_associations: Vec<(RuntimeComObjectId, RuntimeGraphicsVertexBufferId)>,
-    texture_binding_clearances: Vec<RuntimeGraphicsTextureBindingClearance>,
-    stream_source_clearances: Vec<RuntimeGraphicsStreamSourceClearance>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RuntimeGraphicsTextureBindingClearance {
-    device_id: RuntimeGraphicsDeviceId,
-    texture_id: RuntimeGraphicsTextureId,
-    device_generation: u64,
-    next_device_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RuntimeGraphicsStreamSourceClearance {
-    device_id: RuntimeGraphicsDeviceId,
-    binding: RuntimeGraphicsStreamSourceBinding,
-    device_generation: u64,
-    next_device_generation: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeGraphicsTeardownPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    devices: usize,
-    textures: usize,
-    surfaces: usize,
-    vertex_buffers: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub(super) struct RuntimeGraphics {
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     devices: BTreeMap<RuntimeGraphicsDeviceId, RuntimeGraphicsDevice>,
-    #[serde(skip)]
     device_com_object_index: BTreeMap<RuntimeComObjectId, RuntimeGraphicsDeviceId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     textures: BTreeMap<RuntimeGraphicsTextureId, RuntimeGraphicsTexture>,
-    #[serde(skip)]
     texture_com_object_index: BTreeMap<RuntimeComObjectId, RuntimeGraphicsTextureId>,
-    #[serde(skip)]
     device_texture_index: BTreeMap<RuntimeGraphicsDeviceId, BTreeSet<RuntimeGraphicsTextureId>>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     surfaces: BTreeMap<RuntimeGraphicsSurfaceId, RuntimeGraphicsSurface>,
-    #[serde(skip)]
     surface_com_object_index: BTreeMap<RuntimeComObjectId, RuntimeGraphicsSurfaceId>,
-    #[serde(skip)]
     texture_surface_index: BTreeMap<RuntimeGraphicsTextureId, BTreeSet<RuntimeGraphicsSurfaceId>>,
-    #[serde(skip)]
     texture_level_surface_index:
         BTreeMap<(RuntimeGraphicsTextureId, u32), RuntimeGraphicsSurfaceId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     vertex_buffers: BTreeMap<RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBuffer>,
-    #[serde(skip)]
     vertex_buffer_com_object_index: BTreeMap<RuntimeComObjectId, RuntimeGraphicsVertexBufferId>,
-    #[serde(skip)]
     device_vertex_buffer_index:
         BTreeMap<RuntimeGraphicsDeviceId, BTreeSet<RuntimeGraphicsVertexBufferId>>,
     next_device_id: u64,
     next_texture_id: u64,
     next_surface_id: u64,
     next_vertex_buffer_id: u64,
-    next_surface_fill_sequence: u64,
-    #[serde(skip_serializing_if = "is_initial_sequence")]
-    next_texture_update_sequence: u64,
-    #[serde(skip_serializing_if = "is_initial_sequence")]
-    next_back_buffer_clear_sequence: u64,
-    #[serde(skip_serializing_if = "is_initial_sequence")]
-    next_scene_sequence: u64,
-    #[serde(skip_serializing_if = "is_initial_sequence")]
-    next_draw_sequence: u64,
-    #[serde(skip_serializing_if = "is_initial_sequence")]
-    next_present_sequence: u64,
-    generation: u64,
 }
 
 impl Default for RuntimeGraphics {
@@ -1622,66 +667,43 @@ impl Default for RuntimeGraphics {
             next_texture_id: 1,
             next_surface_id: 1,
             next_vertex_buffer_id: 1,
-            next_surface_fill_sequence: 1,
-            next_texture_update_sequence: 1,
-            next_back_buffer_clear_sequence: 1,
-            next_scene_sequence: 1,
-            next_draw_sequence: 1,
-            next_present_sequence: 1,
-            generation: 0,
         }
     }
 }
 
 impl RuntimeGraphics {
-    pub(super) fn plan_device_creation(
+    pub(super) fn validate_device_creation(
         &self,
         request: RuntimeGraphicsDeviceCreationRequest,
-    ) -> Result<RuntimeGraphicsDeviceCreationPlan, RuntimeStateError> {
-        validate_creation_request(request)?;
+    ) -> Result<Option<RuntimeGraphicsDeviceCreationRequest>, RuntimeStateError> {
+        if !valid_creation_request(request) {
+            return Ok(None);
+        }
         if self.devices.len() >= RUNTIME_GRAPHICS_DEVICE_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-device-capacity-reached",
+            return Err(RuntimeStateError::new(
                 "logical graphics device capacity is exhausted",
             ));
         }
         let id = RuntimeGraphicsDeviceId(self.next_device_id);
         if id.0 == 0 || self.devices.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-device-id-collision",
+            return Err(RuntimeStateError::new(
                 "logical graphics device allocator selected a live identity",
             ));
         }
-        Ok(RuntimeGraphicsDeviceCreationPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            id,
-            request,
-        })
+        id.0.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::new("logical graphics device identity space is exhausted")
+        })?;
+
+        Ok(Some(request))
     }
 
-    pub(super) fn preflight_device_creation(
-        &self,
-        plan: &RuntimeGraphicsDeviceCreationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.next_device_id != plan.id.0
-            || self.devices.len() >= RUNTIME_GRAPHICS_DEVICE_LIMIT
-            || self.devices.contains_key(&plan.id)
-        {
-            return Err(stale_plan("graphics-device-creation-plan-stale"));
-        }
-        validate_creation_request(plan.request)
-    }
-
-    pub(super) fn commit_device_creation(
+    // The caller validates creation before COM/guest-output publication. Those operations
+    // do not mutate graphics, so no allocator snapshot or stale-plan check is needed.
+    pub(super) fn insert_device(
         &mut self,
-        plan: RuntimeGraphicsDeviceCreationPlan,
+        request: RuntimeGraphicsDeviceCreationRequest,
         com_object_id: RuntimeComObjectId,
-    ) -> RuntimeGraphicsDevice {
-        debug_assert!(self.preflight_device_creation(&plan).is_ok());
+    ) -> RuntimeGraphicsDeviceId {
         debug_assert_ne!(com_object_id.0, 0);
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
@@ -1691,19 +713,14 @@ impl RuntimeGraphics {
                 .vertex_buffer_com_object_index
                 .contains_key(&com_object_id)
         );
-        let next_device_id = plan
-            .id
-            .0
+        let next_device_id = self
+            .next_device_id
             .checked_add(1)
-            .expect("preflighted graphics device ID must advance");
-        let presentation = plan.presentation();
+            .expect("device identity validated before publication");
+        let presentation = request.presentation();
         let device = RuntimeGraphicsDevice {
-            id: plan.id,
-            namespace: RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE.to_owned(),
-            frontend: plan.request.frontend,
-            window_id: plan.request.target.window_id,
-            window_handle: plan.request.target.window_handle,
-            owner_thread_id: plan.request.target.owner_thread_id,
+            id: RuntimeGraphicsDeviceId(self.next_device_id),
+
             presentation,
             com_object_id,
             render_states: RuntimeGraphicsRenderStates::default(),
@@ -1713,902 +730,373 @@ impl RuntimeGraphics {
             flexible_vertex_format: None,
             stream_sources: RuntimeGraphicsStreamSources::default(),
             back_buffer: RuntimeGraphicsBackBuffer::default(),
-            active_scene: None,
+            scene_active: false,
             presented_frame: None,
-            renderer: None,
-            generation: plan.next_generation,
         };
         self.device_com_object_index
             .insert(com_object_id, device.id);
         self.device_texture_index.insert(device.id, BTreeSet::new());
         self.device_vertex_buffer_index
             .insert(device.id, BTreeSet::new());
-        self.devices.insert(device.id, device.clone());
+        let id = device.id;
+        self.devices.insert(id, device);
         self.next_device_id = next_device_id;
-        self.generation = plan.next_generation;
-        device
+
+        id
     }
 
-    pub(super) fn plan_render_state_update(
-        &self,
-        request: RuntimeGraphicsRenderStateUpdateRequest,
-    ) -> Result<RuntimeGraphicsRenderStateUpdatePlan, RuntimeStateError> {
+    pub(super) fn update_render_state(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        update: RuntimeGraphicsRenderStateUpdate,
+    ) -> Result<(), RuntimeStateError> {
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-render-state-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical render-state update requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
-        let previous = device.render_states.current_for(request.update);
-        let changed = previous != Some(request.update);
-        let next_generation = if changed {
-            checked_next_generation(self.generation)?
-        } else {
-            self.generation
-        };
-        let next_device_generation = if changed {
-            device.generation.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-device-generation-exhausted",
-                    "logical graphics device generation is exhausted",
-                )
-            })?
-        } else {
-            device.generation
-        };
-        Ok(RuntimeGraphicsRenderStateUpdatePlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            previous,
-            update: request.update,
-        })
-    }
-
-    pub(super) fn preflight_render_state_update(
-        &self,
-        plan: &RuntimeGraphicsRenderStateUpdatePlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-render-state-update-plan-stale"));
-        };
-        let changed = plan.previous != Some(plan.update);
-        if self.generation != plan.expected_generation
-            || device.generation != plan.device_generation
-            || device.render_states.current_for(plan.update) != plan.previous
-            || (changed
-                && (self.generation.checked_add(1) != Some(plan.next_generation)
-                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
-            || (!changed
-                && (plan.next_generation != self.generation
-                    || plan.next_device_generation != device.generation))
-        {
-            return Err(stale_plan("graphics-render-state-update-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_render_state_update(
-        &mut self,
-        plan: RuntimeGraphicsRenderStateUpdatePlan,
-    ) -> RuntimeGraphicsRenderStateUpdateResult {
-        debug_assert!(self.preflight_render_state_update(&plan).is_ok());
-        let changed = plan.previous != Some(plan.update);
+        let previous = device.render_states.current_for(update);
+        let changed = previous != Some(update);
+        // All fallible association/overflow checks precede the first mutation.
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
+            .get_mut(&device_id)
+            .expect("validated graphics device");
         if changed {
-            device.render_states.apply(plan.update);
-            device.generation = plan.next_device_generation;
-            self.generation = plan.next_generation;
+            device.render_states.apply(update);
         }
-        RuntimeGraphicsRenderStateUpdateResult {
-            device_id: device.id,
-            update: plan.update,
-            changed,
-            device_generation: device.generation,
-        }
+        Ok(())
     }
 
-    pub(super) fn plan_sampler_state_update(
-        &self,
-        request: RuntimeGraphicsSamplerStateUpdateRequest,
-    ) -> Result<RuntimeGraphicsSamplerStateUpdatePlan, RuntimeStateError> {
-        request.update.validate()?;
+    pub(super) fn update_sampler_state(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        update: RuntimeGraphicsSamplerStateUpdate,
+    ) -> Result<(), RuntimeStateError> {
+        update.validate()?;
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-sampler-state-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical sampler-state update requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
-        let previous = device.sampler_states.current_for(request.update);
-        let changed = previous != Some(request.update);
-        let next_generation = if changed {
-            checked_next_generation(self.generation)?
-        } else {
-            self.generation
-        };
-        let next_device_generation = if changed {
-            device.generation.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-device-generation-exhausted",
-                    "logical graphics device generation is exhausted",
-                )
-            })?
-        } else {
-            device.generation
-        };
-        Ok(RuntimeGraphicsSamplerStateUpdatePlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            previous,
-            update: request.update,
-        })
-    }
-
-    pub(super) fn preflight_sampler_state_update(
-        &self,
-        plan: &RuntimeGraphicsSamplerStateUpdatePlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-sampler-state-update-plan-stale"));
-        };
-        let changed = plan.previous != Some(plan.update);
-        if self.generation != plan.expected_generation
-            || device.generation != plan.device_generation
-            || device.sampler_states.current_for(plan.update) != plan.previous
-            || (changed
-                && (self.generation.checked_add(1) != Some(plan.next_generation)
-                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
-            || (!changed
-                && (plan.next_generation != self.generation
-                    || plan.next_device_generation != device.generation))
-        {
-            return Err(stale_plan("graphics-sampler-state-update-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_sampler_state_update(
-        &mut self,
-        plan: RuntimeGraphicsSamplerStateUpdatePlan,
-    ) -> RuntimeGraphicsSamplerStateUpdateResult {
-        debug_assert!(self.preflight_sampler_state_update(&plan).is_ok());
-        let changed = plan.previous != Some(plan.update);
+        let previous = device.sampler_states.current_for(update);
+        let changed = previous != Some(update);
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
+            .get_mut(&device_id)
+            .expect("validated graphics device");
         if changed {
-            device.sampler_states.apply(plan.update);
-            device.generation = plan.next_device_generation;
-            self.generation = plan.next_generation;
+            device.sampler_states.apply(update);
         }
-        RuntimeGraphicsSamplerStateUpdateResult {
-            device_id: device.id,
-            update: plan.update,
-            changed,
-            device_generation: device.generation,
-        }
+        Ok(())
     }
 
-    pub(super) fn plan_texture_stage_state_update(
-        &self,
-        request: RuntimeGraphicsTextureStageStateUpdateRequest,
-    ) -> Result<RuntimeGraphicsTextureStageStateUpdatePlan, RuntimeStateError> {
-        request.update.validate()?;
+    pub(super) fn update_texture_stage_state(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        update: RuntimeGraphicsTextureStageStateUpdate,
+    ) -> Result<(), RuntimeStateError> {
+        update.validate()?;
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-stage-state-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical texture-stage-state update requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
-        let previous = device.texture_stage_states.current_for(request.update);
-        let changed = previous != Some(request.update);
-        let next_generation = if changed {
-            checked_next_generation(self.generation)?
-        } else {
-            self.generation
-        };
-        let next_device_generation = if changed {
-            device.generation.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-device-generation-exhausted",
-                    "logical graphics device generation is exhausted",
-                )
-            })?
-        } else {
-            device.generation
-        };
-        Ok(RuntimeGraphicsTextureStageStateUpdatePlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            previous,
-            update: request.update,
-        })
-    }
-
-    pub(super) fn preflight_texture_stage_state_update(
-        &self,
-        plan: &RuntimeGraphicsTextureStageStateUpdatePlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-texture-stage-state-update-plan-stale"));
-        };
-        let changed = plan.previous != Some(plan.update);
-        if self.generation != plan.expected_generation
-            || device.generation != plan.device_generation
-            || device.texture_stage_states.current_for(plan.update) != plan.previous
-            || (changed
-                && (self.generation.checked_add(1) != Some(plan.next_generation)
-                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
-            || (!changed
-                && (plan.next_generation != self.generation
-                    || plan.next_device_generation != device.generation))
-        {
-            return Err(stale_plan("graphics-texture-stage-state-update-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_texture_stage_state_update(
-        &mut self,
-        plan: RuntimeGraphicsTextureStageStateUpdatePlan,
-    ) -> RuntimeGraphicsTextureStageStateUpdateResult {
-        debug_assert!(self.preflight_texture_stage_state_update(&plan).is_ok());
-        let changed = plan.previous != Some(plan.update);
+        let previous = device.texture_stage_states.current_for(update);
+        let changed = previous != Some(update);
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
+            .get_mut(&device_id)
+            .expect("validated graphics device");
         if changed {
-            device.texture_stage_states.apply(plan.update);
-            device.generation = plan.next_device_generation;
-            self.generation = plan.next_generation;
+            device.texture_stage_states.apply(update);
         }
-        RuntimeGraphicsTextureStageStateUpdateResult {
-            device_id: device.id,
-            update: plan.update,
-            changed,
-            device_generation: device.generation,
-        }
+        Ok(())
     }
 
-    pub(super) fn plan_texture_binding_update(
-        &self,
-        request: RuntimeGraphicsTextureBindingUpdateRequest,
-    ) -> Result<RuntimeGraphicsTextureBindingUpdatePlan, RuntimeStateError> {
-        validate_texture_binding_update_request(request)?;
+    pub(super) fn bind_texture(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        stage: u32,
+        texture_com_object_id: Option<RuntimeComObjectId>,
+    ) -> Result<bool, RuntimeStateError> {
+        if stage != 0 {
+            return Ok(false);
+        }
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-binding-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical texture binding requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
-        let texture_id = self.resolve_texture_binding_target(device_id, request)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
+        let texture_id = if let Some(com_object_id) = texture_com_object_id {
+            let texture = self.texture_for_com_object(com_object_id)?;
+            if texture.active_lock.is_some() || texture.device_id != device_id {
+                return Ok(false);
+            }
+            Some(texture.id)
+        } else {
+            None
+        };
         let device = self.device(device_id)?;
         let previous_texture_id = device.texture_bindings.stage_zero;
         let changed = previous_texture_id != texture_id;
-        let next_generation = if changed {
-            checked_next_generation(self.generation)?
-        } else {
-            self.generation
-        };
-        let next_device_generation = if changed {
-            device.generation.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-device-generation-exhausted",
-                    "logical graphics device generation is exhausted",
-                )
-            })?
-        } else {
-            device.generation
-        };
-        Ok(RuntimeGraphicsTextureBindingUpdatePlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            previous_texture_id,
-            texture_id,
-            request,
-        })
-    }
-
-    pub(super) fn preflight_texture_binding_update(
-        &self,
-        plan: &RuntimeGraphicsTextureBindingUpdatePlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-texture-binding-update-plan-stale"));
-        };
-        let texture_id = self
-            .resolve_texture_binding_target(plan.device_id, plan.request)
-            .map_err(|_| stale_plan("graphics-texture-binding-update-plan-stale"))?;
-        let changed = plan.previous_texture_id != plan.texture_id;
-        if self.generation != plan.expected_generation
-            || device.generation != plan.device_generation
-            || device.texture_bindings.stage_zero != plan.previous_texture_id
-            || texture_id != plan.texture_id
-            || (changed
-                && (self.generation.checked_add(1) != Some(plan.next_generation)
-                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
-            || (!changed
-                && (plan.next_generation != self.generation
-                    || plan.next_device_generation != device.generation))
-        {
-            return Err(stale_plan("graphics-texture-binding-update-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_texture_binding_update(
-        &mut self,
-        plan: RuntimeGraphicsTextureBindingUpdatePlan,
-    ) -> RuntimeGraphicsTextureBindingUpdateResult {
-        debug_assert!(self.preflight_texture_binding_update(&plan).is_ok());
-        let changed = plan.previous_texture_id != plan.texture_id;
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
+            .get_mut(&device_id)
+            .expect("validated device identity");
         if changed {
-            device.texture_bindings.stage_zero = plan.texture_id;
-            device.generation = plan.next_device_generation;
-            self.generation = plan.next_generation;
+            device.texture_bindings.stage_zero = texture_id;
         }
-        RuntimeGraphicsTextureBindingUpdateResult {
-            device_id: device.id,
-            stage: plan.request.stage,
-            texture_id: plan.texture_id,
-            changed,
-            device_generation: device.generation,
-        }
+        Ok(true)
     }
 
-    pub(super) fn plan_flexible_vertex_format_update(
-        &self,
-        request: RuntimeGraphicsFlexibleVertexFormatUpdateRequest,
-    ) -> Result<RuntimeGraphicsFlexibleVertexFormatUpdatePlan, RuntimeStateError> {
-        validate_flexible_vertex_format_update_request(request)?;
+    pub(super) fn update_flexible_vertex_format(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        format: RuntimeGraphicsFlexibleVertexFormat,
+    ) -> Result<(), RuntimeStateError> {
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-flexible-vertex-format-device-com-object-unknown",
-                    "logical flexible vertex format update requires a live graphics device COM object",
+                RuntimeStateError::new("logical flexible vertex format update requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
         let previous = device.flexible_vertex_format;
-        let changed = previous != Some(request.format);
-        let next_generation = if changed {
-            checked_next_generation(self.generation)?
-        } else {
-            self.generation
-        };
-        let next_device_generation = if changed {
-            device.generation.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-device-generation-exhausted",
-                    "logical graphics device generation is exhausted",
-                )
-            })?
-        } else {
-            device.generation
-        };
-        Ok(RuntimeGraphicsFlexibleVertexFormatUpdatePlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            previous,
-            format: request.format,
-        })
-    }
-
-    pub(super) fn preflight_flexible_vertex_format_update(
-        &self,
-        plan: &RuntimeGraphicsFlexibleVertexFormatUpdatePlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan(
-                "graphics-flexible-vertex-format-update-plan-stale",
-            ));
-        };
-        let changed = plan.previous != Some(plan.format);
-        if self.generation != plan.expected_generation
-            || device.generation != plan.device_generation
-            || device.flexible_vertex_format != plan.previous
-            || (changed
-                && (self.generation.checked_add(1) != Some(plan.next_generation)
-                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
-            || (!changed
-                && (plan.next_generation != self.generation
-                    || plan.next_device_generation != device.generation))
-        {
-            return Err(stale_plan(
-                "graphics-flexible-vertex-format-update-plan-stale",
-            ));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_flexible_vertex_format_update(
-        &mut self,
-        plan: RuntimeGraphicsFlexibleVertexFormatUpdatePlan,
-    ) -> RuntimeGraphicsFlexibleVertexFormatUpdateResult {
-        debug_assert!(self.preflight_flexible_vertex_format_update(&plan).is_ok());
-        let changed = plan.previous != Some(plan.format);
+        let changed = previous != Some(format);
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
+            .get_mut(&device_id)
+            .expect("validated graphics device");
         if changed {
-            device.flexible_vertex_format = Some(plan.format);
-            device.generation = plan.next_device_generation;
-            self.generation = plan.next_generation;
+            device.flexible_vertex_format = Some(format);
         }
-        RuntimeGraphicsFlexibleVertexFormatUpdateResult {
-            device_id: device.id,
-            format: plan.format,
-            changed,
-            device_generation: device.generation,
-        }
+        Ok(())
     }
 
-    pub(super) fn plan_stream_source_update(
-        &self,
-        request: RuntimeGraphicsStreamSourceUpdateRequest,
-    ) -> Result<RuntimeGraphicsStreamSourceUpdatePlan, RuntimeStateError> {
-        validate_stream_source_update_request(request)?;
+    pub(super) fn bind_stream_source(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        stream: u32,
+        vertex_buffer_com_object_id: RuntimeComObjectId,
+        offset_in_bytes: u32,
+        stride: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        if stream != 0 || stride == 0 {
+            return Ok(false);
+        }
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-stream-source-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical stream-source update requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
-        let binding = self.resolve_stream_source_binding(device_id, request)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
+        let Some(binding) = self.resolve_stream_source_binding(
+            device_id,
+            vertex_buffer_com_object_id,
+            offset_in_bytes,
+            stride,
+        )?
+        else {
+            return Ok(false);
+        };
         let device = self.device(device_id)?;
         let previous = device.stream_sources.stream_zero;
         let changed = previous != Some(binding);
-        let next_generation = if changed {
-            checked_next_generation(self.generation)?
-        } else {
-            self.generation
-        };
-        let next_device_generation = if changed {
-            device.generation.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-device-generation-exhausted",
-                    "logical graphics device generation is exhausted",
-                )
-            })?
-        } else {
-            device.generation
-        };
-        Ok(RuntimeGraphicsStreamSourceUpdatePlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            previous,
-            binding,
-            request,
-        })
-    }
-
-    pub(super) fn preflight_stream_source_update(
-        &self,
-        plan: &RuntimeGraphicsStreamSourceUpdatePlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-stream-source-update-plan-stale"));
-        };
-        let binding = self
-            .resolve_stream_source_binding(plan.device_id, plan.request)
-            .map_err(|_| stale_plan("graphics-stream-source-update-plan-stale"))?;
-        let changed = plan.previous != Some(plan.binding);
-        if self.generation != plan.expected_generation
-            || device.generation != plan.device_generation
-            || device.stream_sources.stream_zero != plan.previous
-            || binding != plan.binding
-            || (changed
-                && (self.generation.checked_add(1) != Some(plan.next_generation)
-                    || device.generation.checked_add(1) != Some(plan.next_device_generation)))
-            || (!changed
-                && (plan.next_generation != self.generation
-                    || plan.next_device_generation != device.generation))
-        {
-            return Err(stale_plan("graphics-stream-source-update-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_stream_source_update(
-        &mut self,
-        plan: RuntimeGraphicsStreamSourceUpdatePlan,
-    ) -> RuntimeGraphicsStreamSourceUpdateResult {
-        debug_assert!(self.preflight_stream_source_update(&plan).is_ok());
-        let changed = plan.previous != Some(plan.binding);
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
+            .get_mut(&device_id)
+            .expect("validated device identity");
         if changed {
-            device.stream_sources.stream_zero = Some(plan.binding);
-            device.generation = plan.next_device_generation;
-            self.generation = plan.next_generation;
+            device.stream_sources.stream_zero = Some(binding);
         }
-        RuntimeGraphicsStreamSourceUpdateResult {
-            device_id: device.id,
-            stream: plan.request.stream,
-            binding: plan.binding,
-            changed,
-            device_generation: device.generation,
-        }
+        Ok(true)
     }
 
     fn resolve_stream_source_binding(
         &self,
         device_id: RuntimeGraphicsDeviceId,
-        request: RuntimeGraphicsStreamSourceUpdateRequest,
-    ) -> Result<RuntimeGraphicsStreamSourceBinding, RuntimeStateError> {
+        vertex_buffer_com_object_id: RuntimeComObjectId,
+        offset_in_bytes: u32,
+        stride: u32,
+    ) -> Result<Option<RuntimeGraphicsStreamSourceBinding>, RuntimeStateError> {
         let vertex_buffer_id = self
             .vertex_buffer_com_object_index
-            .get(&request.vertex_buffer_com_object_id)
+            .get(&vertex_buffer_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-stream-source-vertex-buffer-com-object-unknown",
+                RuntimeStateError::new(
                     "logical stream-source binding requires a live vertex-buffer COM object",
                 )
             })?;
-        self.validate_vertex_buffer_association(
-            request.vertex_buffer_com_object_id,
-            vertex_buffer_id,
-        )?;
+        self.validate_vertex_buffer_association(vertex_buffer_com_object_id, vertex_buffer_id)?;
         let vertex_buffer = self
             .vertex_buffers
             .get(&vertex_buffer_id)
             .expect("validated logical vertex-buffer association disappeared");
         if vertex_buffer.device_id != device_id {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-stream-source-device-mismatch",
-                "logical stream-source binding requires the device that created the vertex buffer",
-            ));
+            return Ok(None);
         }
-        Ok(RuntimeGraphicsStreamSourceBinding {
+        Ok(Some(RuntimeGraphicsStreamSourceBinding {
             vertex_buffer_id,
-            offset_in_bytes: request.offset_in_bytes,
-            stride: request.stride,
-        })
+            offset_in_bytes,
+            stride,
+        }))
     }
 
-    pub(super) fn plan_draw_capture(
-        &self,
-        request: RuntimeGraphicsDrawCaptureRequest,
-    ) -> Result<RuntimeGraphicsDrawCapturePlan, RuntimeStateError> {
-        validate_draw_capture_request(request)?;
+    pub(super) fn submit_draw(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        start_vertex: u32,
+        primitive_count: u32,
+        memory: &crate::memory::GuestMemory,
+    ) -> Result<bool, RuntimeStateError> {
+        if start_vertex != 0 || primitive_count != 2 {
+            return Ok(false);
+        }
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-draw-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical draw submission requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
-        let resolved = self.resolve_draw_state(device, request)?;
+        let Some(resolved) = self.resolve_draw_state(device, start_vertex, primitive_count)? else {
+            return Ok(false);
+        };
+        let texture_memory = resolved
+            .texture
+            .content
+            .pixel_source
+            .map(|pixels| {
+                self.texture(pixels.source_texture_id).and_then(|source| {
+                    let backing = source.backing.expect("resolved pixel source backing");
+                    GuestRange::new(
+                        backing.range.start(),
+                        u64::from(backing.row_pitch) * u64::from(source.descriptor.height),
+                    )
+                    .map(|range| (range, backing.memory_owner))
+                    .map_err(RuntimeStateError::from_memory)
+                })
+            })
+            .transpose()?;
+        let captured_bytes = device
+            .back_buffer
+            .draw_submissions
+            .iter()
+            .map(|draw| draw.texture_data.len() as u64)
+            .sum::<u64>();
+        if texture_memory.is_some_and(|(range, _)| {
+            range.byte_length() > (16u64 * 1024 * 1024).saturating_sub(captured_bytes)
+        }) {
+            return Err(RuntimeStateError::new(
+                "captured texture bytes exceed the bounded frame budget",
+            ));
+        }
         let expected_draw_submission_count = device.back_buffer.draw_submissions.len();
         if expected_draw_submission_count >= RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-draw-submission-capacity-reached",
+            return Err(RuntimeStateError::new(
                 "logical back-buffer draw-submission capacity is exhausted",
             ));
         }
-        let expected_draw_vertex_bytes = draw_vertex_bytes(&device.back_buffer)?;
         let vertex_byte_length =
             usize::try_from(resolved.vertex_range.byte_length()).map_err(|_| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-draw-vertex-byte-length-invalid",
+                RuntimeStateError::new(
                     "logical draw vertex byte length does not fit host accounting",
                 )
             })?;
-        let next_draw_vertex_bytes = expected_draw_vertex_bytes
-            .checked_add(vertex_byte_length)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-draw-vertex-byte-capacity-reached",
-                    "logical back-buffer captured vertex-byte capacity is exhausted",
-                )
-            })?;
-        if next_draw_vertex_bytes > RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-draw-vertex-byte-capacity-reached",
-                "logical back-buffer captured vertex-byte capacity is exhausted",
-            ));
-        }
-        let next_generation = checked_next_generation(self.generation)?;
-        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-device-generation-exhausted",
-                "logical graphics device generation is exhausted",
+
+        let vertex_data = memory
+            .read_owned(
+                resolved.vertex_range.start(),
+                vertex_byte_length,
+                resolved.vertex_memory_owner,
             )
-        })?;
-        let next_content_generation = device
-            .back_buffer
-            .content_generation
-            .checked_add(1)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-back-buffer-content-generation-exhausted",
-                    "logical graphics back-buffer content generation is exhausted",
-                )
-            })?;
-        let next_draw_sequence = self.next_draw_sequence.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-draw-sequence-exhausted",
-                "logical graphics draw-submission sequence is exhausted",
-            )
-        })?;
-        let vertex_count = request
-            .primitive_count
-            .checked_add(2)
-            .expect("validated triangle-strip quad count must fit u32");
+            .map_err(RuntimeStateError::from_memory)?;
+        let texture_data = texture_memory
+            .map(|(range, owner)| {
+                memory
+                    .read_owned(range.start(), range.byte_length() as usize, owner)
+                    .map_err(RuntimeStateError::from_memory)
+            })
+            .transpose()?
+            .unwrap_or_default();
         let submission = RuntimeGraphicsDrawSubmission {
-            sequence: self.next_draw_sequence,
-            scene_sequence: resolved.scene.sequence,
-            primitive_topology: request.primitive_topology,
-            start_vertex: request.start_vertex,
-            primitive_count: request.primitive_count,
-            vertex_count,
-            flexible_vertex_format: resolved.flexible_vertex_format,
-            stream_source: resolved.stream_source,
-            vertex_buffer_content_generation: resolved.vertex_buffer_content_generation,
-            vertex_data: Vec::new(),
-            render_states: resolved.render_states,
-            sampler_states: resolved.sampler_states,
-            texture_stage_states: resolved.texture_stage_states,
-            texture: resolved.texture,
+            vertex_data,
+            texture_data,
+
+            texture_width: resolved.texture.descriptor.width,
+            texture_height: resolved.texture.descriptor.height,
+            texture_fills: resolved.texture.content.fills.clone(),
+            texture_pitch: resolved
+                .texture
+                .content
+                .pixel_source
+                .map(|pixels| pixels.row_pitch),
         };
-        Ok(RuntimeGraphicsDrawCapturePlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            content_generation: device.back_buffer.content_generation,
-            next_content_generation,
-            expected_draw_submission_count,
-            expected_draw_vertex_bytes,
-            next_draw_sequence,
-            vertex_buffer_id: resolved.vertex_buffer_id,
-            vertex_buffer_generation: resolved.vertex_buffer_generation,
-            texture_id: submission.texture.texture_id,
-            texture_generation: submission.texture.generation,
-            vertex_range: resolved.vertex_range,
-            submission,
-        })
-    }
-
-    pub(super) fn prepare_draw_submission(
-        &self,
-        mut capture: RuntimeGraphicsDrawCapturePlan,
-        vertex_data: Vec<u8>,
-    ) -> Result<RuntimeGraphicsDrawSubmissionPlan, RuntimeStateError> {
-        self.preflight_draw_capture(&capture)?;
-        let expected_byte_length =
-            usize::try_from(capture.vertex_range.byte_length()).map_err(|_| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-draw-vertex-byte-length-invalid",
-                    "logical draw vertex byte length does not fit host accounting",
-                )
-            })?;
-        if vertex_data.len() != expected_byte_length {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-vertex-snapshot-length-mismatch",
-                "logical draw submission requires the complete planned vertex snapshot",
-            ));
-        }
-        capture.submission.vertex_data = vertex_data;
-        Ok(RuntimeGraphicsDrawSubmissionPlan { capture })
-    }
-
-    fn preflight_draw_capture(
-        &self,
-        plan: &RuntimeGraphicsDrawCapturePlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-draw-submission-plan-stale"));
-        };
-        let request = RuntimeGraphicsDrawCaptureRequest {
-            device_com_object_id: device.com_object_id,
-            primitive_topology: plan.submission.primitive_topology,
-            start_vertex: plan.submission.start_vertex,
-            primitive_count: plan.submission.primitive_count,
-        };
-        let resolved = self
-            .resolve_draw_state(device, request)
-            .map_err(|_| stale_plan("graphics-draw-submission-plan-stale"))?;
-        let draw_vertex_bytes = draw_vertex_bytes(&device.back_buffer)
-            .map_err(|_| stale_plan("graphics-draw-submission-plan-stale"))?;
-        if self.generation != plan.expected_generation
-            || self.generation.checked_add(1) != Some(plan.next_generation)
-            || device.generation != plan.device_generation
-            || device.generation.checked_add(1) != Some(plan.next_device_generation)
-            || device.back_buffer.content_generation != plan.content_generation
-            || device.back_buffer.content_generation.checked_add(1)
-                != Some(plan.next_content_generation)
-            || device.back_buffer.draw_submissions.len() != plan.expected_draw_submission_count
-            || draw_vertex_bytes != plan.expected_draw_vertex_bytes
-            || plan.expected_draw_submission_count >= RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT
-            || plan
-                .expected_draw_vertex_bytes
-                .checked_add(plan.vertex_range.byte_length() as usize)
-                .is_none_or(|bytes| bytes > RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT)
-            || plan.submission.sequence != self.next_draw_sequence
-            || self.next_draw_sequence.checked_add(1) != Some(plan.next_draw_sequence)
-            || plan.submission.scene_sequence != resolved.scene.sequence
-            || plan.submission.vertex_count != plan.submission.primitive_count + 2
-            || plan.submission.flexible_vertex_format != resolved.flexible_vertex_format
-            || plan.submission.stream_source != resolved.stream_source
-            || plan.submission.vertex_buffer_content_generation
-                != resolved.vertex_buffer_content_generation
-            || plan.submission.render_states != resolved.render_states
-            || plan.submission.sampler_states != resolved.sampler_states
-            || plan.submission.texture_stage_states != resolved.texture_stage_states
-            || plan.submission.texture != resolved.texture
-            || plan.vertex_buffer_id != resolved.vertex_buffer_id
-            || plan.vertex_buffer_generation != resolved.vertex_buffer_generation
-            || plan.texture_id != resolved.texture.texture_id
-            || plan.texture_generation != resolved.texture.generation
-            || plan.vertex_range != resolved.vertex_range
-        {
-            return Err(stale_plan("graphics-draw-submission-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn preflight_draw_submission(
-        &self,
-        plan: &RuntimeGraphicsDrawSubmissionPlan,
-    ) -> Result<(), RuntimeStateError> {
-        self.preflight_draw_capture(&plan.capture)?;
-        if plan.capture.submission.vertex_data.len()
-            != plan.capture.vertex_range.byte_length() as usize
-        {
-            return Err(stale_plan("graphics-draw-submission-plan-stale"));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_draw_submission(
-        &mut self,
-        plan: RuntimeGraphicsDrawSubmissionPlan,
-    ) -> RuntimeGraphicsDrawSubmissionResult {
-        debug_assert!(self.preflight_draw_submission(&plan).is_ok());
-        let capture = plan.capture;
-        let submission = capture.submission;
         let device = self
             .devices
-            .get_mut(&capture.device_id)
-            .expect("preflighted graphics device disappeared");
-        device.back_buffer.content_generation = capture.next_content_generation;
-        device.back_buffer.draw_submissions.push(submission.clone());
-        device.generation = capture.next_device_generation;
-        self.next_draw_sequence = capture.next_draw_sequence;
-        self.generation = capture.next_generation;
-        RuntimeGraphicsDrawSubmissionResult {
-            device_id: device.id,
-            device_generation: device.generation,
-            content_generation: device.back_buffer.content_generation,
-            submission,
-        }
+            .get_mut(&device_id)
+            .expect("validated device identity");
+        device.back_buffer.draw_submissions.push(submission);
+
+        Ok(true)
     }
 
-    fn resolve_draw_state(
-        &self,
+    fn resolve_draw_state<'a>(
+        &'a self,
         device: &RuntimeGraphicsDevice,
-        request: RuntimeGraphicsDrawCaptureRequest,
-    ) -> Result<RuntimeGraphicsDrawResolvedState, RuntimeStateError> {
-        validate_supported_draw_device_state(device)?;
-        let scene = device.active_scene.ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-scene-inactive",
-                "logical draw submission requires an active device scene",
-            )
-        })?;
-        let flexible_vertex_format = device.flexible_vertex_format.ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-flexible-vertex-format-missing",
-                "logical draw submission requires the supported typed vertex format",
-            )
-        })?;
-        let stream_source = device.stream_sources.stream_zero.ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-stream-source-missing",
-                "logical draw submission requires a live stream-zero vertex buffer",
-            )
-        })?;
+        start_vertex: u32,
+        primitive_count: u32,
+    ) -> Result<Option<RuntimeGraphicsDrawResolvedState<'a>>, RuntimeStateError> {
+        if !supported_draw_device_state(device) {
+            return Ok(None);
+        }
+        if !device.scene_active {
+            return Ok(None);
+        }
+        let Some(stream_source) = device.stream_sources.stream_zero else {
+            return Ok(None);
+        };
         let vertex_buffer = self.vertex_buffer(stream_source.vertex_buffer_id)?;
         self.validate_vertex_buffer_association(vertex_buffer.com_object_id, vertex_buffer.id)?;
         if vertex_buffer.device_id != device.id
-            || vertex_buffer.active_lock.is_some()
-            || vertex_buffer.content_generation == 0
+            || vertex_buffer.locked
+            || !vertex_buffer.initialized
             || vertex_buffer.descriptor.byte_length != 112
             || vertex_buffer.descriptor.usage != RuntimeGraphicsVertexBufferUsage::WriteOnly
             || vertex_buffer.descriptor.flexible_vertex_format != 0x144
@@ -2616,51 +1104,25 @@ impl RuntimeGraphics {
             || stream_source.offset_in_bytes != 0
             || stream_source.stride != 28
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-vertex-buffer-state-invalid",
-                "logical draw submission requires the reached unlocked initialized quad vertex buffer",
-            ));
+            return Ok(None);
         }
-        let vertex_count = request.primitive_count.checked_add(2).ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-vertex-count-overflow",
-                "logical draw vertex count overflowed",
-            )
-        })?;
+        let vertex_count = primitive_count
+            .checked_add(2)
+            .ok_or_else(|| RuntimeStateError::new("logical draw vertex count overflowed"))?;
         let start_byte = u64::from(stream_source.offset_in_bytes)
-            .checked_add(u64::from(request.start_vertex) * u64::from(stream_source.stride))
-            .ok_or_else(|| {
-                RuntimeStateError::invalid_input(
-                    "runtime-graphics",
-                    "graphics-draw-vertex-range-overflow",
-                    "logical draw vertex offset overflowed",
-                )
-            })?;
+            .checked_add(u64::from(start_vertex) * u64::from(stream_source.stride))
+            .ok_or_else(|| RuntimeStateError::new("logical draw vertex offset overflowed"))?;
         let vertex_byte_length = u64::from(vertex_count)
             .checked_mul(u64::from(stream_source.stride))
-            .ok_or_else(|| {
-                RuntimeStateError::invalid_input(
-                    "runtime-graphics",
-                    "graphics-draw-vertex-range-overflow",
-                    "logical draw vertex byte length overflowed",
-                )
-            })?;
-        let end_byte = start_byte.checked_add(vertex_byte_length).ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-vertex-range-overflow",
-                "logical draw vertex range overflowed",
-            )
-        })?;
+            .ok_or_else(|| RuntimeStateError::new("logical draw vertex byte length overflowed"))?;
+        let end_byte = start_byte
+            .checked_add(vertex_byte_length)
+            .ok_or_else(|| RuntimeStateError::new("logical draw vertex range overflowed"))?;
         if end_byte > u64::from(vertex_buffer.descriptor.byte_length)
             || end_byte > vertex_buffer.backing.range.byte_length()
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-vertex-range-out-of-bounds",
-                "logical draw vertex range exceeds the bound vertex buffer",
+            return Err(RuntimeStateError::new(
+                "bound vertex backing is smaller than its checked draw range",
             ));
         }
         let vertex_address = u64::from(vertex_buffer.backing.range.start().0)
@@ -2668,49 +1130,34 @@ impl RuntimeGraphics {
             .and_then(|address| u32::try_from(address).ok())
             .map(GuestAddress)
             .ok_or_else(|| {
-                RuntimeStateError::invalid_input(
-                    "runtime-graphics",
-                    "graphics-draw-vertex-address-overflow",
+                RuntimeStateError::new(
                     "logical draw vertex address exceeds the x86 guest address space",
                 )
             })?;
         let vertex_range = GuestRange::new(vertex_address, vertex_byte_length)
             .map_err(RuntimeStateError::from_memory)?;
-        let texture_id = device.texture_bindings.stage_zero.ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-texture-missing",
-                "logical draw submission requires a live stage-zero texture",
-            )
-        })?;
+        let Some(texture_id) = device.texture_bindings.stage_zero else {
+            return Ok(None);
+        };
         let texture = self.texture(texture_id)?;
         self.validate_texture_association(texture.com_object_id, texture.id)?;
         if texture.device_id != device.id
             || texture.descriptor.levels != 1
-            || texture.descriptor.usage != RuntimeGraphicsTextureUsage::None
             || texture.descriptor.pool != RuntimeGraphicsTexturePool::Default
             || texture.descriptor.color_format != RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+            || texture.active_lock.is_some()
             || texture.content.content_generation == 0
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-draw-texture-state-invalid",
-                "logical draw submission requires the reached initialized static DEFAULT texture",
-            ));
+            return Ok(None);
         }
         if let Some(pixel_source) = texture.content.pixel_source {
             let source = self.texture(pixel_source.source_texture_id)?;
             let backing = source.backing.ok_or_else(|| {
-                RuntimeStateError::invalid_input(
-                    "runtime-graphics",
-                    "graphics-draw-texture-pixel-source-missing",
+                RuntimeStateError::new(
                     "logical draw texture pixel source has no live guest-memory backing",
                 )
             })?;
             if source.device_id != device.id
-                || source.active_lock.is_some()
-                || source.content.content_generation != pixel_source.source_content_generation
-                || source.content.pixel_source != Some(pixel_source)
                 || backing.range != pixel_source.range
                 || backing.row_pitch != pixel_source.row_pitch
                 || source.descriptor.width != texture.descriptor.width
@@ -2718,583 +1165,198 @@ impl RuntimeGraphics {
                 || source.descriptor.levels != texture.descriptor.levels
                 || source.descriptor.color_format != texture.descriptor.color_format
             {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-graphics",
-                    "graphics-draw-texture-pixel-source-stale",
-                    "logical draw texture pixel source no longer matches its live SYSTEMMEM authority",
+                return Err(RuntimeStateError::new(
+                    "draw texture source no longer matches its owned descriptor and backing",
                 ));
             }
+            if source.active_lock.is_some()
+                || source.content.content_generation != pixel_source.source_content_generation
+                || source.content.pixel_source != Some(pixel_source)
+            {
+                return Ok(None);
+            }
         }
-        Ok(RuntimeGraphicsDrawResolvedState {
-            scene,
-            flexible_vertex_format,
-            stream_source,
-            vertex_buffer_id: vertex_buffer.id,
-            vertex_buffer_generation: vertex_buffer.generation,
-            vertex_buffer_content_generation: vertex_buffer.content_generation,
+        Ok(Some(RuntimeGraphicsDrawResolvedState {
+            vertex_memory_owner: vertex_buffer.backing.memory_owner,
+
             vertex_range,
-            render_states: device.render_states.clone(),
-            sampler_states: device.sampler_states.clone(),
-            texture_stage_states: device.texture_stage_states.clone(),
-            texture: RuntimeGraphicsDrawTextureSnapshot {
-                texture_id: texture.id,
-                descriptor: texture.descriptor,
-                generation: texture.generation,
-                content: texture.content.clone(),
-            },
-        })
+
+            texture,
+        }))
     }
 
-    fn resolve_texture_binding_target(
-        &self,
-        device_id: RuntimeGraphicsDeviceId,
-        request: RuntimeGraphicsTextureBindingUpdateRequest,
-    ) -> Result<Option<RuntimeGraphicsTextureId>, RuntimeStateError> {
-        let Some(texture_com_object_id) = request.texture_com_object_id else {
-            return Ok(None);
-        };
-        let texture_id = self
-            .texture_com_object_index
-            .get(&texture_com_object_id)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-binding-texture-com-object-unknown",
-                    "logical texture binding requires a live texture COM object",
-                )
-            })?;
-        self.validate_texture_association(texture_com_object_id, texture_id)?;
-        let texture = self
-            .textures
-            .get(&texture_id)
-            .expect("validated logical texture association disappeared");
-        if texture.active_lock.is_some() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-graphics",
-                "graphics-texture-binding-while-locked",
-                "logical texture binding requires an unlocked texture",
-            ));
-        }
-        if texture.device_id != device_id {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-texture-binding-device-mismatch",
-                "logical texture binding requires the device that created the texture",
-            ));
-        }
-        Ok(Some(texture_id))
-    }
-
-    pub(super) fn plan_back_buffer_clear(
-        &self,
-        request: RuntimeGraphicsBackBufferClearRequest,
-    ) -> Result<RuntimeGraphicsBackBufferClearPlan, RuntimeStateError> {
-        validate_back_buffer_clear_request(request)?;
+    pub(super) fn clear_back_buffer(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        color_argb: u32,
+    ) -> Result<(), RuntimeStateError> {
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-back-buffer-clear-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical back-buffer clear requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
-        let device = self.device(device_id)?;
-        let previous_draw_submission_count = device.back_buffer.draw_submissions.len();
-        let previous_draw_vertex_bytes = draw_vertex_bytes(&device.back_buffer)?;
-        let next_generation = checked_next_generation(self.generation)?;
-        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-device-generation-exhausted",
-                "logical graphics device generation is exhausted",
-            )
-        })?;
-        let next_content_generation = device
-            .back_buffer
-            .content_generation
-            .checked_add(1)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-back-buffer-content-generation-exhausted",
-                    "logical graphics back-buffer content generation is exhausted",
-                )
-            })?;
-        let clear = RuntimeGraphicsBackBufferClear {
-            sequence: self.next_back_buffer_clear_sequence,
-            rect: full_back_buffer_rect(device.presentation)?,
-            color_argb: request.color_argb,
-        };
-        let next_clear_sequence = self
-            .next_back_buffer_clear_sequence
-            .checked_add(1)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-back-buffer-clear-sequence-exhausted",
-                    "logical graphics back-buffer clear sequence is exhausted",
-                )
-            })?;
-        Ok(RuntimeGraphicsBackBufferClearPlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            content_generation: device.back_buffer.content_generation,
-            next_content_generation,
-            previous_uniform_clear: device.back_buffer.uniform_clear,
-            previous_draw_submission_count,
-            previous_draw_vertex_bytes,
-            clear,
-            next_clear_sequence,
-        })
-    }
-
-    pub(super) fn preflight_back_buffer_clear(
-        &self,
-        plan: &RuntimeGraphicsBackBufferClearPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-back-buffer-clear-plan-stale"));
-        };
-        if self.generation != plan.expected_generation
-            || self.generation.checked_add(1) != Some(plan.next_generation)
-            || device.generation != plan.device_generation
-            || device.generation.checked_add(1) != Some(plan.next_device_generation)
-            || device.back_buffer.content_generation != plan.content_generation
-            || device.back_buffer.content_generation.checked_add(1)
-                != Some(plan.next_content_generation)
-            || device.back_buffer.uniform_clear != plan.previous_uniform_clear
-            || device.back_buffer.draw_submissions.len() != plan.previous_draw_submission_count
-            || draw_vertex_bytes(&device.back_buffer)? != plan.previous_draw_vertex_bytes
-            || plan.clear.sequence != self.next_back_buffer_clear_sequence
-            || self.next_back_buffer_clear_sequence.checked_add(1) != Some(plan.next_clear_sequence)
-            || plan.clear.rect != full_back_buffer_rect(device.presentation)?
-        {
-            return Err(stale_plan("graphics-back-buffer-clear-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_back_buffer_clear(
-        &mut self,
-        plan: RuntimeGraphicsBackBufferClearPlan,
-    ) -> RuntimeGraphicsBackBufferClearResult {
-        debug_assert!(self.preflight_back_buffer_clear(&plan).is_ok());
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
-        device.back_buffer.content_generation = plan.next_content_generation;
-        device.back_buffer.uniform_clear = Some(plan.clear);
+            .get_mut(&device_id)
+            .expect("validated device identity");
+        device.back_buffer.clear_color = Some(color_argb);
         device.back_buffer.draw_submissions.clear();
-        device.generation = plan.next_device_generation;
-        self.next_back_buffer_clear_sequence = plan.next_clear_sequence;
-        self.generation = plan.next_generation;
-        RuntimeGraphicsBackBufferClearResult {
-            device_id: device.id,
-            device_generation: device.generation,
-            content_generation: device.back_buffer.content_generation,
-            clear: plan.clear,
-        }
+
+        Ok(())
     }
 
-    pub(super) fn plan_scene_begin(
-        &self,
-        request: RuntimeGraphicsSceneBeginRequest,
-    ) -> Result<RuntimeGraphicsSceneBeginPlan, RuntimeStateError> {
-        if request.device_com_object_id.0 == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-scene-begin-request-invalid",
-                "logical scene begin requires a non-null graphics device COM object",
-            ));
-        }
+    pub(super) fn begin_scene(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+    ) -> Result<bool, RuntimeStateError> {
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-scene-begin-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical scene begin requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
-        if device.active_scene.is_some() {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-scene-already-active",
-                "logical graphics device cannot begin a nested scene",
-            ));
+        if device.scene_active {
+            return Ok(false);
         }
-        let next_generation = checked_next_generation(self.generation)?;
-        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-device-generation-exhausted",
-                "logical graphics device generation is exhausted",
-            )
-        })?;
-        let scene = RuntimeGraphicsScene {
-            sequence: self.next_scene_sequence,
-        };
-        let next_scene_sequence = self.next_scene_sequence.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-scene-sequence-exhausted",
-                "logical graphics scene sequence is exhausted",
-            )
-        })?;
-        Ok(RuntimeGraphicsSceneBeginPlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            scene,
-            next_scene_sequence,
-        })
-    }
-
-    pub(super) fn preflight_scene_begin(
-        &self,
-        plan: &RuntimeGraphicsSceneBeginPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-scene-begin-plan-stale"));
-        };
-        if self.generation != plan.expected_generation
-            || self.generation.checked_add(1) != Some(plan.next_generation)
-            || device.generation != plan.device_generation
-            || device.generation.checked_add(1) != Some(plan.next_device_generation)
-            || device.active_scene.is_some()
-            || plan.scene.sequence != self.next_scene_sequence
-            || self.next_scene_sequence.checked_add(1) != Some(plan.next_scene_sequence)
-        {
-            return Err(stale_plan("graphics-scene-begin-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_scene_begin(
-        &mut self,
-        plan: RuntimeGraphicsSceneBeginPlan,
-    ) -> RuntimeGraphicsSceneBeginResult {
-        debug_assert!(self.preflight_scene_begin(&plan).is_ok());
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
-        device.active_scene = Some(plan.scene);
-        device.generation = plan.next_device_generation;
-        self.next_scene_sequence = plan.next_scene_sequence;
-        self.generation = plan.next_generation;
-        RuntimeGraphicsSceneBeginResult {
-            device_id: device.id,
-            device_generation: device.generation,
-            scene: plan.scene,
-        }
+            .get_mut(&device_id)
+            .expect("validated device identity");
+        device.scene_active = true;
+
+        Ok(true)
     }
 
-    pub(super) fn plan_scene_end(
-        &self,
-        request: RuntimeGraphicsSceneEndRequest,
-    ) -> Result<RuntimeGraphicsSceneEndPlan, RuntimeStateError> {
-        if request.device_com_object_id.0 == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-scene-end-request-invalid",
-                "logical scene end requires a non-null graphics device COM object",
-            ));
-        }
+    pub(super) fn end_scene(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+    ) -> Result<bool, RuntimeStateError> {
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-scene-end-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical scene end requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
-        let scene = device.active_scene.ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-scene-not-active",
-                "logical graphics device cannot end an inactive scene",
-            )
-        })?;
-        let next_generation = checked_next_generation(self.generation)?;
-        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-device-generation-exhausted",
-                "logical graphics device generation is exhausted",
-            )
-        })?;
-        Ok(RuntimeGraphicsSceneEndPlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            scene,
-        })
-    }
-
-    pub(super) fn preflight_scene_end(
-        &self,
-        plan: &RuntimeGraphicsSceneEndPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-scene-end-plan-stale"));
-        };
-        if self.generation != plan.expected_generation
-            || self.generation.checked_add(1) != Some(plan.next_generation)
-            || device.generation != plan.device_generation
-            || device.generation.checked_add(1) != Some(plan.next_device_generation)
-            || device.active_scene != Some(plan.scene)
-        {
-            return Err(stale_plan("graphics-scene-end-plan-stale"));
+        if !device.scene_active {
+            return Ok(false);
         }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_scene_end(
-        &mut self,
-        plan: RuntimeGraphicsSceneEndPlan,
-    ) -> RuntimeGraphicsSceneEndResult {
-        debug_assert!(self.preflight_scene_end(&plan).is_ok());
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
-        device.active_scene = None;
-        device.generation = plan.next_device_generation;
-        self.generation = plan.next_generation;
-        RuntimeGraphicsSceneEndResult {
-            device_id: device.id,
-            device_generation: device.generation,
-            scene: plan.scene,
-        }
+            .get_mut(&device_id)
+            .expect("validated device identity");
+        device.scene_active = false;
+
+        Ok(true)
     }
 
-    pub(super) fn plan_present(
-        &self,
-        request: RuntimeGraphicsPresentRequest,
-    ) -> Result<RuntimeGraphicsPresentPlan, RuntimeStateError> {
-        if request.device_com_object_id.0 == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-present-request-invalid",
-                "logical presentation requires a non-null graphics device COM object",
-            ));
-        }
+    pub(super) fn present(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+    ) -> Result<bool, RuntimeStateError> {
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-present-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical presentation requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
-        if device.active_scene.is_some() {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-present-scene-active",
-                "logical presentation requires a closed graphics scene",
-            ));
+        if device.scene_active {
+            return Ok(false);
         }
-        if device.back_buffer.uniform_clear.is_none()
+        if device.back_buffer.clear_color.is_none()
             && device.back_buffer.draw_submissions.is_empty()
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-present-back-buffer-empty",
-                "logical presentation requires prepared back-buffer content",
-            ));
+            return Ok(false);
         }
-        let next_generation = checked_next_generation(self.generation)?;
-        let next_device_generation = device.generation.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-device-generation-exhausted",
-                "logical graphics device generation is exhausted",
-            )
-        })?;
-        let next_back_buffer_content_generation = device
-            .back_buffer
-            .content_generation
-            .checked_add(1)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-back-buffer-content-generation-exhausted",
-                    "logical graphics back-buffer content generation is exhausted",
-                )
-            })?;
-        let frame = RuntimeGraphicsPresentedFrame {
-            sequence: self.next_present_sequence,
-            back_buffer: device.back_buffer.clone(),
-        };
-        let next_present_sequence = self.next_present_sequence.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-present-sequence-exhausted",
-                "logical graphics presentation sequence is exhausted",
-            )
-        })?;
-        Ok(RuntimeGraphicsPresentPlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
-            device_generation: device.generation,
-            next_device_generation,
-            next_back_buffer_content_generation,
-            previous_presented_frame: device.presented_frame.clone(),
-            frame,
-            next_present_sequence,
-        })
-    }
-
-    pub(super) fn preflight_present(
-        &self,
-        plan: &RuntimeGraphicsPresentPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(device) = self.devices.get(&plan.device_id) else {
-            return Err(stale_plan("graphics-present-plan-stale"));
-        };
-        if self.generation != plan.expected_generation
-            || self.generation.checked_add(1) != Some(plan.next_generation)
-            || device.generation != plan.device_generation
-            || device.generation.checked_add(1) != Some(plan.next_device_generation)
-            || device.active_scene.is_some()
-            || device.presented_frame != plan.previous_presented_frame
-            || plan.frame.sequence != self.next_present_sequence
-            || plan.frame.back_buffer != device.back_buffer
-            || device.back_buffer.content_generation.checked_add(1)
-                != Some(plan.next_back_buffer_content_generation)
-            || self.next_present_sequence.checked_add(1) != Some(plan.next_present_sequence)
-        {
-            return Err(stale_plan("graphics-present-plan-stale"));
-        }
-        if device.back_buffer.uniform_clear.is_none()
-            && device.back_buffer.draw_submissions.is_empty()
-        {
-            return Err(stale_plan("graphics-present-plan-stale"));
-        }
-        self.validate_device_association(device.com_object_id, device.id)
-    }
-
-    pub(super) fn commit_present(
-        &mut self,
-        plan: RuntimeGraphicsPresentPlan,
-    ) -> RuntimeGraphicsPresentResult {
-        debug_assert!(self.preflight_present(&plan).is_ok());
         let device = self
             .devices
-            .get_mut(&plan.device_id)
-            .expect("preflighted graphics device disappeared");
-        device.presented_frame = Some(plan.frame.clone());
-        device.back_buffer = RuntimeGraphicsBackBuffer {
-            content_generation: plan.next_back_buffer_content_generation,
-            uniform_clear: None,
-            draw_submissions: Vec::new(),
-        };
-        device.generation = plan.next_device_generation;
-        self.next_present_sequence = plan.next_present_sequence;
-        self.generation = plan.next_generation;
-        RuntimeGraphicsPresentResult {
-            device_id: device.id,
-            device_generation: device.generation,
-            frame: plan.frame,
-            next_back_buffer_content_generation: device.back_buffer.content_generation,
-        }
+            .get_mut(&device_id)
+            .expect("validated device identity");
+        device.presented_frame = Some(std::mem::take(&mut device.back_buffer));
+
+        Ok(true)
     }
 
-    pub(super) fn plan_texture_creation(
+    pub(super) fn validate_texture_creation(
         &self,
-        request: RuntimeGraphicsTextureCreateRequest,
-    ) -> Result<RuntimeGraphicsTextureCreationPlan, RuntimeStateError> {
-        validate_texture_creation_request(request)?;
+        device_com_object_id: RuntimeComObjectId,
+        descriptor: RuntimeGraphicsTextureDescriptor,
+    ) -> Result<
+        (
+            RuntimeGraphicsTextureId,
+            RuntimeGraphicsDeviceId,
+            RuntimeGraphicsTextureDescriptor,
+        ),
+        RuntimeStateError,
+    > {
+        if descriptor.width == 0 || descriptor.height == 0 || descriptor.levels == 0 {
+            return Err(RuntimeStateError::new(
+                "texture creation requires a nonzero descriptor",
+            ));
+        }
+        texture_byte_layout(descriptor)?;
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical texture creation requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         if self.textures.len() >= RUNTIME_GRAPHICS_TEXTURE_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-texture-capacity-reached",
+            return Err(RuntimeStateError::new(
                 "logical graphics texture capacity is exhausted",
             ));
         }
         let id = RuntimeGraphicsTextureId(self.next_texture_id);
         if id.0 == 0 || self.textures.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-texture-id-collision",
+            return Err(RuntimeStateError::new(
                 "logical graphics texture allocator selected a live identity",
             ));
         }
-        Ok(RuntimeGraphicsTextureCreationPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            id,
-            device_id,
-            request,
-        })
-    }
-
-    pub(super) fn preflight_texture_creation(
-        &self,
-        plan: &RuntimeGraphicsTextureCreationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.next_texture_id != plan.id.0
-            || self.textures.len() >= RUNTIME_GRAPHICS_TEXTURE_LIMIT
-            || self.textures.contains_key(&plan.id)
-            || self
-                .device_com_object_index
-                .get(&plan.request.device_com_object_id)
-                != Some(&plan.device_id)
-        {
-            return Err(stale_plan("graphics-texture-creation-plan-stale"));
+        if !self.device_texture_index.contains_key(&device_id) {
+            return Err(RuntimeStateError::new(
+                "live graphics device has no texture ownership index",
+            ));
         }
-        validate_texture_creation_request(plan.request)?;
-        self.validate_device_association(plan.request.device_com_object_id, plan.device_id)
+
+        self.next_texture_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::new("graphics texture identity space is exhausted")
+        })?;
+        Ok((id, device_id, descriptor))
     }
 
-    pub(super) fn commit_texture_creation(
+    pub(super) fn insert_texture(
         &mut self,
-        plan: RuntimeGraphicsTextureCreationPlan,
+        creation: (
+            RuntimeGraphicsTextureId,
+            RuntimeGraphicsDeviceId,
+            RuntimeGraphicsTextureDescriptor,
+        ),
         com_object_id: RuntimeComObjectId,
-    ) -> RuntimeGraphicsTexture {
-        debug_assert!(self.preflight_texture_creation(&plan).is_ok());
+    ) -> RuntimeGraphicsTextureId {
+        let (id, device_id, descriptor) = creation;
         debug_assert_ne!(com_object_id.0, 0);
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
@@ -3304,22 +1366,18 @@ impl RuntimeGraphics {
                 .vertex_buffer_com_object_index
                 .contains_key(&com_object_id)
         );
-        let next_texture_id = plan
-            .id
-            .0
-            .checked_add(1)
-            .expect("preflighted graphics texture ID must advance");
+        let next_texture_id =
+            id.0.checked_add(1)
+                .expect("preflighted graphics texture ID must advance");
         let texture = RuntimeGraphicsTexture {
-            id: plan.id,
-            namespace: RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE.to_owned(),
-            device_id: plan.device_id,
-            descriptor: plan.request.descriptor,
+            id,
+            device_id,
+            descriptor,
             backing: None,
             com_object_id,
             active_lock: None,
             dirty_region: RuntimeGraphicsTextureDirtyRegion::WholeTexture,
             content: RuntimeGraphicsTextureContent::default(),
-            generation: plan.next_generation,
         };
         self.texture_com_object_index
             .insert(com_object_id, texture.id);
@@ -3329,38 +1387,52 @@ impl RuntimeGraphics {
             .insert(texture.id);
         self.texture_surface_index
             .insert(texture.id, BTreeSet::new());
-        self.textures.insert(texture.id, texture.clone());
+        self.textures.insert(id, texture);
         self.next_texture_id = next_texture_id;
-        self.generation = plan.next_generation;
-        texture
+
+        id
     }
 
-    pub(super) fn plan_texture_lock(
+    pub(super) fn preview_texture_lock(
         &self,
-        request: RuntimeGraphicsTextureLockRequest,
-        backing_installation: Option<RuntimeGraphicsTextureBackingPlan>,
-    ) -> Result<RuntimeGraphicsTextureLockPlan, RuntimeStateError> {
-        let texture = self.texture_for_com_object(request.texture_com_object_id)?;
-        if request.level != 0
-            || request.flags != RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE
+        texture_com_object_id: RuntimeComObjectId,
+        level: u32,
+        rect: RuntimeRect,
+        flags: u32,
+        backing_installation: Option<GuestRange>,
+    ) -> Result<Option<RuntimeGraphicsTextureLock>, RuntimeStateError> {
+        let texture = self.texture_for_com_object(texture_com_object_id)?;
+        if level != 0
+            || flags
+                & !(RUNTIME_GRAPHICS_TEXTURE_LOCK_DISCARD
+                    | RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE)
+                != 0
             || texture.descriptor.levels != 1
-            || texture.descriptor.usage != RuntimeGraphicsTextureUsage::None
-            || texture.descriptor.pool != RuntimeGraphicsTexturePool::SystemMemory
+            || !matches!(
+                (texture.descriptor.usage, texture.descriptor.pool),
+                (
+                    RuntimeGraphicsTextureUsage::None,
+                    RuntimeGraphicsTexturePool::SystemMemory
+                ) | (
+                    RuntimeGraphicsTextureUsage::Dynamic,
+                    RuntimeGraphicsTexturePool::Default
+                )
+            )
             || texture.descriptor.color_format != RuntimeGraphicsColorFormat::B8g8r8x8Unorm
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-texture-lock-variant-unsupported",
-                "bounded texture locking supports the reached level-zero static SYSTEMMEM no-dirty-update variant",
-            ));
+            return Ok(None);
         }
-        validate_texture_dirty_rect(request.rect, texture.descriptor)?;
+        if !valid_texture_dirty_rect(rect, texture.descriptor)? {
+            return Ok(None);
+        }
+        if flags & RUNTIME_GRAPHICS_TEXTURE_LOCK_DISCARD != 0
+            && (texture.descriptor.usage != RuntimeGraphicsTextureUsage::Dynamic
+                || rect != full_texture_rect(texture.descriptor)?)
+        {
+            return Ok(None);
+        }
         if texture.active_lock.is_some() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-graphics",
-                "graphics-texture-already-locked",
-                "logical graphics texture already has an active lock",
-            ));
+            return Ok(None);
         }
         let (row_pitch, byte_length) = texture_byte_layout(texture.descriptor)?;
         let backing_start = match (texture.backing, backing_installation) {
@@ -3372,35 +1444,28 @@ impl RuntimeGraphics {
             {
                 backing.range.start()
             }
-            (None, Some(backing))
-                if backing.address_allocation_id.0 != 0
-                    && backing.range.start().0 != 0
-                    && backing.row_pitch == row_pitch
-                    && backing.range.byte_length() >= u64::from(byte_length) =>
+            (None, Some(range))
+                if range.start().0 != 0 && range.byte_length() >= u64::from(byte_length) =>
             {
-                backing.range.start()
+                range.start()
             }
             _ => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-graphics",
-                    "graphics-texture-backing-plan-invalid",
-                    "logical texture LockRect requires exactly one existing or planned texel backing",
+                return Err(RuntimeStateError::new(
+                    "texture lock has no unique valid texel backing",
                 ));
             }
         };
-        let byte_offset = u64::try_from(request.rect.top)
+        let byte_offset = u64::try_from(rect.top)
             .ok()
             .and_then(|top| top.checked_mul(u64::from(row_pitch)))
             .and_then(|offset| {
-                u64::try_from(request.rect.left)
+                u64::try_from(rect.left)
                     .ok()
                     .and_then(|left| left.checked_mul(4))
                     .and_then(|left| offset.checked_add(left))
             })
             .ok_or_else(|| {
-                RuntimeStateError::invalid_input(
-                    "runtime-graphics",
-                    "graphics-texture-lock-address-overflow",
+                RuntimeStateError::new(
                     "logical texture LockRect offset exceeds the x86 guest address space",
                 )
             })?;
@@ -3409,386 +1474,200 @@ impl RuntimeGraphics {
             .and_then(|address| u32::try_from(address).ok())
             .map(GuestAddress)
             .ok_or_else(|| {
-                RuntimeStateError::invalid_input(
-                    "runtime-graphics",
-                    "graphics-texture-lock-address-overflow",
+                RuntimeStateError::new(
                     "logical texture LockRect address exceeds the x86 guest address space",
                 )
             })?;
         let lock = RuntimeGraphicsTextureLock {
-            level: request.level,
-            rect: request.rect,
-            flags: request.flags,
+            level,
+            rect,
+            flags,
             pitch: row_pitch,
             guest_address,
         };
-        Ok(RuntimeGraphicsTextureLockPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            texture_id: texture.id,
-            texture_generation: texture.generation,
-            next_texture_generation: checked_texture_generation(texture.generation, "locked")?,
-            previous_backing: texture.backing,
-            backing_installation,
-            lock,
-        })
+
+        Ok(Some(lock))
     }
 
-    pub(super) fn preflight_texture_lock(
-        &self,
-        plan: &RuntimeGraphicsTextureLockPlan,
-        backing_memory_owner: Option<MemoryOwnerId>,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(texture) = self.textures.get(&plan.texture_id) else {
-            return Err(stale_plan("graphics-texture-lock-plan-stale"));
-        };
-        let backing_shape_matches = match (
-            texture.backing,
-            plan.previous_backing,
-            plan.backing_installation,
-            backing_memory_owner,
-        ) {
-            (Some(current), Some(previous), None, None) => current == previous,
-            (None, None, Some(backing), Some(memory_owner)) => {
-                backing.address_allocation_id.0 != 0
-                    && backing.range.start().0 != 0
-                    && backing.range.start() <= plan.lock.guest_address
-                    && backing.row_pitch == plan.lock.pitch
-                    && memory_owner.0 != 0
-            }
-            _ => false,
-        };
-        if self.generation != plan.expected_generation
-            || texture.generation != plan.texture_generation
-            || texture.backing != plan.previous_backing
-            || texture.active_lock.is_some()
-            || !backing_shape_matches
-            || plan.lock.level != 0
-            || plan.lock.flags != RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE
-            || plan.lock.pitch != texture_byte_layout(texture.descriptor)?.0
-            || self.generation.checked_add(1) != Some(plan.next_generation)
-            || texture.generation.checked_add(1) != Some(plan.next_texture_generation)
-        {
-            return Err(stale_plan("graphics-texture-lock-plan-stale"));
-        }
-        validate_texture_dirty_rect(plan.lock.rect, texture.descriptor)?;
-        self.validate_texture_association(texture.com_object_id, texture.id)
-    }
-
-    pub(super) fn commit_texture_lock(
+    #[cfg(test)]
+    fn lock_texture(
         &mut self,
-        plan: RuntimeGraphicsTextureLockPlan,
-        backing_memory_owner: Option<MemoryOwnerId>,
-    ) -> RuntimeGraphicsTextureLock {
-        debug_assert!(
-            self.preflight_texture_lock(&plan, backing_memory_owner)
-                .is_ok()
-        );
-        let texture = self
-            .textures
-            .get_mut(&plan.texture_id)
-            .expect("preflighted graphics texture disappeared");
-        if let Some(backing) = plan.backing_installation {
-            texture.backing = Some(RuntimeGraphicsTextureBacking {
-                address_allocation_id: backing.address_allocation_id,
-                memory_owner: backing_memory_owner
-                    .expect("preflighted texture backing omitted its memory owner"),
-                range: backing.range,
-                row_pitch: backing.row_pitch,
-            });
-        }
-        texture.active_lock = Some(plan.lock);
-        texture.generation = plan.next_texture_generation;
-        self.generation = plan.next_generation;
-        plan.lock
-    }
-
-    pub(super) fn plan_texture_unlock(
-        &self,
         texture_com_object_id: RuntimeComObjectId,
-    ) -> Result<RuntimeGraphicsTextureUnlockPlan, RuntimeStateError> {
-        let texture = self.texture_for_com_object(texture_com_object_id)?;
-        let mutation = if let Some(lock) = texture.active_lock {
-            let backing = texture.backing.ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-texture-unlock-backing-missing",
-                    "logical graphics texture has an active lock without texel backing",
-                )
-            })?;
-            let next_content_generation = texture
-                .content
-                .content_generation
-                .checked_add(1)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-graphics",
-                        "graphics-texture-content-generation-exhausted",
-                        "logical graphics texture content generation is exhausted",
-                    )
-                })?;
-            Some(RuntimeGraphicsTextureUnlockMutationPlan {
-                next_generation: checked_next_generation(self.generation)?,
-                next_texture_generation: checked_texture_generation(
-                    texture.generation,
-                    "unlocked",
-                )?,
-                content_generation: texture.content.content_generation,
-                next_content_generation,
-                lock,
-                pixel_source: RuntimeGraphicsTexturePixelSource {
-                    source_texture_id: texture.id,
-                    source_content_generation: next_content_generation,
-                    range: backing.range,
-                    row_pitch: backing.row_pitch,
-                },
-            })
-        } else {
-            None
-        };
-        Ok(RuntimeGraphicsTextureUnlockPlan {
-            expected_generation: self.generation,
-            texture_id: texture.id,
-            texture_generation: texture.generation,
-            mutation,
-        })
-    }
-
-    pub(super) fn preflight_texture_unlock(
-        &self,
-        plan: &RuntimeGraphicsTextureUnlockPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(texture) = self.textures.get(&plan.texture_id) else {
-            return Err(stale_plan("graphics-texture-unlock-plan-stale"));
-        };
-        if self.generation != plan.expected_generation
-            || texture.generation != plan.texture_generation
+        level: u32,
+        rect: RuntimeRect,
+        flags: u32,
+        backing_installation: Option<RuntimeGraphicsTextureBacking>,
+    ) -> Result<Option<RuntimeGraphicsTextureLock>, RuntimeStateError> {
+        if let Some(backing) = backing_installation
+            && (backing.address_allocation_id.0 == 0
+                || backing.memory_owner.0 == 0
+                || backing.row_pitch
+                    != texture_byte_layout(
+                        self.texture_for_com_object(texture_com_object_id)?
+                            .descriptor,
+                    )?
+                    .0)
         {
-            return Err(stale_plan("graphics-texture-unlock-plan-stale"));
+            return Err(RuntimeStateError::new(
+                "texture backing requires a live allocation, memory owner and matching pitch",
+            ));
         }
-        match &plan.mutation {
-            None if texture.active_lock.is_none() => {}
-            Some(mutation) => {
-                let backing = texture
-                    .backing
-                    .ok_or_else(|| stale_plan("graphics-texture-unlock-plan-stale"))?;
-                if texture.content.content_generation != mutation.content_generation
-                    || texture.active_lock != Some(mutation.lock)
-                    || mutation.pixel_source.source_texture_id != texture.id
-                    || mutation.pixel_source.source_content_generation
-                        != mutation.next_content_generation
-                    || mutation.pixel_source.range != backing.range
-                    || mutation.pixel_source.row_pitch != backing.row_pitch
-                    || self.generation.checked_add(1) != Some(mutation.next_generation)
-                    || texture.generation.checked_add(1) != Some(mutation.next_texture_generation)
-                    || texture.content.content_generation.checked_add(1)
-                        != Some(mutation.next_content_generation)
-                {
-                    return Err(stale_plan("graphics-texture-unlock-plan-stale"));
-                }
-            }
-            None => {
-                return Err(stale_plan("graphics-texture-unlock-plan-stale"));
-            }
-        }
-        self.validate_texture_association(texture.com_object_id, texture.id)
+        let Some(lock) = self.preview_texture_lock(
+            texture_com_object_id,
+            level,
+            rect,
+            flags,
+            backing_installation.map(|backing| backing.range),
+        )?
+        else {
+            return Ok(None);
+        };
+        let id = self.texture_for_com_object(texture_com_object_id)?.id;
+        self.publish_texture_lock(id, lock, backing_installation);
+        Ok(Some(lock))
     }
 
-    pub(super) fn commit_texture_unlock(
+    pub(super) fn publish_texture_lock(
         &mut self,
-        plan: RuntimeGraphicsTextureUnlockPlan,
-    ) -> RuntimeGraphicsTextureUnlockResult {
-        debug_assert!(self.preflight_texture_unlock(&plan).is_ok());
-        let Some(mutation) = plan.mutation else {
-            let texture = self
-                .textures
-                .get(&plan.texture_id)
-                .expect("preflighted graphics texture disappeared");
-            return RuntimeGraphicsTextureUnlockResult {
-                texture_id: texture.id,
-                generation: texture.generation,
-                content_generation: texture.content.content_generation,
-                changed: false,
-                pixel_source: texture.content.pixel_source,
-            };
-        };
+        id: RuntimeGraphicsTextureId,
+        lock: RuntimeGraphicsTextureLock,
+        backing_installation: Option<RuntimeGraphicsTextureBacking>,
+    ) {
         let texture = self
             .textures
-            .get_mut(&plan.texture_id)
-            .expect("preflighted graphics texture disappeared");
-        texture.active_lock = None;
-        texture.content.content_generation = mutation.next_content_generation;
-        texture.content.fills.clear();
-        texture.content.pixel_source = Some(mutation.pixel_source);
-        texture.content.last_update = None;
-        texture.generation = mutation.next_texture_generation;
-        self.generation = mutation.next_generation;
-        RuntimeGraphicsTextureUnlockResult {
-            texture_id: texture.id,
-            generation: texture.generation,
-            content_generation: texture.content.content_generation,
-            changed: true,
-            pixel_source: Some(mutation.pixel_source),
+            .get_mut(&id)
+            .expect("validated texture disappeared");
+        if let Some(backing) = backing_installation {
+            texture.backing = Some(backing);
         }
+        if lock.flags & RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE == 0 {
+            texture.dirty_region = merged_texture_dirty_region(
+                texture.dirty_region,
+                Some(lock.rect),
+                texture.descriptor,
+            )
+            .expect("validated texture lock descriptor")
+            .expect("validated texture lock rectangle");
+        }
+        // Draw submissions own their texel bytes. DISCARD may reuse this backing:
+        // previous contents are undefined and cannot change submitted frames.
+        texture.active_lock = Some(lock);
     }
 
-    pub(super) fn plan_texture_dirty_region_mark(
-        &self,
-        request: RuntimeGraphicsTextureDirtyRegionMarkRequest,
-    ) -> Result<RuntimeGraphicsTextureDirtyRegionMarkPlan, RuntimeStateError> {
-        validate_texture_dirty_region_mark_request(request)?;
+    pub(super) fn unlock_texture(
+        &mut self,
+        com_object_id: RuntimeComObjectId,
+    ) -> Result<bool, RuntimeStateError> {
+        let texture = self.texture_for_com_object(com_object_id)?;
+        if texture.active_lock.is_none() {
+            return Ok(false);
+        }
+        let id = texture.id;
+        let backing = texture.backing.ok_or_else(|| {
+            RuntimeStateError::new(
+                "logical graphics texture has an active lock without texel backing",
+            )
+        })?;
+        let next_content_generation = texture
+            .content
+            .content_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::new("logical graphics texture content generation is exhausted")
+            })?;
+        let pixel_source = RuntimeGraphicsTexturePixelSource {
+            source_texture_id: id,
+            source_content_generation: next_content_generation,
+            range: backing.range,
+            row_pitch: backing.row_pitch,
+        };
+        let texture = self.textures.get_mut(&id).expect("validated live texture");
+        texture.active_lock = None;
+        texture.content.content_generation = next_content_generation;
+        texture.content.fills.clear();
+        texture.content.pixel_source = Some(pixel_source);
+        texture.content.last_update = None;
+
+        Ok(true)
+    }
+
+    pub(super) fn mark_texture_dirty_region(
+        &mut self,
+        texture_com_object_id: RuntimeComObjectId,
+        rect: Option<RuntimeRect>,
+    ) -> Result<bool, RuntimeStateError> {
         let texture_id = self
             .texture_com_object_index
-            .get(&request.texture_com_object_id)
+            .get(&texture_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-dirty-region-com-object-unknown",
+                RuntimeStateError::new(
                     "logical texture dirty-region mark requires a live texture COM object",
                 )
             })?;
-        self.validate_texture_association(request.texture_com_object_id, texture_id)?;
+        self.validate_texture_association(texture_com_object_id, texture_id)?;
         let texture = self
             .textures
             .get(&texture_id)
             .expect("validated logical texture association disappeared");
         if texture.active_lock.is_some() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-graphics",
-                "graphics-texture-dirty-region-while-locked",
-                "logical texture dirty-region updates require an unlocked texture",
-            ));
+            return Ok(false);
         }
-        let dirty_region =
-            merged_texture_dirty_region(texture.dirty_region, request.rect, texture.descriptor)?;
+        let Some(dirty_region) =
+            merged_texture_dirty_region(texture.dirty_region, rect, texture.descriptor)?
+        else {
+            return Ok(false);
+        };
         let changed = dirty_region != texture.dirty_region;
-        let next_generation = if changed {
-            checked_next_generation(self.generation)?
-        } else {
-            self.generation
-        };
-        let next_texture_generation = if changed {
-            texture.generation.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-graphics",
-                    "graphics-texture-generation-exhausted",
-                    "logical graphics texture generation is exhausted",
-                )
-            })?
-        } else {
-            texture.generation
-        };
-        Ok(RuntimeGraphicsTextureDirtyRegionMarkPlan {
-            expected_generation: self.generation,
-            next_generation,
-            texture_id,
-            texture_generation: texture.generation,
-            next_texture_generation,
-            previous_dirty_region: texture.dirty_region,
-            dirty_region,
-            request,
-        })
-    }
-
-    pub(super) fn preflight_texture_dirty_region_mark(
-        &self,
-        plan: &RuntimeGraphicsTextureDirtyRegionMarkPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(stale_plan("graphics-texture-dirty-region-plan-stale"));
-        }
+        // All fallible checks precede the first mutation; there is no guest
+        // callback or browser round-trip between validation and publication.
         let texture = self
             .textures
-            .get(&plan.texture_id)
-            .ok_or_else(|| stale_plan("graphics-texture-dirty-region-plan-stale"))?;
-        let dirty_region = merged_texture_dirty_region(
-            texture.dirty_region,
-            plan.request.rect,
-            texture.descriptor,
-        )?;
-        let changed = dirty_region != texture.dirty_region;
-        if texture.com_object_id != plan.request.texture_com_object_id
-            || texture.generation != plan.texture_generation
-            || texture.dirty_region != plan.previous_dirty_region
-            || dirty_region != plan.dirty_region
-            || (changed
-                && (self.generation.checked_add(1) != Some(plan.next_generation)
-                    || texture.generation.checked_add(1) != Some(plan.next_texture_generation)))
-            || (!changed
-                && (plan.next_generation != self.generation
-                    || plan.next_texture_generation != texture.generation))
-        {
-            return Err(stale_plan("graphics-texture-dirty-region-plan-stale"));
-        }
-        self.validate_texture_association(texture.com_object_id, texture.id)
-    }
-
-    pub(super) fn commit_texture_dirty_region_mark(
-        &mut self,
-        plan: RuntimeGraphicsTextureDirtyRegionMarkPlan,
-    ) -> RuntimeGraphicsTextureDirtyRegionMarkResult {
-        debug_assert!(self.preflight_texture_dirty_region_mark(&plan).is_ok());
-        let texture = self
-            .textures
-            .get_mut(&plan.texture_id)
-            .expect("preflighted graphics texture disappeared");
-        let changed = texture.dirty_region != plan.dirty_region;
+            .get_mut(&texture_id)
+            .expect("validated texture identity");
         if changed {
-            texture.dirty_region = plan.dirty_region;
-            texture.generation = plan.next_texture_generation;
-            self.generation = plan.next_generation;
+            texture.dirty_region = dirty_region;
         }
-        RuntimeGraphicsTextureDirtyRegionMarkResult {
-            texture_id: texture.id,
-            dirty_region: texture.dirty_region,
-            changed,
-            texture_generation: texture.generation,
-        }
+        Ok(true)
     }
 
-    pub(super) fn plan_texture_update(
-        &self,
-        request: RuntimeGraphicsTextureUpdateRequest,
-    ) -> Result<RuntimeGraphicsTextureUpdatePlan, RuntimeStateError> {
-        validate_texture_update_request(request)?;
+    pub(super) fn update_texture(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        source_texture_com_object_id: RuntimeComObjectId,
+        destination_texture_com_object_id: RuntimeComObjectId,
+    ) -> Result<bool, RuntimeStateError> {
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-update-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical texture update requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         let source_texture_id = self
             .texture_com_object_index
-            .get(&request.source_texture_com_object_id)
+            .get(&source_texture_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-update-source-com-object-unknown",
+                RuntimeStateError::new(
                     "logical texture update requires a live source texture COM object",
                 )
             })?;
         let destination_texture_id = self
             .texture_com_object_index
-            .get(&request.destination_texture_com_object_id)
+            .get(&destination_texture_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-update-destination-com-object-unknown",
+                RuntimeStateError::new(
                     "logical texture update requires a live destination texture COM object",
                 )
             })?;
-        self.validate_texture_association(request.source_texture_com_object_id, source_texture_id)?;
+        self.validate_texture_association(source_texture_com_object_id, source_texture_id)?;
         self.validate_texture_association(
-            request.destination_texture_com_object_id,
+            destination_texture_com_object_id,
             destination_texture_id,
         )?;
         let source = self
@@ -3799,241 +1678,85 @@ impl RuntimeGraphics {
             .textures
             .get(&destination_texture_id)
             .expect("validated destination texture association disappeared");
-        validate_texture_update_pair(device_id, source, destination)?;
-        validate_partial_texture_update_lineage(source, destination)?;
-        let transferred = source.dirty_region != RuntimeGraphicsTextureDirtyRegion::Clean;
-        let (
-            next_generation,
-            next_source_texture_generation,
-            next_destination_texture_generation,
-            next_destination_content_generation,
-            destination_fills,
-            destination_pixel_source,
-            update,
-            next_update_sequence,
-        ) = if transferred {
-            let next_generation = checked_next_generation(self.generation)?;
-            let next_source_texture_generation =
-                checked_texture_generation(source.generation, "source")?;
-            let next_destination_texture_generation =
-                checked_texture_generation(destination.generation, "destination")?;
-            let next_destination_content_generation = destination
-                .content
-                .content_generation
-                .checked_add(1)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-graphics",
-                        "graphics-texture-content-generation-exhausted",
-                        "logical destination texture content generation is exhausted",
-                    )
-                })?;
-            let next_update_sequence = self
-                .next_texture_update_sequence
-                .checked_add(1)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-graphics",
-                        "graphics-texture-update-sequence-exhausted",
-                        "logical texture update sequence is exhausted",
-                    )
-                })?;
-            (
-                next_generation,
-                next_source_texture_generation,
-                next_destination_texture_generation,
-                next_destination_content_generation,
-                source.content.fills.clone(),
-                source.content.pixel_source,
-                Some(RuntimeGraphicsTextureUpdate {
-                    sequence: self.next_texture_update_sequence,
-                    source_texture_id,
-                    source_content_generation: source.content.content_generation,
-                    dirty_region: source.dirty_region,
-                }),
-                next_update_sequence,
-            )
-        } else {
-            (
-                self.generation,
-                source.generation,
-                destination.generation,
-                destination.content.content_generation,
-                Vec::new(),
-                None,
-                None,
-                self.next_texture_update_sequence,
-            )
-        };
-        Ok(RuntimeGraphicsTextureUpdatePlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_id,
+        if !validate_texture_update_pair(device_id, source, destination)?
+            || !validate_partial_texture_update_lineage(source, destination)?
+        {
+            return Ok(false);
+        }
+        if source.dirty_region == RuntimeGraphicsTextureDirtyRegion::Clean {
+            return Ok(true);
+        }
+        let next_content_generation = destination
+            .content
+            .content_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::new(
+                    "logical destination texture content generation is exhausted",
+                )
+            })?;
+        let update = RuntimeGraphicsTextureUpdate {
             source_texture_id,
-            source_texture_generation: source.generation,
-            next_source_texture_generation,
-            source_dirty_region: source.dirty_region,
             source_content_generation: source.content.content_generation,
-            destination_texture_id,
-            destination_texture_generation: destination.generation,
-            next_destination_texture_generation,
-            destination_content_generation: destination.content.content_generation,
-            next_destination_content_generation,
-            destination_fills,
-            destination_pixel_source,
-            update,
-            next_update_sequence,
-            request,
-        })
-    }
-
-    pub(super) fn preflight_texture_update(
-        &self,
-        plan: &RuntimeGraphicsTextureUpdatePlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(stale_plan("graphics-texture-update-plan-stale"));
-        }
-        validate_texture_update_request(plan.request)?;
+        };
+        let source_fills = source.content.fills.clone();
+        let source_pixel_source = source.content.pixel_source;
         let source = self
             .textures
-            .get(&plan.source_texture_id)
-            .ok_or_else(|| stale_plan("graphics-texture-update-plan-stale"))?;
+            .get_mut(&source_texture_id)
+            .expect("validated source");
+        source.dirty_region = RuntimeGraphicsTextureDirtyRegion::Clean;
+
         let destination = self
             .textures
-            .get(&plan.destination_texture_id)
-            .ok_or_else(|| stale_plan("graphics-texture-update-plan-stale"))?;
-        self.validate_device_association(plan.request.device_com_object_id, plan.device_id)?;
-        self.validate_texture_association(
-            plan.request.source_texture_com_object_id,
-            plan.source_texture_id,
-        )?;
-        self.validate_texture_association(
-            plan.request.destination_texture_com_object_id,
-            plan.destination_texture_id,
-        )?;
-        validate_texture_update_pair(plan.device_id, source, destination)?;
-        validate_partial_texture_update_lineage(source, destination)?;
-        if source.generation != plan.source_texture_generation
-            || source.dirty_region != plan.source_dirty_region
-            || source.content.content_generation != plan.source_content_generation
-            || destination.generation != plan.destination_texture_generation
-            || destination.content.content_generation != plan.destination_content_generation
-        {
-            return Err(stale_plan("graphics-texture-update-plan-stale"));
-        }
-        let transferred = source.dirty_region != RuntimeGraphicsTextureDirtyRegion::Clean;
-        if transferred {
-            if self.generation.checked_add(1) != Some(plan.next_generation)
-                || source.generation.checked_add(1) != Some(plan.next_source_texture_generation)
-                || destination.generation.checked_add(1)
-                    != Some(plan.next_destination_texture_generation)
-                || destination.content.content_generation.checked_add(1)
-                    != Some(plan.next_destination_content_generation)
-                || plan.destination_fills != source.content.fills
-                || plan.destination_pixel_source != source.content.pixel_source
-                || plan.update
-                    != Some(RuntimeGraphicsTextureUpdate {
-                        sequence: self.next_texture_update_sequence,
-                        source_texture_id: source.id,
-                        source_content_generation: source.content.content_generation,
-                        dirty_region: source.dirty_region,
-                    })
-                || self.next_texture_update_sequence.checked_add(1)
-                    != Some(plan.next_update_sequence)
-            {
-                return Err(stale_plan("graphics-texture-update-plan-stale"));
-            }
-        } else if plan.next_generation != self.generation
-            || plan.next_source_texture_generation != source.generation
-            || plan.next_destination_texture_generation != destination.generation
-            || plan.next_destination_content_generation != destination.content.content_generation
-            || !plan.destination_fills.is_empty()
-            || plan.destination_pixel_source.is_some()
-            || plan.update.is_some()
-            || plan.next_update_sequence != self.next_texture_update_sequence
-        {
-            return Err(stale_plan("graphics-texture-update-plan-stale"));
-        }
-        Ok(())
+            .get_mut(&destination_texture_id)
+            .expect("validated destination");
+        destination.content.fills = source_fills;
+        destination.content.pixel_source = source_pixel_source;
+        destination.content.content_generation = next_content_generation;
+        destination.content.last_update = Some(update);
+
+        Ok(true)
     }
 
-    pub(super) fn commit_texture_update(
-        &mut self,
-        plan: RuntimeGraphicsTextureUpdatePlan,
-    ) -> RuntimeGraphicsTextureUpdateResult {
-        debug_assert!(self.preflight_texture_update(&plan).is_ok());
-        let transferred = plan.update.is_some();
-        if transferred {
-            let source = self
-                .textures
-                .get_mut(&plan.source_texture_id)
-                .expect("preflighted source texture disappeared");
-            source.dirty_region = RuntimeGraphicsTextureDirtyRegion::Clean;
-            source.generation = plan.next_source_texture_generation;
-            let destination = self
-                .textures
-                .get_mut(&plan.destination_texture_id)
-                .expect("preflighted destination texture disappeared");
-            destination.content.fills = plan.destination_fills;
-            destination.content.pixel_source = plan.destination_pixel_source;
-            destination.content.content_generation = plan.next_destination_content_generation;
-            destination.content.last_update = plan.update;
-            destination.generation = plan.next_destination_texture_generation;
-            self.next_texture_update_sequence = plan.next_update_sequence;
-            self.generation = plan.next_generation;
-        }
-        let source = self
-            .textures
-            .get(&plan.source_texture_id)
-            .expect("preflighted source texture disappeared after update");
-        let destination = self
-            .textures
-            .get(&plan.destination_texture_id)
-            .expect("preflighted destination texture disappeared after update");
-        RuntimeGraphicsTextureUpdateResult {
-            source_texture_id: source.id,
-            destination_texture_id: destination.id,
-            transferred,
-            source_texture_generation: source.generation,
-            destination_texture_generation: destination.generation,
-            destination_content_generation: destination.content.content_generation,
-            update: plan.update,
-        }
-    }
-
-    pub(super) fn plan_vertex_buffer_creation(
+    pub(super) fn validate_vertex_buffer_creation(
         &self,
-        request: RuntimeGraphicsVertexBufferCreateRequest,
+        device_com_object_id: RuntimeComObjectId,
+        descriptor: RuntimeGraphicsVertexBufferDescriptor,
         address_allocation_id: ProcessAddressAllocationId,
         backing_range: GuestRange,
-    ) -> Result<RuntimeGraphicsVertexBufferCreationPlan, RuntimeStateError> {
-        validate_vertex_buffer_creation_request(request)?;
+    ) -> Result<
+        (
+            RuntimeGraphicsVertexBufferId,
+            RuntimeGraphicsDeviceId,
+            RuntimeGraphicsVertexBufferDescriptor,
+        ),
+        RuntimeStateError,
+    > {
+        if descriptor.byte_length == 0 || descriptor.flexible_vertex_format == 0 {
+            return Err(RuntimeStateError::new(
+                "vertex-buffer creation requires a nonzero descriptor",
+            ));
+        }
         let device_id = self
             .device_com_object_index
-            .get(&request.device_com_object_id)
+            .get(&device_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-vertex-buffer-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical vertex-buffer creation requires a live graphics device COM object",
                 )
             })?;
-        self.validate_device_association(request.device_com_object_id, device_id)?;
+        self.validate_device_association(device_com_object_id, device_id)?;
         if address_allocation_id.0 == 0
-            || backing_range.byte_length() < u64::from(request.descriptor.byte_length)
+            || backing_range.byte_length() < u64::from(descriptor.byte_length)
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-vertex-buffer-backing-invalid",
+            return Err(RuntimeStateError::new(
                 "logical vertex-buffer backing must identify sufficient guest memory",
             ));
         }
         if self.vertex_buffers.len() >= RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-vertex-buffer-capacity-reached",
+            return Err(RuntimeStateError::new(
                 "logical graphics vertex-buffer capacity is exhausted",
             ));
         }
@@ -4041,66 +1764,41 @@ impl RuntimeGraphics {
             vertex_buffer.backing.address_allocation_id == address_allocation_id
                 || vertex_buffer.backing.range == backing_range
         }) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-vertex-buffer-backing-collision",
+            return Err(RuntimeStateError::new(
                 "logical vertex-buffer allocator selected live guest backing",
             ));
         }
         let id = RuntimeGraphicsVertexBufferId(self.next_vertex_buffer_id);
         if id.0 == 0 || self.vertex_buffers.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-vertex-buffer-id-collision",
+            return Err(RuntimeStateError::new(
                 "logical graphics vertex-buffer allocator selected a live identity",
             ));
         }
-        Ok(RuntimeGraphicsVertexBufferCreationPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            id,
-            device_id,
-            request,
-            address_allocation_id,
-            backing_range,
-        })
+        if !self.device_vertex_buffer_index.contains_key(&device_id) {
+            return Err(RuntimeStateError::new(
+                "live device has no vertex-buffer ownership index",
+            ));
+        }
+
+        self.next_vertex_buffer_id
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("vertex-buffer identity space is exhausted"))?;
+        Ok((id, device_id, descriptor))
     }
 
-    pub(super) fn preflight_vertex_buffer_creation(
-        &self,
-        plan: &RuntimeGraphicsVertexBufferCreationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.next_vertex_buffer_id != plan.id.0
-            || self.vertex_buffers.len() >= RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT
-            || self.vertex_buffers.contains_key(&plan.id)
-            || self
-                .device_com_object_index
-                .get(&plan.request.device_com_object_id)
-                != Some(&plan.device_id)
-            || self.vertex_buffers.values().any(|vertex_buffer| {
-                vertex_buffer.backing.address_allocation_id == plan.address_allocation_id
-                    || vertex_buffer.backing.range == plan.backing_range
-            })
-        {
-            return Err(stale_plan("graphics-vertex-buffer-creation-plan-stale"));
-        }
-        validate_vertex_buffer_creation_request(plan.request)?;
-        if plan.address_allocation_id.0 == 0
-            || plan.backing_range.byte_length() < u64::from(plan.request.descriptor.byte_length)
-        {
-            return Err(stale_plan("graphics-vertex-buffer-creation-plan-stale"));
-        }
-        self.validate_device_association(plan.request.device_com_object_id, plan.device_id)
-    }
-
-    pub(super) fn commit_vertex_buffer_creation(
+    pub(super) fn insert_vertex_buffer(
         &mut self,
-        plan: RuntimeGraphicsVertexBufferCreationPlan,
+        creation: (
+            RuntimeGraphicsVertexBufferId,
+            RuntimeGraphicsDeviceId,
+            RuntimeGraphicsVertexBufferDescriptor,
+        ),
         com_object_id: RuntimeComObjectId,
         memory_owner: MemoryOwnerId,
-    ) -> RuntimeGraphicsVertexBuffer {
-        debug_assert!(self.preflight_vertex_buffer_creation(&plan).is_ok());
+        address_allocation_id: ProcessAddressAllocationId,
+        backing_range: GuestRange,
+    ) -> RuntimeGraphicsVertexBufferId {
+        let (id, device_id, descriptor) = creation;
         debug_assert_ne!(com_object_id.0, 0);
         debug_assert_ne!(memory_owner.0, 0);
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
@@ -4111,25 +1809,21 @@ impl RuntimeGraphics {
                 .vertex_buffer_com_object_index
                 .contains_key(&com_object_id)
         );
-        let next_vertex_buffer_id = plan
-            .id
-            .0
-            .checked_add(1)
-            .expect("preflighted graphics vertex-buffer ID must advance");
+        let next_vertex_buffer_id =
+            id.0.checked_add(1)
+                .expect("preflighted graphics vertex-buffer ID must advance");
         let vertex_buffer = RuntimeGraphicsVertexBuffer {
-            id: plan.id,
-            namespace: RUNTIME_GRAPHICS_VERTEX_BUFFER_ID_NAMESPACE.to_owned(),
-            device_id: plan.device_id,
-            descriptor: plan.request.descriptor,
+            id,
+            device_id,
+            descriptor,
             backing: RuntimeGraphicsVertexBufferBacking {
-                address_allocation_id: plan.address_allocation_id,
+                address_allocation_id,
                 memory_owner,
-                range: plan.backing_range,
+                range: backing_range,
             },
             com_object_id,
-            active_lock: None,
-            content_generation: 0,
-            generation: plan.next_generation,
+            locked: false,
+            initialized: false,
         };
         self.vertex_buffer_com_object_index
             .insert(com_object_id, vertex_buffer.id);
@@ -4137,287 +1831,153 @@ impl RuntimeGraphics {
             .get_mut(&vertex_buffer.device_id)
             .expect("preflighted graphics vertex-buffer device disappeared")
             .insert(vertex_buffer.id);
-        self.vertex_buffers
-            .insert(vertex_buffer.id, vertex_buffer.clone());
+        self.vertex_buffers.insert(id, vertex_buffer);
         self.next_vertex_buffer_id = next_vertex_buffer_id;
-        self.generation = plan.next_generation;
-        vertex_buffer
+
+        id
     }
 
-    pub(super) fn plan_vertex_buffer_lock(
-        &self,
-        request: RuntimeGraphicsVertexBufferLockRequest,
-    ) -> Result<RuntimeGraphicsVertexBufferLockPlan, RuntimeStateError> {
-        let vertex_buffer =
-            self.vertex_buffer_for_com_object(request.vertex_buffer_com_object_id)?;
-        if request.offset != 0 || request.byte_length != 0 || request.flags != 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-vertex-buffer-lock-variant-unsupported",
-                "bounded vertex-buffer locking supports only a full-range lock with zero flags",
-            ));
-        }
-        if vertex_buffer.active_lock.is_some() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-graphics",
-                "graphics-vertex-buffer-already-locked",
-                "logical graphics vertex buffer already has an active lock",
-            ));
-        }
-        let lock = RuntimeGraphicsVertexBufferLock {
-            offset: 0,
-            byte_length: vertex_buffer.descriptor.byte_length,
-            flags: 0,
-            guest_address: vertex_buffer.backing.range.start(),
-        };
-        Ok(RuntimeGraphicsVertexBufferLockPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            vertex_buffer_id: vertex_buffer.id,
-            vertex_buffer_generation: vertex_buffer.generation,
-            next_vertex_buffer_generation: vertex_buffer.generation.checked_add(1).ok_or_else(
-                || {
-                    RuntimeStateError::resource_limit(
-                        "runtime-graphics",
-                        "graphics-vertex-buffer-generation-exhausted",
-                        "logical graphics vertex-buffer generation is exhausted",
-                    )
-                },
-            )?,
-            lock,
-        })
-    }
-
-    pub(super) fn preflight_vertex_buffer_lock(
-        &self,
-        plan: &RuntimeGraphicsVertexBufferLockPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(vertex_buffer) = self.vertex_buffers.get(&plan.vertex_buffer_id) else {
-            return Err(stale_plan("graphics-vertex-buffer-lock-plan-stale"));
-        };
-        if self.generation != plan.expected_generation
-            || vertex_buffer.generation != plan.vertex_buffer_generation
-            || vertex_buffer.active_lock.is_some()
-            || plan.lock.offset != 0
-            || plan.lock.byte_length != vertex_buffer.descriptor.byte_length
-            || plan.lock.flags != 0
-            || plan.lock.guest_address != vertex_buffer.backing.range.start()
-            || self.generation.checked_add(1) != Some(plan.next_generation)
-            || vertex_buffer.generation.checked_add(1) != Some(plan.next_vertex_buffer_generation)
-        {
-            return Err(stale_plan("graphics-vertex-buffer-lock-plan-stale"));
-        }
-        self.validate_vertex_buffer_association(vertex_buffer.com_object_id, vertex_buffer.id)
-    }
-
-    pub(super) fn commit_vertex_buffer_lock(
-        &mut self,
-        plan: RuntimeGraphicsVertexBufferLockPlan,
-    ) -> RuntimeGraphicsVertexBufferLock {
-        debug_assert!(self.preflight_vertex_buffer_lock(&plan).is_ok());
-        let vertex_buffer = self
-            .vertex_buffers
-            .get_mut(&plan.vertex_buffer_id)
-            .expect("preflighted graphics vertex buffer disappeared");
-        vertex_buffer.active_lock = Some(plan.lock);
-        vertex_buffer.generation = plan.next_vertex_buffer_generation;
-        self.generation = plan.next_generation;
-        plan.lock
-    }
-
-    pub(super) fn plan_vertex_buffer_unlock(
+    pub(super) fn preview_vertex_buffer_lock(
         &self,
         vertex_buffer_com_object_id: RuntimeComObjectId,
-    ) -> Result<RuntimeGraphicsVertexBufferUnlockPlan, RuntimeStateError> {
+        offset: u32,
+        byte_length: u32,
+        flags: u32,
+    ) -> Result<Option<GuestAddress>, RuntimeStateError> {
         let vertex_buffer = self.vertex_buffer_for_com_object(vertex_buffer_com_object_id)?;
-        let lock = vertex_buffer.active_lock.ok_or_else(|| {
-            RuntimeStateError::conflict(
-                "runtime-graphics",
-                "graphics-vertex-buffer-not-locked",
-                "logical graphics vertex buffer has no active lock",
-            )
-        })?;
-        Ok(RuntimeGraphicsVertexBufferUnlockPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            vertex_buffer_id: vertex_buffer.id,
-            vertex_buffer_generation: vertex_buffer.generation,
-            next_vertex_buffer_generation: vertex_buffer.generation.checked_add(1).ok_or_else(
-                || {
-                    RuntimeStateError::resource_limit(
-                        "runtime-graphics",
-                        "graphics-vertex-buffer-generation-exhausted",
-                        "logical graphics vertex-buffer generation is exhausted",
-                    )
-                },
-            )?,
-            content_generation: vertex_buffer.content_generation,
-            next_content_generation: vertex_buffer.content_generation.checked_add(1).ok_or_else(
-                || {
-                    RuntimeStateError::resource_limit(
-                        "runtime-graphics",
-                        "graphics-vertex-buffer-content-generation-exhausted",
-                        "logical graphics vertex-buffer content generation is exhausted",
-                    )
-                },
-            )?,
-            lock,
-        })
-    }
-
-    pub(super) fn preflight_vertex_buffer_unlock(
-        &self,
-        plan: &RuntimeGraphicsVertexBufferUnlockPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let Some(vertex_buffer) = self.vertex_buffers.get(&plan.vertex_buffer_id) else {
-            return Err(stale_plan("graphics-vertex-buffer-unlock-plan-stale"));
-        };
-        if self.generation != plan.expected_generation
-            || vertex_buffer.generation != plan.vertex_buffer_generation
-            || vertex_buffer.content_generation != plan.content_generation
-            || vertex_buffer.active_lock != Some(plan.lock)
-            || self.generation.checked_add(1) != Some(plan.next_generation)
-            || vertex_buffer.generation.checked_add(1) != Some(plan.next_vertex_buffer_generation)
-            || vertex_buffer.content_generation.checked_add(1) != Some(plan.next_content_generation)
-        {
-            return Err(stale_plan("graphics-vertex-buffer-unlock-plan-stale"));
+        if offset != 0 || byte_length != 0 || flags != 0 || vertex_buffer.locked {
+            return Ok(None);
         }
-        self.validate_vertex_buffer_association(vertex_buffer.com_object_id, vertex_buffer.id)
+
+        Ok(Some(vertex_buffer.backing.range.start()))
     }
 
-    pub(super) fn commit_vertex_buffer_unlock(
+    #[cfg(test)]
+    fn lock_vertex_buffer(
         &mut self,
-        plan: RuntimeGraphicsVertexBufferUnlockPlan,
-    ) -> RuntimeGraphicsVertexBufferUnlockResult {
-        debug_assert!(self.preflight_vertex_buffer_unlock(&plan).is_ok());
+        vertex_buffer_com_object_id: RuntimeComObjectId,
+        offset: u32,
+        byte_length: u32,
+        flags: u32,
+    ) -> Result<Option<GuestAddress>, RuntimeStateError> {
+        let Some(lock) = self.preview_vertex_buffer_lock(
+            vertex_buffer_com_object_id,
+            offset,
+            byte_length,
+            flags,
+        )?
+        else {
+            return Ok(None);
+        };
+        let vertex_buffer = self.vertex_buffer_for_com_object(vertex_buffer_com_object_id)?;
+        let id = vertex_buffer.id;
+        self.publish_vertex_buffer_lock(id);
+        Ok(Some(lock))
+    }
+
+    pub(super) fn publish_vertex_buffer_lock(&mut self, id: RuntimeGraphicsVertexBufferId) {
         let vertex_buffer = self
             .vertex_buffers
-            .get_mut(&plan.vertex_buffer_id)
-            .expect("preflighted graphics vertex buffer disappeared");
-        vertex_buffer.active_lock = None;
-        vertex_buffer.content_generation = plan.next_content_generation;
-        vertex_buffer.generation = plan.next_vertex_buffer_generation;
-        self.generation = plan.next_generation;
-        RuntimeGraphicsVertexBufferUnlockResult {
-            vertex_buffer_id: vertex_buffer.id,
-            generation: vertex_buffer.generation,
-            content_generation: vertex_buffer.content_generation,
-        }
+            .get_mut(&id)
+            .expect("validated live vertex buffer");
+        vertex_buffer.locked = true;
     }
 
-    pub(super) fn plan_surface_creation(
+    pub(super) fn unlock_vertex_buffer(
+        &mut self,
+        com_object_id: RuntimeComObjectId,
+    ) -> Result<bool, RuntimeStateError> {
+        let vertex_buffer = self.vertex_buffer_for_com_object(com_object_id)?;
+        if !vertex_buffer.locked {
+            return Ok(false);
+        }
+        let id = vertex_buffer.id;
+        let vertex_buffer = self
+            .vertex_buffers
+            .get_mut(&id)
+            .expect("validated live vertex buffer");
+        vertex_buffer.locked = false;
+        vertex_buffer.initialized = true;
+
+        Ok(true)
+    }
+
+    pub(super) fn validate_surface_creation(
         &self,
-        request: RuntimeGraphicsSurfaceCreateRequest,
-    ) -> Result<RuntimeGraphicsSurfaceCreationPlan, RuntimeStateError> {
-        validate_surface_creation_request(request)?;
+        texture_com_object_id: RuntimeComObjectId,
+        level: u32,
+    ) -> Result<
+        Option<(
+            RuntimeGraphicsSurfaceId,
+            RuntimeGraphicsTextureId,
+            RuntimeGraphicsSurfaceDescriptor,
+        )>,
+        RuntimeStateError,
+    > {
         let texture_id = self
             .texture_com_object_index
-            .get(&request.texture_com_object_id)
+            .get(&texture_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-surface-texture-com-object-unknown",
+                RuntimeStateError::new(
                     "logical surface creation requires a live graphics texture COM object",
                 )
             })?;
-        self.validate_texture_association(request.texture_com_object_id, texture_id)?;
+        self.validate_texture_association(texture_com_object_id, texture_id)?;
         let texture = self
             .textures
             .get(&texture_id)
             .expect("validated logical texture association disappeared");
-        if request.level >= texture.descriptor.levels {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-surface-level-out-of-range",
-                "logical surface level is outside the texture descriptor",
-            ));
+        if level >= texture.descriptor.levels {
+            return Ok(None);
         }
         if self
             .texture_level_surface_index
-            .contains_key(&(texture_id, request.level))
+            .contains_key(&(texture_id, level))
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-graphics",
-                "graphics-surface-level-already-published",
+            return Err(RuntimeStateError::new(
                 "logical texture level already has a live surface identity",
             ));
         }
         if self.surfaces.len() >= RUNTIME_GRAPHICS_SURFACE_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-surface-capacity-reached",
+            return Err(RuntimeStateError::new(
                 "logical graphics surface capacity is exhausted",
             ));
         }
         let id = RuntimeGraphicsSurfaceId(self.next_surface_id);
         if id.0 == 0 || self.surfaces.contains_key(&id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-surface-id-collision",
+            return Err(RuntimeStateError::new(
                 "logical graphics surface allocator selected a live identity",
             ));
         }
+        if !self.texture_surface_index.contains_key(&texture_id) {
+            return Err(RuntimeStateError::new(
+                "live texture has no surface ownership index",
+            ));
+        }
         let descriptor = RuntimeGraphicsSurfaceDescriptor {
-            level: request.level,
-            width: mip_dimension(texture.descriptor.width, request.level),
-            height: mip_dimension(texture.descriptor.height, request.level),
+            level,
+            width: mip_dimension(texture.descriptor.width, level),
+            height: mip_dimension(texture.descriptor.height, level),
             color_format: texture.descriptor.color_format,
         };
-        Ok(RuntimeGraphicsSurfaceCreationPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            id,
-            texture_id,
-            request,
-            descriptor,
-        })
+
+        self.next_surface_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::new("graphics surface identity space is exhausted")
+        })?;
+        Ok(Some((id, texture_id, descriptor)))
     }
 
-    pub(super) fn preflight_surface_creation(
-        &self,
-        plan: &RuntimeGraphicsSurfaceCreationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.next_surface_id != plan.id.0
-            || self.surfaces.len() >= RUNTIME_GRAPHICS_SURFACE_LIMIT
-            || self.surfaces.contains_key(&plan.id)
-            || self
-                .texture_com_object_index
-                .get(&plan.request.texture_com_object_id)
-                != Some(&plan.texture_id)
-            || self
-                .texture_level_surface_index
-                .contains_key(&(plan.texture_id, plan.request.level))
-        {
-            return Err(stale_plan("graphics-surface-creation-plan-stale"));
-        }
-        validate_surface_creation_request(plan.request)?;
-        self.validate_texture_association(plan.request.texture_com_object_id, plan.texture_id)?;
-        let texture = self
-            .textures
-            .get(&plan.texture_id)
-            .expect("validated logical texture association disappeared");
-        if plan.request.level >= texture.descriptor.levels
-            || plan.descriptor
-                != (RuntimeGraphicsSurfaceDescriptor {
-                    level: plan.request.level,
-                    width: mip_dimension(texture.descriptor.width, plan.request.level),
-                    height: mip_dimension(texture.descriptor.height, plan.request.level),
-                    color_format: texture.descriptor.color_format,
-                })
-        {
-            return Err(stale_plan("graphics-surface-creation-plan-stale"));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_surface_creation(
+    pub(super) fn insert_surface(
         &mut self,
-        plan: RuntimeGraphicsSurfaceCreationPlan,
+        creation: (
+            RuntimeGraphicsSurfaceId,
+            RuntimeGraphicsTextureId,
+            RuntimeGraphicsSurfaceDescriptor,
+        ),
         com_object_id: RuntimeComObjectId,
-    ) -> RuntimeGraphicsSurface {
-        debug_assert!(self.preflight_surface_creation(&plan).is_ok());
+    ) -> RuntimeGraphicsSurfaceId {
+        let (id, texture_id, descriptor) = creation;
         debug_assert_ne!(com_object_id.0, 0);
         debug_assert!(!self.device_com_object_index.contains_key(&com_object_id));
         debug_assert!(!self.texture_com_object_index.contains_key(&com_object_id));
@@ -4427,18 +1987,14 @@ impl RuntimeGraphics {
                 .vertex_buffer_com_object_index
                 .contains_key(&com_object_id)
         );
-        let next_surface_id = plan
-            .id
-            .0
-            .checked_add(1)
-            .expect("preflighted graphics surface ID must advance");
+        let next_surface_id =
+            id.0.checked_add(1)
+                .expect("preflighted graphics surface ID must advance");
         let surface = RuntimeGraphicsSurface {
-            id: plan.id,
-            namespace: RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE.to_owned(),
-            texture_id: plan.texture_id,
-            descriptor: plan.descriptor,
+            id,
+            texture_id,
+            descriptor,
             com_object_id,
-            generation: plan.next_generation,
         };
         self.surface_com_object_index
             .insert(com_object_id, surface.id);
@@ -4448,221 +2004,137 @@ impl RuntimeGraphics {
             .insert(surface.id);
         self.texture_level_surface_index
             .insert((surface.texture_id, surface.descriptor.level), surface.id);
-        self.surfaces.insert(surface.id, surface.clone());
+        self.surfaces.insert(id, surface);
         self.next_surface_id = next_surface_id;
-        self.generation = plan.next_generation;
-        surface
+
+        id
     }
 
-    pub(crate) fn plan_surface_fill(
-        &self,
-        request: RuntimeGraphicsSurfaceFillRequest,
-    ) -> Result<RuntimeGraphicsSurfaceFillPlan, RuntimeStateError> {
-        validate_surface_fill_request(request)?;
+    pub(crate) fn fill_surface(
+        &mut self,
+        surface_com_object_id: RuntimeComObjectId,
+        rect: RuntimeRect,
+        color_ref: u32,
+    ) -> Result<(), RuntimeStateError> {
+        if surface_com_object_id.0 == 0 || color_ref > 0x00ff_ffff {
+            return Err(RuntimeStateError::new(
+                "logical graphics surface fill requires a live surface and a Win32 COLORREF",
+            ));
+        }
         let surface_id = self
             .surface_com_object_index
-            .get(&request.surface_com_object_id)
+            .get(&surface_com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-surface-fill-com-object-unknown",
+                RuntimeStateError::new(
                     "logical surface fill requires a live graphics surface COM object",
                 )
             })?;
-        self.validate_surface_association(request.surface_com_object_id, surface_id)?;
+        self.validate_surface_association(surface_com_object_id, surface_id)?;
         let surface = self
             .surfaces
             .get(&surface_id)
             .expect("validated logical surface association disappeared");
-        validate_surface_fill_rect(request.rect, surface.descriptor)?;
+        validate_surface_fill_rect(rect, surface.descriptor)?;
         if surface.descriptor.level != 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-surface-fill-level-unsupported",
+            return Err(RuntimeStateError::new(
                 "logical graphics surface fills currently require a level-zero texture view",
             ));
         }
-        let texture = self.textures.get(&surface.texture_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-surface-fill-texture-missing",
-                "logical graphics surface fill has no live texture authority",
-            )
+        let texture_id = surface.texture_id;
+        let texture = self.textures.get(&texture_id).ok_or_else(|| {
+            RuntimeStateError::new("logical graphics surface fill has no live texture authority")
         })?;
         if texture.active_lock.is_some() || texture.content.pixel_source.is_some() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-graphics",
-                "graphics-surface-fill-texture-content-busy",
+            return Err(RuntimeStateError::new(
                 "logical surface fill cannot overlap an active or guest-backed texture content path",
             ));
         }
-        let empty =
-            request.rect.left == request.rect.right || request.rect.top == request.rect.bottom;
-        if !empty && texture.content.fills.len() >= RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-graphics",
-                "graphics-surface-fill-capacity-reached",
+        if rect.left == rect.right || rect.top == rect.bottom {
+            return Ok(());
+        }
+        if texture.content.fills.len() >= RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT {
+            return Err(RuntimeStateError::new(
                 "logical graphics texture fill history capacity is exhausted",
             ));
         }
-        let fill = (!empty).then_some(RuntimeGraphicsSurfaceFill {
-            sequence: self.next_surface_fill_sequence,
-            rect: request.rect,
-            color_ref: request.color_ref,
-        });
-        let (
-            next_generation,
-            next_texture_generation,
-            next_texture_dirty_region,
-            next_texture_content_generation,
-            next_fill_sequence,
-        ) = if fill.is_some() {
-            (
-                checked_next_generation(self.generation)?,
-                checked_texture_generation(texture.generation, "surface-fill target")?,
-                merged_texture_dirty_region(
-                    texture.dirty_region,
-                    Some(request.rect),
-                    texture.descriptor,
-                )?,
-                texture
-                    .content
-                    .content_generation
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        RuntimeStateError::resource_limit(
-                            "runtime-graphics",
-                            "graphics-texture-content-generation-exhausted",
-                            "logical graphics texture content generation is exhausted",
-                        )
-                    })?,
-                self.next_surface_fill_sequence
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        RuntimeStateError::resource_limit(
-                            "runtime-graphics",
-                            "graphics-surface-fill-sequence-exhausted",
-                            "logical graphics surface fill sequence is exhausted",
-                        )
-                    })?,
-            )
-        } else {
-            (
-                self.generation,
-                texture.generation,
-                texture.dirty_region,
-                texture.content.content_generation,
-                self.next_surface_fill_sequence,
-            )
-        };
-        Ok(RuntimeGraphicsSurfaceFillPlan {
-            expected_generation: self.generation,
-            next_generation,
-            surface_id,
-            surface_generation: surface.generation,
-            texture_id: texture.id,
-            texture_generation: texture.generation,
-            next_texture_generation,
-            texture_dirty_region: texture.dirty_region,
-            next_texture_dirty_region,
-            texture_content_generation: texture.content.content_generation,
-            next_texture_content_generation,
-            fill,
-            next_fill_sequence,
-        })
-    }
-
-    pub(crate) fn preflight_surface_fill(
-        &self,
-        plan: &RuntimeGraphicsSurfaceFillPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(stale_plan("graphics-surface-fill-plan-stale"));
-        }
-        let surface = self
-            .surfaces
-            .get(&plan.surface_id)
-            .ok_or_else(|| stale_plan("graphics-surface-fill-plan-stale"))?;
+        let next_dirty_region =
+            merged_texture_dirty_region(texture.dirty_region, Some(rect), texture.descriptor)?
+                .ok_or_else(|| {
+                    RuntimeStateError::new(
+                        "validated surface fill produced an invalid dirty rectangle",
+                    )
+                })?;
+        let next_content_generation = texture
+            .content
+            .content_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::new("logical graphics texture content generation is exhausted")
+            })?;
+        // No browser, callback, or second owner mutates between these checks and publication.
         let texture = self
             .textures
-            .get(&plan.texture_id)
-            .ok_or_else(|| stale_plan("graphics-surface-fill-plan-stale"))?;
-        if surface.generation != plan.surface_generation
-            || surface.texture_id != texture.id
-            || texture.generation != plan.texture_generation
-            || texture.dirty_region != plan.texture_dirty_region
-            || texture.content.content_generation != plan.texture_content_generation
-        {
-            return Err(stale_plan("graphics-surface-fill-plan-stale"));
-        }
-        if let Some(fill) = plan.fill {
-            if fill.sequence != self.next_surface_fill_sequence
-                || self.next_surface_fill_sequence.checked_add(1) != Some(plan.next_fill_sequence)
-                || texture.content.fills.len() >= RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT
-                || texture.generation.checked_add(1) != Some(plan.next_texture_generation)
-                || merged_texture_dirty_region(
-                    texture.dirty_region,
-                    Some(fill.rect),
-                    texture.descriptor,
-                )? != plan.next_texture_dirty_region
-                || texture.content.content_generation.checked_add(1)
-                    != Some(plan.next_texture_content_generation)
-                || self.generation.checked_add(1) != Some(plan.next_generation)
-            {
-                return Err(stale_plan("graphics-surface-fill-plan-stale"));
-            }
-            validate_surface_fill_rect(fill.rect, surface.descriptor)?;
-        } else if plan.next_generation != self.generation
-            || plan.next_texture_generation != texture.generation
-            || plan.next_texture_dirty_region != texture.dirty_region
-            || plan.next_texture_content_generation != texture.content.content_generation
-            || plan.next_fill_sequence != self.next_surface_fill_sequence
-        {
-            return Err(stale_plan("graphics-surface-fill-plan-stale"));
-        }
+            .get_mut(&texture_id)
+            .expect("validated texture");
+        texture
+            .content
+            .fills
+            .push(RuntimeGraphicsSurfaceFill { rect, color_ref });
+        texture.content.content_generation = next_content_generation;
+        texture.dirty_region = next_dirty_region;
+
         Ok(())
     }
 
-    pub(crate) fn commit_surface_fill(
-        &mut self,
-        plan: RuntimeGraphicsSurfaceFillPlan,
-    ) -> RuntimeGraphicsSurfaceFillResult {
-        debug_assert!(self.preflight_surface_fill(&plan).is_ok());
-        let surface = self
-            .surfaces
-            .get(&plan.surface_id)
-            .expect("preflighted graphics surface disappeared");
-        if let Some(fill) = plan.fill {
-            let texture = self
-                .textures
-                .get_mut(&plan.texture_id)
-                .expect("preflighted graphics texture disappeared");
-            texture.content.fills.push(fill);
-            texture.content.content_generation = plan.next_texture_content_generation;
-            texture.dirty_region = plan.next_texture_dirty_region;
-            texture.generation = plan.next_texture_generation;
-            self.next_surface_fill_sequence = plan.next_fill_sequence;
-            self.generation = plan.next_generation;
-        }
-        let texture = self
-            .textures
-            .get(&plan.texture_id)
-            .expect("preflighted graphics texture disappeared after fill");
-        RuntimeGraphicsSurfaceFillResult {
-            surface_id: surface.id,
-            texture_id: texture.id,
-            texture_generation: texture.generation,
-            content_generation: texture.content.content_generation,
-            dirty_region: texture.dirty_region,
-            fill: plan.fill,
-        }
-    }
-
-    pub(crate) fn plan_com_object_retirements(
+    pub(crate) fn validate_com_object_retirements(
         &self,
         com_object_ids: &BTreeSet<RuntimeComObjectId>,
-    ) -> Result<Option<RuntimeGraphicsComRetirementPlan>, RuntimeStateError> {
+    ) -> Result<Option<RuntimeGraphicsComRetirement>, RuntimeStateError> {
+        // Do not interpret a missing reverse COM index as an unrelated resource.
+        for (id, resource) in &self.devices {
+            if com_object_ids.contains(&resource.com_object_id)
+                && (resource.id != *id
+                    || self.device_com_object_index.get(&resource.com_object_id) != Some(id))
+            {
+                return Err(RuntimeStateError::new(
+                    "retiring graphics device disagrees with its live identity or COM index",
+                ));
+            }
+        }
+        for (id, resource) in &self.textures {
+            if com_object_ids.contains(&resource.com_object_id)
+                && (resource.id != *id
+                    || self.texture_com_object_index.get(&resource.com_object_id) != Some(id))
+            {
+                return Err(RuntimeStateError::new(
+                    "retiring graphics texture disagrees with its live identity or COM index",
+                ));
+            }
+        }
+        for (id, resource) in &self.surfaces {
+            if com_object_ids.contains(&resource.com_object_id)
+                && (resource.id != *id
+                    || self.surface_com_object_index.get(&resource.com_object_id) != Some(id))
+            {
+                return Err(RuntimeStateError::new(
+                    "retiring graphics surface disagrees with its live identity or COM index",
+                ));
+            }
+        }
+        for (id, resource) in &self.vertex_buffers {
+            if com_object_ids.contains(&resource.com_object_id)
+                && (resource.id != *id
+                    || self
+                        .vertex_buffer_com_object_index
+                        .get(&resource.com_object_id)
+                        != Some(id))
+            {
+                return Err(RuntimeStateError::new(
+                    "retiring graphics vertex-buffer disagrees with its live identity or COM index",
+                ));
+            }
+        }
         let device_associations = com_object_ids
             .iter()
             .filter_map(|com_object_id| {
@@ -4712,32 +2184,18 @@ impl RuntimeGraphics {
             &surface_associations,
             &vertex_buffer_associations,
         )?;
-        let texture_binding_clearances = self.texture_binding_clearances_for_retirement(
-            &device_associations,
-            &texture_associations,
-        )?;
-        let stream_source_clearances = self.stream_source_clearances_for_retirement(
-            &device_associations,
-            &vertex_buffer_associations,
-            &texture_binding_clearances,
-        )?;
-        Ok(Some(RuntimeGraphicsComRetirementPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
+        Ok(Some(RuntimeGraphicsComRetirement {
             device_associations,
             texture_associations,
             surface_associations,
             vertex_buffer_associations,
-            texture_binding_clearances,
-            stream_source_clearances,
         }))
     }
 
     pub(crate) fn vertex_buffer_backings_for_retirement(
         &self,
-        plan: &RuntimeGraphicsComRetirementPlan,
+        plan: &RuntimeGraphicsComRetirement,
     ) -> Result<Vec<(RuntimeGraphicsVertexBufferBacking, u32)>, RuntimeStateError> {
-        self.preflight_com_object_retirement(plan)?;
         Ok(plan
             .vertex_buffer_associations
             .iter()
@@ -4753,9 +2211,8 @@ impl RuntimeGraphics {
 
     pub(crate) fn texture_backings_for_retirement(
         &self,
-        plan: &RuntimeGraphicsComRetirementPlan,
+        plan: &RuntimeGraphicsComRetirement,
     ) -> Result<Vec<(RuntimeGraphicsTextureBacking, u32)>, RuntimeStateError> {
-        self.preflight_com_object_retirement(plan)?;
         plan.texture_associations
             .iter()
             .filter_map(|(_, texture_id)| {
@@ -4771,72 +2228,16 @@ impl RuntimeGraphics {
             .collect()
     }
 
-    pub(crate) fn preflight_com_object_retirement(
-        &self,
-        plan: &RuntimeGraphicsComRetirementPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let texture_binding_clearances = self.texture_binding_clearances_for_retirement(
-            &plan.device_associations,
-            &plan.texture_associations,
-        );
-        let stream_source_clearances = match texture_binding_clearances.as_ref() {
-            Ok(texture_binding_clearances) => self.stream_source_clearances_for_retirement(
-                &plan.device_associations,
-                &plan.vertex_buffer_associations,
-                texture_binding_clearances,
-            ),
-            Err(_) => Err(stale_plan("graphics-com-retirement-plan-stale")),
-        };
-        if self.generation != plan.expected_generation
-            || texture_binding_clearances.as_ref() != Ok(&plan.texture_binding_clearances)
-            || stream_source_clearances.as_ref() != Ok(&plan.stream_source_clearances)
-            || self
-                .validate_retirement_associations(
-                    &plan.device_associations,
-                    &plan.texture_associations,
-                    &plan.surface_associations,
-                    &plan.vertex_buffer_associations,
-                )
-                .is_err()
-        {
-            return Err(stale_plan("graphics-com-retirement-plan-stale"));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn commit_com_object_retirement(&mut self, plan: RuntimeGraphicsComRetirementPlan) {
-        debug_assert!(self.preflight_com_object_retirement(&plan).is_ok());
-        for clearance in plan.texture_binding_clearances {
-            let device = self
-                .devices
-                .get_mut(&clearance.device_id)
-                .expect("preflighted texture-binding device disappeared during retirement");
-            debug_assert_eq!(
-                device.texture_bindings.stage_zero,
-                Some(clearance.texture_id)
-            );
-            device.texture_bindings.stage_zero = None;
-            device.generation = clearance.next_device_generation;
-        }
-        for clearance in plan.stream_source_clearances {
-            let device = self
-                .devices
-                .get_mut(&clearance.device_id)
-                .expect("preflighted stream-source device disappeared during retirement");
-            debug_assert_eq!(device.stream_sources.stream_zero, Some(clearance.binding));
-            debug_assert_eq!(device.generation, clearance.device_generation);
-            device.stream_sources.stream_zero = None;
-            device.generation = clearance.next_device_generation;
-        }
+    pub(crate) fn remove_validated_com_objects(&mut self, plan: RuntimeGraphicsComRetirement) {
         for (com_object_id, surface_id) in plan.surface_associations {
             self.surface_com_object_index.remove(&com_object_id);
             let surface = self
                 .surfaces
                 .remove(&surface_id)
-                .expect("preflighted logical surface disappeared during retirement");
+                .expect("validated logical surface disappeared during retirement");
             self.texture_surface_index
                 .get_mut(&surface.texture_id)
-                .expect("preflighted logical surface texture disappeared during retirement")
+                .expect("validated logical surface texture disappeared during retirement")
                 .remove(&surface_id);
             self.texture_level_surface_index
                 .remove(&(surface.texture_id, surface.descriptor.level));
@@ -4846,10 +2247,17 @@ impl RuntimeGraphics {
             let texture = self
                 .textures
                 .remove(&texture_id)
-                .expect("preflighted logical texture disappeared during retirement");
+                .expect("validated logical texture disappeared during retirement");
+            let device = self
+                .devices
+                .get_mut(&texture.device_id)
+                .expect("validated texture device disappeared during retirement");
+            if device.texture_bindings.stage_zero == Some(texture_id) {
+                device.texture_bindings.stage_zero = None;
+            }
             self.device_texture_index
                 .get_mut(&texture.device_id)
-                .expect("preflighted logical texture device disappeared during retirement")
+                .expect("validated logical texture device disappeared during retirement")
                 .remove(&texture_id);
             self.texture_surface_index.remove(&texture_id);
         }
@@ -4858,10 +2266,21 @@ impl RuntimeGraphics {
             let vertex_buffer = self
                 .vertex_buffers
                 .remove(&vertex_buffer_id)
-                .expect("preflighted logical vertex buffer disappeared during retirement");
+                .expect("validated logical vertex buffer disappeared during retirement");
+            let device = self
+                .devices
+                .get_mut(&vertex_buffer.device_id)
+                .expect("validated vertex-buffer device disappeared during retirement");
+            if device
+                .stream_sources
+                .stream_zero
+                .is_some_and(|binding| binding.vertex_buffer_id == vertex_buffer_id)
+            {
+                device.stream_sources.stream_zero = None;
+            }
             self.device_vertex_buffer_index
                 .get_mut(&vertex_buffer.device_id)
-                .expect("preflighted logical vertex-buffer device disappeared during retirement")
+                .expect("validated logical vertex-buffer device disappeared during retirement")
                 .remove(&vertex_buffer_id);
         }
         for (com_object_id, device_id) in plan.device_associations {
@@ -4870,118 +2289,6 @@ impl RuntimeGraphics {
             self.device_vertex_buffer_index.remove(&device_id);
             self.devices.remove(&device_id);
         }
-        self.generation = plan.next_generation;
-    }
-
-    fn texture_binding_clearances_for_retirement(
-        &self,
-        device_associations: &[(RuntimeComObjectId, RuntimeGraphicsDeviceId)],
-        texture_associations: &[(RuntimeComObjectId, RuntimeGraphicsTextureId)],
-    ) -> Result<Vec<RuntimeGraphicsTextureBindingClearance>, RuntimeStateError> {
-        let retiring_devices = device_associations
-            .iter()
-            .map(|(_, device_id)| *device_id)
-            .collect::<BTreeSet<_>>();
-        let mut clearances = Vec::new();
-        for (_, texture_id) in texture_associations {
-            let texture = self.textures.get(texture_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-texture-binding-retirement-texture-missing",
-                    "retiring logical texture is missing while deriving binding clearances",
-                )
-            })?;
-            if retiring_devices.contains(&texture.device_id) {
-                continue;
-            }
-            let device = self.devices.get(&texture.device_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-texture-binding-retirement-device-missing",
-                    "retiring bound texture has no live creating device",
-                )
-            })?;
-            if device.texture_bindings.stage_zero == Some(*texture_id) {
-                clearances.push(RuntimeGraphicsTextureBindingClearance {
-                    device_id: device.id,
-                    texture_id: *texture_id,
-                    device_generation: device.generation,
-                    next_device_generation: device.generation.checked_add(1).ok_or_else(|| {
-                        RuntimeStateError::resource_limit(
-                            "runtime-graphics",
-                            "graphics-device-generation-exhausted",
-                            "logical graphics device generation is exhausted",
-                        )
-                    })?,
-                });
-            }
-        }
-        Ok(clearances)
-    }
-
-    fn stream_source_clearances_for_retirement(
-        &self,
-        device_associations: &[(RuntimeComObjectId, RuntimeGraphicsDeviceId)],
-        vertex_buffer_associations: &[(RuntimeComObjectId, RuntimeGraphicsVertexBufferId)],
-        texture_binding_clearances: &[RuntimeGraphicsTextureBindingClearance],
-    ) -> Result<Vec<RuntimeGraphicsStreamSourceClearance>, RuntimeStateError> {
-        let retiring_devices = device_associations
-            .iter()
-            .map(|(_, device_id)| *device_id)
-            .collect::<BTreeSet<_>>();
-        let mut clearances = Vec::new();
-        for (_, vertex_buffer_id) in vertex_buffer_associations {
-            let vertex_buffer = self.vertex_buffers.get(vertex_buffer_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-stream-source-retirement-vertex-buffer-missing",
-                    "retiring logical vertex buffer is missing while deriving stream-source clearances",
-                )
-            })?;
-            if retiring_devices.contains(&vertex_buffer.device_id) {
-                continue;
-            }
-            let device = self.devices.get(&vertex_buffer.device_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-stream-source-retirement-device-missing",
-                    "retiring bound vertex buffer has no live creating device",
-                )
-            })?;
-            let Some(binding) = device.stream_sources.stream_zero else {
-                continue;
-            };
-            if binding.vertex_buffer_id != *vertex_buffer_id {
-                continue;
-            }
-            let preceding_clearances = texture_binding_clearances
-                .iter()
-                .filter(|clearance| clearance.device_id == device.id)
-                .count() as u64;
-            let device_generation = device
-                .generation
-                .checked_add(preceding_clearances)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-graphics",
-                        "graphics-device-generation-exhausted",
-                        "logical graphics device generation is exhausted",
-                    )
-                })?;
-            clearances.push(RuntimeGraphicsStreamSourceClearance {
-                device_id: device.id,
-                binding,
-                device_generation,
-                next_device_generation: device_generation.checked_add(1).ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-graphics",
-                        "graphics-device-generation-exhausted",
-                        "logical graphics device generation is exhausted",
-                    )
-                })?,
-            });
-        }
-        Ok(clearances)
     }
 
     fn validate_retirement_associations(
@@ -4996,9 +2303,7 @@ impl RuntimeGraphics {
             && surface_associations.is_empty()
             && vertex_buffer_associations.is_empty()
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-retirement-set-empty",
+            return Err(RuntimeStateError::new(
                 "logical graphics retirement requires at least one COM association",
             ));
         }
@@ -5020,16 +2325,10 @@ impl RuntimeGraphics {
             .collect::<BTreeSet<_>>();
         for (_, texture_id) in texture_associations {
             let children = self.texture_surface_index.get(texture_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-texture-surface-index-missing",
-                    "logical graphics texture has no surface relation index",
-                )
+                RuntimeStateError::new("logical graphics texture has no surface relation index")
             })?;
             if !children.is_subset(&retiring_surfaces) {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-texture-retirement-has-live-surfaces",
+                return Err(RuntimeStateError::new(
                     "logical graphics texture cannot retire while a child surface remains live",
                 ));
             }
@@ -5047,9 +2346,7 @@ impl RuntimeGraphics {
                 .pixel_source
                 .is_some_and(|source| retiring_textures.contains(&source.source_texture_id))
             {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-graphics",
-                    "graphics-texture-retirement-has-live-pixel-source-dependent",
+                return Err(RuntimeStateError::new(
                     "logical texture backing cannot retire while live texture content still references it",
                 ));
             }
@@ -5060,16 +2357,10 @@ impl RuntimeGraphics {
             .collect::<BTreeSet<_>>();
         for (_, device_id) in device_associations {
             let children = self.device_texture_index.get(device_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-device-texture-index-missing",
-                    "logical graphics device has no texture relation index",
-                )
+                RuntimeStateError::new("logical graphics device has no texture relation index")
             })?;
             if !children.is_subset(&retiring_textures) {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-device-retirement-has-live-textures",
+                return Err(RuntimeStateError::new(
                     "logical graphics device cannot retire while a child texture remains live",
                 ));
             }
@@ -5077,16 +2368,12 @@ impl RuntimeGraphics {
                 self.device_vertex_buffer_index
                     .get(device_id)
                     .ok_or_else(|| {
-                        RuntimeStateError::runtime_defect(
-                            "runtime-graphics",
-                            "graphics-device-vertex-buffer-index-missing",
+                        RuntimeStateError::new(
                             "logical graphics device has no vertex-buffer relation index",
                         )
                     })?;
             if !vertex_buffers.is_subset(&retiring_vertex_buffers) {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-graphics",
-                    "graphics-device-retirement-has-live-vertex-buffers",
+                return Err(RuntimeStateError::new(
                     "logical graphics device cannot retire while a child vertex buffer remains live",
                 ));
             }
@@ -5100,30 +2387,24 @@ impl RuntimeGraphics {
         device_id: RuntimeGraphicsDeviceId,
     ) -> Result<(), RuntimeStateError> {
         if self.device_com_object_index.get(&com_object_id) != Some(&device_id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-device-com-index-dangling",
+            return Err(RuntimeStateError::new(
                 "graphics device COM association does not resolve to a live logical device",
             ));
         }
         if self
             .devices
             .get(&device_id)
-            .map(|device| device.com_object_id)
-            != Some(com_object_id)
+            .map(|device| (device.id, device.com_object_id))
+            != Some((device_id, com_object_id))
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-device-com-association-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical graphics device and COM index disagree",
             ));
         }
         if !self.device_texture_index.contains_key(&device_id)
             || !self.device_vertex_buffer_index.contains_key(&device_id)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-device-texture-index-missing",
+            return Err(RuntimeStateError::new(
                 "logical graphics device is missing a resource relation index",
             ));
         }
@@ -5136,9 +2417,7 @@ impl RuntimeGraphics {
                 .get(&texture_id)
                 .is_none_or(|texture| texture.device_id != device_id)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-device-texture-binding-dangling",
+            return Err(RuntimeStateError::new(
                 "logical graphics device texture binding does not resolve to a live owned texture",
             ));
         }
@@ -5151,9 +2430,7 @@ impl RuntimeGraphics {
                 .get(&binding.vertex_buffer_id)
                 .is_none_or(|vertex_buffer| vertex_buffer.device_id != device_id)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-device-stream-source-dangling",
+            return Err(RuntimeStateError::new(
                 "logical graphics device stream source does not resolve to a live owned vertex buffer",
             ));
         }
@@ -5169,9 +2446,7 @@ impl RuntimeGraphics {
             .get(&com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-device-com-object-unknown",
+                RuntimeStateError::new(
                     "logical graphics device query requires a live device COM object",
                 )
             })?;
@@ -5185,29 +2460,22 @@ impl RuntimeGraphics {
         texture_id: RuntimeGraphicsTextureId,
     ) -> Result<(), RuntimeStateError> {
         if self.texture_com_object_index.get(&com_object_id) != Some(&texture_id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-texture-com-index-dangling",
+            return Err(RuntimeStateError::new(
                 "graphics texture COM association does not resolve to a live logical texture",
             ));
         }
         let texture = self.textures.get(&texture_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-texture-com-association-mismatch",
-                "logical graphics texture and COM index disagree",
-            )
+            RuntimeStateError::new("logical graphics texture and COM index disagree")
         })?;
-        if texture.com_object_id != com_object_id
+        if texture.id != texture_id
+            || texture.com_object_id != com_object_id
             || !self
                 .device_texture_index
                 .get(&texture.device_id)
                 .is_some_and(|textures| textures.contains(&texture_id))
             || !self.texture_surface_index.contains_key(&texture_id)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-texture-com-association-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical graphics texture, device relation, and COM index disagree",
             ));
         }
@@ -5220,18 +2488,12 @@ impl RuntimeGraphics {
         surface_id: RuntimeGraphicsSurfaceId,
     ) -> Result<(), RuntimeStateError> {
         if self.surface_com_object_index.get(&com_object_id) != Some(&surface_id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-surface-com-index-dangling",
+            return Err(RuntimeStateError::new(
                 "graphics surface COM association does not resolve to a live logical surface",
             ));
         }
         let surface = self.surfaces.get(&surface_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-surface-com-association-mismatch",
-                "logical graphics surface and COM index disagree",
-            )
+            RuntimeStateError::new("logical graphics surface and COM index disagree")
         })?;
         if surface.com_object_id != com_object_id
             || !self
@@ -5243,9 +2505,7 @@ impl RuntimeGraphics {
                 .get(&(surface.texture_id, surface.descriptor.level))
                 != Some(&surface_id)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-surface-com-association-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical graphics surface, texture relation, and COM indexes disagree",
             ));
         }
@@ -5258,88 +2518,25 @@ impl RuntimeGraphics {
         vertex_buffer_id: RuntimeGraphicsVertexBufferId,
     ) -> Result<(), RuntimeStateError> {
         if self.vertex_buffer_com_object_index.get(&com_object_id) != Some(&vertex_buffer_id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-vertex-buffer-com-index-dangling",
+            return Err(RuntimeStateError::new(
                 "graphics vertex-buffer COM association does not resolve to a live logical buffer",
             ));
         }
         let vertex_buffer = self.vertex_buffers.get(&vertex_buffer_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-vertex-buffer-com-association-mismatch",
-                "logical graphics vertex buffer and COM index disagree",
-            )
+            RuntimeStateError::new("logical graphics vertex buffer and COM index disagree")
         })?;
-        if vertex_buffer.com_object_id != com_object_id
+        if vertex_buffer.id != vertex_buffer_id
+            || vertex_buffer.com_object_id != com_object_id
             || !self
                 .device_vertex_buffer_index
                 .get(&vertex_buffer.device_id)
                 .is_some_and(|vertex_buffers| vertex_buffers.contains(&vertex_buffer_id))
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-vertex-buffer-com-association-mismatch",
+            return Err(RuntimeStateError::new(
                 "logical graphics vertex buffer, device relation, and COM index disagree",
             ));
         }
         Ok(())
-    }
-
-    pub(super) fn plan_process_teardown(
-        &self,
-    ) -> Result<Option<RuntimeGraphicsTeardownPlan>, RuntimeStateError> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(RuntimeGraphicsTeardownPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            devices: self.devices.len(),
-            textures: self.textures.len(),
-            surfaces: self.surfaces.len(),
-            vertex_buffers: self.vertex_buffers.len(),
-        }))
-    }
-
-    pub(super) fn preflight_process_teardown(
-        &self,
-        plan: &RuntimeGraphicsTeardownPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.devices.len() != plan.devices
-            || self.device_com_object_index.len() != plan.devices
-            || self.device_texture_index.len() != plan.devices
-            || self.device_vertex_buffer_index.len() != plan.devices
-            || self.textures.len() != plan.textures
-            || self.texture_com_object_index.len() != plan.textures
-            || self.texture_surface_index.len() != plan.textures
-            || self.surfaces.len() != plan.surfaces
-            || self.surface_com_object_index.len() != plan.surfaces
-            || self.texture_level_surface_index.len() != plan.surfaces
-            || self.vertex_buffers.len() != plan.vertex_buffers
-            || self.vertex_buffer_com_object_index.len() != plan.vertex_buffers
-        {
-            return Err(stale_plan("graphics-teardown-plan-stale"));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_process_teardown(&mut self, plan: RuntimeGraphicsTeardownPlan) {
-        debug_assert!(self.preflight_process_teardown(&plan).is_ok());
-        self.surfaces.clear();
-        self.surface_com_object_index.clear();
-        self.texture_level_surface_index.clear();
-        self.texture_surface_index.clear();
-        self.textures.clear();
-        self.texture_com_object_index.clear();
-        self.device_texture_index.clear();
-        self.vertex_buffers.clear();
-        self.vertex_buffer_com_object_index.clear();
-        self.device_vertex_buffer_index.clear();
-        self.devices.clear();
-        self.device_com_object_index.clear();
-        self.generation = plan.next_generation;
     }
 
     pub fn device(
@@ -5347,15 +2544,12 @@ impl RuntimeGraphics {
         id: RuntimeGraphicsDeviceId,
     ) -> Result<&RuntimeGraphicsDevice, RuntimeStateError> {
         self.devices.get(&id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-graphics",
-                "graphics-device-id-unknown",
-                format!("logical graphics device {} is not live", id.0),
-            )
+            RuntimeStateError::new(format!("logical graphics device {} is not live", id.0))
         })
     }
 
-    pub fn devices(&self) -> &BTreeMap<RuntimeGraphicsDeviceId, RuntimeGraphicsDevice> {
+    #[cfg(test)]
+    pub(super) fn devices(&self) -> &BTreeMap<RuntimeGraphicsDeviceId, RuntimeGraphicsDevice> {
         &self.devices
     }
 
@@ -5364,15 +2558,12 @@ impl RuntimeGraphics {
         id: RuntimeGraphicsTextureId,
     ) -> Result<&RuntimeGraphicsTexture, RuntimeStateError> {
         self.textures.get(&id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-graphics",
-                "graphics-texture-id-unknown",
-                format!("logical graphics texture {} is not live", id.0),
-            )
+            RuntimeStateError::new(format!("logical graphics texture {} is not live", id.0))
         })
     }
 
-    pub fn textures(&self) -> &BTreeMap<RuntimeGraphicsTextureId, RuntimeGraphicsTexture> {
+    #[cfg(test)]
+    pub(super) fn textures(&self) -> &BTreeMap<RuntimeGraphicsTextureId, RuntimeGraphicsTexture> {
         &self.textures
     }
 
@@ -5385,11 +2576,7 @@ impl RuntimeGraphics {
             .get(&com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-texture-com-object-unknown",
-                    "logical graphics texture COM object is not live",
-                )
+                RuntimeStateError::new("live texture COM object has no logical graphics texture")
             })?;
         self.validate_texture_association(com_object_id, texture_id)?;
         Ok(self
@@ -5398,20 +2585,17 @@ impl RuntimeGraphics {
             .expect("validated logical texture association disappeared"))
     }
 
-    pub fn surface(
+    fn surface(
         &self,
         id: RuntimeGraphicsSurfaceId,
     ) -> Result<&RuntimeGraphicsSurface, RuntimeStateError> {
         self.surfaces.get(&id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-graphics",
-                "graphics-surface-id-unknown",
-                format!("logical graphics surface {} is not live", id.0),
-            )
+            RuntimeStateError::new(format!("logical graphics surface {} is not live", id.0))
         })
     }
 
-    pub fn surfaces(&self) -> &BTreeMap<RuntimeGraphicsSurfaceId, RuntimeGraphicsSurface> {
+    #[cfg(test)]
+    fn surfaces(&self) -> &BTreeMap<RuntimeGraphicsSurfaceId, RuntimeGraphicsSurface> {
         &self.surfaces
     }
 
@@ -5420,15 +2604,15 @@ impl RuntimeGraphics {
         id: RuntimeGraphicsVertexBufferId,
     ) -> Result<&RuntimeGraphicsVertexBuffer, RuntimeStateError> {
         self.vertex_buffers.get(&id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-graphics",
-                "graphics-vertex-buffer-id-unknown",
-                format!("logical graphics vertex buffer {} is not live", id.0),
-            )
+            RuntimeStateError::new(format!(
+                "logical graphics vertex buffer {} is not live",
+                id.0
+            ))
         })
     }
 
-    pub fn vertex_buffers(
+    #[cfg(test)]
+    pub(super) fn vertex_buffers(
         &self,
     ) -> &BTreeMap<RuntimeGraphicsVertexBufferId, RuntimeGraphicsVertexBuffer> {
         &self.vertex_buffers
@@ -5443,11 +2627,7 @@ impl RuntimeGraphics {
             .get(&com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-vertex-buffer-com-object-unknown",
-                    "logical graphics vertex-buffer COM object is not live",
-                )
+                RuntimeStateError::new("logical graphics vertex-buffer COM object is not live")
             })?;
         self.validate_vertex_buffer_association(com_object_id, vertex_buffer_id)?;
         Ok(self
@@ -5465,11 +2645,7 @@ impl RuntimeGraphics {
             .get(&com_object_id)
             .copied()
             .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-graphics",
-                    "graphics-surface-com-object-unknown",
-                    "logical graphics surface COM object is not live",
-                )
+                RuntimeStateError::new("logical graphics surface COM object is not live")
             })?;
         self.validate_surface_association(com_object_id, surface_id)?;
         Ok(self
@@ -5486,11 +2662,7 @@ impl RuntimeGraphics {
         let texture = self.texture_for_com_object(texture_com_object_id)?;
         let texture_id = texture.id;
         if level >= texture.descriptor.levels {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-surface-level-out-of-range",
-                "logical surface level is outside the texture descriptor",
-            ));
+            return Ok(None);
         }
         let Some(surface_id) = self
             .texture_level_surface_index
@@ -5504,6 +2676,7 @@ impl RuntimeGraphics {
         Ok(Some(surface))
     }
 
+    #[cfg(test)]
     pub(super) fn is_empty(&self) -> bool {
         self.devices.is_empty()
             && self.textures.is_empty()
@@ -5512,10 +2685,8 @@ impl RuntimeGraphics {
     }
 }
 
-fn validate_creation_request(
-    request: RuntimeGraphicsDeviceCreationRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.target.window_id.0 == 0
+fn valid_creation_request(request: RuntimeGraphicsDeviceCreationRequest) -> bool {
+    !(request.target.window_id.0 == 0
         || request.target.window_handle == 0
         || request.target.owner_thread_id.0 == 0
         || request.target.client_width == 0
@@ -5524,98 +2695,10 @@ fn validate_creation_request(
         || request.target.client_height > i32::MAX as u32
         || request.back_buffer_count == 0
         || request.sample_count == 0
-        || !request.windowed
-    {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-device-creation-request-invalid",
-            "logical graphics device creation requires a live window and bounded presentation",
-        ));
-    }
-    Ok(())
+        || !request.windowed)
 }
 
-fn validate_back_buffer_clear_request(
-    request: RuntimeGraphicsBackBufferClearRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.device_com_object_id.0 == 0 {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-back-buffer-clear-request-invalid",
-            "logical back-buffer clear requires a live graphics device",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_texture_binding_update_request(
-    request: RuntimeGraphicsTextureBindingUpdateRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.device_com_object_id.0 == 0
-        || request.stage != 0
-        || request
-            .texture_com_object_id
-            .is_some_and(|texture_com_object_id| texture_com_object_id.0 == 0)
-    {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-binding-request-invalid",
-            "logical texture binding requires stage zero and live COM object identities",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_flexible_vertex_format_update_request(
-    request: RuntimeGraphicsFlexibleVertexFormatUpdateRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.device_com_object_id.0 == 0 {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-flexible-vertex-format-request-invalid",
-            "logical flexible vertex format update requires a live graphics device",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_stream_source_update_request(
-    request: RuntimeGraphicsStreamSourceUpdateRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.device_com_object_id.0 == 0
-        || request.stream != 0
-        || request.vertex_buffer_com_object_id.0 == 0
-        || request.stride == 0
-    {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-stream-source-request-invalid",
-            "logical stream-source binding requires stream zero, live COM identities, and a nonzero stride",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_draw_capture_request(
-    request: RuntimeGraphicsDrawCaptureRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.device_com_object_id.0 == 0
-        || request.primitive_topology != RuntimeGraphicsPrimitiveTopology::TriangleStrip
-        || request.start_vertex != 0
-        || request.primitive_count != 2
-    {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-draw-capture-request-invalid",
-            "logical draw capture currently supports the reached four-vertex triangle-strip quad only",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_supported_draw_device_state(
-    device: &RuntimeGraphicsDevice,
-) -> Result<(), RuntimeStateError> {
+fn supported_draw_device_state(device: &RuntimeGraphicsDevice) -> bool {
     let supported_render_states = RuntimeGraphicsRenderStates {
         cull_mode: Some(RuntimeGraphicsCullMode::None),
         depth_test_enabled: Some(false),
@@ -5641,83 +2724,11 @@ fn validate_supported_draw_device_state(
             alpha_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
         },
     };
-    if device.render_states != supported_render_states
+    !(device.render_states != supported_render_states
         || device.sampler_states != supported_sampler_states
         || device.texture_stage_states != supported_texture_stage_states
         || device.flexible_vertex_format
-            != Some(RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1)
-    {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-draw-fixed-function-state-incomplete",
-            "logical draw submission requires the reached fixed-function render, sampler, texture-stage, and vertex-format state",
-        ));
-    }
-    Ok(())
-}
-
-fn draw_vertex_bytes(back_buffer: &RuntimeGraphicsBackBuffer) -> Result<usize, RuntimeStateError> {
-    back_buffer
-        .draw_submissions
-        .iter()
-        .try_fold(0_usize, |total, submission| {
-            total
-                .checked_add(submission.vertex_data.len())
-                .ok_or_else(|| {
-                    RuntimeStateError::runtime_defect(
-                        "runtime-graphics",
-                        "graphics-draw-vertex-byte-accounting-overflow",
-                        "logical back-buffer captured vertex-byte accounting overflowed",
-                    )
-                })
-        })
-}
-
-fn full_back_buffer_rect(
-    presentation: RuntimeGraphicsPresentation,
-) -> Result<RuntimeRect, RuntimeStateError> {
-    let right = i32::try_from(presentation.width).map_err(|_| {
-        RuntimeStateError::runtime_defect(
-            "runtime-graphics",
-            "graphics-back-buffer-width-invalid",
-            "logical graphics back-buffer width does not fit x86 coordinates",
-        )
-    })?;
-    let bottom = i32::try_from(presentation.height).map_err(|_| {
-        RuntimeStateError::runtime_defect(
-            "runtime-graphics",
-            "graphics-back-buffer-height-invalid",
-            "logical graphics back-buffer height does not fit x86 coordinates",
-        )
-    })?;
-    Ok(RuntimeRect {
-        left: 0,
-        top: 0,
-        right,
-        bottom,
-    })
-}
-
-fn is_initial_sequence(sequence: &u64) -> bool {
-    *sequence == 1
-}
-
-fn validate_texture_creation_request(
-    request: RuntimeGraphicsTextureCreateRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.device_com_object_id.0 == 0
-        || request.descriptor.width == 0
-        || request.descriptor.height == 0
-        || request.descriptor.levels == 0
-    {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-creation-request-invalid",
-            "logical graphics texture creation requires a live device and nonzero descriptor",
-        ));
-    }
-    texture_byte_layout(request.descriptor)?;
-    Ok(())
+            != Some(RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1))
 }
 
 pub(super) fn texture_byte_layout(
@@ -5730,64 +2741,28 @@ pub(super) fn texture_byte_layout(
         .width
         .checked_mul(bytes_per_pixel)
         .ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-texture-row-pitch-overflow",
+            RuntimeStateError::new(
                 "logical graphics texture row pitch exceeds x86 resource accounting",
             )
         })?;
     let byte_length = row_pitch.checked_mul(descriptor.height).ok_or_else(|| {
-        RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-byte-length-overflow",
+        RuntimeStateError::new(
             "logical graphics texture byte length exceeds x86 resource accounting",
         )
     })?;
     if row_pitch == 0 || byte_length == 0 {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-layout-empty",
+        return Err(RuntimeStateError::new(
             "logical graphics texture layout must contain texels",
         ));
     }
     Ok((row_pitch, byte_length))
 }
 
-fn validate_texture_dirty_region_mark_request(
-    request: RuntimeGraphicsTextureDirtyRegionMarkRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.texture_com_object_id.0 == 0 {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-dirty-region-request-invalid",
-            "logical texture dirty-region mark requires a live texture COM object",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_texture_update_request(
-    request: RuntimeGraphicsTextureUpdateRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.device_com_object_id.0 == 0
-        || request.source_texture_com_object_id.0 == 0
-        || request.destination_texture_com_object_id.0 == 0
-        || request.source_texture_com_object_id == request.destination_texture_com_object_id
-    {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-update-request-invalid",
-            "logical texture update requires one live device and distinct live source and destination textures",
-        ));
-    }
-    Ok(())
-}
-
 fn validate_texture_update_pair(
     device_id: RuntimeGraphicsDeviceId,
     source: &RuntimeGraphicsTexture,
     destination: &RuntimeGraphicsTexture,
-) -> Result<(), RuntimeStateError> {
+) -> Result<bool, RuntimeStateError> {
     if source.id == destination.id
         || source.device_id != device_id
         || destination.device_id != device_id
@@ -5801,101 +2776,58 @@ fn validate_texture_update_pair(
         || source.active_lock.is_some()
         || destination.active_lock.is_some()
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-update-pair-invalid",
-            "logical texture update requires compatible distinct SYSTEMMEM and DEFAULT textures owned by the calling device",
-        ));
+        return Ok(false);
     }
     if let Some(pixel_source) = source.content.pixel_source {
         let backing = source.backing.ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-texture-pixel-source-backing-missing",
-                "logical texture pixel source has no live guest-memory backing",
-            )
+            RuntimeStateError::new("logical texture pixel source has no live guest-memory backing")
         })?;
         if pixel_source.source_texture_id != source.id
             || pixel_source.source_content_generation != source.content.content_generation
             || pixel_source.range != backing.range
             || pixel_source.row_pitch != backing.row_pitch
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-graphics",
-                "graphics-texture-pixel-source-invalid",
+            return Err(RuntimeStateError::new(
                 "logical texture pixel source does not match its live guest-memory backing",
             ));
         }
     }
-    Ok(())
+    Ok(true)
 }
 
 fn validate_partial_texture_update_lineage(
     source: &RuntimeGraphicsTexture,
     destination: &RuntimeGraphicsTexture,
-) -> Result<(), RuntimeStateError> {
+) -> Result<bool, RuntimeStateError> {
     if !matches!(
         source.dirty_region,
         RuntimeGraphicsTextureDirtyRegion::Rect(_)
     ) {
-        return Ok(());
+        return Ok(true);
     }
-    let pixel_source = source.content.pixel_source.ok_or_else(|| {
-        RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-update-partial-source-bytes-unavailable",
-            "partial logical texture update requires authoritative source backing bytes",
-        )
-    })?;
-    let previous_update = destination.content.last_update.ok_or_else(|| {
-        RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-update-partial-destination-lineage-missing",
-            "partial logical texture update requires a destination containing the immediately preceding source generation",
-        )
-    })?;
+    let Some(pixel_source) = source.content.pixel_source else {
+        return Ok(false);
+    };
+    let Some(previous_update) = destination.content.last_update else {
+        return Ok(false);
+    };
     if pixel_source.source_texture_id != source.id
         || previous_update.source_texture_id != source.id
         || previous_update.source_content_generation >= source.content.content_generation
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-update-partial-destination-lineage-invalid",
-            "partial logical texture update destination does not contain an earlier generation of the same source",
-        ));
+        return Ok(false);
     }
-    Ok(())
-}
-
-fn checked_texture_generation(
-    generation: u64,
-    role: &'static str,
-) -> Result<u64, RuntimeStateError> {
-    generation.checked_add(1).ok_or_else(|| {
-        RuntimeStateError::resource_limit(
-            "runtime-graphics",
-            "graphics-texture-generation-exhausted",
-            format!("logical {role} texture generation is exhausted"),
-        )
-    })
+    Ok(true)
 }
 
 fn full_texture_rect(
     descriptor: RuntimeGraphicsTextureDescriptor,
 ) -> Result<RuntimeRect, RuntimeStateError> {
     let right = i32::try_from(descriptor.width).map_err(|_| {
-        RuntimeStateError::runtime_defect(
-            "runtime-graphics",
-            "graphics-texture-width-invalid",
-            "logical graphics texture width does not fit x86 coordinates",
-        )
+        RuntimeStateError::new("logical graphics texture width does not fit x86 coordinates")
     })?;
     let bottom = i32::try_from(descriptor.height).map_err(|_| {
-        RuntimeStateError::runtime_defect(
-            "runtime-graphics",
-            "graphics-texture-height-invalid",
-            "logical graphics texture height does not fit x86 coordinates",
-        )
+        RuntimeStateError::new("logical graphics texture height does not fit x86 coordinates")
     })?;
     Ok(RuntimeRect {
         left: 0,
@@ -5905,10 +2837,10 @@ fn full_texture_rect(
     })
 }
 
-fn validate_texture_dirty_rect(
+fn valid_texture_dirty_rect(
     rect: RuntimeRect,
     descriptor: RuntimeGraphicsTextureDescriptor,
-) -> Result<(), RuntimeStateError> {
+) -> Result<bool, RuntimeStateError> {
     let full = full_texture_rect(descriptor)?;
     if rect.left < 0
         || rect.top < 0
@@ -5917,27 +2849,25 @@ fn validate_texture_dirty_rect(
         || rect.right > full.right
         || rect.bottom > full.bottom
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-texture-dirty-rect-out-of-bounds",
-            "logical texture dirty rectangle must be nonempty, ordered, and in bounds",
-        ));
+        return Ok(false);
     }
-    Ok(())
+    Ok(true)
 }
 
 fn merged_texture_dirty_region(
     current: RuntimeGraphicsTextureDirtyRegion,
     rect: Option<RuntimeRect>,
     descriptor: RuntimeGraphicsTextureDescriptor,
-) -> Result<RuntimeGraphicsTextureDirtyRegion, RuntimeStateError> {
+) -> Result<Option<RuntimeGraphicsTextureDirtyRegion>, RuntimeStateError> {
     let full = full_texture_rect(descriptor)?;
     let Some(rect) = rect else {
-        return Ok(RuntimeGraphicsTextureDirtyRegion::WholeTexture);
+        return Ok(Some(RuntimeGraphicsTextureDirtyRegion::WholeTexture));
     };
-    validate_texture_dirty_rect(rect, descriptor)?;
+    if !valid_texture_dirty_rect(rect, descriptor)? {
+        return Ok(None);
+    }
     if current == RuntimeGraphicsTextureDirtyRegion::WholeTexture {
-        return Ok(current);
+        return Ok(Some(current));
     }
     let merged = match current {
         RuntimeGraphicsTextureDirtyRegion::Clean => rect,
@@ -5949,53 +2879,11 @@ fn merged_texture_dirty_region(
         },
         RuntimeGraphicsTextureDirtyRegion::WholeTexture => unreachable!(),
     };
-    Ok(if merged == full {
+    Ok(Some(if merged == full {
         RuntimeGraphicsTextureDirtyRegion::WholeTexture
     } else {
         RuntimeGraphicsTextureDirtyRegion::Rect(merged)
-    })
-}
-
-fn validate_vertex_buffer_creation_request(
-    request: RuntimeGraphicsVertexBufferCreateRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.device_com_object_id.0 == 0
-        || request.descriptor.byte_length == 0
-        || request.descriptor.flexible_vertex_format == 0
-    {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-vertex-buffer-creation-request-invalid",
-            "logical graphics vertex-buffer creation requires a live device and nonzero descriptor",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_surface_creation_request(
-    request: RuntimeGraphicsSurfaceCreateRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.texture_com_object_id.0 == 0 {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-surface-creation-request-invalid",
-            "logical graphics surface creation requires a live texture",
-        ));
-    }
-    Ok(())
-}
-
-fn validate_surface_fill_request(
-    request: RuntimeGraphicsSurfaceFillRequest,
-) -> Result<(), RuntimeStateError> {
-    if request.surface_com_object_id.0 == 0 || request.color_ref > 0x00ff_ffff {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-surface-fill-request-invalid",
-            "logical graphics surface fill requires a live surface and a Win32 COLORREF",
-        ));
-    }
-    Ok(())
+    }))
 }
 
 fn validate_surface_fill_rect(
@@ -6003,18 +2891,10 @@ fn validate_surface_fill_rect(
     descriptor: RuntimeGraphicsSurfaceDescriptor,
 ) -> Result<(), RuntimeStateError> {
     let width = i32::try_from(descriptor.width).map_err(|_| {
-        RuntimeStateError::runtime_defect(
-            "runtime-graphics",
-            "graphics-surface-width-invalid",
-            "logical graphics surface width does not fit x86 coordinates",
-        )
+        RuntimeStateError::new("logical graphics surface width does not fit x86 coordinates")
     })?;
     let height = i32::try_from(descriptor.height).map_err(|_| {
-        RuntimeStateError::runtime_defect(
-            "runtime-graphics",
-            "graphics-surface-height-invalid",
-            "logical graphics surface height does not fit x86 coordinates",
-        )
+        RuntimeStateError::new("logical graphics surface height does not fit x86 coordinates")
     })?;
     if rect.left < 0
         || rect.top < 0
@@ -6023,9 +2903,7 @@ fn validate_surface_fill_rect(
         || rect.right > width
         || rect.bottom > height
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-graphics",
-            "graphics-surface-fill-rect-out-of-bounds",
+        return Err(RuntimeStateError::new(
             "bounded graphics surface fill requires an ordered in-bounds rectangle",
         ));
     }
@@ -6036,31 +2914,12 @@ fn mip_dimension(base: u32, level: u32) -> u32 {
     base.checked_shr(level).unwrap_or(0).max(1)
 }
 
-fn checked_next_generation(generation: u64) -> Result<u64, RuntimeStateError> {
-    generation.checked_add(1).ok_or_else(|| {
-        RuntimeStateError::resource_limit(
-            "runtime-graphics",
-            "graphics-generation-exhausted",
-            "logical graphics generation space is exhausted",
-        )
-    })
-}
-
-fn stale_plan(code: &'static str) -> RuntimeStateError {
-    RuntimeStateError::conflict(
-        "runtime-graphics",
-        code,
-        "logical graphics state changed after mutation planning",
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn request() -> RuntimeGraphicsDeviceCreationRequest {
         RuntimeGraphicsDeviceCreationRequest {
-            frontend: RuntimeGraphicsFrontend::D3d9,
             target: RuntimeGraphicsWindowTarget {
                 window_id: RuntimeWindowId(1),
                 window_handle: 0x4801_0001,
@@ -6076,38 +2935,14 @@ mod tests {
         }
     }
 
-    fn texture_request(com_object_id: RuntimeComObjectId) -> RuntimeGraphicsTextureCreateRequest {
-        RuntimeGraphicsTextureCreateRequest {
-            device_com_object_id: com_object_id,
-            descriptor: RuntimeGraphicsTextureDescriptor {
-                width: 1_024,
-                height: 1_024,
-                levels: 1,
-                usage: RuntimeGraphicsTextureUsage::None,
-                color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
-                pool: RuntimeGraphicsTexturePool::SystemMemory,
-            },
-        }
-    }
-
-    fn surface_request(
-        com_object_id: RuntimeComObjectId,
-        level: u32,
-    ) -> RuntimeGraphicsSurfaceCreateRequest {
-        RuntimeGraphicsSurfaceCreateRequest {
-            texture_com_object_id: com_object_id,
-            level,
-        }
-    }
-
-    fn fill_request(
-        surface_com_object_id: RuntimeComObjectId,
-        rect: RuntimeRect,
-    ) -> RuntimeGraphicsSurfaceFillRequest {
-        RuntimeGraphicsSurfaceFillRequest {
-            surface_com_object_id,
-            rect,
-            color_ref: 0,
+    fn texture_descriptor() -> RuntimeGraphicsTextureDescriptor {
+        RuntimeGraphicsTextureDescriptor {
+            width: 1_024,
+            height: 1_024,
+            levels: 1,
+            usage: RuntimeGraphicsTextureUsage::None,
+            color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
+            pool: RuntimeGraphicsTexturePool::SystemMemory,
         }
     }
 
@@ -6119,12 +2954,15 @@ mod tests {
         GuestRange,
     ) {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
         let texture_plan = graphics
-            .plan_texture_creation(RuntimeGraphicsTextureCreateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                descriptor: RuntimeGraphicsTextureDescriptor {
+            .validate_texture_creation(
+                RuntimeComObjectId(7),
+                RuntimeGraphicsTextureDescriptor {
                     width: 2_048,
                     height: 1_024,
                     levels: 1,
@@ -6132,42 +2970,40 @@ mod tests {
                     color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
                     pool: RuntimeGraphicsTexturePool::Default,
                 },
-            })
+            )
             .unwrap();
-        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
+        let texture_id = graphics.insert_texture(texture_plan, RuntimeComObjectId(8));
         let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x1000).unwrap();
         let vertex_buffer_plan = graphics
-            .plan_vertex_buffer_creation(
-                RuntimeGraphicsVertexBufferCreateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    descriptor: RuntimeGraphicsVertexBufferDescriptor {
-                        byte_length: 112,
-                        usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
-                        flexible_vertex_format: 0x144,
-                        pool: RuntimeGraphicsVertexBufferPool::Managed,
-                    },
+            .validate_vertex_buffer_creation(
+                RuntimeComObjectId(7),
+                RuntimeGraphicsVertexBufferDescriptor {
+                    byte_length: 112,
+                    usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
+                    flexible_vertex_format: 0x144,
+                    pool: RuntimeGraphicsVertexBufferPool::Managed,
                 },
                 ProcessAddressAllocationId(41),
                 backing_range,
             )
             .unwrap();
-        let vertex_buffer = graphics.commit_vertex_buffer_creation(
+        let vertex_buffer_id = graphics.insert_vertex_buffer(
             vertex_buffer_plan,
             RuntimeComObjectId(9),
             MemoryOwnerId(23),
+            ProcessAddressAllocationId(41),
+            backing_range,
         );
         {
-            let texture = graphics.textures.get_mut(&texture.id).unwrap();
+            let texture = graphics.textures.get_mut(&texture_id).unwrap();
             texture.content.content_generation = 1;
-            texture.generation = 1;
         }
         {
-            let vertex_buffer = graphics.vertex_buffers.get_mut(&vertex_buffer.id).unwrap();
-            vertex_buffer.content_generation = 1;
-            vertex_buffer.generation = 1;
+            let vertex_buffer = graphics.vertex_buffers.get_mut(&vertex_buffer_id).unwrap();
+            vertex_buffer.initialized = true;
         }
         {
-            let device = graphics.devices.get_mut(&device.id).unwrap();
+            let device = graphics.devices.get_mut(&device_id).unwrap();
             device.render_states = RuntimeGraphicsRenderStates {
                 cull_mode: Some(RuntimeGraphicsCullMode::None),
                 depth_test_enabled: Some(false),
@@ -6193,99 +3029,165 @@ mod tests {
                     alpha_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
                 },
             };
-            device.texture_bindings.stage_zero = Some(texture.id);
+            device.texture_bindings.stage_zero = Some(texture_id);
             device.flexible_vertex_format =
                 Some(RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1);
             device.stream_sources.stream_zero = Some(RuntimeGraphicsStreamSourceBinding {
-                vertex_buffer_id: vertex_buffer.id,
+                vertex_buffer_id,
                 offset_in_bytes: 0,
                 stride: 28,
             });
-            device.back_buffer.content_generation = 1;
-            device.back_buffer.uniform_clear = Some(RuntimeGraphicsBackBufferClear {
-                sequence: 1,
-                rect: RuntimeRect {
-                    left: 0,
-                    top: 0,
-                    right: 800,
-                    bottom: 600,
-                },
-                color_argb: 0xff00_0000,
-            });
-            device.active_scene = Some(RuntimeGraphicsScene { sequence: 1 });
+            device.back_buffer.clear_color = Some(0xff00_0000);
+            device.scene_active = true;
         }
         (
             graphics,
-            device.id,
-            texture.id,
-            vertex_buffer.id,
+            device_id,
+            texture_id,
+            vertex_buffer_id,
             backing_range,
         )
     }
 
+    fn draw_memory(bytes: &[u8]) -> crate::memory::GuestMemory {
+        use crate::memory::{
+            GuestMemory, MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+        };
+        let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+        for _ in 0..22 {
+            let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+            memory.seal_owner(owner).unwrap();
+        }
+        let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+        assert_eq!(owner, MemoryOwnerId(23));
+        let range = memory
+            .reserve_fixed(
+                owner,
+                MemoryRegionKind::Runtime,
+                RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE,
+                4096,
+            )
+            .unwrap();
+        memory
+            .commit(
+                owner,
+                range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .unwrap();
+        memory.write(range.start(), bytes).unwrap();
+        memory.seal_owner(owner).unwrap();
+        let reflection = memory.pending_reflection().unwrap();
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .unwrap();
+        memory
+    }
+
     #[test]
-    fn creation_retirement_and_stale_plans_preserve_owner_invariants() {
+    fn device_creation_rejects_exhausted_identity_before_publication() {
+        {
+            let graphics = RuntimeGraphics {
+                next_device_id: u64::MAX,
+                ..RuntimeGraphics::default()
+            };
+            let before = graphics.clone();
+            assert!(graphics.validate_device_creation(request()).is_err());
+            assert_eq!(graphics, before);
+            assert!(graphics.devices.is_empty());
+            assert!(graphics.device_com_object_index.is_empty());
+        }
+    }
+
+    #[test]
+    fn retirement_rejects_corrupt_identity_and_exhaustion_before_mutation() {
         let mut graphics = RuntimeGraphics::default();
-        let plan = graphics.plan_device_creation(request()).unwrap();
-        let stale = plan.clone();
-        assert_eq!(plan.id(), RuntimeGraphicsDeviceId(1));
+        let device_id = graphics
+            .validate_device_creation(request())
+            .map(|creation| graphics.insert_device(creation.unwrap(), RuntimeComObjectId(7)))
+            .unwrap();
+        let texture_creation = graphics
+            .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
+            .unwrap();
+        let texture_id = graphics.insert_texture(texture_creation, RuntimeComObjectId(8));
+        graphics
+            .bind_texture(RuntimeComObjectId(7), 0, Some(RuntimeComObjectId(8)))
+            .unwrap();
+        for fault in [2, 3, 4] {
+            let mut rejected = graphics.clone();
+            match fault {
+                2 => rejected.textures.get_mut(&texture_id).unwrap().id.0 += 1,
+                3 => {
+                    rejected.device_texture_index.remove(&device_id);
+                }
+                4 => {
+                    rejected
+                        .texture_com_object_index
+                        .remove(&RuntimeComObjectId(8));
+                }
+                _ => unreachable!(),
+            }
+            let before = rejected.clone();
+            assert!(
+                rejected
+                    .validate_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+                    .is_err()
+            );
+            assert_eq!(rejected, before);
+        }
+    }
+
+    #[test]
+    fn device_creation_and_retirement_preserve_owner_invariants() {
+        let mut graphics = RuntimeGraphics::default();
+        let plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
         assert_eq!(plan.presentation().width, 800);
-        graphics.preflight_device_creation(&plan).unwrap();
-        let device = graphics.commit_device_creation(plan, RuntimeComObjectId(7));
-        assert_eq!(device.namespace, RUNTIME_GRAPHICS_DEVICE_ID_NAMESPACE);
-        assert_eq!(device.com_object_id, RuntimeComObjectId(7));
-        assert_eq!(device.renderer, None);
+        let device_id = graphics.insert_device(plan, RuntimeComObjectId(7));
+        assert_eq!(device_id, RuntimeGraphicsDeviceId(1));
+        assert_eq!(
+            graphics.device(device_id).unwrap().com_object_id,
+            RuntimeComObjectId(7)
+        );
         assert_eq!(
             graphics
                 .device_by_com_object(RuntimeComObjectId(7))
                 .unwrap()
                 .id,
-            device.id
+            device_id
         );
-        assert_eq!(
-            graphics
-                .device_by_com_object(RuntimeComObjectId(99))
-                .unwrap_err()
-                .code,
-            "graphics-device-com-object-unknown"
-        );
-        assert_eq!(
-            graphics.preflight_device_creation(&stale).unwrap_err().code,
-            "graphics-device-creation-plan-stale"
-        );
-
+        graphics
+            .device_by_com_object(RuntimeComObjectId(99))
+            .unwrap_err();
         let retirement = graphics
-            .plan_com_object_retirements(&[RuntimeComObjectId(7)].into_iter().collect())
+            .validate_com_object_retirements(&[RuntimeComObjectId(7)].into_iter().collect())
             .unwrap()
             .unwrap();
-        let stale_retirement = retirement.clone();
-        graphics
-            .preflight_com_object_retirement(&retirement)
-            .unwrap();
-        graphics.commit_com_object_retirement(retirement);
+        graphics.remove_validated_com_objects(retirement);
         assert!(graphics.is_empty());
-        assert_eq!(
-            graphics
-                .device_by_com_object(RuntimeComObjectId(7))
-                .unwrap_err()
-                .code,
-            "graphics-device-com-object-unknown"
-        );
-        assert_eq!(
-            graphics
-                .preflight_com_object_retirement(&stale_retirement)
-                .unwrap_err()
-                .code,
-            "graphics-com-retirement-plan-stale"
-        );
+        graphics
+            .device_by_com_object(RuntimeComObjectId(7))
+            .unwrap_err();
     }
 
     #[test]
     fn render_state_updates_are_typed_idempotent_and_failure_atomic() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        assert_eq!(device.render_states, RuntimeGraphicsRenderStates::default());
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
+        assert_eq!(
+            graphics.device(device_id).unwrap().render_states,
+            RuntimeGraphicsRenderStates::default()
+        );
 
         for update in [
             RuntimeGraphicsRenderStateUpdate::CullMode(RuntimeGraphicsCullMode::None),
@@ -6300,27 +3202,11 @@ mod tests {
             ),
             RuntimeGraphicsRenderStateUpdate::BlendOperation(RuntimeGraphicsBlendOperation::Add),
         ] {
-            let plan = graphics
-                .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    update,
-                })
+            graphics
+                .update_render_state(RuntimeComObjectId(7), update)
                 .unwrap();
-            let stale = plan.clone();
-            graphics.preflight_render_state_update(&plan).unwrap();
-            let result = graphics.commit_render_state_update(plan);
-            assert_eq!(result.device_id, device.id);
-            assert_eq!(result.update, update);
-            assert!(result.changed);
-            assert_eq!(
-                graphics
-                    .preflight_render_state_update(&stale)
-                    .unwrap_err()
-                    .code,
-                "graphics-render-state-update-plan-stale"
-            );
         }
-        let committed = graphics.device(device.id).unwrap();
+        let committed = graphics.device(device_id).unwrap();
         assert_eq!(
             committed.render_states.cull_mode,
             Some(RuntimeGraphicsCullMode::None)
@@ -6342,74 +3228,35 @@ mod tests {
         );
 
         let before_idempotent = graphics.clone();
-        let idempotent = graphics
-            .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(true),
-            })
+        graphics
+            .update_render_state(
+                RuntimeComObjectId(7),
+                RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(true),
+            )
             .unwrap();
-        let result = graphics.commit_render_state_update(idempotent);
-        assert!(!result.changed);
+
         assert_eq!(graphics, before_idempotent);
 
-        let stale = graphics
-            .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: RuntimeGraphicsRenderStateUpdate::DepthTestEnabled(true),
-            })
-            .unwrap();
-        let intervening = graphics
-            .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: RuntimeGraphicsRenderStateUpdate::LightingEnabled(true),
-            })
-            .unwrap();
-        graphics.commit_render_state_update(intervening);
-        let before_stale = graphics.clone();
-        assert_eq!(
-            graphics
-                .preflight_render_state_update(&stale)
-                .unwrap_err()
-                .code,
-            "graphics-render-state-update-plan-stale"
-        );
-        assert_eq!(graphics, before_stale);
-
         let before_unknown = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(99),
-                    update: RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-render-state-device-com-object-unknown"
-        );
+        graphics
+            .update_render_state(
+                RuntimeComObjectId(99),
+                RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
+            )
+            .unwrap_err();
         assert_eq!(graphics, before_unknown);
-
-        graphics.generation = u64::MAX;
-        let exhausted = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    update: RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(false),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-generation-exhausted"
-        );
-        assert_eq!(graphics, exhausted);
     }
 
     #[test]
     fn sampler_state_updates_are_typed_idempotent_and_failure_atomic() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
         assert_eq!(
-            device.sampler_states,
+            graphics.device(device_id).unwrap().sampler_states,
             RuntimeGraphicsSamplerStates::default()
         );
 
@@ -6417,79 +3264,26 @@ mod tests {
             sampler: 0,
             filter: RuntimeGraphicsTextureFilter::Linear,
         };
-        let min_plan = graphics
-            .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: min_filter,
-            })
+        graphics
+            .update_sampler_state(RuntimeComObjectId(7), min_filter)
             .unwrap();
-        let stale_min = min_plan.clone();
-        let before_min = graphics.clone();
-        graphics.preflight_sampler_state_update(&min_plan).unwrap();
-        assert_eq!(
-            graphics, before_min,
-            "planning and preflight must not mutate"
-        );
-        let min_result = graphics.commit_sampler_state_update(min_plan);
-        assert_eq!(min_result.device_id, device.id);
-        assert_eq!(min_result.update, min_filter);
-        assert!(min_result.changed);
-        assert_eq!(min_result.device_generation, device.generation + 1);
-        assert_eq!(
-            graphics
-                .preflight_sampler_state_update(&stale_min)
-                .unwrap_err()
-                .code,
-            "graphics-sampler-state-update-plan-stale"
-        );
 
         let before_idempotent = graphics.clone();
-        let repeated_min = graphics
-            .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: min_filter,
-            })
+        graphics
+            .update_sampler_state(RuntimeComObjectId(7), min_filter)
             .unwrap();
-        let repeated_result = graphics.commit_sampler_state_update(repeated_min);
-        assert!(!repeated_result.changed);
+
         assert_eq!(graphics, before_idempotent);
 
         let mag_filter = RuntimeGraphicsSamplerStateUpdate::MagFilter {
             sampler: 0,
             filter: RuntimeGraphicsTextureFilter::Linear,
         };
-        let stale_mag = graphics
-            .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: mag_filter,
-            })
+        graphics
+            .update_sampler_state(RuntimeComObjectId(7), mag_filter)
             .unwrap();
-        let intervening = graphics
-            .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
-            })
-            .unwrap();
-        graphics.commit_render_state_update(intervening);
-        let before_stale = graphics.clone();
-        assert_eq!(
-            graphics
-                .preflight_sampler_state_update(&stale_mag)
-                .unwrap_err()
-                .code,
-            "graphics-sampler-state-update-plan-stale"
-        );
-        assert_eq!(graphics, before_stale);
 
-        let mag_plan = graphics
-            .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: mag_filter,
-            })
-            .unwrap();
-        let mag_result = graphics.commit_sampler_state_update(mag_plan);
-        assert!(mag_result.changed);
-        let committed = graphics.device(device.id).unwrap();
+        let committed = graphics.device(device_id).unwrap();
         assert_eq!(
             committed.sampler_states.sampler_zero.min_filter,
             Some(RuntimeGraphicsTextureFilter::Linear)
@@ -6500,79 +3294,40 @@ mod tests {
         );
 
         let before_invalid = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    update: RuntimeGraphicsSamplerStateUpdate::MinFilter {
-                        sampler: 1,
-                        filter: RuntimeGraphicsTextureFilter::Linear,
-                    },
-                })
-                .unwrap_err()
-                .code,
-            "graphics-sampler-state-sampler-unsupported"
-        );
+        graphics
+            .update_sampler_state(
+                RuntimeComObjectId(7),
+                RuntimeGraphicsSamplerStateUpdate::MinFilter {
+                    sampler: 1,
+                    filter: RuntimeGraphicsTextureFilter::Linear,
+                },
+            )
+            .unwrap_err();
         assert_eq!(graphics, before_invalid);
 
         let before_unknown = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(99),
-                    update: min_filter,
-                })
-                .unwrap_err()
-                .code,
-            "graphics-sampler-state-device-com-object-unknown"
-        );
+        graphics
+            .update_sampler_state(RuntimeComObjectId(99), min_filter)
+            .unwrap_err();
         assert_eq!(graphics, before_unknown);
 
-        graphics.generation = u64::MAX;
         let exhausted = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    update: RuntimeGraphicsSamplerStateUpdate::MinFilter {
-                        sampler: 0,
-                        filter: RuntimeGraphicsTextureFilter::Linear,
-                    },
-                })
-                .unwrap()
-                .next_generation,
-            u64::MAX,
-            "same-value updates remain idempotent at generation exhaustion"
-        );
-        assert_eq!(graphics, exhausted);
-
-        let mut changed_at_exhaustion = RuntimeGraphics::default();
-        let plan = changed_at_exhaustion
-            .plan_device_creation(request())
+        graphics
+            .update_sampler_state(RuntimeComObjectId(7), min_filter)
             .unwrap();
-        changed_at_exhaustion.commit_device_creation(plan, RuntimeComObjectId(8));
-        changed_at_exhaustion.generation = u64::MAX;
-        let before_exhausted_change = changed_at_exhaustion.clone();
-        assert_eq!(
-            changed_at_exhaustion
-                .plan_sampler_state_update(RuntimeGraphicsSamplerStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(8),
-                    update: min_filter,
-                })
-                .unwrap_err()
-                .code,
-            "graphics-generation-exhausted"
-        );
-        assert_eq!(changed_at_exhaustion, before_exhausted_change);
+        assert_eq!(graphics, exhausted);
     }
 
     #[test]
     fn texture_stage_state_updates_are_typed_idempotent_and_failure_atomic() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
         assert_eq!(
-            device.texture_stage_states,
+            graphics.device(device_id).unwrap().texture_stage_states,
             RuntimeGraphicsTextureStageStates::default()
         );
 
@@ -6602,45 +3357,16 @@ mod tests {
                 argument: RuntimeGraphicsTextureArgument::Diffuse,
             },
         ];
-        let first_plan = graphics
-            .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: updates[0],
-            })
-            .unwrap();
-        let stale_first = first_plan.clone();
-        let before_first = graphics.clone();
         graphics
-            .preflight_texture_stage_state_update(&first_plan)
+            .update_texture_stage_state(RuntimeComObjectId(7), updates[0])
             .unwrap();
-        assert_eq!(
-            graphics, before_first,
-            "planning and preflight must not mutate"
-        );
-        let first = graphics.commit_texture_stage_state_update(first_plan);
-        assert_eq!(first.device_id, device.id);
-        assert_eq!(first.update, updates[0]);
-        assert!(first.changed);
-        assert_eq!(
-            graphics
-                .preflight_texture_stage_state_update(&stale_first)
-                .unwrap_err()
-                .code,
-            "graphics-texture-stage-state-update-plan-stale"
-        );
 
         for update in updates.into_iter().skip(1) {
-            let plan = graphics
-                .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    update,
-                })
+            graphics
+                .update_texture_stage_state(RuntimeComObjectId(7), update)
                 .unwrap();
-            let result = graphics.commit_texture_stage_state_update(plan);
-            assert!(result.changed);
-            assert_eq!(result.update, update);
         }
-        let committed = graphics.device(device.id).unwrap();
+        let committed = graphics.device(device_id).unwrap();
         assert_eq!(
             committed.texture_stage_states.stage_zero,
             RuntimeGraphicsTextureStageState {
@@ -6652,179 +3378,107 @@ mod tests {
                 alpha_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
             }
         );
-        assert_eq!(committed.generation, device.generation + 6);
 
         let before_repeat = graphics.clone();
-        let repeat = graphics
-            .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: updates[0],
-            })
+        graphics
+            .update_texture_stage_state(RuntimeComObjectId(7), updates[0])
             .unwrap();
-        assert!(!graphics.commit_texture_stage_state_update(repeat).changed);
+
         assert_eq!(graphics, before_repeat);
 
         let before_invalid = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    update: RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
-                        stage: 1,
-                        operation: RuntimeGraphicsTextureOperation::Modulate,
-                    },
-                })
-                .unwrap_err()
-                .code,
-            "graphics-texture-stage-state-stage-unsupported"
-        );
+        graphics
+            .update_texture_stage_state(
+                RuntimeComObjectId(7),
+                RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
+                    stage: 1,
+                    operation: RuntimeGraphicsTextureOperation::Modulate,
+                },
+            )
+            .unwrap_err();
         assert_eq!(graphics, before_invalid);
 
         let before_unknown = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(99),
-                    update: updates[0],
-                })
-                .unwrap_err()
-                .code,
-            "graphics-texture-stage-state-device-com-object-unknown"
-        );
+        graphics
+            .update_texture_stage_state(RuntimeComObjectId(99), updates[0])
+            .unwrap_err();
         assert_eq!(graphics, before_unknown);
 
-        graphics.generation = u64::MAX;
         let exhausted = graphics.clone();
-        let idempotent = graphics
-            .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                update: updates[0],
-            })
+        graphics
+            .update_texture_stage_state(RuntimeComObjectId(7), updates[0])
             .unwrap();
-        assert_eq!(idempotent.next_generation, u64::MAX);
-        assert_eq!(graphics, exhausted);
 
-        let mut changed_at_exhaustion = RuntimeGraphics::default();
-        let plan = changed_at_exhaustion
-            .plan_device_creation(request())
-            .unwrap();
-        changed_at_exhaustion.commit_device_creation(plan, RuntimeComObjectId(8));
-        changed_at_exhaustion.generation = u64::MAX;
-        let before_exhausted_change = changed_at_exhaustion.clone();
-        assert_eq!(
-            changed_at_exhaustion
-                .plan_texture_stage_state_update(RuntimeGraphicsTextureStageStateUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(8),
-                    update: updates[0],
-                })
-                .unwrap_err()
-                .code,
-            "graphics-generation-exhausted"
-        );
-        assert_eq!(changed_at_exhaustion, before_exhausted_change);
+        assert_eq!(graphics, exhausted);
     }
 
     #[test]
     fn texture_bindings_are_non_owning_idempotent_and_retirement_safe() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        let texture_plan = graphics
-            .plan_texture_creation(texture_request(RuntimeComObjectId(7)))
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
             .unwrap();
-        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
+        let texture_plan = graphics
+            .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
+            .unwrap();
+        let texture_id = graphics.insert_texture(texture_plan, RuntimeComObjectId(8));
 
-        let bind_request = RuntimeGraphicsTextureBindingUpdateRequest {
-            device_com_object_id: RuntimeComObjectId(7),
-            stage: 0,
-            texture_com_object_id: Some(RuntimeComObjectId(8)),
-        };
-        let before_plan = graphics.clone();
-        let bind = graphics.plan_texture_binding_update(bind_request).unwrap();
-        let stale_bind = bind.clone();
-        graphics.preflight_texture_binding_update(&bind).unwrap();
-        assert_eq!(graphics, before_plan);
-        let bound = graphics.commit_texture_binding_update(bind);
-        assert_eq!(bound.device_id, device.id);
-        assert_eq!(bound.texture_id, Some(texture.id));
-        assert!(bound.changed);
+        graphics
+            .bind_texture(RuntimeComObjectId(7), 0, Some(RuntimeComObjectId(8)))
+            .unwrap();
         assert_eq!(
             graphics
-                .device(device.id)
+                .device(device_id)
                 .unwrap()
                 .texture_bindings
                 .stage_zero,
-            Some(texture.id)
+            Some(texture_id)
         );
-        assert_eq!(
-            graphics
-                .preflight_texture_binding_update(&stale_bind)
-                .unwrap_err()
-                .code,
-            "graphics-texture-binding-update-plan-stale"
-        );
-
         let before_repeat = graphics.clone();
-        let repeat = graphics.plan_texture_binding_update(bind_request).unwrap();
-        assert!(!graphics.commit_texture_binding_update(repeat).changed);
+        graphics
+            .bind_texture(RuntimeComObjectId(7), 0, Some(RuntimeComObjectId(8)))
+            .unwrap();
         assert_eq!(graphics, before_repeat);
 
-        let second_device_plan = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(second_device_plan, RuntimeComObjectId(9));
-        let second_texture_plan = graphics
-            .plan_texture_creation(texture_request(RuntimeComObjectId(9)))
+        let second_device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
             .unwrap();
-        graphics.commit_texture_creation(second_texture_plan, RuntimeComObjectId(10));
+        graphics.insert_device(second_device_plan, RuntimeComObjectId(9));
+        let second_texture_plan = graphics
+            .validate_texture_creation(RuntimeComObjectId(9), texture_descriptor())
+            .unwrap();
+        graphics.insert_texture(second_texture_plan, RuntimeComObjectId(10));
         let before_wrong_owner = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_texture_binding_update(RuntimeGraphicsTextureBindingUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    stage: 0,
-                    texture_com_object_id: Some(RuntimeComObjectId(10)),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-texture-binding-device-mismatch"
+        assert!(
+            !graphics
+                .bind_texture(RuntimeComObjectId(7), 0, Some(RuntimeComObjectId(10)))
+                .unwrap()
         );
         assert_eq!(graphics, before_wrong_owner);
 
         let before_invalid_stage = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_texture_binding_update(RuntimeGraphicsTextureBindingUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    stage: 1,
-                    texture_com_object_id: Some(RuntimeComObjectId(8)),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-texture-binding-request-invalid"
+        assert!(
+            !graphics
+                .bind_texture(RuntimeComObjectId(7), 1, Some(RuntimeComObjectId(8)))
+                .unwrap()
         );
         assert_eq!(graphics, before_invalid_stage);
 
         let retirement = graphics
-            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .validate_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
             .unwrap()
             .unwrap();
-        let device_generation = graphics.device(device.id).unwrap().generation;
-        graphics
-            .preflight_com_object_retirement(&retirement)
-            .unwrap();
-        graphics.commit_com_object_retirement(retirement);
-        let device_after_retirement = graphics.device(device.id).unwrap();
+        graphics.remove_validated_com_objects(retirement);
+        let device_after_retirement = graphics.device(device_id).unwrap();
         assert_eq!(device_after_retirement.texture_bindings.stage_zero, None);
-        assert_eq!(device_after_retirement.generation, device_generation + 1);
-        assert!(graphics.texture(texture.id).is_err());
+        assert!(graphics.texture(texture_id).is_err());
 
-        let unbind = graphics
-            .plan_texture_binding_update(RuntimeGraphicsTextureBindingUpdateRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                stage: 0,
-                texture_com_object_id: None,
-            })
+        graphics
+            .bind_texture(RuntimeComObjectId(7), 0, None)
             .unwrap();
-        assert!(!graphics.commit_texture_binding_update(unbind).changed);
 
         let remaining_texture = graphics
             .texture_for_com_object(RuntimeComObjectId(10))
@@ -6836,181 +3490,155 @@ mod tests {
     #[test]
     fn flexible_vertex_format_updates_are_typed_idempotent_and_failure_atomic() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        assert_eq!(device.flexible_vertex_format, None);
-
-        let format_request = RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
-            device_com_object_id: RuntimeComObjectId(7),
-            format: RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1,
-        };
-        let before_plan = graphics.clone();
-        let plan = graphics
-            .plan_flexible_vertex_format_update(format_request)
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
             .unwrap();
-        let stale = plan.clone();
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
+        assert_eq!(
+            graphics.device(device_id).unwrap().flexible_vertex_format,
+            None
+        );
+
+        let format = RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1;
         graphics
-            .preflight_flexible_vertex_format_update(&plan)
+            .update_flexible_vertex_format(RuntimeComObjectId(7), format)
             .unwrap();
-        assert_eq!(graphics, before_plan);
-        let result = graphics.commit_flexible_vertex_format_update(plan);
-        assert_eq!(result.device_id, device.id);
-        assert_eq!(result.format, format_request.format);
-        assert!(result.changed);
-        assert_eq!(result.device_generation, device.generation + 1);
-        assert_eq!(
-            graphics.device(device.id).unwrap().flexible_vertex_format,
-            Some(format_request.format)
-        );
-        assert_eq!(
-            graphics
-                .preflight_flexible_vertex_format_update(&stale)
-                .unwrap_err()
-                .code,
-            "graphics-flexible-vertex-format-update-plan-stale"
-        );
 
-        let before_repeat = graphics.clone();
-        let repeat = graphics
-            .plan_flexible_vertex_format_update(format_request)
-            .unwrap();
-        assert!(
-            !graphics
-                .commit_flexible_vertex_format_update(repeat)
-                .changed
+        assert_eq!(
+            graphics.device(device_id).unwrap().flexible_vertex_format,
+            Some(format)
         );
+        let before_repeat = graphics.clone();
+        graphics
+            .update_flexible_vertex_format(RuntimeComObjectId(7), format)
+            .unwrap();
+
         assert_eq!(graphics, before_repeat);
 
         let before_invalid = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_flexible_vertex_format_update(
-                    RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
-                        device_com_object_id: RuntimeComObjectId(0),
-                        format: format_request.format,
-                    },
-                )
-                .unwrap_err()
-                .code,
-            "graphics-flexible-vertex-format-request-invalid"
-        );
+        graphics
+            .update_flexible_vertex_format(RuntimeComObjectId(0), format)
+            .unwrap_err();
         assert_eq!(graphics, before_invalid);
-        assert_eq!(
-            graphics
-                .plan_flexible_vertex_format_update(
-                    RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
-                        device_com_object_id: RuntimeComObjectId(99),
-                        format: format_request.format,
-                    },
-                )
-                .unwrap_err()
-                .code,
-            "graphics-flexible-vertex-format-device-com-object-unknown"
-        );
+        graphics
+            .update_flexible_vertex_format(RuntimeComObjectId(99), format)
+            .unwrap_err();
         assert_eq!(graphics, before_invalid);
+    }
 
-        let mut exhausted = RuntimeGraphics::default();
-        let exhausted_plan = exhausted.plan_device_creation(request()).unwrap();
-        exhausted.commit_device_creation(exhausted_plan, RuntimeComObjectId(8));
-        exhausted.generation = u64::MAX;
-        let before_exhaustion = exhausted.clone();
-        assert_eq!(
-            exhausted
-                .plan_flexible_vertex_format_update(
-                    RuntimeGraphicsFlexibleVertexFormatUpdateRequest {
-                        device_com_object_id: RuntimeComObjectId(8),
-                        format: format_request.format,
-                    },
-                )
-                .unwrap_err()
-                .code,
-            "graphics-generation-exhausted"
-        );
-        assert_eq!(exhausted, before_exhaustion);
+    #[test]
+    fn device_state_updates_are_idempotent_and_reject_retired_devices() {
+        for kind in 0..3 {
+            let update = |graphics: &mut RuntimeGraphics| -> Result<(), RuntimeStateError> {
+                match kind {
+                    0 => graphics.update_sampler_state(
+                        RuntimeComObjectId(7),
+                        RuntimeGraphicsSamplerStateUpdate::MinFilter {
+                            sampler: 0,
+                            filter: RuntimeGraphicsTextureFilter::Linear,
+                        },
+                    ),
+                    1 => graphics.update_texture_stage_state(
+                        RuntimeComObjectId(7),
+                        RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
+                            stage: 0,
+                            operation: RuntimeGraphicsTextureOperation::Modulate,
+                        },
+                    ),
+                    _ => graphics.update_flexible_vertex_format(
+                        RuntimeComObjectId(7),
+                        RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1,
+                    ),
+                }
+            };
+            let mut graphics = RuntimeGraphics::default();
+            let plan = graphics
+                .validate_device_creation(request())
+                .unwrap()
+                .unwrap();
+            graphics.insert_device(plan, RuntimeComObjectId(7));
+            update(&mut graphics).unwrap();
+
+            let before = graphics.clone();
+            update(&mut graphics).unwrap();
+            assert_eq!(graphics, before, "same-value update changed state");
+
+            let retirement = graphics
+                .validate_com_object_retirements(&[RuntimeComObjectId(7)].into_iter().collect())
+                .unwrap()
+                .unwrap();
+            graphics.remove_validated_com_objects(retirement);
+            let before = graphics.clone();
+            assert!(update(&mut graphics).is_err());
+            assert_eq!(graphics, before, "retired device accepted a state update");
+        }
     }
 
     #[test]
     fn stream_sources_are_non_owning_idempotent_owner_checked_and_retirement_safe() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
         let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x1000).unwrap();
         let vertex_buffer_plan = graphics
-            .plan_vertex_buffer_creation(
-                RuntimeGraphicsVertexBufferCreateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    descriptor: RuntimeGraphicsVertexBufferDescriptor {
-                        byte_length: 112,
-                        usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
-                        flexible_vertex_format: 0x144,
-                        pool: RuntimeGraphicsVertexBufferPool::Managed,
-                    },
+            .validate_vertex_buffer_creation(
+                RuntimeComObjectId(7),
+                RuntimeGraphicsVertexBufferDescriptor {
+                    byte_length: 112,
+                    usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
+                    flexible_vertex_format: 0x144,
+                    pool: RuntimeGraphicsVertexBufferPool::Managed,
                 },
                 ProcessAddressAllocationId(41),
                 backing_range,
             )
             .unwrap();
-        let vertex_buffer = graphics.commit_vertex_buffer_creation(
+        let vertex_buffer_id = graphics.insert_vertex_buffer(
             vertex_buffer_plan,
             RuntimeComObjectId(8),
             MemoryOwnerId(23),
+            ProcessAddressAllocationId(41),
+            backing_range,
         );
         assert!(
             graphics
-                .device(device.id)
+                .device(device_id)
                 .unwrap()
                 .stream_sources
-                .is_pristine()
+                .stream_zero
+                .is_none()
         );
 
-        let stream_request = RuntimeGraphicsStreamSourceUpdateRequest {
-            device_com_object_id: RuntimeComObjectId(7),
-            stream: 0,
-            vertex_buffer_com_object_id: RuntimeComObjectId(8),
-            offset_in_bytes: 0,
-            stride: 28,
-        };
-        let before_plan = graphics.clone();
-        let plan = graphics.plan_stream_source_update(stream_request).unwrap();
-        let stale = plan.clone();
-        graphics.preflight_stream_source_update(&plan).unwrap();
-        assert_eq!(graphics, before_plan);
-        let result = graphics.commit_stream_source_update(plan);
-        assert_eq!(result.device_id, device.id);
-        assert_eq!(result.stream, 0);
-        assert_eq!(
-            result.binding,
-            RuntimeGraphicsStreamSourceBinding {
-                vertex_buffer_id: vertex_buffer.id,
-                offset_in_bytes: 0,
-                stride: 28,
-            }
-        );
-        assert!(result.changed);
-        assert_eq!(result.device_generation, device.generation + 1);
+        graphics
+            .bind_stream_source(RuntimeComObjectId(7), 0, RuntimeComObjectId(8), 0, 28)
+            .unwrap();
         assert_eq!(
             graphics
-                .device(device.id)
+                .device(device_id)
                 .unwrap()
                 .stream_sources
                 .stream_zero,
-            Some(result.binding)
+            Some(RuntimeGraphicsStreamSourceBinding {
+                vertex_buffer_id,
+                offset_in_bytes: 0,
+                stride: 28,
+            })
         );
-        assert_eq!(
-            graphics
-                .preflight_stream_source_update(&stale)
-                .unwrap_err()
-                .code,
-            "graphics-stream-source-update-plan-stale"
-        );
-
         let before_repeat = graphics.clone();
-        let repeat = graphics.plan_stream_source_update(stream_request).unwrap();
-        assert!(!graphics.commit_stream_source_update(repeat).changed);
+        graphics
+            .bind_stream_source(RuntimeComObjectId(7), 0, RuntimeComObjectId(8), 0, 28)
+            .unwrap();
         assert_eq!(graphics, before_repeat);
 
-        let second_device_plan = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(second_device_plan, RuntimeComObjectId(9));
+        let second_device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        graphics.insert_device(second_device_plan, RuntimeComObjectId(9));
         let second_backing = GuestRange::new(
             GuestAddress(
                 RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE
@@ -7022,296 +3650,299 @@ mod tests {
         )
         .unwrap();
         let second_vertex_buffer_plan = graphics
-            .plan_vertex_buffer_creation(
-                RuntimeGraphicsVertexBufferCreateRequest {
-                    device_com_object_id: RuntimeComObjectId(9),
-                    descriptor: vertex_buffer.descriptor,
-                },
+            .validate_vertex_buffer_creation(
+                RuntimeComObjectId(9),
+                graphics.vertex_buffers[&vertex_buffer_id].descriptor,
                 ProcessAddressAllocationId(42),
                 second_backing,
             )
             .unwrap();
-        graphics.commit_vertex_buffer_creation(
+        graphics.insert_vertex_buffer(
             second_vertex_buffer_plan,
             RuntimeComObjectId(10),
             MemoryOwnerId(24),
+            ProcessAddressAllocationId(42),
+            second_backing,
         );
         let before_wrong_owner = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_stream_source_update(RuntimeGraphicsStreamSourceUpdateRequest {
-                    vertex_buffer_com_object_id: RuntimeComObjectId(10),
-                    ..stream_request
-                })
-                .unwrap_err()
-                .code,
-            "graphics-stream-source-device-mismatch"
+        assert!(
+            !graphics
+                .bind_stream_source(RuntimeComObjectId(7), 0, RuntimeComObjectId(10), 0, 28)
+                .unwrap()
         );
         assert_eq!(graphics, before_wrong_owner);
 
-        for invalid in [
-            RuntimeGraphicsStreamSourceUpdateRequest {
-                stream: 1,
-                ..stream_request
-            },
-            RuntimeGraphicsStreamSourceUpdateRequest {
-                stride: 0,
-                ..stream_request
-            },
-            RuntimeGraphicsStreamSourceUpdateRequest {
-                vertex_buffer_com_object_id: RuntimeComObjectId(0),
-                ..stream_request
-            },
+        for (device_com_object_id, stream, vertex_buffer_com_object_id, offset_in_bytes, stride) in [
+            (RuntimeComObjectId(7), 1, RuntimeComObjectId(8), 0, 28),
+            (RuntimeComObjectId(7), 0, RuntimeComObjectId(8), 0, 0),
         ] {
             let before_invalid = graphics.clone();
-            assert_eq!(
-                graphics
-                    .plan_stream_source_update(invalid)
-                    .unwrap_err()
-                    .code,
-                "graphics-stream-source-request-invalid"
+            assert!(
+                !graphics
+                    .bind_stream_source(
+                        device_com_object_id,
+                        stream,
+                        vertex_buffer_com_object_id,
+                        offset_in_bytes,
+                        stride,
+                    )
+                    .unwrap()
             );
             assert_eq!(graphics, before_invalid);
         }
 
-        let mut exhausted = graphics.clone();
-        exhausted.generation = u64::MAX;
-        let idempotent = exhausted.plan_stream_source_update(stream_request).unwrap();
-        assert_eq!(idempotent.next_generation, u64::MAX);
-        assert!(!exhausted.commit_stream_source_update(idempotent).changed);
-        let before_exhausted_change = exhausted.clone();
-        assert_eq!(
-            exhausted
-                .plan_stream_source_update(RuntimeGraphicsStreamSourceUpdateRequest {
-                    offset_in_bytes: 4,
-                    ..stream_request
-                })
-                .unwrap_err()
-                .code,
-            "graphics-generation-exhausted"
+        let before_missing_buffer = graphics.clone();
+        assert!(
+            graphics
+                .bind_stream_source(RuntimeComObjectId(7), 0, RuntimeComObjectId(0), 0, 28)
+                .is_err()
         );
-        assert_eq!(exhausted, before_exhausted_change);
+        assert_eq!(graphics, before_missing_buffer);
 
         let retirement = graphics
-            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .validate_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
             .unwrap()
             .unwrap();
-        let device_generation = graphics.device(device.id).unwrap().generation;
-        graphics
-            .preflight_com_object_retirement(&retirement)
-            .unwrap();
-        graphics.commit_com_object_retirement(retirement);
-        let device_after_retirement = graphics.device(device.id).unwrap();
+        graphics.remove_validated_com_objects(retirement);
+        let device_after_retirement = graphics.device(device_id).unwrap();
         assert_eq!(device_after_retirement.stream_sources.stream_zero, None);
-        assert_eq!(device_after_retirement.generation, device_generation + 1);
-        assert!(graphics.vertex_buffer(vertex_buffer.id).is_err());
+        assert!(graphics.vertex_buffer(vertex_buffer_id).is_err());
     }
 
     #[test]
-    fn back_buffer_clears_replace_uniform_content_and_reject_stale_plans_atomically() {
+    fn back_buffer_clears_replace_uniform_content_and_fail_atomically() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        assert!(device.back_buffer.is_pristine());
-
-        let plan = graphics
-            .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                color_argb: 0xff00_0000,
-            })
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
             .unwrap();
-        let stale = plan.clone();
-        graphics.preflight_back_buffer_clear(&plan).unwrap();
-        let first = graphics.commit_back_buffer_clear(plan);
-        assert_eq!(first.device_id, device.id);
-        assert_eq!(first.content_generation, 1);
-        assert_eq!(first.clear.sequence, 1);
-        assert_eq!(first.clear.color_argb, 0xff00_0000);
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
         assert_eq!(
-            first.clear.rect,
-            RuntimeRect {
-                left: 0,
-                top: 0,
-                right: 800,
-                bottom: 600,
-            }
+            graphics.device(device_id).unwrap().back_buffer,
+            RuntimeGraphicsBackBuffer::default()
         );
-        assert_eq!(
-            graphics
-                .preflight_back_buffer_clear(&stale)
-                .unwrap_err()
-                .code,
-            "graphics-back-buffer-clear-plan-stale"
-        );
-        let committed = graphics.device(device.id).unwrap();
-        assert_eq!(committed.back_buffer.content_generation, 1);
-        assert_eq!(committed.back_buffer.uniform_clear, Some(first.clear));
-        assert_eq!(committed.generation, device.generation + 1);
 
-        let stale = graphics
-            .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                color_argb: 0xff00_0000,
-            })
+        graphics
+            .clear_back_buffer(RuntimeComObjectId(7), 0xff00_0000)
             .unwrap();
-        let intervening = graphics
-            .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                color_argb: 0xff00_00ff,
-            })
+        let first = graphics
+            .device(device_id)
+            .unwrap()
+            .back_buffer
+            .clear_color
             .unwrap();
-        let second = graphics.commit_back_buffer_clear(intervening);
-        assert_eq!(second.clear.sequence, 2);
-        assert_eq!(second.content_generation, 2);
-        assert_eq!(second.clear.color_argb, 0xff00_00ff);
-        let before_stale = graphics.clone();
-        assert_eq!(
-            graphics
-                .preflight_back_buffer_clear(&stale)
-                .unwrap_err()
-                .code,
-            "graphics-back-buffer-clear-plan-stale"
-        );
-        assert_eq!(graphics, before_stale);
+        assert_eq!(first, 0xff00_0000);
+        let committed = graphics.device(device_id).unwrap();
+        assert_eq!(committed.back_buffer.clear_color, Some(first));
 
+        graphics
+            .clear_back_buffer(RuntimeComObjectId(7), 0xff00_00ff)
+            .unwrap();
+        let second = graphics.device(device_id).unwrap();
+        assert_eq!(second.back_buffer.clear_color.unwrap(), 0xff00_00ff);
         for device_com_object_id in [RuntimeComObjectId(0), RuntimeComObjectId(99)] {
             let before = graphics.clone();
-            let error = graphics
-                .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
-                    device_com_object_id,
-                    color_argb: 0xff00_0000,
-                })
+            graphics
+                .clear_back_buffer(device_com_object_id, 0xff00_0000)
                 .unwrap_err();
-            assert!(matches!(
-                error.code,
-                "graphics-back-buffer-clear-request-invalid"
-                    | "graphics-back-buffer-clear-device-com-object-unknown"
-            ));
+
             assert_eq!(graphics, before);
         }
-
-        graphics.next_back_buffer_clear_sequence = u64::MAX;
-        let exhausted = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    color_argb: 0xff00_0000,
-                })
-                .unwrap_err()
-                .code,
-            "graphics-back-buffer-clear-sequence-exhausted"
-        );
-        assert_eq!(graphics, exhausted);
     }
 
     #[test]
     fn draw_submissions_snapshot_prepared_state_and_clear_or_retirement_remain_safe() {
-        let (mut graphics, device_id, texture_id, vertex_buffer_id, backing_range) =
-            prepared_draw_graphics();
-        let request = RuntimeGraphicsDrawCaptureRequest {
-            device_com_object_id: RuntimeComObjectId(7),
-            primitive_topology: RuntimeGraphicsPrimitiveTopology::TriangleStrip,
-            start_vertex: 0,
-            primitive_count: 2,
-        };
-        let before_capture = graphics.clone();
-        let capture = graphics.plan_draw_capture(request).unwrap();
-        assert_eq!(
-            capture.vertex_range(),
-            GuestRange::new(backing_range.start(), 112).unwrap()
-        );
-        assert_eq!(graphics, before_capture);
-        let before_short_snapshot = graphics.clone();
-        assert_eq!(
+        let (mut graphics, device_id, texture_id, _, _) = prepared_draw_graphics();
+        let (device_com_object_id, start_vertex, primitive_count) = (RuntimeComObjectId(7), 0, 2);
+        let before = graphics.clone();
+        let unmapped =
+            crate::memory::GuestMemory::new(crate::memory::MemoryLimits::default()).unwrap();
+        assert!(
             graphics
-                .prepare_draw_submission(capture.clone(), vec![0; 111])
-                .unwrap_err()
-                .code,
-            "graphics-draw-vertex-snapshot-length-mismatch"
+                .submit_draw(
+                    device_com_object_id,
+                    start_vertex,
+                    primitive_count,
+                    &unmapped
+                )
+                .is_err()
         );
-        assert_eq!(graphics, before_short_snapshot);
-
+        assert_eq!(graphics, before);
         let vertex_data = (0_u8..112).collect::<Vec<_>>();
-        let plan = graphics
-            .prepare_draw_submission(capture, vertex_data.clone())
+        let memory = draw_memory(&vertex_data);
+        graphics
+            .submit_draw(device_com_object_id, start_vertex, primitive_count, &memory)
             .unwrap();
-        let stale = plan.clone();
-        graphics.preflight_draw_submission(&plan).unwrap();
-        assert_eq!(graphics, before_capture);
-        let result = graphics.commit_draw_submission(plan);
-        assert_eq!(result.device_id, device_id);
-        assert_eq!(result.content_generation, 2);
-        assert_eq!(result.submission.sequence, 1);
-        assert_eq!(result.submission.scene_sequence, 1);
-        assert_eq!(result.submission.vertex_count, 4);
-        assert_eq!(result.submission.vertex_data, vertex_data);
-        assert_eq!(result.submission.texture.texture_id, texture_id);
-        assert_eq!(result.submission.texture.content.content_generation, 1);
-        assert_eq!(
-            result.submission.stream_source.vertex_buffer_id,
-            vertex_buffer_id
-        );
-        assert_eq!(result.submission.vertex_buffer_content_generation, 1);
-        assert_eq!(
-            graphics.preflight_draw_submission(&stale).unwrap_err().code,
-            "graphics-draw-submission-plan-stale"
-        );
-        let committed_draws = graphics
-            .device(device_id)
-            .unwrap()
-            .back_buffer
-            .draw_submissions
-            .clone();
-        assert_eq!(committed_draws, vec![result.submission.clone()]);
+        let device = graphics.device(device_id).unwrap();
+        let submission = &device.back_buffer.draw_submissions[0];
+        assert_eq!(submission.vertex_data, vertex_data);
+        let texture = graphics.texture(texture_id).unwrap();
+        assert_eq!(submission.texture_width, texture.descriptor.width);
+        assert_eq!(submission.texture_height, texture.descriptor.height);
+        assert_eq!(submission.texture_fills, texture.content.fills);
+        let committed_draws = device.back_buffer.draw_submissions.clone();
 
         let retirement = graphics
-            .plan_com_object_retirements(
+            .validate_com_object_retirements(
                 &[RuntimeComObjectId(8), RuntimeComObjectId(9)]
                     .into_iter()
                     .collect(),
             )
             .unwrap()
             .unwrap();
-        graphics
-            .preflight_com_object_retirement(&retirement)
-            .unwrap();
-        graphics.commit_com_object_retirement(retirement);
+        graphics.remove_validated_com_objects(retirement);
         let retired_device = graphics.device(device_id).unwrap();
         assert_eq!(retired_device.texture_bindings.stage_zero, None);
         assert_eq!(retired_device.stream_sources.stream_zero, None);
         assert_eq!(retired_device.back_buffer.draw_submissions, committed_draws);
 
-        let clear = graphics
-            .plan_back_buffer_clear(RuntimeGraphicsBackBufferClearRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                color_argb: 0xff00_00ff,
-            })
+        graphics
+            .clear_back_buffer(RuntimeComObjectId(7), 0xff00_00ff)
             .unwrap();
-        graphics.preflight_back_buffer_clear(&clear).unwrap();
-        graphics.commit_back_buffer_clear(clear);
         let cleared = graphics.device(device_id).unwrap();
         assert!(cleared.back_buffer.draw_submissions.is_empty());
-        assert_eq!(
-            cleared.back_buffer.uniform_clear.unwrap().color_argb,
-            0xff00_00ff
+        assert_eq!(cleared.back_buffer.clear_color.unwrap(), 0xff00_00ff);
+    }
+
+    #[test]
+    fn captured_draw_keeps_rendering_bytes_and_fills_after_live_mutation() {
+        let (mut graphics, device_id, texture_id, _, vertex_range) = prepared_draw_graphics();
+        let fill = RuntimeGraphicsSurfaceFill {
+            rect: RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 8,
+                bottom: 8,
+            },
+            color_ref: 0x00ff_0000,
+        };
+        graphics
+            .textures
+            .get_mut(&texture_id)
+            .unwrap()
+            .content
+            .fills
+            .push(fill);
+        let mut memory = draw_memory(&[0x5a; 112]);
+        graphics
+            .submit_draw(RuntimeComObjectId(7), 0, 2, &memory)
+            .unwrap();
+
+        graphics
+            .textures
+            .get_mut(&texture_id)
+            .unwrap()
+            .content
+            .fills
+            .clear();
+        memory.write(vertex_range.start(), &[0xa5; 112]).unwrap();
+        let draw = &graphics
+            .device(device_id)
+            .unwrap()
+            .back_buffer
+            .draw_submissions[0];
+        assert_eq!(draw.vertex_data, [0x5a; 112]);
+        assert_eq!(draw.texture_fills, [fill]);
+        assert_eq!((draw.texture_width, draw.texture_height), (2048, 1024));
+        assert_eq!(draw.texture_pitch, None);
+        assert!(draw.texture_data.is_empty());
+    }
+
+    #[test]
+    fn draw_memory_failure_after_vertex_read_preserves_all_graphics_state() {
+        let (mut graphics, _, texture_id, vertex_buffer_id, _) = prepared_draw_graphics();
+        let memory = draw_memory(&[0x5a; 112]);
+        let (device_com_object_id, start_vertex, primitive_count) = (RuntimeComObjectId(7), 0, 2);
+        graphics
+            .vertex_buffers
+            .get_mut(&vertex_buffer_id)
+            .unwrap()
+            .backing
+            .memory_owner = MemoryOwnerId(22);
+        let original_range = graphics.vertex_buffers[&vertex_buffer_id].backing.range;
+        graphics
+            .vertex_buffers
+            .get_mut(&vertex_buffer_id)
+            .unwrap()
+            .backing
+            .range = GuestRange::new(original_range.start(), 4).unwrap();
+        let before_backing_failure = graphics.clone();
+        assert!(
+            graphics
+                .submit_draw(device_com_object_id, start_vertex, primitive_count, &memory)
+                .is_err()
         );
+        assert_eq!(graphics, before_backing_failure);
+        graphics
+            .vertex_buffers
+            .get_mut(&vertex_buffer_id)
+            .unwrap()
+            .backing
+            .range = original_range;
+        let before_owner_failure = graphics.clone();
+        assert!(
+            graphics
+                .submit_draw(device_com_object_id, start_vertex, primitive_count, &memory)
+                .is_err()
+        );
+        assert_eq!(graphics, before_owner_failure);
+        graphics
+            .vertex_buffers
+            .get_mut(&vertex_buffer_id)
+            .unwrap()
+            .backing
+            .memory_owner = MemoryOwnerId(23);
+        let mut descriptor = graphics.texture(texture_id).unwrap().descriptor;
+        descriptor.pool = RuntimeGraphicsTexturePool::SystemMemory;
+        let plan = graphics
+            .validate_texture_creation(RuntimeComObjectId(7), descriptor)
+            .unwrap();
+        let source_id = graphics.insert_texture(plan, RuntimeComObjectId(10));
+        let range = GuestRange::new(GuestAddress(0x50000000), 2048 * 1024 * 4).unwrap();
+        let pixels = RuntimeGraphicsTexturePixelSource {
+            source_texture_id: source_id,
+            source_content_generation: 1,
+            range,
+            row_pitch: 2048 * 4,
+        };
+        let source = graphics.textures.get_mut(&source_id).unwrap();
+        source.backing = Some(RuntimeGraphicsTextureBacking {
+            address_allocation_id: ProcessAddressAllocationId(42),
+            memory_owner: MemoryOwnerId(24),
+            range,
+            row_pitch: 2048 * 4,
+        });
+        source.content.content_generation = 1;
+        source.content.pixel_source = Some(pixels);
+        graphics
+            .textures
+            .get_mut(&texture_id)
+            .unwrap()
+            .content
+            .pixel_source = Some(pixels);
+        let before_texture_failure = graphics.clone();
+        assert!(
+            graphics
+                .submit_draw(device_com_object_id, start_vertex, primitive_count, &memory)
+                .is_err()
+        );
+        assert_eq!(graphics, before_texture_failure);
     }
 
     #[test]
     fn draw_submission_limits_and_incomplete_state_fail_before_mutation() {
         let (mut graphics, device_id, _, _, _) = prepared_draw_graphics();
-        let request = RuntimeGraphicsDrawCaptureRequest {
-            device_com_object_id: RuntimeComObjectId(7),
-            primitive_topology: RuntimeGraphicsPrimitiveTopology::TriangleStrip,
-            start_vertex: 0,
-            primitive_count: 2,
-        };
-        let capture = graphics.plan_draw_capture(request).unwrap();
-        let plan = graphics
-            .prepare_draw_submission(capture, vec![0x5a; 112])
+        let (device_com_object_id, start_vertex, primitive_count) = (RuntimeComObjectId(7), 0, 2);
+        let memory = draw_memory(&[0x5a; 112]);
+        graphics
+            .submit_draw(device_com_object_id, start_vertex, primitive_count, &memory)
             .unwrap();
-        let seed = graphics.commit_draw_submission(plan).submission;
+        let seed = graphics
+            .device(device_id)
+            .unwrap()
+            .back_buffer
+            .draw_submissions[0]
+            .clone();
 
         let mut count_limited = graphics.clone();
         count_limited
@@ -7319,413 +3950,221 @@ mod tests {
             .get_mut(&device_id)
             .unwrap()
             .back_buffer
-            .draw_submissions = vec![seed.clone(); RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT];
+            .draw_submissions = vec![seed; RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT];
         let before_count_limit = count_limited.clone();
-        assert_eq!(
-            count_limited.plan_draw_capture(request).unwrap_err().code,
-            "graphics-draw-submission-capacity-reached"
-        );
+        count_limited
+            .submit_draw(device_com_object_id, start_vertex, primitive_count, &memory)
+            .unwrap_err();
         assert_eq!(count_limited, before_count_limit);
 
-        let mut byte_limited = graphics.clone();
-        let mut oversized = seed;
-        oversized.vertex_data = vec![0; RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT];
-        byte_limited
-            .devices
-            .get_mut(&device_id)
-            .unwrap()
-            .back_buffer
-            .draw_submissions = vec![oversized];
-        let before_byte_limit = byte_limited.clone();
-        assert_eq!(
-            byte_limited.plan_draw_capture(request).unwrap_err().code,
-            "graphics-draw-vertex-byte-capacity-reached"
-        );
-        assert_eq!(byte_limited, before_byte_limit);
-
         let mut incomplete = graphics.clone();
-        incomplete.devices.get_mut(&device_id).unwrap().active_scene = None;
+        incomplete.devices.get_mut(&device_id).unwrap().scene_active = false;
         let before_incomplete = incomplete.clone();
-        assert_eq!(
-            incomplete.plan_draw_capture(request).unwrap_err().code,
-            "graphics-draw-scene-inactive"
+        assert!(
+            !incomplete
+                .submit_draw(device_com_object_id, start_vertex, primitive_count, &memory)
+                .unwrap()
         );
         assert_eq!(incomplete, before_incomplete);
 
-        for unsupported in [
-            RuntimeGraphicsDrawCaptureRequest {
-                start_vertex: 1,
-                ..request
-            },
-            RuntimeGraphicsDrawCaptureRequest {
-                primitive_count: 1,
-                ..request
-            },
+        for (device_com_object_id, start_vertex, primitive_count) in [
+            (device_com_object_id, 1, primitive_count),
+            (device_com_object_id, start_vertex, 1),
         ] {
             let before = graphics.clone();
-            assert_eq!(
-                graphics.plan_draw_capture(unsupported).unwrap_err().code,
-                "graphics-draw-capture-request-invalid"
+            assert!(
+                !graphics
+                    .submit_draw(device_com_object_id, start_vertex, primitive_count, &memory)
+                    .unwrap()
             );
             assert_eq!(graphics, before);
         }
     }
 
     #[test]
-    fn scene_begin_owns_active_lifecycle_and_rejects_nested_or_stale_plans_atomically() {
+    fn scene_begin_owns_active_lifecycle_and_rejects_nested_scenes_atomically() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        assert_eq!(device.active_scene, None);
-
-        let before_plan = graphics.clone();
-        let plan = graphics
-            .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-            })
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
             .unwrap();
-        assert_eq!(graphics, before_plan);
-        let stale = plan.clone();
-        graphics.preflight_scene_begin(&plan).unwrap();
-        let result = graphics.commit_scene_begin(plan);
-        assert_eq!(result.device_id, device.id);
-        assert_eq!(result.device_generation, device.generation + 1);
-        assert_eq!(result.scene.sequence, 1);
-        assert_eq!(
-            graphics.device(device.id).unwrap().active_scene,
-            Some(RuntimeGraphicsScene { sequence: 1 })
-        );
-        assert_eq!(graphics.next_scene_sequence, 2);
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
+        assert!(!graphics.device(device_id).unwrap().scene_active);
 
-        let before_stale = graphics.clone();
-        assert_eq!(
-            graphics.preflight_scene_begin(&stale).unwrap_err().code,
-            "graphics-scene-begin-plan-stale"
-        );
-        assert_eq!(graphics, before_stale);
+        graphics.begin_scene(RuntimeComObjectId(7)).unwrap();
+        assert!(graphics.device(device_id).unwrap().scene_active);
 
         let before_nested = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-scene-already-active"
-        );
+        assert!(!graphics.begin_scene(RuntimeComObjectId(7)).unwrap());
         assert_eq!(graphics, before_nested);
 
         for device_com_object_id in [RuntimeComObjectId(0), RuntimeComObjectId(99)] {
             let before = graphics.clone();
-            let error = graphics
-                .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
-                    device_com_object_id,
-                })
-                .unwrap_err();
-            assert!(matches!(
-                error.code,
-                "graphics-scene-begin-request-invalid"
-                    | "graphics-scene-begin-device-com-object-unknown"
-            ));
+            graphics.begin_scene(device_com_object_id).unwrap_err();
+
             assert_eq!(graphics, before);
         }
-
-        let mut exhausted = RuntimeGraphics::default();
-        let device_plan = exhausted.plan_device_creation(request()).unwrap();
-        exhausted.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        exhausted.next_scene_sequence = u64::MAX;
-        let before_exhausted = exhausted.clone();
-        assert_eq!(
-            exhausted
-                .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-scene-sequence-exhausted"
-        );
-        assert_eq!(exhausted, before_exhausted);
     }
 
     #[test]
     fn scene_end_closes_only_the_active_lifecycle_and_preserves_draw_content_atomically() {
         let (mut graphics, device_id, _, _, _) = prepared_draw_graphics();
-        let draw = graphics
-            .plan_draw_capture(RuntimeGraphicsDrawCaptureRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                primitive_topology: RuntimeGraphicsPrimitiveTopology::TriangleStrip,
-                start_vertex: 0,
-                primitive_count: 2,
-            })
+        graphics
+            .submit_draw(RuntimeComObjectId(7), 0, 2, &draw_memory(&[0x5a; 112]))
             .unwrap();
-        let draw = graphics
-            .prepare_draw_submission(draw, vec![0x5a; 112])
-            .unwrap();
-        graphics.commit_draw_submission(draw);
         let back_buffer = graphics.device(device_id).unwrap().back_buffer.clone();
-        let next_scene_sequence = graphics.next_scene_sequence;
 
-        let before_plan = graphics.clone();
-        let plan = graphics
-            .plan_scene_end(RuntimeGraphicsSceneEndRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-            })
-            .unwrap();
-        assert_eq!(graphics, before_plan);
-        let stale = plan.clone();
-        graphics.preflight_scene_end(&plan).unwrap();
-        let previous_device_generation = graphics.device(device_id).unwrap().generation;
-        let result = graphics.commit_scene_end(plan);
-        assert_eq!(result.device_id, device_id);
-        assert_eq!(result.device_generation, previous_device_generation + 1);
-        assert_eq!(result.scene, RuntimeGraphicsScene { sequence: 1 });
+        graphics.end_scene(RuntimeComObjectId(7)).unwrap();
         let device = graphics.device(device_id).unwrap();
-        assert_eq!(device.active_scene, None);
+        assert!(!device.scene_active);
         assert_eq!(device.back_buffer, back_buffer);
-        assert_eq!(graphics.next_scene_sequence, next_scene_sequence);
-
-        let before_stale = graphics.clone();
-        assert_eq!(
-            graphics.preflight_scene_end(&stale).unwrap_err().code,
-            "graphics-scene-end-plan-stale"
-        );
-        assert_eq!(graphics, before_stale);
 
         let before_repeat = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_scene_end(RuntimeGraphicsSceneEndRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-scene-not-active"
-        );
+        assert!(!graphics.end_scene(RuntimeComObjectId(7)).unwrap());
         assert_eq!(graphics, before_repeat);
 
-        let begin = graphics
-            .plan_scene_begin(RuntimeGraphicsSceneBeginRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-            })
-            .unwrap();
-        let second_scene = graphics.commit_scene_begin(begin).scene;
-        assert_eq!(second_scene.sequence, next_scene_sequence);
+        graphics.begin_scene(RuntimeComObjectId(7)).unwrap();
+        assert!(graphics.device(device_id).unwrap().scene_active);
         assert_eq!(graphics.device(device_id).unwrap().back_buffer, back_buffer);
 
         for device_com_object_id in [RuntimeComObjectId(0), RuntimeComObjectId(99)] {
             let before = graphics.clone();
-            let error = graphics
-                .plan_scene_end(RuntimeGraphicsSceneEndRequest {
-                    device_com_object_id,
-                })
-                .unwrap_err();
-            assert!(matches!(
-                error.code,
-                "graphics-scene-end-request-invalid"
-                    | "graphics-scene-end-device-com-object-unknown"
-            ));
+            graphics.end_scene(device_com_object_id).unwrap_err();
+
             assert_eq!(graphics, before);
         }
-
-        let mut exhausted = graphics.clone();
-        exhausted.devices.get_mut(&device_id).unwrap().generation = u64::MAX;
-        let before_exhausted = exhausted.clone();
-        assert_eq!(
-            exhausted
-                .plan_scene_end(RuntimeGraphicsSceneEndRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-device-generation-exhausted"
-        );
-        assert_eq!(exhausted, before_exhausted);
     }
 
     #[test]
-    fn present_moves_closed_back_buffer_to_front_frame_and_rejects_invalid_or_stale_state_atomically()
-     {
+    fn present_moves_closed_back_buffer_to_front_frame_and_rejects_invalid_state_atomically() {
         let (mut graphics, device_id, _, _, _) = prepared_draw_graphics();
-        let draw = graphics
-            .plan_draw_capture(RuntimeGraphicsDrawCaptureRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-                primitive_topology: RuntimeGraphicsPrimitiveTopology::TriangleStrip,
-                start_vertex: 0,
-                primitive_count: 2,
-            })
+        graphics
+            .submit_draw(RuntimeComObjectId(7), 0, 2, &draw_memory(&[0x5a; 112]))
             .unwrap();
-        let draw = graphics
-            .prepare_draw_submission(draw, vec![0x5a; 112])
-            .unwrap();
-        graphics.commit_draw_submission(draw);
-        let end = graphics
-            .plan_scene_end(RuntimeGraphicsSceneEndRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-            })
-            .unwrap();
-        graphics.commit_scene_end(end);
+        graphics.end_scene(RuntimeComObjectId(7)).unwrap();
 
-        let request = RuntimeGraphicsPresentRequest {
-            device_com_object_id: RuntimeComObjectId(7),
-        };
-        let before_plan = graphics.clone();
-        let plan = graphics.plan_present(request).unwrap();
-        let stale = plan.clone();
-        graphics.preflight_present(&plan).unwrap();
-        assert_eq!(graphics, before_plan);
-        let previous_device_generation = graphics.device(device_id).unwrap().generation;
-        let result = graphics.commit_present(plan);
-        assert_eq!(result.device_id, device_id);
-        assert_eq!(result.device_generation, previous_device_generation + 1);
-        assert_eq!(result.frame.sequence, 1);
-        assert_eq!(result.frame.back_buffer.content_generation, 2);
-        assert_eq!(result.frame.back_buffer.draw_submissions.len(), 1);
-        assert_eq!(result.next_back_buffer_content_generation, 3);
+        let request = RuntimeComObjectId(7);
+        graphics.present(request).unwrap();
         let device = graphics.device(device_id).unwrap();
-        assert_eq!(device.presented_frame, Some(result.frame.clone()));
-        assert_eq!(device.back_buffer.content_generation, 3);
-        assert_eq!(device.back_buffer.uniform_clear, None);
+        let frame = device.presented_frame.as_ref().unwrap();
+        assert_eq!(frame.draw_submissions.len(), 1);
+        assert_eq!(device.back_buffer.clear_color, None);
         assert!(device.back_buffer.draw_submissions.is_empty());
-        assert_eq!(graphics.next_present_sequence, 2);
 
-        let before_stale = graphics.clone();
-        assert_eq!(
-            graphics.preflight_present(&stale).unwrap_err().code,
-            "graphics-present-plan-stale"
-        );
-        assert_eq!(graphics, before_stale);
-        assert_eq!(
-            graphics.plan_present(request).unwrap_err().code,
-            "graphics-present-back-buffer-empty"
-        );
-        assert_eq!(graphics, before_stale);
+        let before_empty = graphics.clone();
+        assert!(!graphics.present(request).unwrap());
+        assert_eq!(graphics, before_empty);
 
         for device_com_object_id in [RuntimeComObjectId(0), RuntimeComObjectId(99)] {
             let before = graphics.clone();
-            let error = graphics
-                .plan_present(RuntimeGraphicsPresentRequest {
-                    device_com_object_id,
-                })
-                .unwrap_err();
-            assert!(matches!(
-                error.code,
-                "graphics-present-request-invalid" | "graphics-present-device-com-object-unknown"
-            ));
+            graphics.present(device_com_object_id).unwrap_err();
+
             assert_eq!(graphics, before);
         }
 
-        let (active, _, _, _, _) = prepared_draw_graphics();
+        let (mut active, _, _, _, _) = prepared_draw_graphics();
         let before_active = active.clone();
-        assert_eq!(
-            active.plan_present(request).unwrap_err().code,
-            "graphics-present-scene-active"
-        );
+        assert!(!active.present(request).unwrap());
         assert_eq!(active, before_active);
-
-        let (mut exhausted, exhausted_device_id, _, _, _) = prepared_draw_graphics();
-        let end = exhausted
-            .plan_scene_end(RuntimeGraphicsSceneEndRequest {
-                device_com_object_id: RuntimeComObjectId(7),
-            })
-            .unwrap();
-        exhausted.commit_scene_end(end);
-        exhausted.next_present_sequence = u64::MAX;
-        let before_sequence_exhausted = exhausted.clone();
-        assert_eq!(
-            exhausted.plan_present(request).unwrap_err().code,
-            "graphics-present-sequence-exhausted"
-        );
-        assert_eq!(exhausted, before_sequence_exhausted);
-
-        exhausted.next_present_sequence = 1;
-        exhausted
-            .devices
-            .get_mut(&exhausted_device_id)
-            .unwrap()
-            .back_buffer
-            .content_generation = u64::MAX;
-        let before_content_exhausted = exhausted.clone();
-        assert_eq!(
-            exhausted.plan_present(request).unwrap_err().code,
-            "graphics-back-buffer-content-generation-exhausted"
-        );
-        assert_eq!(exhausted, before_content_exhausted);
     }
 
     #[test]
     fn texture_creation_and_cascading_retirement_preserve_device_relation() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        let texture_plan = graphics
-            .plan_texture_creation(texture_request(RuntimeComObjectId(7)))
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
             .unwrap();
-        let stale = texture_plan.clone();
-        assert_eq!(texture_plan.id(), RuntimeGraphicsTextureId(1));
-        assert_eq!(texture_plan.device_id(), device.id);
-        assert_eq!(texture_plan.descriptor().width, 1_024);
-        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
-        assert_eq!(texture.namespace, RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE);
-        assert_eq!(texture.device_id, device.id);
-        assert_eq!(texture.com_object_id, RuntimeComObjectId(8));
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
+        for failure in [1, 2, 3, 4] {
+            let mut rejected = graphics.clone();
+            match failure {
+                1 => rejected.next_texture_id = u64::MAX,
+                2 => rejected.next_texture_id = 0,
+                3 => rejected.devices.get_mut(&device_id).unwrap().id = RuntimeGraphicsDeviceId(99),
+                4 => {
+                    rejected.device_texture_index.remove(&device_id);
+                }
+                _ => unreachable!(),
+            }
+            let before = rejected.clone();
+            assert!(
+                rejected
+                    .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
+                    .is_err()
+            );
+            assert_eq!(rejected, before);
+        }
+        let texture_plan = graphics
+            .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
+            .unwrap();
+        assert_eq!(texture_plan.0, RuntimeGraphicsTextureId(1));
+        assert_eq!(texture_plan.1, device_id);
+        assert_eq!(texture_plan.2.width, 1_024);
+        let texture_id = graphics.insert_texture(texture_plan, RuntimeComObjectId(8));
+        assert_eq!(graphics.textures[&texture_id].device_id, device_id);
         assert_eq!(
-            texture.dirty_region,
+            graphics.textures[&texture_id].com_object_id,
+            RuntimeComObjectId(8)
+        );
+        assert_eq!(
+            graphics.textures[&texture_id].dirty_region,
             RuntimeGraphicsTextureDirtyRegion::WholeTexture
         );
-        assert_eq!(
-            graphics
-                .preflight_texture_creation(&stale)
-                .unwrap_err()
-                .code,
-            "graphics-texture-creation-plan-stale"
-        );
-
+        for failure in [1, 2, 3, 4] {
+            let mut rejected = graphics.clone();
+            match failure {
+                1 => rejected.next_surface_id = u64::MAX,
+                2 => rejected.next_surface_id = 0,
+                3 => {
+                    rejected.textures.get_mut(&texture_id).unwrap().id =
+                        RuntimeGraphicsTextureId(99)
+                }
+                4 => {
+                    rejected.texture_surface_index.remove(&texture_id);
+                }
+                _ => unreachable!(),
+            }
+            let before = rejected.clone();
+            assert!(
+                rejected
+                    .validate_surface_creation(RuntimeComObjectId(8), 0)
+                    .is_err()
+            );
+            assert_eq!(rejected, before);
+        }
         let surface_plan = graphics
-            .plan_surface_creation(surface_request(RuntimeComObjectId(8), 0))
+            .validate_surface_creation(RuntimeComObjectId(8), 0)
+            .unwrap()
             .unwrap();
-        let stale_surface = surface_plan.clone();
-        assert_eq!(surface_plan.id(), RuntimeGraphicsSurfaceId(1));
-        assert_eq!(surface_plan.texture_id(), texture.id);
-        assert_eq!(surface_plan.descriptor().width, 1_024);
-        let surface = graphics.commit_surface_creation(surface_plan, RuntimeComObjectId(9));
-        assert_eq!(surface.namespace, RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE);
-        assert_eq!(surface.texture_id, texture.id);
-        assert_eq!(surface.descriptor.level, 0);
-        assert_eq!(surface.com_object_id, RuntimeComObjectId(9));
+        assert_eq!(surface_plan.0, RuntimeGraphicsSurfaceId(1));
+        assert_eq!(surface_plan.1, texture_id);
+        assert_eq!(surface_plan.2.width, 1_024);
+        let surface_id = graphics.insert_surface(surface_plan, RuntimeComObjectId(9));
+        assert_eq!(graphics.surfaces[&surface_id].texture_id, texture_id);
+        assert_eq!(graphics.surfaces[&surface_id].descriptor.level, 0);
         assert_eq!(
-            graphics
-                .preflight_surface_creation(&stale_surface)
-                .unwrap_err()
-                .code,
-            "graphics-surface-creation-plan-stale"
+            graphics.surfaces[&surface_id].com_object_id,
+            RuntimeComObjectId(9)
         );
         assert_eq!(
             graphics
                 .surface_for_texture_level(RuntimeComObjectId(8), 0)
                 .unwrap()
                 .map(|surface| surface.id),
-            Some(surface.id)
+            Some(surface_id)
         );
 
-        let incomplete = graphics
-            .plan_com_object_retirements(&[RuntimeComObjectId(7)].into_iter().collect())
+        let _incomplete = graphics
+            .validate_com_object_retirements(&[RuntimeComObjectId(7)].into_iter().collect())
             .unwrap_err();
-        assert_eq!(
-            incomplete.code,
-            "graphics-device-retirement-has-live-textures"
-        );
 
-        let incomplete = graphics
-            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+        let _incomplete = graphics
+            .validate_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
             .unwrap_err();
-        assert_eq!(
-            incomplete.code,
-            "graphics-texture-retirement-has-live-surfaces"
-        );
 
         let retirement = graphics
-            .plan_com_object_retirements(
+            .validate_com_object_retirements(
                 &[
                     RuntimeComObjectId(7),
                     RuntimeComObjectId(8),
@@ -7736,53 +4175,81 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        graphics
-            .preflight_com_object_retirement(&retirement)
-            .unwrap();
-        graphics.commit_com_object_retirement(retirement);
+        graphics.remove_validated_com_objects(retirement);
         assert!(graphics.is_empty());
     }
 
     #[test]
     fn texture_lock_unlock_owns_backing_content_and_failure_atomicity() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        let texture_plan = graphics
-            .plan_texture_creation(texture_request(RuntimeComObjectId(7)))
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
             .unwrap();
-        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
+        graphics.insert_device(device_plan, RuntimeComObjectId(7));
+        let texture_plan = graphics
+            .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
+            .unwrap();
+        let texture_id = graphics.insert_texture(texture_plan, RuntimeComObjectId(8));
         let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x40_0000)
             .expect("one 1024x1024 B8G8R8X8 texture backing");
-        let request = RuntimeGraphicsTextureLockRequest {
-            texture_com_object_id: RuntimeComObjectId(8),
-            level: 0,
-            rect: RuntimeRect {
-                left: 0,
-                top: 0,
-                right: 800,
-                bottom: 600,
-            },
-            flags: RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+        let rect = RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
         };
-        let plan = graphics
-            .plan_texture_lock(
-                request,
-                Some(RuntimeGraphicsTextureBackingPlan {
+        for failure in [2, 3, 4, 5, 6] {
+            let mut rejected = graphics.clone();
+            let mut backing = RuntimeGraphicsTextureBacking {
+                address_allocation_id: ProcessAddressAllocationId(41),
+                memory_owner: MemoryOwnerId(23),
+                range: backing_range,
+                row_pitch: 4_096,
+            };
+            match failure {
+                2 => {
+                    rejected.textures.get_mut(&texture_id).unwrap().id =
+                        RuntimeGraphicsTextureId(99)
+                }
+                3 => backing.memory_owner = MemoryOwnerId(0),
+                4 => backing.address_allocation_id = ProcessAddressAllocationId(0),
+                5 => backing.row_pitch = 4,
+                6 => backing.range = GuestRange::new(backing_range.start(), 4_096).unwrap(),
+                _ => unreachable!(),
+            }
+            let before = rejected.clone();
+            assert!(
+                rejected
+                    .lock_texture(
+                        RuntimeComObjectId(8),
+                        0,
+                        rect,
+                        RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+                        Some(backing)
+                    )
+                    .is_err()
+            );
+            assert_eq!(rejected, before);
+        }
+        let lock = graphics
+            .lock_texture(
+                RuntimeComObjectId(8),
+                0,
+                rect,
+                RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+                Some(RuntimeGraphicsTextureBacking {
                     address_allocation_id: ProcessAddressAllocationId(41),
+                    memory_owner: MemoryOwnerId(23),
                     range: backing_range,
                     row_pitch: 4_096,
                 }),
             )
+            .unwrap()
             .unwrap();
-        let stale_lock = plan.clone();
-        graphics
-            .preflight_texture_lock(&plan, Some(MemoryOwnerId(23)))
-            .unwrap();
-        let lock = graphics.commit_texture_lock(plan, Some(MemoryOwnerId(23)));
         assert_eq!(lock.pitch, 4_096);
         assert_eq!(lock.guest_address, backing_range.start());
-        let locked = graphics.texture(texture.id).unwrap();
+        let locked = graphics.texture(texture_id).unwrap();
         assert_eq!(locked.active_lock, Some(lock));
         assert_eq!(
             locked.backing,
@@ -7793,94 +4260,91 @@ mod tests {
                 row_pitch: 4_096,
             })
         );
-        assert_eq!(
+        assert!(
             graphics
-                .preflight_texture_lock(&stale_lock, Some(MemoryOwnerId(23)))
-                .unwrap_err()
-                .code,
-            "graphics-texture-lock-plan-stale"
+                .lock_texture(
+                    RuntimeComObjectId(8),
+                    0,
+                    rect,
+                    RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+                    None
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            !graphics
+                .mark_texture_dirty_region(RuntimeComObjectId(8), Some(rect))
+                .unwrap()
         );
 
-        for error in [
-            graphics.plan_texture_lock(request, None).unwrap_err().code,
-            graphics
-                .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                    texture_com_object_id: RuntimeComObjectId(8),
-                    rect: Some(request.rect),
-                })
-                .unwrap_err()
-                .code,
-        ] {
-            assert!(matches!(
-                error,
-                "graphics-texture-already-locked" | "graphics-texture-dirty-region-while-locked"
-            ));
+        let before_unlock = graphics.clone();
+        for failure in [2, 3, 4] {
+            let mut rejected = before_unlock.clone();
+            match failure {
+                2 => {
+                    rejected
+                        .textures
+                        .get_mut(&texture_id)
+                        .unwrap()
+                        .content
+                        .content_generation = u64::MAX
+                }
+                3 => rejected.textures.get_mut(&texture_id).unwrap().id.0 += 1,
+                4 => rejected.textures.get_mut(&texture_id).unwrap().backing = None,
+                _ => unreachable!(),
+            }
+            let before = rejected.clone();
+            assert!(rejected.unlock_texture(RuntimeComObjectId(8)).is_err());
+            assert_eq!(rejected, before);
         }
-
-        let unlock_plan = graphics.plan_texture_unlock(RuntimeComObjectId(8)).unwrap();
-        let stale_unlock = unlock_plan.clone();
-        graphics.preflight_texture_unlock(&unlock_plan).unwrap();
-        let unlock = graphics.commit_texture_unlock(unlock_plan);
-        assert_eq!(unlock.texture_id, texture.id);
-        assert_eq!(unlock.content_generation, 1);
-        assert!(unlock.changed);
+        graphics.unlock_texture(RuntimeComObjectId(8)).unwrap();
+        let unlocked = graphics.texture(texture_id).unwrap();
+        assert_eq!(unlocked.content.content_generation, 1);
         assert_eq!(
-            unlock.pixel_source,
+            unlocked.content.pixel_source,
             Some(RuntimeGraphicsTexturePixelSource {
-                source_texture_id: texture.id,
+                source_texture_id: texture_id,
                 source_content_generation: 1,
                 range: backing_range,
                 row_pitch: 4_096,
             })
         );
-        let unlocked = graphics.texture(texture.id).unwrap();
         assert!(unlocked.active_lock.is_none());
-        assert_eq!(unlocked.content.pixel_source, unlock.pixel_source);
         assert_eq!(
             unlocked.dirty_region,
             RuntimeGraphicsTextureDirtyRegion::WholeTexture,
             "D3DLOCK_NO_DIRTY_UPDATE must not mutate dirty-region authority"
         );
         let unlocked_backing = unlocked.backing.unwrap();
-        assert_eq!(
-            graphics
-                .preflight_texture_unlock(&stale_unlock)
-                .unwrap_err()
-                .code,
-            "graphics-texture-unlock-plan-stale"
-        );
         let before_repeated_unlock = graphics.clone();
-        let repeated_unlock = graphics.plan_texture_unlock(RuntimeComObjectId(8)).unwrap();
-        graphics.preflight_texture_unlock(&repeated_unlock).unwrap();
-        let repeated_unlock = graphics.commit_texture_unlock(repeated_unlock);
-        assert!(!repeated_unlock.changed);
-        assert_eq!(repeated_unlock.pixel_source, unlock.pixel_source);
+        assert!(!graphics.unlock_texture(RuntimeComObjectId(8)).unwrap());
         assert_eq!(graphics, before_repeated_unlock);
 
-        for unsupported in [
-            RuntimeGraphicsTextureLockRequest {
-                level: 1,
-                ..request
-            },
-            RuntimeGraphicsTextureLockRequest {
-                flags: 0,
-                ..request
-            },
-            RuntimeGraphicsTextureLockRequest {
-                rect: RuntimeRect {
+        for (level, flags, lock_rect) in [
+            (1, RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE, rect),
+            (0, 0x1000, rect), // NOOVERWRITE is not a texture lock flag.
+            (
+                0,
+                RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+                RuntimeRect {
                     right: 1_025,
-                    ..request.rect
+                    ..rect
                 },
-                ..request
-            },
+            ),
         ] {
             let before = graphics.clone();
-            assert!(graphics.plan_texture_lock(unsupported, None).is_err());
+            assert!(
+                graphics
+                    .lock_texture(RuntimeComObjectId(8), level, lock_rect, flags, None)
+                    .unwrap()
+                    .is_none()
+            );
             assert_eq!(graphics, before);
         }
 
         let retirement = graphics
-            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .validate_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -7889,90 +4353,73 @@ mod tests {
                 .unwrap(),
             vec![(unlocked_backing, 0x40_0000)]
         );
-        graphics.commit_com_object_retirement(retirement);
+        graphics.remove_validated_com_objects(retirement);
         assert!(graphics.textures().is_empty());
     }
 
     #[test]
     fn texture_dirty_regions_are_bounded_coalesced_and_failure_atomic() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
-        let texture_plan = graphics
-            .plan_texture_creation(texture_request(RuntimeComObjectId(7)))
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
             .unwrap();
-        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
+        graphics.insert_device(device_plan, RuntimeComObjectId(7));
+        let texture_plan = graphics
+            .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
+            .unwrap();
+        let texture_id = graphics.insert_texture(texture_plan, RuntimeComObjectId(8));
 
         let before_initial_mark = graphics.clone();
-        let initial_mark = graphics
-            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                texture_com_object_id: RuntimeComObjectId(8),
-                rect: Some(RuntimeRect {
+        graphics
+            .mark_texture_dirty_region(
+                RuntimeComObjectId(8),
+                Some(RuntimeRect {
                     left: 0,
                     top: 0,
                     right: 800,
                     bottom: 600,
                 }),
-            })
+            )
             .unwrap();
-        let result = graphics.commit_texture_dirty_region_mark(initial_mark);
-        assert!(!result.changed);
-        assert_eq!(
-            result.dirty_region,
-            RuntimeGraphicsTextureDirtyRegion::WholeTexture
-        );
         assert_eq!(graphics, before_initial_mark);
 
-        graphics.textures.get_mut(&texture.id).unwrap().dirty_region =
+        graphics.textures.get_mut(&texture_id).unwrap().dirty_region =
             RuntimeGraphicsTextureDirtyRegion::Clean;
-        let first = graphics
-            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                texture_com_object_id: RuntimeComObjectId(8),
-                rect: Some(RuntimeRect {
+        graphics
+            .mark_texture_dirty_region(
+                RuntimeComObjectId(8),
+                Some(RuntimeRect {
                     left: 1,
                     top: 2,
                     right: 17,
                     bottom: 19,
                 }),
-            })
+            )
             .unwrap();
-        let stale = first.clone();
-        graphics
-            .preflight_texture_dirty_region_mark(&first)
-            .unwrap();
-        let first = graphics.commit_texture_dirty_region_mark(first);
-        assert!(first.changed);
         assert_eq!(
-            first.dirty_region,
+            graphics.texture(texture_id).unwrap().dirty_region,
             RuntimeGraphicsTextureDirtyRegion::Rect(RuntimeRect {
                 left: 1,
                 top: 2,
                 right: 17,
-                bottom: 19,
+                bottom: 19
             })
         );
-        assert_eq!(
-            graphics
-                .preflight_texture_dirty_region_mark(&stale)
-                .unwrap_err()
-                .code,
-            "graphics-texture-dirty-region-plan-stale"
-        );
 
-        let second = graphics
-            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                texture_com_object_id: RuntimeComObjectId(8),
-                rect: Some(RuntimeRect {
+        graphics
+            .mark_texture_dirty_region(
+                RuntimeComObjectId(8),
+                Some(RuntimeRect {
                     left: 8,
                     top: 10,
                     right: 32,
                     bottom: 40,
                 }),
-            })
+            )
             .unwrap();
-        let second = graphics.commit_texture_dirty_region_mark(second);
         assert_eq!(
-            second.dirty_region,
+            graphics.texture(texture_id).unwrap().dirty_region,
             RuntimeGraphicsTextureDirtyRegion::Rect(RuntimeRect {
                 left: 1,
                 top: 2,
@@ -8002,265 +4449,289 @@ mod tests {
             },
         ] {
             let before = graphics.clone();
-            assert_eq!(
-                graphics
-                    .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                        texture_com_object_id: RuntimeComObjectId(8),
-                        rect: Some(rect),
-                    },)
-                    .unwrap_err()
-                    .code,
-                "graphics-texture-dirty-rect-out-of-bounds"
+            assert!(
+                !graphics
+                    .mark_texture_dirty_region(RuntimeComObjectId(8), Some(rect))
+                    .unwrap()
             );
             assert_eq!(graphics, before);
         }
 
-        let whole = graphics
-            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                texture_com_object_id: RuntimeComObjectId(8),
-                rect: None,
-            })
+        graphics
+            .mark_texture_dirty_region(RuntimeComObjectId(8), None)
             .unwrap();
-        let whole = graphics.commit_texture_dirty_region_mark(whole);
-        assert!(whole.changed);
         assert_eq!(
-            whole.dirty_region,
+            graphics.texture(texture_id).unwrap().dirty_region,
             RuntimeGraphicsTextureDirtyRegion::WholeTexture
         );
-
-        graphics.textures.get_mut(&texture.id).unwrap().dirty_region =
-            RuntimeGraphicsTextureDirtyRegion::Clean;
-        graphics.generation = u64::MAX;
-        let exhausted = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                    texture_com_object_id: RuntimeComObjectId(8),
-                    rect: Some(RuntimeRect {
-                        left: 0,
-                        top: 0,
-                        right: 1,
-                        bottom: 1,
-                    }),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-generation-exhausted"
-        );
-        assert_eq!(graphics, exhausted);
     }
 
     #[test]
     fn vertex_buffer_lock_unlock_and_retirement_preserve_backing_identity() {
         let mut graphics = RuntimeGraphics::default();
-        let device_plan = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let device_plan = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
         let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x1000).unwrap();
+        let descriptor = RuntimeGraphicsVertexBufferDescriptor {
+            byte_length: 112,
+            usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
+            flexible_vertex_format: 0x144,
+            pool: RuntimeGraphicsVertexBufferPool::Managed,
+        };
+        for failure in [1, 2, 3, 4, 5, 6] {
+            let mut rejected = graphics.clone();
+            let mut allocation = ProcessAddressAllocationId(41);
+            let mut range = backing_range;
+            match failure {
+                1 => rejected.next_vertex_buffer_id = u64::MAX,
+                2 => rejected.next_vertex_buffer_id = 0,
+                3 => rejected.devices.get_mut(&device_id).unwrap().id = RuntimeGraphicsDeviceId(99),
+                4 => {
+                    rejected.device_vertex_buffer_index.remove(&device_id);
+                }
+                5 => allocation = ProcessAddressAllocationId(0),
+                6 => range = GuestRange::new(backing_range.start(), 4).unwrap(),
+                _ => unreachable!(),
+            }
+            let before = rejected.clone();
+            assert!(
+                rejected
+                    .validate_vertex_buffer_creation(
+                        RuntimeComObjectId(7),
+                        descriptor,
+                        allocation,
+                        range
+                    )
+                    .is_err()
+            );
+            assert_eq!(rejected, before);
+        }
         let creation = graphics
-            .plan_vertex_buffer_creation(
-                RuntimeGraphicsVertexBufferCreateRequest {
-                    device_com_object_id: RuntimeComObjectId(7),
-                    descriptor: RuntimeGraphicsVertexBufferDescriptor {
-                        byte_length: 112,
-                        usage: RuntimeGraphicsVertexBufferUsage::WriteOnly,
-                        flexible_vertex_format: 0x144,
-                        pool: RuntimeGraphicsVertexBufferPool::Managed,
-                    },
-                },
+            .validate_vertex_buffer_creation(
+                RuntimeComObjectId(7),
+                descriptor,
                 ProcessAddressAllocationId(41),
                 backing_range,
             )
             .unwrap();
-        let stale_creation = creation.clone();
-        graphics
-            .preflight_vertex_buffer_creation(&creation)
-            .unwrap();
-        let vertex_buffer = graphics.commit_vertex_buffer_creation(
+        let vertex_buffer_id = graphics.insert_vertex_buffer(
             creation,
             RuntimeComObjectId(8),
             MemoryOwnerId(23),
+            ProcessAddressAllocationId(41),
+            backing_range,
         );
-        assert_eq!(vertex_buffer.device_id, device.id);
-        assert_eq!(vertex_buffer.backing.address_allocation_id.0, 41);
-        assert_eq!(vertex_buffer.backing.memory_owner.0, 23);
-        assert_eq!(vertex_buffer.backing.range, backing_range);
         assert_eq!(
-            graphics
-                .preflight_vertex_buffer_creation(&stale_creation)
-                .unwrap_err()
-                .code,
-            "graphics-vertex-buffer-creation-plan-stale"
+            graphics.vertex_buffers[&vertex_buffer_id].device_id,
+            device_id
         );
-
-        let lock_plan = graphics
-            .plan_vertex_buffer_lock(RuntimeGraphicsVertexBufferLockRequest {
-                vertex_buffer_com_object_id: RuntimeComObjectId(8),
-                offset: 0,
-                byte_length: 0,
-                flags: 0,
-            })
+        assert_eq!(
+            graphics.vertex_buffers[&vertex_buffer_id]
+                .backing
+                .address_allocation_id
+                .0,
+            41
+        );
+        assert_eq!(
+            graphics.vertex_buffers[&vertex_buffer_id]
+                .backing
+                .memory_owner
+                .0,
+            23
+        );
+        assert_eq!(
+            graphics.vertex_buffers[&vertex_buffer_id].backing.range,
+            backing_range
+        );
+        let before_unsupported = graphics.clone();
+        assert!(
+            graphics
+                .lock_vertex_buffer(RuntimeComObjectId(8), 1, 0, 0)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(graphics, before_unsupported);
+        {
+            let failure = 1;
+            let mut rejected = graphics.clone();
+            match failure {
+                1 => {
+                    rejected
+                        .vertex_buffers
+                        .get_mut(&vertex_buffer_id)
+                        .unwrap()
+                        .id
+                        .0 += 1
+                }
+                _ => unreachable!(),
+            }
+            let before = rejected.clone();
+            assert!(
+                rejected
+                    .lock_vertex_buffer(RuntimeComObjectId(8), 0, 0, 0)
+                    .is_err()
+            );
+            assert_eq!(rejected, before);
+        }
+        let lock = graphics
+            .lock_vertex_buffer(RuntimeComObjectId(8), 0, 0, 0)
+            .unwrap()
             .unwrap();
-        let stale_lock = lock_plan.clone();
-        let lock = graphics.commit_vertex_buffer_lock(lock_plan);
-        assert_eq!(lock.guest_address, backing_range.start());
-        assert_eq!(lock.byte_length, 112);
-        assert_eq!(
+        assert_eq!(lock, backing_range.start());
+        assert!(graphics.vertex_buffer(vertex_buffer_id).unwrap().locked);
+        let before_relock = graphics.clone();
+        assert!(
             graphics
-                .preflight_vertex_buffer_lock(&stale_lock)
-                .unwrap_err()
-                .code,
-            "graphics-vertex-buffer-lock-plan-stale"
+                .lock_vertex_buffer(RuntimeComObjectId(8), 0, 0, 0)
+                .unwrap()
+                .is_none()
         );
-        assert_eq!(
-            graphics
-                .plan_vertex_buffer_lock(RuntimeGraphicsVertexBufferLockRequest {
-                    vertex_buffer_com_object_id: RuntimeComObjectId(8),
-                    offset: 0,
-                    byte_length: 0,
-                    flags: 0,
-                })
-                .unwrap_err()
-                .code,
-            "graphics-vertex-buffer-already-locked"
-        );
+        assert_eq!(graphics, before_relock);
 
-        let unlock_plan = graphics
-            .plan_vertex_buffer_unlock(RuntimeComObjectId(8))
-            .unwrap();
-        let stale_unlock = unlock_plan.clone();
-        let unlock = graphics.commit_vertex_buffer_unlock(unlock_plan);
-        assert_eq!(unlock.vertex_buffer_id, vertex_buffer.id);
-        assert_eq!(unlock.content_generation, 1);
-        assert_eq!(
+        let before_unlock = graphics.clone();
+        {
+            let failure = 1;
+            let mut rejected = before_unlock.clone();
+            match failure {
+                1 => {
+                    rejected
+                        .vertex_buffers
+                        .get_mut(&vertex_buffer_id)
+                        .unwrap()
+                        .id
+                        .0 += 1
+                }
+                _ => unreachable!(),
+            }
+            let before = rejected.clone();
+            assert!(
+                rejected
+                    .unlock_vertex_buffer(RuntimeComObjectId(8))
+                    .is_err()
+            );
+            assert_eq!(rejected, before);
+        }
+        assert!(
             graphics
-                .preflight_vertex_buffer_unlock(&stale_unlock)
-                .unwrap_err()
-                .code,
-            "graphics-vertex-buffer-unlock-plan-stale"
+                .unlock_vertex_buffer(RuntimeComObjectId(8))
+                .unwrap()
         );
-        assert_eq!(
-            graphics
-                .plan_vertex_buffer_unlock(RuntimeComObjectId(8))
-                .unwrap_err()
-                .code,
-            "graphics-vertex-buffer-not-locked"
+        let unlocked = graphics.vertex_buffer(vertex_buffer_id).unwrap();
+        assert!(!unlocked.locked);
+        assert!(unlocked.initialized);
+        let before_repeat = graphics.clone();
+        assert!(
+            !graphics
+                .unlock_vertex_buffer(RuntimeComObjectId(8))
+                .unwrap()
         );
+        assert_eq!(graphics, before_repeat);
 
         let retirement = graphics
-            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .validate_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
             .unwrap()
             .unwrap();
         assert_eq!(
             graphics
                 .vertex_buffer_backings_for_retirement(&retirement)
                 .unwrap(),
-            vec![(vertex_buffer.backing, 112)]
+            vec![(graphics.vertex_buffers[&vertex_buffer_id].backing, 112)]
         );
-        graphics.commit_com_object_retirement(retirement);
+        graphics.remove_validated_com_objects(retirement);
         assert!(graphics.vertex_buffers().is_empty());
-        assert_eq!(graphics.device(device.id).unwrap().id, device.id);
+        assert_eq!(graphics.device(device_id).unwrap().id, device_id);
     }
 
     #[test]
-    fn process_teardown_is_planned_and_rejects_stale_state() {
-        let mut graphics = RuntimeGraphics::default();
-        let first = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(first, RuntimeComObjectId(11));
-        let teardown = graphics.plan_process_teardown().unwrap().unwrap();
-        let stale = teardown.clone();
-        let second = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(second, RuntimeComObjectId(12));
-        assert_eq!(
-            graphics
-                .preflight_process_teardown(&stale)
-                .unwrap_err()
-                .code,
-            "graphics-teardown-plan-stale"
-        );
-        let teardown = graphics.plan_process_teardown().unwrap().unwrap();
-        graphics.preflight_process_teardown(&teardown).unwrap();
-        graphics.commit_process_teardown(teardown);
-        assert!(graphics.is_empty());
-    }
-
-    #[test]
-    fn device_capacity_failure_preserves_allocator_and_generation() {
+    fn device_capacity_failure_preserves_allocator() {
         let mut graphics = RuntimeGraphics::default();
         for index in 0..RUNTIME_GRAPHICS_DEVICE_LIMIT {
-            let plan = graphics.plan_device_creation(request()).unwrap();
-            graphics.commit_device_creation(plan, RuntimeComObjectId(index as u64 + 1));
+            let plan = graphics
+                .validate_device_creation(request())
+                .unwrap()
+                .unwrap();
+            graphics.insert_device(plan, RuntimeComObjectId(index as u64 + 1));
         }
         let before = graphics.clone();
-        let error = graphics.plan_device_creation(request()).unwrap_err();
-        assert_eq!(error.code, "graphics-device-capacity-reached");
+        graphics.validate_device_creation(request()).unwrap_err();
         assert_eq!(graphics, before);
     }
 
     #[test]
-    fn texture_capacity_failure_preserves_allocator_relations_and_generation() {
+    fn texture_capacity_failure_preserves_allocator_relations() {
         let mut graphics = RuntimeGraphics::default();
-        let device = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(device, RuntimeComObjectId(1));
+        let device = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        graphics.insert_device(device, RuntimeComObjectId(1));
         for index in 0..RUNTIME_GRAPHICS_TEXTURE_LIMIT {
             let plan = graphics
-                .plan_texture_creation(texture_request(RuntimeComObjectId(1)))
+                .validate_texture_creation(RuntimeComObjectId(1), texture_descriptor())
                 .unwrap();
-            graphics.commit_texture_creation(plan, RuntimeComObjectId(index as u64 + 2));
+            graphics.insert_texture(plan, RuntimeComObjectId(index as u64 + 2));
         }
         let before = graphics.clone();
-        let error = graphics
-            .plan_texture_creation(texture_request(RuntimeComObjectId(1)))
+        graphics
+            .validate_texture_creation(RuntimeComObjectId(1), texture_descriptor())
             .unwrap_err();
-        assert_eq!(error.code, "graphics-texture-capacity-reached");
         assert_eq!(graphics, before);
     }
 
     #[test]
     fn surface_capacity_and_duplicate_level_failures_preserve_owner_state() {
         let mut graphics = RuntimeGraphics::default();
-        let device = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(device, RuntimeComObjectId(1));
-        let mut request = texture_request(RuntimeComObjectId(1));
-        request.descriptor.levels = RUNTIME_GRAPHICS_SURFACE_LIMIT as u32 + 1;
-        let texture = graphics.plan_texture_creation(request).unwrap();
-        graphics.commit_texture_creation(texture, RuntimeComObjectId(2));
+        let device = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        graphics.insert_device(device, RuntimeComObjectId(1));
+        let mut descriptor = texture_descriptor();
+        descriptor.levels = RUNTIME_GRAPHICS_SURFACE_LIMIT as u32 + 1;
+        let texture = graphics
+            .validate_texture_creation(RuntimeComObjectId(1), descriptor)
+            .unwrap();
+        graphics.insert_texture(texture, RuntimeComObjectId(2));
         for index in 0..RUNTIME_GRAPHICS_SURFACE_LIMIT {
             let surface = graphics
-                .plan_surface_creation(surface_request(RuntimeComObjectId(2), index as u32))
+                .validate_surface_creation(RuntimeComObjectId(2), index as u32)
+                .unwrap()
                 .unwrap();
-            graphics.commit_surface_creation(surface, RuntimeComObjectId(index as u64 + 3));
+            graphics.insert_surface(surface, RuntimeComObjectId(index as u64 + 3));
         }
         let duplicate_before = graphics.clone();
-        let duplicate = graphics
-            .plan_surface_creation(surface_request(RuntimeComObjectId(2), 0))
+        let _duplicate = graphics
+            .validate_surface_creation(RuntimeComObjectId(2), 0)
             .unwrap_err();
-        assert_eq!(duplicate.code, "graphics-surface-level-already-published");
         assert_eq!(graphics, duplicate_before);
 
         let before = graphics.clone();
-        let error = graphics
-            .plan_surface_creation(surface_request(
-                RuntimeComObjectId(2),
-                RUNTIME_GRAPHICS_SURFACE_LIMIT as u32,
-            ))
+        graphics
+            .validate_surface_creation(RuntimeComObjectId(2), RUNTIME_GRAPHICS_SURFACE_LIMIT as u32)
             .unwrap_err();
-        assert_eq!(error.code, "graphics-surface-capacity-reached");
         assert_eq!(graphics, before);
     }
 
     #[test]
-    fn surface_fill_mutates_texture_content_and_rejects_stale_or_invalid_plans() {
+    fn surface_fill_mutates_texture_content_and_rejects_invalid_input_atomically() {
         let mut graphics = RuntimeGraphics::default();
-        let device = graphics.plan_device_creation(request()).unwrap();
-        graphics.commit_device_creation(device, RuntimeComObjectId(1));
+        let device = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        graphics.insert_device(device, RuntimeComObjectId(1));
         let texture = graphics
-            .plan_texture_creation(texture_request(RuntimeComObjectId(1)))
+            .validate_texture_creation(RuntimeComObjectId(1), texture_descriptor())
             .unwrap();
-        graphics.commit_texture_creation(texture, RuntimeComObjectId(2));
+        graphics.insert_texture(texture, RuntimeComObjectId(2));
         let surface = graphics
-            .plan_surface_creation(surface_request(RuntimeComObjectId(2), 0))
+            .validate_surface_creation(RuntimeComObjectId(2), 0)
+            .unwrap()
             .unwrap();
-        let surface = graphics.commit_surface_creation(surface, RuntimeComObjectId(3));
+        let surface_id = graphics.insert_surface(surface, RuntimeComObjectId(3));
 
         let rect = RuntimeRect {
             left: 0,
@@ -8268,33 +4739,50 @@ mod tests {
             right: 800,
             bottom: 600,
         };
-        let plan = graphics
-            .plan_surface_fill(fill_request(RuntimeComObjectId(3), rect))
+        graphics
+            .fill_surface(RuntimeComObjectId(3), rect, 0x0022_3344)
             .unwrap();
-        let stale = plan.clone();
-        graphics.preflight_surface_fill(&plan).unwrap();
-        let result = graphics.commit_surface_fill(plan);
-        assert_eq!(result.surface_id, surface.id);
-        assert_eq!(result.texture_id, surface.texture_id);
-        assert_eq!(result.content_generation, 1);
+        let filled = graphics
+            .texture(graphics.surfaces[&surface_id].texture_id)
+            .unwrap();
+        assert_eq!(filled.content.fills.len(), 1);
+        assert_eq!(filled.content.fills[0].rect, rect);
+        assert_eq!(filled.content.fills[0].color_ref, 0x0022_3344);
+        assert_eq!(filled.content.content_generation, 1);
         assert_eq!(
-            result.dirty_region,
+            filled.dirty_region,
             RuntimeGraphicsTextureDirtyRegion::WholeTexture
         );
-        assert_eq!(result.fill.unwrap().rect, rect);
-        let filled = graphics.texture(surface.texture_id).unwrap();
-        assert_eq!(filled.content.fills.len(), 1);
-        assert_eq!(filled.content.fills[0].color_ref, 0);
-        assert_eq!(filled.content.content_generation, 1);
-        assert_eq!(graphics.surface(surface.id).unwrap(), &surface);
+        let stored = graphics.surface(surface_id).unwrap();
+        assert_eq!(stored.id, surface_id);
+        assert_eq!(stored.texture_id, surface.1);
+        assert_eq!(stored.descriptor, surface.2);
+        assert_eq!(stored.com_object_id, RuntimeComObjectId(3));
+
+        graphics
+            .fill_surface(RuntimeComObjectId(3), rect, 0x0055_6677)
+            .unwrap();
+        let filled = graphics
+            .texture(graphics.surfaces[&surface_id].texture_id)
+            .unwrap();
         assert_eq!(
-            graphics.preflight_surface_fill(&stale).unwrap_err().code,
-            "graphics-surface-fill-plan-stale"
+            filled.content.fills,
+            [
+                RuntimeGraphicsSurfaceFill {
+                    rect,
+                    color_ref: 0x0022_3344
+                },
+                RuntimeGraphicsSurfaceFill {
+                    rect,
+                    color_ref: 0x0055_6677
+                },
+            ]
         );
+        assert_eq!(filled.content.content_generation, 2);
 
         let before_empty = graphics.clone();
-        let empty = graphics
-            .plan_surface_fill(fill_request(
+        graphics
+            .fill_surface(
                 RuntimeComObjectId(3),
                 RuntimeRect {
                     left: 1,
@@ -8302,92 +4790,171 @@ mod tests {
                     right: 1,
                     bottom: 1,
                 },
-            ))
+                0,
+            )
             .unwrap();
-        let result = graphics.commit_surface_fill(empty);
-        assert!(result.fill.is_none());
         assert_eq!(graphics, before_empty);
 
         let before_invalid = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_surface_fill(fill_request(
-                    RuntimeComObjectId(3),
-                    RuntimeRect {
-                        left: 0,
-                        top: 0,
-                        right: 1_025,
-                        bottom: 1,
-                    },
-                ))
-                .unwrap_err()
-                .code,
-            "graphics-surface-fill-rect-out-of-bounds"
-        );
+        graphics
+            .fill_surface(
+                RuntimeComObjectId(3),
+                RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 1_025,
+                    bottom: 1,
+                },
+                0,
+            )
+            .unwrap_err();
         assert_eq!(graphics, before_invalid);
+        let before_color = graphics.clone();
+        graphics
+            .fill_surface(RuntimeComObjectId(3), rect, 0x0100_0000)
+            .unwrap_err();
+        assert_eq!(graphics, before_color);
+
+        let mut exhausted = graphics.clone();
+        exhausted
+            .textures
+            .values_mut()
+            .next()
+            .unwrap()
+            .content
+            .content_generation = u64::MAX;
+        let before_exhaustion = exhausted.clone();
+        assert!(
+            exhausted
+                .fill_surface(RuntimeComObjectId(3), rect, 0)
+                .is_err()
+        );
+        assert_eq!(exhausted, before_exhaustion);
     }
 
     #[test]
     fn texture_update_consumes_whole_dirty_content_after_surface_retirement_atomically() {
         let mut graphics = RuntimeGraphics::default();
-        let device = graphics.plan_device_creation(request()).unwrap();
-        let device = graphics.commit_device_creation(device, RuntimeComObjectId(1));
+        let device = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        let device_id = graphics.insert_device(device, RuntimeComObjectId(1));
         let source = graphics
-            .plan_texture_creation(texture_request(RuntimeComObjectId(1)))
+            .validate_texture_creation(RuntimeComObjectId(1), texture_descriptor())
             .unwrap();
-        let source = graphics.commit_texture_creation(source, RuntimeComObjectId(2));
+        let source_id = graphics.insert_texture(source, RuntimeComObjectId(2));
         let surface = graphics
-            .plan_surface_creation(surface_request(RuntimeComObjectId(2), 0))
+            .validate_surface_creation(RuntimeComObjectId(2), 0)
+            .unwrap()
             .unwrap();
-        let surface = graphics.commit_surface_creation(surface, RuntimeComObjectId(3));
+        let surface_id = graphics.insert_surface(surface, RuntimeComObjectId(3));
         let rect = RuntimeRect {
             left: 0,
             top: 0,
             right: 800,
             bottom: 600,
         };
-        let fill = graphics
-            .plan_surface_fill(fill_request(RuntimeComObjectId(3), rect))
+        graphics
+            .fill_surface(RuntimeComObjectId(3), rect, 0)
             .unwrap();
-        graphics.commit_surface_fill(fill);
 
-        let mut destination_request = texture_request(RuntimeComObjectId(1));
-        destination_request.descriptor.pool = RuntimeGraphicsTexturePool::Default;
-        let destination = graphics.plan_texture_creation(destination_request).unwrap();
-        let destination = graphics.commit_texture_creation(destination, RuntimeComObjectId(4));
+        let mut destination_descriptor = texture_descriptor();
+        destination_descriptor.pool = RuntimeGraphicsTexturePool::Default;
+        let destination = graphics
+            .validate_texture_creation(RuntimeComObjectId(1), destination_descriptor)
+            .unwrap();
+        let destination_id = graphics.insert_texture(destination, RuntimeComObjectId(4));
 
         let surface_retirement = graphics
-            .plan_com_object_retirements(&[RuntimeComObjectId(3)].into_iter().collect())
+            .validate_com_object_retirements(&[RuntimeComObjectId(3)].into_iter().collect())
             .unwrap()
             .unwrap();
-        graphics.commit_com_object_retirement(surface_retirement);
+        graphics.remove_validated_com_objects(surface_retirement);
         assert!(graphics.surfaces().is_empty());
         assert_eq!(
-            graphics.texture(source.id).unwrap().content.fills[0].rect,
+            graphics.texture(source_id).unwrap().content.fills[0].rect,
             rect
         );
 
-        let request = RuntimeGraphicsTextureUpdateRequest {
-            device_com_object_id: RuntimeComObjectId(1),
-            source_texture_com_object_id: RuntimeComObjectId(2),
-            destination_texture_com_object_id: RuntimeComObjectId(4),
-        };
-        let plan = graphics.plan_texture_update(request).unwrap();
-        let stale = plan.clone();
-        graphics.preflight_texture_update(&plan).unwrap();
-        let result = graphics.commit_texture_update(plan);
-        assert_eq!(result.source_texture_id, source.id);
-        assert_eq!(result.destination_texture_id, destination.id);
-        assert!(result.transferred);
-        assert_eq!(result.destination_content_generation, 1);
-        assert_eq!(result.update.unwrap().sequence, 1);
-        let committed_source = graphics.texture(source.id).unwrap();
+        let (device_com_object_id, source_texture_com_object_id, destination_texture_com_object_id) = (
+            RuntimeComObjectId(1),
+            RuntimeComObjectId(2),
+            RuntimeComObjectId(4),
+        );
+        for (device, source, destination) in [
+            (
+                RuntimeComObjectId(0),
+                source_texture_com_object_id,
+                destination_texture_com_object_id,
+            ),
+            (
+                device_com_object_id,
+                RuntimeComObjectId(0),
+                destination_texture_com_object_id,
+            ),
+            (
+                device_com_object_id,
+                source_texture_com_object_id,
+                RuntimeComObjectId(99),
+            ),
+        ] {
+            let before = graphics.clone();
+            graphics
+                .update_texture(device, source, destination)
+                .unwrap_err();
+            assert_eq!(graphics, before);
+        }
+        let before_same_texture = graphics.clone();
+        assert!(
+            !graphics
+                .update_texture(
+                    device_com_object_id,
+                    source_texture_com_object_id,
+                    source_texture_com_object_id
+                )
+                .unwrap()
+        );
+        assert_eq!(graphics, before_same_texture);
+        {
+            let mut exhausted = graphics.clone();
+
+            exhausted
+                .textures
+                .get_mut(&destination_id)
+                .unwrap()
+                .content
+                .content_generation = u64::MAX;
+
+            let before = exhausted.clone();
+            assert!(
+                exhausted
+                    .update_texture(
+                        device_com_object_id,
+                        source_texture_com_object_id,
+                        destination_texture_com_object_id
+                    )
+                    .is_err()
+            );
+            assert_eq!(
+                exhausted, before,
+                "content-generation exhaustion changed either texture"
+            );
+        }
+        graphics
+            .update_texture(
+                device_com_object_id,
+                source_texture_com_object_id,
+                destination_texture_com_object_id,
+            )
+            .unwrap();
+        let committed_source = graphics.texture(source_id).unwrap();
         assert_eq!(
             committed_source.dirty_region,
             RuntimeGraphicsTextureDirtyRegion::Clean
         );
         assert_eq!(committed_source.content.fills.len(), 1);
-        let committed_destination = graphics.texture(destination.id).unwrap();
+        let committed_destination = graphics.texture(destination_id).unwrap();
         assert_eq!(
             committed_destination.content.fills,
             committed_source.content.fills
@@ -8396,68 +4963,56 @@ mod tests {
         assert_eq!(
             committed_destination.content.last_update,
             Some(RuntimeGraphicsTextureUpdate {
-                sequence: 1,
-                source_texture_id: source.id,
+                source_texture_id: source_id,
                 source_content_generation: 1,
-                dirty_region: RuntimeGraphicsTextureDirtyRegion::WholeTexture,
             })
         );
-        assert_eq!(
-            graphics.preflight_texture_update(&stale).unwrap_err().code,
-            "graphics-texture-update-plan-stale"
-        );
-
         let before_repeat = graphics.clone();
-        let repeat = graphics.plan_texture_update(request).unwrap();
-        let repeat = graphics.commit_texture_update(repeat);
-        assert!(!repeat.transferred);
-        assert!(repeat.update.is_none());
+        graphics
+            .update_texture(
+                device_com_object_id,
+                source_texture_com_object_id,
+                destination_texture_com_object_id,
+            )
+            .unwrap();
         assert_eq!(graphics, before_repeat);
 
         let before_reversed = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_texture_update(RuntimeGraphicsTextureUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(1),
-                    source_texture_com_object_id: RuntimeComObjectId(4),
-                    destination_texture_com_object_id: RuntimeComObjectId(2),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-texture-update-pair-invalid"
+        assert!(
+            !graphics
+                .update_texture(
+                    RuntimeComObjectId(1),
+                    RuntimeComObjectId(4),
+                    RuntimeComObjectId(2),
+                )
+                .unwrap()
         );
         assert_eq!(graphics, before_reversed);
 
         let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x40_0000)
             .expect("one 1024x1024 B8G8R8X8 texture backing");
-        let lock_request = RuntimeGraphicsTextureLockRequest {
-            texture_com_object_id: RuntimeComObjectId(2),
-            level: 0,
-            rect: RuntimeRect {
-                left: 0,
-                top: 0,
-                right: 800,
-                bottom: 600,
-            },
-            flags: RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+        let rect = RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 600,
         };
-        let lock = graphics
-            .plan_texture_lock(
-                lock_request,
-                Some(RuntimeGraphicsTextureBackingPlan {
+        let _lock = graphics
+            .lock_texture(
+                RuntimeComObjectId(2),
+                0,
+                rect,
+                RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+                Some(RuntimeGraphicsTextureBacking {
                     address_allocation_id: ProcessAddressAllocationId(41),
+                    memory_owner: MemoryOwnerId(23),
                     range: backing_range,
                     row_pitch: 4_096,
                 }),
             )
+            .unwrap()
             .unwrap();
-        graphics
-            .preflight_texture_lock(&lock, Some(MemoryOwnerId(23)))
-            .unwrap();
-        graphics.commit_texture_lock(lock, Some(MemoryOwnerId(23)));
-        let unlock = graphics.plan_texture_unlock(RuntimeComObjectId(2)).unwrap();
-        graphics.preflight_texture_unlock(&unlock).unwrap();
-        graphics.commit_texture_unlock(unlock);
+        graphics.unlock_texture(RuntimeComObjectId(2)).unwrap();
 
         let partial_rect = RuntimeRect {
             left: 1,
@@ -8465,24 +5020,18 @@ mod tests {
             right: 17,
             bottom: 19,
         };
-        let mark = graphics
-            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                texture_com_object_id: RuntimeComObjectId(2),
-                rect: Some(partial_rect),
-            })
+        graphics
+            .mark_texture_dirty_region(RuntimeComObjectId(2), Some(partial_rect))
             .unwrap();
-        graphics.commit_texture_dirty_region_mark(mark);
-        let partial = graphics.plan_texture_update(request).unwrap();
-        let stale_partial = partial.clone();
-        graphics.preflight_texture_update(&partial).unwrap();
-        let partial = graphics.commit_texture_update(partial);
-        assert!(partial.transferred);
-        assert_eq!(
-            partial.update.unwrap().dirty_region,
-            RuntimeGraphicsTextureDirtyRegion::Rect(partial_rect)
-        );
-        let committed_source = graphics.texture(source.id).unwrap();
-        let committed_destination = graphics.texture(destination.id).unwrap();
+        graphics
+            .update_texture(
+                device_com_object_id,
+                source_texture_com_object_id,
+                destination_texture_com_object_id,
+            )
+            .unwrap();
+        let committed_source = graphics.texture(source_id).unwrap();
+        let committed_destination = graphics.texture(destination_id).unwrap();
         assert_eq!(
             committed_source.dirty_region,
             RuntimeGraphicsTextureDirtyRegion::Clean
@@ -8504,44 +5053,39 @@ mod tests {
         // Multiple guest writes may therefore advance the source generation
         // before AddDirtyRect describes the accumulated transfer region.
         for _ in 0..2 {
-            let relock = graphics.plan_texture_lock(lock_request, None).unwrap();
-            graphics.preflight_texture_lock(&relock, None).unwrap();
-            graphics.commit_texture_lock(relock, None);
-            let reunlock = graphics.plan_texture_unlock(RuntimeComObjectId(2)).unwrap();
-            graphics.preflight_texture_unlock(&reunlock).unwrap();
-            graphics.commit_texture_unlock(reunlock);
+            graphics
+                .lock_texture(
+                    RuntimeComObjectId(2),
+                    0,
+                    rect,
+                    RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+                    None,
+                )
+                .unwrap()
+                .unwrap();
+            graphics.unlock_texture(RuntimeComObjectId(2)).unwrap();
         }
         assert_eq!(
             graphics
-                .texture(source.id)
+                .texture(source_id)
                 .unwrap()
                 .content
                 .content_generation,
             4
         );
-        let mark = graphics
-            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                texture_com_object_id: RuntimeComObjectId(2),
-                rect: Some(partial_rect),
-            })
-            .unwrap();
-        graphics.commit_texture_dirty_region_mark(mark);
-        let multi_unlock_partial = graphics.plan_texture_update(request).unwrap();
         graphics
-            .preflight_texture_update(&multi_unlock_partial)
+            .mark_texture_dirty_region(RuntimeComObjectId(2), Some(partial_rect))
             .unwrap();
-        let multi_unlock_partial = graphics.commit_texture_update(multi_unlock_partial);
-        assert!(multi_unlock_partial.transferred);
-        assert_eq!(
-            multi_unlock_partial
-                .update
-                .unwrap()
-                .source_content_generation,
-            4
-        );
+        graphics
+            .update_texture(
+                device_com_object_id,
+                source_texture_com_object_id,
+                destination_texture_com_object_id,
+            )
+            .unwrap();
         assert_eq!(
             graphics
-                .texture(destination.id)
+                .texture(destination_id)
                 .unwrap()
                 .content
                 .last_update
@@ -8550,62 +5094,49 @@ mod tests {
             4
         );
         let before_source_only_retirement = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_com_object_retirements(&[RuntimeComObjectId(2)].into_iter().collect())
-                .unwrap_err()
-                .code,
-            "graphics-texture-retirement-has-live-pixel-source-dependent"
-        );
+        graphics
+            .validate_com_object_retirements(&[RuntimeComObjectId(2)].into_iter().collect())
+            .unwrap_err();
         assert_eq!(graphics, before_source_only_retirement);
-        let paired_retirement = graphics
-            .plan_com_object_retirements(
+        graphics
+            .validate_com_object_retirements(
                 &[RuntimeComObjectId(2), RuntimeComObjectId(4)]
                     .into_iter()
                     .collect(),
             )
             .unwrap()
             .unwrap();
+        let second_destination = graphics
+            .validate_texture_creation(RuntimeComObjectId(1), destination_descriptor)
+            .unwrap();
+        graphics.insert_texture(second_destination, RuntimeComObjectId(5));
         graphics
-            .preflight_com_object_retirement(&paired_retirement)
+            .lock_texture(
+                RuntimeComObjectId(2),
+                0,
+                rect,
+                RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+                None,
+            )
+            .unwrap()
             .unwrap();
-        assert_eq!(
-            graphics
-                .preflight_texture_update(&stale_partial)
-                .unwrap_err()
-                .code,
-            "graphics-texture-update-plan-stale"
-        );
-
-        let second_destination = graphics.plan_texture_creation(destination_request).unwrap();
-        graphics.commit_texture_creation(second_destination, RuntimeComObjectId(5));
-        let relock = graphics.plan_texture_lock(lock_request, None).unwrap();
-        graphics.preflight_texture_lock(&relock, None).unwrap();
-        graphics.commit_texture_lock(relock, None);
-        let reunlock = graphics.plan_texture_unlock(RuntimeComObjectId(2)).unwrap();
-        graphics.commit_texture_unlock(reunlock);
-        let mark = graphics
-            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
-                texture_com_object_id: RuntimeComObjectId(2),
-                rect: Some(partial_rect),
-            })
+        graphics.unlock_texture(RuntimeComObjectId(2)).unwrap();
+        graphics
+            .mark_texture_dirty_region(RuntimeComObjectId(2), Some(partial_rect))
             .unwrap();
-        graphics.commit_texture_dirty_region_mark(mark);
         let before_missing_lineage = graphics.clone();
-        assert_eq!(
-            graphics
-                .plan_texture_update(RuntimeGraphicsTextureUpdateRequest {
-                    device_com_object_id: RuntimeComObjectId(1),
-                    source_texture_com_object_id: RuntimeComObjectId(2),
-                    destination_texture_com_object_id: RuntimeComObjectId(5),
-                })
-                .unwrap_err()
-                .code,
-            "graphics-texture-update-partial-destination-lineage-missing"
+        assert!(
+            !graphics
+                .update_texture(
+                    RuntimeComObjectId(1),
+                    RuntimeComObjectId(2),
+                    RuntimeComObjectId(5),
+                )
+                .unwrap()
         );
         assert_eq!(graphics, before_missing_lineage);
-        assert_eq!(graphics.device(device.id).unwrap().id, device.id);
-        assert_eq!(graphics.next_texture_update_sequence, 4);
-        assert_eq!(surface.texture_id, source.id);
+        assert_eq!(graphics.device(device_id).unwrap().id, device_id);
+        assert!(!graphics.surfaces.contains_key(&surface_id));
+        assert!(graphics.textures.contains_key(&source_id));
     }
 }

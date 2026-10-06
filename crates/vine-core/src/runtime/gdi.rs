@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::{Serialize, Serializer, ser::SerializeStruct};
-
 use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
 
 use super::address_space::ProcessAddressAllocationId;
@@ -9,8 +7,6 @@ use super::com::RuntimeComObjectId;
 use super::graphics::{RuntimeGraphicsColorFormat, RuntimeGraphicsSurfaceId};
 use super::{RuntimeRect, RuntimeStateError, RuntimeThreadId, RuntimeWindowId};
 
-pub const LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE: &str = "vine.logical-gdi-dc.v1";
-pub const LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE: &str = "vine.logical-gdi-object.v1";
 pub const RUNTIME_DEVICE_CONTEXT_HANDLE_BASE: u32 = 0x4701_0001;
 pub const RUNTIME_GDI_OBJECT_HANDLE_BASE: u32 = 0x4702_0001;
 pub const RUNTIME_GDI_BLACK_BRUSH_INDEX: i32 = 4;
@@ -25,22 +21,17 @@ pub const RUNTIME_LOG_FONT_A_FACE_CAPACITY: usize = 32;
 pub const RUNTIME_GDI_BITMAP_BYTE_LENGTH: usize = 24;
 pub const RUNTIME_GDI_DIB_RGB_COLORS: u32 = 0;
 pub const RUNTIME_GDI_DIB_BI_RGB: u32 = 0;
-pub const RUNTIME_GDI_RESOURCE_ADDRESS_OWNER: &str = "runtime-gdi-resource";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeDeviceContextId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeGdiObjectId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeGdiSurfaceId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeGdiWindowTarget {
     pub window_id: RuntimeWindowId,
     pub window_handle: u32,
@@ -66,12 +57,7 @@ pub(super) struct RuntimeGdiGraphicsSurfaceTarget {
     pub color_format: RuntimeGraphicsColorFormat,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "kebab-case",
-    rename_all_fields = "camelCase"
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeDeviceContextTarget {
     Window {
         window_id: RuntimeWindowId,
@@ -99,7 +85,6 @@ pub enum RuntimeDeviceContextTarget {
 pub struct RuntimeDeviceContext {
     pub id: RuntimeDeviceContextId,
     pub handle: u32,
-    pub namespace: String,
     pub owner_thread_id: RuntimeThreadId,
     pub target: RuntimeDeviceContextTarget,
     pub selected_font_id: Option<RuntimeGdiObjectId>,
@@ -108,7 +93,8 @@ pub struct RuntimeDeviceContext {
 }
 
 impl RuntimeDeviceContext {
-    pub fn window_surface_id(&self) -> Option<RuntimeGdiSurfaceId> {
+    #[cfg(test)]
+    pub(crate) fn window_surface_id(&self) -> Option<RuntimeGdiSurfaceId> {
         match self.target {
             RuntimeDeviceContextTarget::Window { surface_id, .. } => Some(surface_id),
             RuntimeDeviceContextTarget::Screen { .. }
@@ -118,88 +104,7 @@ impl RuntimeDeviceContext {
     }
 }
 
-impl Serialize for RuntimeDeviceContext {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self.target {
-            RuntimeDeviceContextTarget::Window {
-                window_id,
-                window_handle,
-                surface_id,
-            } => {
-                let mut state = serializer.serialize_struct("RuntimeDeviceContext", 7)?;
-                state.serialize_field("id", &self.id)?;
-                state.serialize_field("handle", &self.handle)?;
-                state.serialize_field("namespace", &self.namespace)?;
-                state.serialize_field("windowId", &window_id)?;
-                state.serialize_field("windowHandle", &window_handle)?;
-                state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
-                state.serialize_field("surfaceId", &surface_id)?;
-                state.end()
-            }
-            RuntimeDeviceContextTarget::Screen {
-                monitor_handle,
-                rect,
-            } => {
-                let mut state = serializer.serialize_struct("RuntimeDeviceContext", 7)?;
-                state.serialize_field("id", &self.id)?;
-                state.serialize_field("handle", &self.handle)?;
-                state.serialize_field("namespace", &self.namespace)?;
-                state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
-                state.serialize_field("targetKind", "screen")?;
-                state.serialize_field("monitorHandle", &monitor_handle)?;
-                state.serialize_field("rect", &rect)?;
-                state.end()
-            }
-            RuntimeDeviceContextTarget::Memory {
-                compatible_monitor_handle,
-                compatible_rect,
-            } => {
-                let mut state = serializer.serialize_struct("RuntimeDeviceContext", 10)?;
-                state.serialize_field("id", &self.id)?;
-                state.serialize_field("handle", &self.handle)?;
-                state.serialize_field("namespace", &self.namespace)?;
-                state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
-                state.serialize_field("targetKind", "memory")?;
-                state.serialize_field("compatibleMonitorHandle", &compatible_monitor_handle)?;
-                state.serialize_field("compatibleRect", &compatible_rect)?;
-                state.serialize_field("selectedFontId", &self.selected_font_id)?;
-                state.serialize_field("selectedBitmapId", &self.selected_bitmap_id)?;
-                state.serialize_field("selectionGeneration", &self.selection_generation)?;
-                state.end()
-            }
-            RuntimeDeviceContextTarget::GraphicsSurface {
-                surface_id,
-                surface_com_object_id,
-                width,
-                height,
-                color_format,
-            } => {
-                let mut state = serializer.serialize_struct("RuntimeDeviceContext", 10)?;
-                state.serialize_field("id", &self.id)?;
-                state.serialize_field("handle", &self.handle)?;
-                state.serialize_field("namespace", &self.namespace)?;
-                state.serialize_field("ownerThreadId", &self.owner_thread_id)?;
-                state.serialize_field("targetKind", "graphics-surface")?;
-                state.serialize_field("surfaceId", &surface_id)?;
-                state.serialize_field("surfaceComObjectId", &surface_com_object_id)?;
-                state.serialize_field("width", &width)?;
-                state.serialize_field("height", &height)?;
-                state.serialize_field("colorFormat", &color_format)?;
-                state.end()
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "kebab-case",
-    rename_all_fields = "camelCase"
-)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeGdiObjectKind {
     StockBrush {
         index: i32,
@@ -223,8 +128,7 @@ pub enum RuntimeGdiObjectKind {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGdiRgbQuad {
     pub blue: u8,
     pub green: u8,
@@ -232,8 +136,7 @@ pub struct RuntimeGdiRgbQuad {
     pub reserved: u8,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeGdiDibSectionDescriptor {
     pub width: i32,
     pub height: i32,
@@ -252,11 +155,7 @@ impl RuntimeGdiDibSectionDescriptor {
     ) -> Result<[u8; RUNTIME_GDI_BITMAP_BYTE_LENGTH], RuntimeStateError> {
         validate_dib_section_descriptor(self)?;
         let height = self.height.checked_abs().ok_or_else(|| {
-            RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "dib-section-height-invalid",
-                "logical DIB section height cannot be i32::MIN",
-            )
+            RuntimeStateError::new("logical DIB section height cannot be i32::MIN")
         })?;
         let mut bytes = [0_u8; RUNTIME_GDI_BITMAP_BYTE_LENGTH];
         bytes[4..8].copy_from_slice(&self.width.to_le_bytes());
@@ -269,8 +168,7 @@ impl RuntimeGdiDibSectionDescriptor {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGdiDibSectionBacking {
     pub address_allocation_id: ProcessAddressAllocationId,
     pub memory_owner: MemoryOwnerId,
@@ -278,8 +176,7 @@ pub struct RuntimeGdiDibSectionBacking {
     pub content_generation: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeLogFontA {
     pub height: i32,
     pub width: i32,
@@ -320,97 +217,37 @@ impl RuntimeLogFontA {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeGdiObject {
     pub id: RuntimeGdiObjectId,
     pub handle: u32,
-    pub namespace: String,
     pub shared: bool,
     pub object: RuntimeGdiObjectKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGdiSurfaceFill {
-    pub sequence: u64,
     pub rect: RuntimeRect,
-    pub brush_id: RuntimeGdiObjectId,
     pub color_ref: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeGdiSurface {
     pub id: RuntimeGdiSurfaceId,
     pub window_id: RuntimeWindowId,
     pub width: u32,
     pub height: u32,
     pub fills: Vec<RuntimeGdiSurfaceFill>,
-    pub generation: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeGetDcResult {
     pub device_context_id: RuntimeDeviceContextId,
     pub handle: u32,
     pub surface_id: RuntimeGdiSurfaceId,
-    pub surface_created: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGetScreenDcResult {
-    pub device_context_id: RuntimeDeviceContextId,
-    pub handle: u32,
-    pub monitor_handle: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGetGraphicsSurfaceDcResult {
-    pub device_context_id: RuntimeDeviceContextId,
-    pub handle: u32,
-    pub surface_id: RuntimeGraphicsSurfaceId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGetStockObjectResult {
-    pub object_id: RuntimeGdiObjectId,
-    pub handle: u32,
-    pub already_created: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeCreateFontAResult {
-    pub object_id: RuntimeGdiObjectId,
-    pub handle: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeCreateCompatibleDcResult {
-    pub device_context_id: RuntimeDeviceContextId,
-    pub handle: u32,
-    pub selected_font_id: RuntimeGdiObjectId,
-    pub selected_bitmap_id: RuntimeGdiObjectId,
-    pub default_objects_created: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeCreateDibSectionResult {
-    pub object_id: RuntimeGdiObjectId,
-    pub handle: u32,
-    pub bits_address: GuestAddress,
-    pub backing: RuntimeGdiDibSectionBacking,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeGdiTextRasterTarget {
     pub device_context_id: RuntimeDeviceContextId,
     pub device_context_handle: u32,
@@ -425,63 +262,21 @@ pub struct RuntimeGdiTextRasterTarget {
     pub backing: RuntimeGdiDibSectionBacking,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeGdiTextRasterResult {
-    pub device_context_id: RuntimeDeviceContextId,
-    pub font_id: RuntimeGdiObjectId,
-    pub dib_section_id: RuntimeGdiObjectId,
-    pub selection_generation: u64,
-    pub content_generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeSelectGdiObjectResult {
-    pub device_context_id: RuntimeDeviceContextId,
-    pub selected_object_id: RuntimeGdiObjectId,
-    pub selected_handle: u32,
-    pub previous_object_id: RuntimeGdiObjectId,
-    pub previous_handle: u32,
-    pub selection_generation: u64,
-    pub changed: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeFillRectResult {
-    pub surface_id: RuntimeGdiSurfaceId,
-    pub surface_generation: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fill: Option<RuntimeGdiSurfaceFill>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeGdi {
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     device_contexts: BTreeMap<RuntimeDeviceContextId, RuntimeDeviceContext>,
-    #[serde(skip)]
     device_context_handle_index: BTreeMap<u32, RuntimeDeviceContextId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     objects: BTreeMap<RuntimeGdiObjectId, RuntimeGdiObject>,
-    #[serde(skip)]
     object_handle_index: BTreeMap<u32, RuntimeGdiObjectId>,
-    #[serde(skip)]
     stock_object_index: BTreeMap<i32, RuntimeGdiObjectId>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     surfaces: BTreeMap<RuntimeGdiSurfaceId, RuntimeGdiSurface>,
-    #[serde(skip)]
     window_surface_index: BTreeMap<RuntimeWindowId, RuntimeGdiSurfaceId>,
-    #[serde(skip)]
     graphics_surface_dc_index: BTreeMap<RuntimeGraphicsSurfaceId, RuntimeDeviceContextId>,
     next_device_context_id: u64,
     next_device_context_handle: u32,
     next_object_id: u64,
     next_object_handle: u32,
     next_surface_id: u64,
-    next_fill_sequence: u64,
-    generation: u64,
 }
 
 impl Default for RuntimeGdi {
@@ -500,185 +295,7 @@ impl Default for RuntimeGdi {
             next_object_id: 1,
             next_object_handle: RUNTIME_GDI_OBJECT_HANDLE_BASE,
             next_surface_id: 1,
-            next_fill_sequence: 1,
-            generation: 0,
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeGetDcPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_context: RuntimeDeviceContext,
-    new_surface: Option<RuntimeGdiSurface>,
-    next_device_context_id: u64,
-    next_device_context_handle: u32,
-    next_surface_id: u64,
-}
-
-impl RuntimeGetDcPlan {
-    pub(super) fn result(&self) -> RuntimeGetDcResult {
-        let RuntimeDeviceContextTarget::Window { surface_id, .. } = self.device_context.target
-        else {
-            unreachable!("window GetDC plan must publish a window target")
-        };
-        RuntimeGetDcResult {
-            device_context_id: self.device_context.id,
-            handle: self.device_context.handle,
-            surface_id,
-            surface_created: self.new_surface.is_some(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeResizeWindowSurfacePlan {
-    expected_generation: u64,
-    disposition: RuntimeResizeWindowSurfaceDisposition,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RuntimeResizeWindowSurfaceDisposition {
-    Absent {
-        window_id: RuntimeWindowId,
-    },
-    Update {
-        previous: RuntimeGdiSurface,
-        next: RuntimeGdiSurface,
-        next_generation: u64,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeGetScreenDcPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_context: RuntimeDeviceContext,
-    next_device_context_id: u64,
-    next_device_context_handle: u32,
-}
-
-impl RuntimeGetScreenDcPlan {
-    fn result(&self) -> RuntimeGetScreenDcResult {
-        let RuntimeDeviceContextTarget::Screen { monitor_handle, .. } = self.device_context.target
-        else {
-            unreachable!("screen DC plan must target a logical monitor")
-        };
-        RuntimeGetScreenDcResult {
-            device_context_id: self.device_context.id,
-            handle: self.device_context.handle,
-            monitor_handle,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeCreateCompatibleDcPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_context: RuntimeDeviceContext,
-    new_default_objects: Vec<RuntimeGdiObject>,
-    next_device_context_id: u64,
-    next_device_context_handle: u32,
-    next_object_id: u64,
-    next_object_handle: u32,
-}
-
-impl RuntimeCreateCompatibleDcPlan {
-    fn result(&self) -> RuntimeCreateCompatibleDcResult {
-        let (Some(selected_font_id), Some(selected_bitmap_id)) = (
-            self.device_context.selected_font_id,
-            self.device_context.selected_bitmap_id,
-        ) else {
-            unreachable!("memory DC plan must publish initial font and bitmap selections")
-        };
-        RuntimeCreateCompatibleDcResult {
-            device_context_id: self.device_context.id,
-            handle: self.device_context.handle,
-            selected_font_id,
-            selected_bitmap_id,
-            default_objects_created: !self.new_default_objects.is_empty(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGetGraphicsSurfaceDcPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_context: RuntimeDeviceContext,
-    next_device_context_id: u64,
-    next_device_context_handle: u32,
-}
-
-impl RuntimeGetGraphicsSurfaceDcPlan {
-    pub(crate) fn result(&self) -> RuntimeGetGraphicsSurfaceDcResult {
-        let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
-            self.device_context.target
-        else {
-            unreachable!("graphics surface DC plan must target a graphics surface")
-        };
-        RuntimeGetGraphicsSurfaceDcResult {
-            device_context_id: self.device_context.id,
-            handle: self.device_context.handle,
-            surface_id,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeGetStockObjectPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    object: RuntimeGdiObject,
-    already_created: bool,
-    next_object_id: u64,
-    next_object_handle: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeCreateFontAPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    object: RuntimeGdiObject,
-    next_object_id: u64,
-    next_object_handle: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeCreateDibSectionPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    source_device_context: RuntimeDeviceContext,
-    object_id: RuntimeGdiObjectId,
-    handle: u32,
-    descriptor: RuntimeGdiDibSectionDescriptor,
-    address_allocation_id: ProcessAddressAllocationId,
-    backing_range: GuestRange,
-    next_object_id: u64,
-    next_object_handle: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeGdiTextRasterPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    target: RuntimeGdiTextRasterTarget,
-    next_content_generation: u64,
-}
-
-impl RuntimeCreateDibSectionPlan {
-    pub(super) fn descriptor(&self) -> &RuntimeGdiDibSectionDescriptor {
-        &self.descriptor
-    }
-
-    pub(super) fn address_allocation_id(&self) -> ProcessAddressAllocationId {
-        self.address_allocation_id
-    }
-
-    pub(super) fn backing_range(&self) -> GuestRange {
-        self.backing_range
     }
 }
 
@@ -686,113 +303,6 @@ impl RuntimeCreateDibSectionPlan {
 enum RuntimeGdiSelectionSlot {
     Font,
     Bitmap,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeSelectGdiObjectPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_context: RuntimeDeviceContext,
-    selected_object: RuntimeGdiObject,
-    previous_object: RuntimeGdiObject,
-    slot: RuntimeGdiSelectionSlot,
-    next_selection_generation: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeDeleteGdiObjectPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    object: RuntimeGdiObject,
-}
-
-impl RuntimeDeleteGdiObjectPlan {
-    pub(super) fn object(&self) -> &RuntimeGdiObject {
-        &self.object
-    }
-
-    pub(super) fn backing(&self) -> Option<RuntimeGdiDibSectionBacking> {
-        match &self.object.object {
-            RuntimeGdiObjectKind::DibSection { backing, .. } => Some(*backing),
-            RuntimeGdiObjectKind::StockBrush { .. }
-            | RuntimeGdiObjectKind::StockFont { .. }
-            | RuntimeGdiObjectKind::StockBitmap { .. }
-            | RuntimeGdiObjectKind::FontA { .. } => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeReleaseDcPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_context: RuntimeDeviceContext,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeFillRectPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_context: RuntimeDeviceContext,
-    brush_id: RuntimeGdiObjectId,
-    surface_generation: u64,
-    next_surface_generation: u64,
-    fill: Option<RuntimeGdiSurfaceFill>,
-    next_fill_sequence: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeGraphicsSurfaceFillRectPlan {
-    expected_generation: u64,
-    device_context: RuntimeDeviceContext,
-    brush_id: RuntimeGdiObjectId,
-    rect: RuntimeRect,
-    color_ref: u32,
-}
-
-impl RuntimeGraphicsSurfaceFillRectPlan {
-    pub(super) fn surface_id(&self) -> RuntimeGraphicsSurfaceId {
-        let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
-            self.device_context.target
-        else {
-            unreachable!("graphics fill plan must target a graphics surface")
-        };
-        surface_id
-    }
-
-    pub(super) fn surface_com_object_id(&self) -> RuntimeComObjectId {
-        let RuntimeDeviceContextTarget::GraphicsSurface {
-            surface_com_object_id,
-            ..
-        } = self.device_context.target
-        else {
-            unreachable!("graphics fill plan must target a graphics surface")
-        };
-        surface_com_object_id
-    }
-
-    pub(super) fn rect(&self) -> RuntimeRect {
-        self.rect
-    }
-
-    pub(super) fn color_ref(&self) -> u32 {
-        self.color_ref
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RuntimeGdiComRetirementGuard {
-    expected_generation: u64,
-    retired_graphics_surface_objects: BTreeSet<RuntimeComObjectId>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeGdiTeardownPlan {
-    expected_generation: u64,
-    next_generation: u64,
-    device_contexts: usize,
-    objects: usize,
-    surfaces: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -812,14 +322,14 @@ struct RuntimeGdiObjectAllocation {
 }
 
 impl RuntimeGdi {
-    pub(super) fn plan_window_surface_resize(
+    pub(super) fn validate_window_surface_resize(
         &self,
         window_id: RuntimeWindowId,
         previous_width: u32,
         previous_height: u32,
         next_width: u32,
         next_height: u32,
-    ) -> Result<RuntimeResizeWindowSurfacePlan, RuntimeStateError> {
+    ) -> Result<Option<RuntimeGdiSurfaceId>, RuntimeStateError> {
         if previous_width == 0
             || previous_height == 0
             || next_width == 0
@@ -830,118 +340,69 @@ impl RuntimeGdi {
             || next_height > i32::MAX as u32
             || (previous_width == next_width && previous_height == next_height)
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "window-surface-resize-geometry-invalid",
+            return Err(RuntimeStateError::new(
                 "logical window surface resize requires changed positive x86 dimensions",
             ));
         }
 
-        let disposition =
-            if let Some(surface_id) = self.window_surface_index.get(&window_id).copied() {
-                let previous = self.surfaces.get(&surface_id).cloned().ok_or_else(|| {
-                    RuntimeStateError::runtime_defect(
-                        "runtime-gdi",
-                        "window-surface-index-dangling",
-                        "logical window surface index does not resolve to a live surface",
-                    )
-                })?;
-                if previous.window_id != window_id
-                    || previous.width != previous_width
-                    || previous.height != previous_height
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-gdi",
-                        "window-surface-resize-source-mismatch",
-                        "logical GDI surface does not match the pre-resize client geometry",
-                    ));
-                }
-                self.require_no_live_window_surface_dc(window_id, Some(surface_id))?;
-                let mut next = previous.clone();
-                next.width = next_width;
-                next.height = next_height;
-                next.fills.clear();
-                next.generation = previous.generation.checked_add(1).ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-gdi",
-                        "surface-generation-exhausted",
-                        "logical GDI surface generation is exhausted",
-                    )
-                })?;
-                RuntimeResizeWindowSurfaceDisposition::Update {
-                    previous,
-                    next,
-                    next_generation: checked_next_generation(self.generation)?,
-                }
-            } else {
-                if self
-                    .surfaces
-                    .values()
-                    .any(|surface| surface.window_id == window_id)
-                {
-                    return Err(RuntimeStateError::runtime_defect(
-                        "runtime-gdi",
-                        "window-surface-index-missing",
-                        "logical window surface exists without its window index",
-                    ));
-                }
-                self.require_no_live_window_surface_dc(window_id, None)?;
-                RuntimeResizeWindowSurfaceDisposition::Absent { window_id }
-            };
-        Ok(RuntimeResizeWindowSurfacePlan {
-            expected_generation: self.generation,
-            disposition,
-        })
+        if let Some(surface_id) = self.window_surface_index.get(&window_id).copied() {
+            let surface = self.surfaces.get(&surface_id).ok_or_else(|| {
+                RuntimeStateError::new(
+                    "logical window surface index does not resolve to a live surface",
+                )
+            })?;
+            if surface.id != surface_id
+                || surface.window_id != window_id
+                || surface.width != previous_width
+                || surface.height != previous_height
+            {
+                return Err(RuntimeStateError::new(
+                    "logical GDI surface does not match the pre-resize client geometry",
+                ));
+            }
+            self.require_no_live_window_surface_dc(window_id, Some(surface_id))?;
+
+            Ok(Some(surface_id))
+        } else {
+            if self
+                .surfaces
+                .values()
+                .any(|surface| surface.window_id == window_id)
+            {
+                return Err(RuntimeStateError::new(
+                    "logical window surface exists without its window index",
+                ));
+            }
+            self.require_no_live_window_surface_dc(window_id, None)?;
+            Ok(None)
+        }
     }
 
-    pub(super) fn preflight_window_surface_resize(
-        &self,
-        plan: &RuntimeResizeWindowSurfacePlan,
+    pub(super) fn resize_window_surface(
+        &mut self,
+        window_id: RuntimeWindowId,
+        previous_width: u32,
+        previous_height: u32,
+        next_width: u32,
+        next_height: u32,
     ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(stale_plan("window-surface-resize-plan-stale"));
-        }
-        match &plan.disposition {
-            RuntimeResizeWindowSurfaceDisposition::Absent { window_id } => {
-                if self.window_surface_index.contains_key(window_id)
-                    || self
-                        .surfaces
-                        .values()
-                        .any(|surface| surface.window_id == *window_id)
-                {
-                    return Err(stale_plan("window-surface-resize-plan-stale"));
-                }
-                self.require_no_live_window_surface_dc(*window_id, None)?;
-            }
-            RuntimeResizeWindowSurfaceDisposition::Update { previous, .. } => {
-                if self.window_surface_index.get(&previous.window_id) != Some(&previous.id)
-                    || self.surfaces.get(&previous.id) != Some(previous)
-                {
-                    return Err(stale_plan("window-surface-resize-plan-stale"));
-                }
-                self.require_no_live_window_surface_dc(previous.window_id, Some(previous.id))?;
-            }
+        let surface_id = self.validate_window_surface_resize(
+            window_id,
+            previous_width,
+            previous_height,
+            next_width,
+            next_height,
+        )?;
+        if let Some(surface_id) = surface_id {
+            let surface = self
+                .surfaces
+                .get_mut(&surface_id)
+                .expect("validated live window surface");
+            surface.width = next_width;
+            surface.height = next_height;
+            surface.fills.clear();
         }
         Ok(())
-    }
-
-    pub(super) fn commit_preflighted_window_surface_resize(
-        &mut self,
-        plan: RuntimeResizeWindowSurfacePlan,
-    ) {
-        match plan.disposition {
-            RuntimeResizeWindowSurfaceDisposition::Absent { .. } => {}
-            RuntimeResizeWindowSurfaceDisposition::Update {
-                previous,
-                next,
-                next_generation,
-            } => {
-                debug_assert_eq!(self.surfaces.get(&previous.id), Some(&previous));
-                self.generation = next_generation;
-                let replaced = self.surfaces.insert(next.id, next);
-                debug_assert_eq!(replaced, Some(previous));
-            }
-        }
     }
 
     fn require_no_live_window_surface_dc(
@@ -961,168 +422,136 @@ impl RuntimeGdi {
             )
         });
         if live {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "window-surface-resize-dc-live",
+            return Err(RuntimeStateError::new(
                 "logical window surface cannot resize while a window device context is live",
             ));
         }
         Ok(())
     }
 
-    pub(super) fn plan_get_dc(
+    pub(super) fn preview_window_dc(
         &self,
         target: RuntimeGdiWindowTarget,
-    ) -> Result<RuntimeGetDcPlan, RuntimeStateError> {
+    ) -> Result<RuntimeGetDcResult, RuntimeStateError> {
         validate_window_target(target)?;
         let allocation = self.plan_device_context_allocation()?;
 
-        let (surface_id, new_surface, next_surface_id) =
+        let surface_id =
             if let Some(surface_id) = self.window_surface_index.get(&target.window_id).copied() {
                 let surface = self.surfaces.get(&surface_id).ok_or_else(|| {
-                    RuntimeStateError::runtime_defect(
-                        "runtime-gdi",
-                        "window-surface-index-dangling",
+                    RuntimeStateError::new(
                         "logical window surface index does not resolve to a live surface",
                     )
                 })?;
-                if surface.window_id != target.window_id
-                    || surface.width != target.client_width
-                    || surface.height != target.client_height
-                {
-                    return Err(RuntimeStateError::conflict(
-                        "runtime-gdi",
-                        "window-surface-geometry-changed",
+                if surface.id != surface_id || surface.window_id != target.window_id {
+                    return Err(RuntimeStateError::new(
+                        "logical window surface index resolves to another surface or window",
+                    ));
+                }
+                if surface.width != target.client_width || surface.height != target.client_height {
+                    return Err(RuntimeStateError::new(
                         "logical window client geometry changed after its GDI surface was created",
                     ));
                 }
-                (surface_id, None, self.next_surface_id)
+                surface_id
             } else {
+                if self
+                    .surfaces
+                    .values()
+                    .any(|surface| surface.window_id == target.window_id)
+                {
+                    return Err(RuntimeStateError::new(
+                        "logical window surface exists without its window index",
+                    ));
+                }
                 if self.surfaces.len() >= RUNTIME_GDI_SURFACE_LIMIT {
-                    return Err(RuntimeStateError::resource_limit(
-                        "runtime-gdi",
-                        "surface-capacity-exhausted",
+                    return Err(RuntimeStateError::new(
                         "logical GDI surface capacity is exhausted",
                     ));
                 }
+                checked_next_identity(self.next_surface_id)?;
                 let surface_id = RuntimeGdiSurfaceId(self.next_surface_id);
-                let next_surface_id =
-                    checked_next_identity(self.next_surface_id, "surface-identity-exhausted")?;
-                (
-                    surface_id,
-                    Some(RuntimeGdiSurface {
-                        id: surface_id,
-                        window_id: target.window_id,
-                        width: target.client_width,
-                        height: target.client_height,
-                        fills: Vec::new(),
-                        generation: 0,
-                    }),
-                    next_surface_id,
-                )
+                if self.surfaces.contains_key(&surface_id) {
+                    return Err(RuntimeStateError::new(
+                        "logical GDI surface allocator identifies a live surface",
+                    ));
+                }
+                surface_id
             };
-        let next_generation = checked_next_generation(self.generation)?;
-        Ok(RuntimeGetDcPlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_context: RuntimeDeviceContext {
-                id: allocation.id,
-                handle: allocation.handle,
-                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
-                owner_thread_id: target.owner_thread_id,
-                target: RuntimeDeviceContextTarget::Window {
-                    window_id: target.window_id,
-                    window_handle: target.window_handle,
-                    surface_id,
-                },
-                selected_font_id: None,
-                selected_bitmap_id: None,
-                selection_generation: 0,
-            },
-            new_surface,
-            next_device_context_id: allocation.next_id,
-            next_device_context_handle: allocation.next_handle,
-            next_surface_id,
+        Ok(RuntimeGetDcResult {
+            device_context_id: allocation.id,
+            handle: allocation.handle,
+            surface_id,
         })
     }
 
-    pub(super) fn commit_get_dc(
+    pub(super) fn get_window_dc(
         &mut self,
-        plan: RuntimeGetDcPlan,
+        target: RuntimeGdiWindowTarget,
     ) -> Result<RuntimeGetDcResult, RuntimeStateError> {
-        self.preflight_get_dc(&plan)?;
-        Ok(self.commit_preflighted_get_dc(plan))
+        let result = self.preview_window_dc(target)?;
+        self.publish_window_dc(target, result);
+        Ok(result)
     }
 
-    pub(super) fn preflight_get_dc(
-        &self,
-        plan: &RuntimeGetDcPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.next_device_context_id != plan.device_context.id.0
-            || self.next_device_context_handle != plan.device_context.handle
-            || self.next_surface_id
-                != plan
-                    .new_surface
-                    .as_ref()
-                    .map_or(plan.next_surface_id, |surface| surface.id.0)
-            || self
-                .device_context_handle_index
-                .contains_key(&plan.device_context.handle)
-        {
-            return Err(stale_plan("get-dc-plan-stale"));
-        }
-        if let Some(surface) = plan.new_surface.as_ref() {
-            if self.window_surface_index.contains_key(&surface.window_id)
-                || self.surfaces.contains_key(&surface.id)
-            {
-                return Err(stale_plan("get-dc-plan-stale"));
-            }
-        } else if !matches!(
-            plan.device_context.target,
-            RuntimeDeviceContextTarget::Window { surface_id, .. }
-                if self.surfaces.contains_key(&surface_id)
-        ) {
-            return Err(stale_plan("get-dc-plan-stale"));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_preflighted_get_dc(
+    pub(super) fn publish_window_dc(
         &mut self,
-        plan: RuntimeGetDcPlan,
-    ) -> RuntimeGetDcResult {
-        debug_assert!(self.preflight_get_dc(&plan).is_ok());
-        let result = plan.result();
-        if let Some(surface) = plan.new_surface {
+        target: RuntimeGdiWindowTarget,
+        result: RuntimeGetDcResult,
+    ) {
+        let surface_created = !self.window_surface_index.contains_key(&target.window_id);
+        let device_context = RuntimeDeviceContext {
+            id: result.device_context_id,
+            handle: result.handle,
+            owner_thread_id: target.owner_thread_id,
+            target: RuntimeDeviceContextTarget::Window {
+                window_id: target.window_id,
+                window_handle: target.window_handle,
+                surface_id: result.surface_id,
+            },
+            selected_font_id: None,
+            selected_bitmap_id: None,
+            selection_generation: 0,
+        };
+        if surface_created {
             self.window_surface_index
-                .insert(surface.window_id, surface.id);
-            self.surfaces.insert(surface.id, surface);
+                .insert(target.window_id, result.surface_id);
+            self.surfaces.insert(
+                result.surface_id,
+                RuntimeGdiSurface {
+                    id: result.surface_id,
+                    window_id: target.window_id,
+                    width: target.client_width,
+                    height: target.client_height,
+                    fills: Vec::new(),
+                },
+            );
         }
         self.device_context_handle_index
-            .insert(plan.device_context.handle, plan.device_context.id);
+            .insert(result.handle, result.device_context_id);
         self.device_contexts
-            .insert(plan.device_context.id, plan.device_context.clone());
-        self.next_device_context_id = plan.next_device_context_id;
-        self.next_device_context_handle = plan.next_device_context_handle;
-        self.next_surface_id = plan.next_surface_id;
-        self.generation = plan.next_generation;
-        result
+            .insert(result.device_context_id, device_context);
+        self.next_device_context_id = result.device_context_id.0 + 1;
+        self.next_device_context_handle = result.handle + 1;
+        if surface_created {
+            self.next_surface_id += 1;
+        }
     }
 
-    pub(super) fn plan_get_screen_dc(
-        &self,
+    pub(super) fn get_screen_dc(
+        &mut self,
         target: RuntimeGdiScreenTarget,
-    ) -> Result<RuntimeGetScreenDcPlan, RuntimeStateError> {
+    ) -> Result<u32, RuntimeStateError> {
         validate_screen_target(target)?;
         let allocation = self.plan_device_context_allocation()?;
-        Ok(RuntimeGetScreenDcPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_context: RuntimeDeviceContext {
+
+        self.device_context_handle_index
+            .insert(allocation.handle, allocation.id);
+        self.device_contexts.insert(
+            allocation.id,
+            RuntimeDeviceContext {
                 id: allocation.id,
                 handle: allocation.handle,
-                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
                 owner_thread_id: target.owner_thread_id,
                 target: RuntimeDeviceContextTarget::Screen {
                     monitor_handle: target.monitor_handle,
@@ -1132,42 +561,21 @@ impl RuntimeGdi {
                 selected_bitmap_id: None,
                 selection_generation: 0,
             },
-            next_device_context_id: allocation.next_id,
-            next_device_context_handle: allocation.next_handle,
-        })
+        );
+        self.next_device_context_id = allocation.next_id;
+        self.next_device_context_handle = allocation.next_handle;
+
+        Ok(allocation.handle)
     }
 
-    pub(super) fn commit_get_screen_dc(
+    pub(super) fn create_compatible_dc(
         &mut self,
-        plan: RuntimeGetScreenDcPlan,
-    ) -> Result<RuntimeGetScreenDcResult, RuntimeStateError> {
-        let result = plan.result();
-        if self.generation != plan.expected_generation
-            || self.next_device_context_id != plan.device_context.id.0
-            || self.next_device_context_handle != plan.device_context.handle
-            || self
-                .device_context_handle_index
-                .contains_key(&plan.device_context.handle)
-            || self.device_contexts.contains_key(&plan.device_context.id)
-        {
-            return Err(stale_plan("screen-get-dc-plan-stale"));
-        }
-        self.device_context_handle_index
-            .insert(plan.device_context.handle, plan.device_context.id);
-        self.device_contexts
-            .insert(plan.device_context.id, plan.device_context);
-        self.next_device_context_id = plan.next_device_context_id;
-        self.next_device_context_handle = plan.next_device_context_handle;
-        self.generation = plan.next_generation;
-        Ok(result)
-    }
-
-    pub(super) fn plan_create_compatible_dc(
-        &self,
         target: RuntimeGdiScreenTarget,
-    ) -> Result<RuntimeCreateCompatibleDcPlan, RuntimeStateError> {
+    ) -> Result<Option<u32>, RuntimeStateError> {
         validate_screen_target(target)?;
-        let device_context_allocation = self.plan_device_context_allocation()?;
+        let Some(device_context_allocation) = self.try_plan_device_context_allocation()? else {
+            return Ok(None);
+        };
         let existing_font = self.stock_object_by_index(RUNTIME_GDI_SYSTEM_FONT_INDEX)?;
         if let Some(object) = existing_font {
             validate_default_font_object(object)?;
@@ -1178,24 +586,32 @@ impl RuntimeGdi {
         }
         let missing_default_objects =
             usize::from(existing_font.is_none()) + usize::from(existing_bitmap.is_none());
-        let mut allocations = self
-            .plan_object_allocations(missing_default_objects)?
-            .into_iter();
+        let Some(allocations) = self.try_plan_object_allocations(missing_default_objects)? else {
+            return Ok(None);
+        };
+        let (next_object_id, next_object_handle) = allocations.last().map_or(
+            (self.next_object_id, self.next_object_handle),
+            |allocation| (allocation.next_id, allocation.next_handle),
+        );
+
+        let mut allocations = allocations.into_iter();
         let mut new_default_objects = Vec::with_capacity(missing_default_objects);
         let selected_font_id = existing_font.map_or_else(
             || {
                 let allocation = allocations
                     .next()
                     .expect("missing default font must reserve one object allocation");
-                new_default_objects.push(RuntimeGdiObject {
-                    id: allocation.id,
-                    handle: allocation.handle,
-                    namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
-                    shared: true,
-                    object: RuntimeGdiObjectKind::StockFont {
-                        index: RUNTIME_GDI_SYSTEM_FONT_INDEX,
+                new_default_objects.push((
+                    RUNTIME_GDI_SYSTEM_FONT_INDEX,
+                    RuntimeGdiObject {
+                        id: allocation.id,
+                        handle: allocation.handle,
+                        shared: true,
+                        object: RuntimeGdiObjectKind::StockFont {
+                            index: RUNTIME_GDI_SYSTEM_FONT_INDEX,
+                        },
                     },
-                });
+                ));
                 allocation.id
             },
             |object| object.id,
@@ -1205,46 +621,38 @@ impl RuntimeGdi {
                 let allocation = allocations
                     .next()
                     .expect("missing default bitmap must reserve one object allocation");
-                new_default_objects.push(RuntimeGdiObject {
-                    id: allocation.id,
-                    handle: allocation.handle,
-                    namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
-                    shared: true,
-                    object: RuntimeGdiObjectKind::StockBitmap {
-                        index: RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
-                        width: 1,
-                        height: 1,
-                        bits_per_pixel: 1,
+                new_default_objects.push((
+                    RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
+                    RuntimeGdiObject {
+                        id: allocation.id,
+                        handle: allocation.handle,
+                        shared: true,
+                        object: RuntimeGdiObjectKind::StockBitmap {
+                            index: RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
+                            width: 1,
+                            height: 1,
+                            bits_per_pixel: 1,
+                        },
                     },
-                });
+                ));
                 allocation.id
             },
             |object| object.id,
         );
-        debug_assert!(allocations.next().is_none());
-        let (next_object_id, next_object_handle) = new_default_objects.last().map_or(
-            (self.next_object_id, self.next_object_handle),
-            |object| {
-                (
-                    object
-                        .id
-                        .0
-                        .checked_add(1)
-                        .expect("planned object ID advances"),
-                    object
-                        .handle
-                        .checked_add(1)
-                        .expect("planned object handle advances"),
-                )
-            },
+        for (index, object) in new_default_objects {
+            self.stock_object_index.insert(index, object.id);
+            self.object_handle_index.insert(object.handle, object.id);
+            self.objects.insert(object.id, object);
+        }
+        self.device_context_handle_index.insert(
+            device_context_allocation.handle,
+            device_context_allocation.id,
         );
-        Ok(RuntimeCreateCompatibleDcPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_context: RuntimeDeviceContext {
+        self.device_contexts.insert(
+            device_context_allocation.id,
+            RuntimeDeviceContext {
                 id: device_context_allocation.id,
                 handle: device_context_allocation.handle,
-                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
                 owner_thread_id: target.owner_thread_id,
                 target: RuntimeDeviceContextTarget::Memory {
                     compatible_monitor_handle: target.monitor_handle,
@@ -1254,453 +662,206 @@ impl RuntimeGdi {
                 selected_bitmap_id: Some(selected_bitmap_id),
                 selection_generation: 0,
             },
-            new_default_objects,
-            next_device_context_id: device_context_allocation.next_id,
-            next_device_context_handle: device_context_allocation.next_handle,
-            next_object_id,
-            next_object_handle,
-        })
+        );
+        self.next_device_context_id = device_context_allocation.next_id;
+        self.next_device_context_handle = device_context_allocation.next_handle;
+        self.next_object_id = next_object_id;
+        self.next_object_handle = next_object_handle;
+
+        Ok(Some(device_context_allocation.handle))
     }
 
-    pub(super) fn commit_create_compatible_dc(
-        &mut self,
-        plan: RuntimeCreateCompatibleDcPlan,
-    ) -> Result<RuntimeCreateCompatibleDcResult, RuntimeStateError> {
-        let result = plan.result();
-        if self.generation != plan.expected_generation
-            || self.next_device_context_id != plan.device_context.id.0
-            || self.next_device_context_handle != plan.device_context.handle
-            || self
-                .device_context_handle_index
-                .contains_key(&plan.device_context.handle)
-            || self.device_contexts.contains_key(&plan.device_context.id)
-        {
-            return Err(stale_plan("create-compatible-dc-plan-stale"));
-        }
-        let mut expected_object_id = self.next_object_id;
-        let mut expected_object_handle = self.next_object_handle;
-        for object in &plan.new_default_objects {
-            let index = default_object_index(object)
-                .ok_or_else(|| stale_plan("create-compatible-dc-plan-stale"))?;
-            if object.id.0 != expected_object_id
-                || object.handle != expected_object_handle
-                || !object.shared
-                || self.objects.contains_key(&object.id)
-                || self.object_handle_index.contains_key(&object.handle)
-                || self.stock_object_index.contains_key(&index)
-            {
-                return Err(stale_plan("create-compatible-dc-plan-stale"));
-            }
-            expected_object_id =
-                checked_next_identity(expected_object_id, "gdi-object-identity-exhausted")?;
-            expected_object_handle = expected_object_handle.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-gdi",
-                    "gdi-object-handle-exhausted",
-                    "logical GDI object handle namespace is exhausted",
-                )
-            })?;
-        }
-        if plan.next_object_id != expected_object_id
-            || plan.next_object_handle != expected_object_handle
-            || !self.plan_resolves_default_object(
-                result.selected_font_id,
-                &plan.new_default_objects,
-                validate_default_font_object,
-            )?
-            || !self.plan_resolves_default_object(
-                result.selected_bitmap_id,
-                &plan.new_default_objects,
-                validate_default_bitmap_object,
-            )?
-        {
-            return Err(stale_plan("create-compatible-dc-plan-stale"));
-        }
-        for object in plan.new_default_objects {
-            let index = default_object_index(&object)
-                .expect("validated compatible DC default object must have a stock index");
-            self.stock_object_index.insert(index, object.id);
-            self.object_handle_index.insert(object.handle, object.id);
-            self.objects.insert(object.id, object);
-        }
-        self.device_context_handle_index
-            .insert(plan.device_context.handle, plan.device_context.id);
-        self.device_contexts
-            .insert(plan.device_context.id, plan.device_context);
-        self.next_device_context_id = plan.next_device_context_id;
-        self.next_device_context_handle = plan.next_device_context_handle;
-        self.next_object_id = plan.next_object_id;
-        self.next_object_handle = plan.next_object_handle;
-        self.generation = plan.next_generation;
-        Ok(result)
-    }
-
-    pub(crate) fn plan_get_graphics_surface_dc(
+    pub(crate) fn preview_graphics_surface_dc(
         &self,
         target: RuntimeGdiGraphicsSurfaceTarget,
-    ) -> Result<RuntimeGetGraphicsSurfaceDcPlan, RuntimeStateError> {
+    ) -> Result<Option<u32>, RuntimeStateError> {
         validate_graphics_surface_target(target)?;
         if self
             .graphics_surface_dc_index
             .contains_key(&target.surface_id)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "graphics-surface-dc-already-acquired",
-                "logical graphics surface already has an outstanding HDC",
-            ));
+            return Ok(None);
         }
         let allocation = self.plan_device_context_allocation()?;
-        Ok(RuntimeGetGraphicsSurfaceDcPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_context: RuntimeDeviceContext {
-                id: allocation.id,
-                handle: allocation.handle,
-                namespace: LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE.to_owned(),
-                owner_thread_id: target.owner_thread_id,
-                target: RuntimeDeviceContextTarget::GraphicsSurface {
-                    surface_id: target.surface_id,
-                    surface_com_object_id: target.surface_com_object_id,
-                    width: target.width,
-                    height: target.height,
-                    color_format: target.color_format,
-                },
-                selected_font_id: None,
-                selected_bitmap_id: None,
-                selection_generation: 0,
-            },
-            next_device_context_id: allocation.next_id,
-            next_device_context_handle: allocation.next_handle,
-        })
+
+        Ok(Some(allocation.handle))
     }
 
-    pub(crate) fn commit_get_graphics_surface_dc(
+    pub(crate) fn get_graphics_surface_dc(
         &mut self,
-        plan: RuntimeGetGraphicsSurfaceDcPlan,
-    ) -> Result<RuntimeGetGraphicsSurfaceDcResult, RuntimeStateError> {
-        let result = plan.result();
-        if self.generation != plan.expected_generation
-            || self.next_device_context_id != plan.device_context.id.0
-            || self.next_device_context_handle != plan.device_context.handle
-            || self
-                .device_context_handle_index
-                .contains_key(&plan.device_context.handle)
-            || self.device_contexts.contains_key(&plan.device_context.id)
-            || self
-                .graphics_surface_dc_index
-                .contains_key(&result.surface_id)
-        {
-            return Err(stale_plan("graphics-surface-get-dc-plan-stale"));
-        }
-        self.graphics_surface_dc_index
-            .insert(result.surface_id, plan.device_context.id);
-        self.device_context_handle_index
-            .insert(plan.device_context.handle, plan.device_context.id);
-        self.device_contexts
-            .insert(plan.device_context.id, plan.device_context);
-        self.next_device_context_id = plan.next_device_context_id;
-        self.next_device_context_handle = plan.next_device_context_handle;
-        self.generation = plan.next_generation;
-        Ok(result)
+        target: RuntimeGdiGraphicsSurfaceTarget,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        let Some(handle) = self.preview_graphics_surface_dc(target)? else {
+            return Ok(None);
+        };
+        let id = RuntimeDeviceContextId(self.next_device_context_id);
+        let next_device_context_id = id.0 + 1; // allocator checked
+        let next_device_context_handle = handle + 1; // allocator checked
+        let device_context = RuntimeDeviceContext {
+            id,
+            handle,
+            owner_thread_id: target.owner_thread_id,
+            target: RuntimeDeviceContextTarget::GraphicsSurface {
+                surface_id: target.surface_id,
+                surface_com_object_id: target.surface_com_object_id,
+                width: target.width,
+                height: target.height,
+                color_format: target.color_format,
+            },
+            selected_font_id: None,
+            selected_bitmap_id: None,
+            selection_generation: 0,
+        };
+        self.graphics_surface_dc_index.insert(target.surface_id, id);
+        self.device_context_handle_index.insert(handle, id);
+        self.device_contexts.insert(id, device_context);
+        self.next_device_context_id = next_device_context_id;
+        self.next_device_context_handle = next_device_context_handle;
+
+        Ok(Some(handle))
     }
 
-    pub(super) fn plan_get_stock_object(
-        &self,
+    pub(super) fn get_stock_object(
+        &mut self,
         index: i32,
-    ) -> Result<RuntimeGetStockObjectPlan, RuntimeStateError> {
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        if !(0..=RUNTIME_GDI_DEFAULT_BITMAP_INDEX).contains(&index) {
+            return Ok(None);
+        }
         if index != RUNTIME_GDI_BLACK_BRUSH_INDEX {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "stock-object-index-unsupported",
-                format!("GDI stock object index {index} is outside the reached support band"),
-            ));
+            return Err(RuntimeStateError::new(format!(
+                "GDI stock object index {index} is outside the reached support band"
+            )));
         }
-        if let Some(object_id) = self.stock_object_index.get(&index).copied() {
-            let object = self.objects.get(&object_id).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-gdi",
-                    "stock-object-index-dangling",
-                    "GDI stock object index does not resolve to a live object",
-                )
-            })?;
-            return Ok(RuntimeGetStockObjectPlan {
-                expected_generation: self.generation,
-                next_generation: self.generation,
-                object: object.clone(),
-                already_created: true,
-                next_object_id: self.next_object_id,
-                next_object_handle: self.next_object_handle,
-            });
+        if let Some(object) = self.stock_object_by_index(index)? {
+            return Ok(Some(object.handle));
         }
-        let allocation = self.plan_object_allocation()?;
-        Ok(RuntimeGetStockObjectPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            object: RuntimeGdiObject {
-                id: allocation.id,
-                handle: allocation.handle,
-                namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
-                shared: true,
-                object: RuntimeGdiObjectKind::StockBrush {
-                    index,
-                    color_ref: 0,
-                },
+        let Some(allocation) = self.try_plan_object_allocation()? else {
+            return Ok(None);
+        };
+
+        let object = RuntimeGdiObject {
+            id: allocation.id,
+            handle: allocation.handle,
+            shared: true,
+            object: RuntimeGdiObjectKind::StockBrush {
+                index,
+                color_ref: 0,
             },
-            already_created: false,
-            next_object_id: allocation.next_id,
-            next_object_handle: allocation.next_handle,
-        })
+        };
+        self.stock_object_index.insert(index, object.id);
+        self.object_handle_index.insert(object.handle, object.id);
+        self.objects.insert(object.id, object);
+        self.next_object_id = allocation.next_id;
+        self.next_object_handle = allocation.next_handle;
+
+        Ok(Some(allocation.handle))
     }
 
-    pub(super) fn commit_get_stock_object(
+    pub(super) fn create_font_a(
         &mut self,
-        plan: RuntimeGetStockObjectPlan,
-    ) -> Result<RuntimeGetStockObjectResult, RuntimeStateError> {
-        if self.generation != plan.expected_generation {
-            return Err(stale_plan("get-stock-object-plan-stale"));
-        }
-        if plan.already_created {
-            let live = self
-                .objects
-                .get(&plan.object.id)
-                .ok_or_else(|| stale_plan("get-stock-object-plan-stale"))?;
-            if live != &plan.object || self.object_handle_index.get(&live.handle) != Some(&live.id)
-            {
-                return Err(stale_plan("get-stock-object-plan-stale"));
-            }
-        } else {
-            if self.next_object_id != plan.object.id.0
-                || self.next_object_handle != plan.object.handle
-                || self.objects.contains_key(&plan.object.id)
-                || self.object_handle_index.contains_key(&plan.object.handle)
-            {
-                return Err(stale_plan("get-stock-object-plan-stale"));
-            }
-            let RuntimeGdiObjectKind::StockBrush { index, .. } = &plan.object.object else {
-                return Err(stale_plan("get-stock-object-plan-stale"));
-            };
-            if self.stock_object_index.contains_key(index) {
-                return Err(stale_plan("get-stock-object-plan-stale"));
-            }
-            self.stock_object_index.insert(*index, plan.object.id);
-            self.object_handle_index
-                .insert(plan.object.handle, plan.object.id);
-            self.objects.insert(plan.object.id, plan.object.clone());
-            self.next_object_id = plan.next_object_id;
-            self.next_object_handle = plan.next_object_handle;
-            self.generation = plan.next_generation;
-        }
-        Ok(RuntimeGetStockObjectResult {
-            object_id: plan.object.id,
-            handle: plan.object.handle,
-            already_created: plan.already_created,
-        })
-    }
-
-    pub(super) fn plan_create_font_a(
-        &self,
         log_font: RuntimeLogFontA,
-    ) -> Result<RuntimeCreateFontAPlan, RuntimeStateError> {
+    ) -> Result<Option<u32>, RuntimeStateError> {
         validate_log_font_a(&log_font)?;
-        let allocation = self.plan_object_allocation()?;
-        Ok(RuntimeCreateFontAPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            object: RuntimeGdiObject {
-                id: allocation.id,
-                handle: allocation.handle,
-                namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
-                shared: false,
-                object: RuntimeGdiObjectKind::FontA { log_font },
-            },
-            next_object_id: allocation.next_id,
-            next_object_handle: allocation.next_handle,
-        })
+        let Some(allocation) = self.try_plan_object_allocation()? else {
+            return Ok(None);
+        };
+
+        let object = RuntimeGdiObject {
+            id: allocation.id,
+            handle: allocation.handle,
+            shared: false,
+            object: RuntimeGdiObjectKind::FontA { log_font },
+        };
+        self.object_handle_index.insert(object.handle, object.id);
+        self.objects.insert(object.id, object);
+        self.next_object_id = allocation.next_id;
+        self.next_object_handle = allocation.next_handle;
+
+        Ok(Some(allocation.handle))
     }
 
-    pub(super) fn commit_create_font_a(
+    pub(super) fn create_dib_section(
         &mut self,
-        plan: RuntimeCreateFontAPlan,
-    ) -> Result<RuntimeCreateFontAResult, RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.next_object_id != plan.object.id.0
-            || self.next_object_handle != plan.object.handle
-            || self.objects.contains_key(&plan.object.id)
-            || self.object_handle_index.contains_key(&plan.object.handle)
-        {
-            return Err(stale_plan("create-font-a-plan-stale"));
-        }
-        let RuntimeGdiObjectKind::FontA { ref log_font } = plan.object.object else {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "create-font-a-plan-kind-invalid",
-                "logical font creation plan does not contain a font object",
-            ));
-        };
-        validate_log_font_a(log_font)?;
-        let result = RuntimeCreateFontAResult {
-            object_id: plan.object.id,
-            handle: plan.object.handle,
-        };
-        self.object_handle_index
-            .insert(plan.object.handle, plan.object.id);
-        self.objects.insert(plan.object.id, plan.object);
-        self.next_object_id = plan.next_object_id;
-        self.next_object_handle = plan.next_object_handle;
-        self.generation = plan.next_generation;
-        Ok(result)
-    }
-
-    pub(super) fn plan_create_dib_section(
-        &self,
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
         descriptor: RuntimeGdiDibSectionDescriptor,
         address_allocation_id: ProcessAddressAllocationId,
         backing_range: GuestRange,
-    ) -> Result<RuntimeCreateDibSectionPlan, RuntimeStateError> {
+        install_memory: impl FnOnce() -> Result<Option<MemoryOwnerId>, RuntimeStateError>,
+    ) -> Result<Option<u32>, RuntimeStateError> {
         validate_dib_section_descriptor(&descriptor)?;
         validate_dib_section_backing_shape(&descriptor, address_allocation_id, backing_range)?;
-        let source_device_context = self
-            .device_context_by_handle(device_context_handle)?
-            .clone();
+        let source_device_context = self.device_context_by_handle(device_context_handle)?;
         if !matches!(
             source_device_context.target,
             RuntimeDeviceContextTarget::Memory { .. }
         ) || source_device_context.owner_thread_id != thread_id
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "dib-section-device-context-relation-mismatch",
+            return Err(RuntimeStateError::new(
                 "CreateDIBSection requires a live compatible memory DC owned by the current guest thread",
             ));
         }
-        self.validate_memory_dc_selections(&source_device_context)?;
+        self.validate_memory_dc_selections(source_device_context)?;
         if self.objects.values().any(|object| {
             matches!(
                 &object.object,
                 RuntimeGdiObjectKind::DibSection { backing, .. }
-                    if backing.address_allocation_id == address_allocation_id
-                        || backing.range == backing_range
+                    if backing.address_allocation_id == address_allocation_id || backing.range == backing_range
             )
         }) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "dib-section-backing-collision",
-                "logical DIB section allocator selected live guest backing",
+            return Err(RuntimeStateError::new("logical DIB section allocator selected live guest backing",
             ));
         }
-        let allocation = self.plan_object_allocation()?;
-        Ok(RuntimeCreateDibSectionPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            source_device_context,
-            object_id: allocation.id,
-            handle: allocation.handle,
-            descriptor,
-            address_allocation_id,
-            backing_range,
-            next_object_id: allocation.next_id,
-            next_object_handle: allocation.next_handle,
-        })
-    }
-
-    pub(super) fn preflight_create_dib_section(
-        &self,
-        plan: &RuntimeCreateDibSectionPlan,
-        memory_owner: MemoryOwnerId,
-    ) -> Result<(), RuntimeStateError> {
-        if memory_owner.0 == 0
-            || self.generation != plan.expected_generation
-            || self.next_object_id != plan.object_id.0
-            || self.next_object_handle != plan.handle
-            || self.objects.contains_key(&plan.object_id)
-            || self.object_handle_index.contains_key(&plan.handle)
-            || self.device_contexts.get(&plan.source_device_context.id)
-                != Some(&plan.source_device_context)
-            || self
-                .device_context_handle_index
-                .get(&plan.source_device_context.handle)
-                != Some(&plan.source_device_context.id)
-            || self.objects.values().any(|object| {
-                matches!(
-                    &object.object,
-                    RuntimeGdiObjectKind::DibSection { backing, .. }
-                        if backing.address_allocation_id == plan.address_allocation_id
-                            || backing.range == plan.backing_range
-                )
-            })
-        {
-            return Err(stale_plan("create-dib-section-plan-stale"));
-        }
-        validate_dib_section_descriptor(&plan.descriptor)?;
-        validate_dib_section_backing_shape(
-            &plan.descriptor,
-            plan.address_allocation_id,
-            plan.backing_range,
-        )?;
-        self.validate_memory_dc_selections(&plan.source_device_context)
-    }
-
-    pub(super) fn commit_create_dib_section(
-        &mut self,
-        plan: RuntimeCreateDibSectionPlan,
-        memory_owner: MemoryOwnerId,
-    ) -> Result<RuntimeCreateDibSectionResult, RuntimeStateError> {
-        self.preflight_create_dib_section(&plan, memory_owner)?;
-        let backing = RuntimeGdiDibSectionBacking {
-            address_allocation_id: plan.address_allocation_id,
-            memory_owner,
-            range: plan.backing_range,
-            content_generation: 0,
+        let Some(allocation) = self.try_plan_object_allocation()? else {
+            return Ok(None);
         };
-        let result = RuntimeCreateDibSectionResult {
-            object_id: plan.object_id,
-            handle: plan.handle,
-            bits_address: plan.backing_range.start(),
-            backing,
+        let Some(memory_owner) = install_memory()? else {
+            return Ok(None);
         };
+
         let object = RuntimeGdiObject {
-            id: plan.object_id,
-            handle: plan.handle,
-            namespace: LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE.to_owned(),
+            id: allocation.id,
+            handle: allocation.handle,
             shared: false,
             object: RuntimeGdiObjectKind::DibSection {
-                descriptor: plan.descriptor,
-                backing,
+                descriptor,
+                backing: RuntimeGdiDibSectionBacking {
+                    address_allocation_id,
+                    memory_owner,
+                    range: backing_range,
+                    content_generation: 0,
+                },
             },
         };
         self.object_handle_index.insert(object.handle, object.id);
         self.objects.insert(object.id, object);
-        self.next_object_id = plan.next_object_id;
-        self.next_object_handle = plan.next_object_handle;
-        self.generation = plan.next_generation;
-        Ok(result)
+        self.next_object_id = allocation.next_id;
+        self.next_object_handle = allocation.next_handle;
+
+        Ok(Some(allocation.handle))
     }
 
-    pub(super) fn plan_select_object(
-        &self,
+    pub(super) fn select_object(
+        &mut self,
         device_context_handle: u32,
         object_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeSelectGdiObjectPlan, RuntimeStateError> {
-        let device_context = self
-            .device_context_by_handle(device_context_handle)?
-            .clone();
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        let Some(device_context) = self.device_context_option(device_context_handle)? else {
+            return Ok(None);
+        };
         if !matches!(
             device_context.target,
             RuntimeDeviceContextTarget::Memory { .. }
         ) || device_context.owner_thread_id != thread_id
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "select-object-device-context-relation-mismatch",
-                "SelectObject requires a compatible memory DC owned by the current guest thread",
-            ));
+            return Ok(None);
         }
-        self.validate_memory_dc_selections(&device_context)?;
-        let selected_object = self.object_by_handle(object_handle)?.clone();
+        self.validate_memory_dc_selections(device_context)?;
+        let Some(selected_object) = self.object_option(object_handle)? else {
+            return Ok(None);
+        };
         let (slot, previous_id) = match &selected_object.object {
             RuntimeGdiObjectKind::StockFont { .. } | RuntimeGdiObjectKind::FontA { .. } => (
                 RuntimeGdiSelectionSlot::Font,
@@ -1715,197 +876,115 @@ impl RuntimeGdi {
                     .expect("validated memory DC has a selected bitmap"),
             ),
             RuntimeGdiObjectKind::StockBrush { .. } => {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-gdi",
-                    "select-object-kind-unsupported",
-                    "SelectObject currently supports logical font and bitmap objects",
-                ));
+                return Ok(None);
             }
         };
-        let previous_object = self.objects.get(&previous_id).cloned().ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "selected-object-identity-dangling",
-                "logical memory DC selection does not resolve to a live object",
-            )
+        let previous_object = self.objects.get(&previous_id).ok_or_else(|| {
+            RuntimeStateError::new("logical memory DC selection does not resolve to a live object")
         })?;
-        let changed = previous_object.id != selected_object.id;
-        Ok(RuntimeSelectGdiObjectPlan {
-            expected_generation: self.generation,
-            next_generation: if changed {
-                checked_next_generation(self.generation)?
-            } else {
-                self.generation
-            },
-            next_selection_generation: if changed {
-                device_context
-                    .selection_generation
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        RuntimeStateError::resource_limit(
-                            "runtime-gdi",
-                            "selection-generation-exhausted",
-                            "logical memory DC selection generation is exhausted",
-                        )
-                    })?
-            } else {
-                device_context.selection_generation
-            },
-            device_context,
-            selected_object,
-            previous_object,
-            slot,
-        })
-    }
-
-    pub(super) fn commit_select_object(
-        &mut self,
-        plan: RuntimeSelectGdiObjectPlan,
-    ) -> Result<RuntimeSelectGdiObjectResult, RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.device_contexts.get(&plan.device_context.id) != Some(&plan.device_context)
-            || self
-                .device_context_handle_index
-                .get(&plan.device_context.handle)
-                != Some(&plan.device_context.id)
-            || self.objects.get(&plan.selected_object.id) != Some(&plan.selected_object)
-            || self.objects.get(&plan.previous_object.id) != Some(&plan.previous_object)
-        {
-            return Err(stale_plan("select-object-plan-stale"));
-        }
-        let previous_id = match plan.slot {
-            RuntimeGdiSelectionSlot::Font => plan.device_context.selected_font_id,
-            RuntimeGdiSelectionSlot::Bitmap => plan.device_context.selected_bitmap_id,
+        let changed = previous_id != selected_object.id;
+        let selection_generation = if changed {
+            device_context
+                .selection_generation
+                .checked_add(1)
+                .ok_or_else(|| {
+                    RuntimeStateError::new("logical memory DC selection generation is exhausted")
+                })?
+        } else {
+            device_context.selection_generation
         };
-        if previous_id != Some(plan.previous_object.id) {
-            return Err(stale_plan("select-object-plan-stale"));
-        }
-        let changed = plan.previous_object.id != plan.selected_object.id;
+        let device_context_id = device_context.id;
+        let selected_object_id = selected_object.id;
+        let previous_handle = previous_object.handle;
         if changed {
             let device_context = self
                 .device_contexts
-                .get_mut(&plan.device_context.id)
-                .expect("preflighted memory DC disappeared");
-            match plan.slot {
+                .get_mut(&device_context_id)
+                .expect("validated memory DC disappeared");
+            match slot {
                 RuntimeGdiSelectionSlot::Font => {
-                    device_context.selected_font_id = Some(plan.selected_object.id);
+                    device_context.selected_font_id = Some(selected_object_id)
                 }
                 RuntimeGdiSelectionSlot::Bitmap => {
-                    device_context.selected_bitmap_id = Some(plan.selected_object.id);
+                    device_context.selected_bitmap_id = Some(selected_object_id)
                 }
             }
-            device_context.selection_generation = plan.next_selection_generation;
-            self.generation = plan.next_generation;
+            device_context.selection_generation = selection_generation;
         }
-        Ok(RuntimeSelectGdiObjectResult {
-            device_context_id: plan.device_context.id,
-            selected_object_id: plan.selected_object.id,
-            selected_handle: plan.selected_object.handle,
-            previous_object_id: plan.previous_object.id,
-            previous_handle: plan.previous_object.handle,
-            selection_generation: plan.next_selection_generation,
-            changed,
-        })
+        Ok(Some(previous_handle))
     }
 
-    pub(super) fn plan_delete_object(
+    fn validate_delete_object(
         &self,
         object_handle: u32,
-    ) -> Result<RuntimeDeleteGdiObjectPlan, RuntimeStateError> {
-        let object = self.object_by_handle(object_handle)?.clone();
+    ) -> Result<Option<&RuntimeGdiObject>, RuntimeStateError> {
+        let Some(object) = self.object_option(object_handle)? else {
+            return Ok(None);
+        };
         if object.shared {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "delete-object-shared",
-                "shared logical GDI objects cannot be deleted",
-            ));
+            return Ok(None);
         }
         if self.device_contexts.values().any(|device_context| {
             device_context.selected_font_id == Some(object.id)
                 || device_context.selected_bitmap_id == Some(object.id)
         }) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "delete-object-selected",
-                "logical GDI object must be restored out of every DC before deletion",
-            ));
+            return Ok(None);
         }
         if !matches!(
             &object.object,
             RuntimeGdiObjectKind::FontA { .. } | RuntimeGdiObjectKind::DibSection { .. }
         ) {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "delete-object-kind-unsupported",
-                "DeleteObject currently supports logical FontA and DIB section objects",
-            ));
+            return Ok(None);
         }
-        Ok(RuntimeDeleteGdiObjectPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            object,
-        })
+
+        Ok(Some(object))
     }
 
-    pub(super) fn preflight_delete_object(
-        &self,
-        plan: &RuntimeDeleteGdiObjectPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.objects.get(&plan.object.id) != Some(&plan.object)
-            || self.object_handle_index.get(&plan.object.handle) != Some(&plan.object.id)
-            || plan.object.shared
-            || self.device_contexts.values().any(|device_context| {
-                device_context.selected_font_id == Some(plan.object.id)
-                    || device_context.selected_bitmap_id == Some(plan.object.id)
-            })
-        {
-            return Err(stale_plan("delete-object-plan-stale"));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_delete_object(
+    pub(super) fn delete_object(
         &mut self,
-        plan: RuntimeDeleteGdiObjectPlan,
-    ) -> Result<RuntimeGdiObject, RuntimeStateError> {
-        self.preflight_delete_object(&plan)?;
-        self.object_handle_index.remove(&plan.object.handle);
+        object_handle: u32,
+        release_backing: impl FnOnce(&RuntimeGdiObject) -> Result<(), RuntimeStateError>,
+    ) -> Result<Option<RuntimeGdiObject>, RuntimeStateError> {
+        let Some(object) = self.validate_delete_object(object_handle)? else {
+            return Ok(None);
+        };
+        let object_id = object.id;
+        release_backing(object)?;
+
+        self.object_handle_index.remove(&object_handle);
         let object = self
             .objects
-            .remove(&plan.object.id)
-            .expect("preflighted logical GDI object disappeared");
-        self.generation = plan.next_generation;
-        Ok(object)
+            .remove(&object_id)
+            .expect("validated logical GDI object disappeared");
+
+        Ok(Some(object))
     }
 
     pub(super) fn object_bytes(
         &self,
         object_handle: u32,
         requested_byte_length: u32,
-    ) -> Result<Vec<u8>, RuntimeStateError> {
-        let object = self.object_by_handle(object_handle)?;
+    ) -> Result<Option<Vec<u8>>, RuntimeStateError> {
+        let Some(object) = self.object_option(object_handle)? else {
+            return Ok(None);
+        };
         match &object.object {
             RuntimeGdiObjectKind::FontA { log_font }
                 if requested_byte_length == RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32 =>
             {
-                Ok(log_font.to_bytes()?.to_vec())
+                Ok(Some(log_font.to_bytes()?.to_vec()))
             }
             RuntimeGdiObjectKind::DibSection {
                 descriptor,
                 backing,
-            } if requested_byte_length == RUNTIME_GDI_BITMAP_BYTE_LENGTH as u32 => {
-                Ok(descriptor.bitmap_bytes(backing.range.start())?.to_vec())
-            }
+            } if requested_byte_length == RUNTIME_GDI_BITMAP_BYTE_LENGTH as u32 => Ok(Some(
+                descriptor.bitmap_bytes(backing.range.start())?.to_vec(),
+            )),
             RuntimeGdiObjectKind::StockBrush { .. }
             | RuntimeGdiObjectKind::StockFont { .. }
             | RuntimeGdiObjectKind::StockBitmap { .. }
             | RuntimeGdiObjectKind::FontA { .. }
-            | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "get-object-a-variant-unsupported",
-                "GetObjectA request does not match the reached FontA or DIB BITMAP shape",
-            )),
+            | RuntimeGdiObjectKind::DibSection { .. } => Ok(None),
         }
     }
 
@@ -1913,16 +992,14 @@ impl RuntimeGdi {
         &self,
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeLogFontA, RuntimeStateError> {
+    ) -> Result<&RuntimeLogFontA, RuntimeStateError> {
         let device_context = self.device_context_by_handle(device_context_handle)?;
         if !matches!(
             device_context.target,
             RuntimeDeviceContextTarget::Memory { .. }
         ) || device_context.owner_thread_id != thread_id
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "outline-text-metrics-device-context-relation-mismatch",
+            return Err(RuntimeStateError::new(
                 "GetOutlineTextMetricsA requires a compatible memory DC owned by the current guest thread",
             ));
         }
@@ -1931,24 +1008,18 @@ impl RuntimeGdi {
             .selected_font_id
             .expect("validated memory DC has a selected font");
         let font = self.objects.get(&font_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "outline-text-metrics-selected-font-dangling",
+            RuntimeStateError::new(
                 "logical memory DC selected font does not resolve to a live object",
             )
         })?;
         match &font.object {
-            RuntimeGdiObjectKind::FontA { log_font } => Ok(log_font.clone()),
-            RuntimeGdiObjectKind::StockFont { .. } => Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "outline-text-metrics-selected-font-unsupported",
-                "GetOutlineTextMetricsA currently supports the evidenced created FontA selection",
+            RuntimeGdiObjectKind::FontA { log_font } => Ok(log_font),
+            RuntimeGdiObjectKind::StockFont { .. } => Err(RuntimeStateError::new(
+                "GetOutlineTextMetricsA requires a supported created FontA selection",
             )),
             RuntimeGdiObjectKind::StockBrush { .. }
             | RuntimeGdiObjectKind::StockBitmap { .. }
-            | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "outline-text-metrics-selected-object-kind-invalid",
+            | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::new(
                 "logical memory DC font selection resolved to a non-font object",
             )),
         }
@@ -1958,18 +1029,16 @@ impl RuntimeGdi {
         &self,
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeGdiTextRasterTarget, RuntimeStateError> {
-        let device_context = self.device_context_by_handle(device_context_handle)?;
+    ) -> Result<Option<RuntimeGdiTextRasterTarget>, RuntimeStateError> {
+        let Some(device_context) = self.device_context_option(device_context_handle)? else {
+            return Ok(None);
+        };
         if !matches!(
             device_context.target,
             RuntimeDeviceContextTarget::Memory { .. }
         ) || device_context.owner_thread_id != thread_id
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "text-raster-device-context-relation-mismatch",
-                "text rasterization requires a compatible memory DC owned by the current guest thread",
-            ));
+            return Ok(None);
         }
         self.validate_memory_dc_selections(device_context)?;
         let font_id = device_context
@@ -1979,23 +1048,17 @@ impl RuntimeGdi {
             .selected_bitmap_id
             .expect("validated memory DC has a selected bitmap");
         let font = self.objects.get(&font_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "text-raster-selected-font-dangling",
+            RuntimeStateError::new(
                 "logical memory DC selected font does not resolve to a live object",
             )
         })?;
         let bitmap = self.objects.get(&bitmap_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "text-raster-selected-bitmap-dangling",
+            RuntimeStateError::new(
                 "logical memory DC selected bitmap does not resolve to a live object",
             )
         })?;
         let RuntimeGdiObjectKind::FontA { log_font } = &font.object else {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "text-raster-selected-font-unsupported",
+            return Err(RuntimeStateError::new(
                 "text rasterization requires an explicitly created FontA object",
             ));
         };
@@ -2004,13 +1067,11 @@ impl RuntimeGdi {
             backing,
         } = &bitmap.object
         else {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "text-raster-selected-bitmap-unsupported",
+            return Err(RuntimeStateError::new(
                 "text rasterization requires a selected DIB section",
             ));
         };
-        Ok(RuntimeGdiTextRasterTarget {
+        Ok(Some(RuntimeGdiTextRasterTarget {
             device_context_id: device_context.id,
             device_context_handle: device_context.handle,
             owner_thread_id: device_context.owner_thread_id,
@@ -2022,86 +1083,54 @@ impl RuntimeGdi {
             dib_section_handle: bitmap.handle,
             descriptor: descriptor.clone(),
             backing: *backing,
-        })
+        }))
     }
 
-    pub(super) fn plan_text_raster_commit(
+    pub(super) fn validate_text_raster_completion(
         &self,
-        expected_target: RuntimeGdiTextRasterTarget,
-    ) -> Result<RuntimeGdiTextRasterPlan, RuntimeStateError> {
-        let current = self.text_raster_target(
-            expected_target.device_context_handle,
-            expected_target.owner_thread_id,
-        )?;
-        if current != expected_target {
-            return Err(stale_plan("text-raster-plan-stale"));
+        target: &RuntimeGdiTextRasterTarget,
+    ) -> Result<(), RuntimeStateError> {
+        let current = self
+            .text_raster_target(target.device_context_handle, target.owner_thread_id)?
+            .ok_or_else(|| {
+                RuntimeStateError::new(
+                    "pending text raster device context is no longer live or owned by its thread",
+                )
+            })?;
+        if &current != target {
+            return Err(RuntimeStateError::new(
+                "selected text raster target changed while browser rasterization was pending",
+            ));
         }
-        let next_content_generation = expected_target
+        target
             .backing
             .content_generation
             .checked_add(1)
             .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-gdi",
-                    "text-raster-content-generation-exhausted",
-                    "logical DIB text content generation is exhausted",
-                )
+                RuntimeStateError::new("logical DIB text content generation is exhausted")
             })?;
-        Ok(RuntimeGdiTextRasterPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            target: expected_target,
-            next_content_generation,
-        })
-    }
 
-    pub(super) fn preflight_text_raster_commit(
-        &self,
-        plan: &RuntimeGdiTextRasterPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.text_raster_target(
-                plan.target.device_context_handle,
-                plan.target.owner_thread_id,
-            )? != plan.target
-        {
-            return Err(stale_plan("text-raster-plan-stale"));
-        }
         Ok(())
     }
 
-    pub(super) fn commit_text_raster(
-        &mut self,
-        plan: RuntimeGdiTextRasterPlan,
-    ) -> Result<RuntimeGdiTextRasterResult, RuntimeStateError> {
-        self.preflight_text_raster_commit(&plan)?;
+    pub(super) fn publish_text_raster_completion(&mut self, target: &RuntimeGdiTextRasterTarget) {
         let bitmap = self
             .objects
-            .get_mut(&plan.target.dib_section_id)
-            .expect("preflighted DIB section disappeared");
+            .get_mut(&target.dib_section_id)
+            .expect("validated live DIB section");
         let RuntimeGdiObjectKind::DibSection { backing, .. } = &mut bitmap.object else {
-            unreachable!("preflighted text raster bitmap changed kind")
+            unreachable!("validated text raster bitmap kind")
         };
-        backing.content_generation = plan.next_content_generation;
-        self.generation = plan.next_generation;
-        Ok(RuntimeGdiTextRasterResult {
-            device_context_id: plan.target.device_context_id,
-            font_id: plan.target.font_id,
-            dib_section_id: plan.target.dib_section_id,
-            selection_generation: plan.target.selection_generation,
-            content_generation: plan.next_content_generation,
-        })
+        backing.content_generation += 1;
     }
 
-    pub(super) fn plan_release_dc(
-        &self,
+    pub(super) fn release_window_dc(
+        &mut self,
         window_handle: u32,
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeReleaseDcPlan, RuntimeStateError> {
-        let device_context = self
-            .device_context_by_handle(device_context_handle)?
-            .clone();
+    ) -> Result<(), RuntimeStateError> {
+        let device_context = self.device_context_by_handle(device_context_handle)?;
         if !matches!(
             device_context.target,
             RuntimeDeviceContextTarget::Window {
@@ -2110,29 +1139,27 @@ impl RuntimeGdi {
             } if acquired_window_handle == window_handle
         ) || device_context.owner_thread_id != thread_id
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "device-context-relation-mismatch",
+            return Err(RuntimeStateError::new(
                 "ReleaseDC requires the exact HWND, HDC, and acquiring guest thread relation",
             ));
         }
-        Ok(RuntimeReleaseDcPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_context,
-        })
+        self.remove_device_context(device_context_handle)
     }
 
-    pub(super) fn plan_release_graphics_surface_dc(
-        &self,
+    pub(super) fn release_graphics_surface_dc(
+        &mut self,
         target: RuntimeGdiGraphicsSurfaceTarget,
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeReleaseDcPlan, RuntimeStateError> {
+    ) -> Result<bool, RuntimeStateError> {
         validate_graphics_surface_target(target)?;
-        let device_context = self
-            .device_context_by_handle(device_context_handle)?
-            .clone();
+        if !self
+            .device_context_handle_index
+            .contains_key(&device_context_handle)
+        {
+            return Ok(false);
+        }
+        let device_context = self.device_context_by_handle(device_context_handle)?;
         if device_context.owner_thread_id != thread_id
             || device_context.target
                 != (RuntimeDeviceContextTarget::GraphicsSurface {
@@ -2144,59 +1171,39 @@ impl RuntimeGdi {
                 })
             || self.graphics_surface_dc_index.get(&target.surface_id) != Some(&device_context.id)
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "graphics-surface-dc-relation-mismatch",
-                "ReleaseDC requires the exact graphics surface, HDC, and acquiring guest thread relation",
-            ));
+            return Ok(false);
         }
-        Ok(RuntimeReleaseDcPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_context,
-        })
+        self.remove_device_context(device_context_handle)?;
+        Ok(true)
     }
 
-    pub(super) fn plan_release_screen_dc(
-        &self,
+    pub(super) fn release_screen_dc(
+        &mut self,
         target: RuntimeGdiScreenTarget,
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeReleaseDcPlan, RuntimeStateError> {
-        let device_context =
-            self.validate_screen_dc_access(target, device_context_handle, thread_id)?;
-        Ok(RuntimeReleaseDcPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_context,
-        })
+    ) -> Result<(), RuntimeStateError> {
+        self.validate_screen_dc_access(target, device_context_handle, thread_id)?;
+        self.remove_device_context(device_context_handle)
     }
 
-    pub(super) fn plan_delete_compatible_dc(
-        &self,
+    pub(super) fn delete_compatible_dc(
+        &mut self,
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeReleaseDcPlan, RuntimeStateError> {
-        let device_context = self
-            .device_context_by_handle(device_context_handle)?
-            .clone();
+    ) -> Result<(), RuntimeStateError> {
+        let device_context = self.device_context_by_handle(device_context_handle)?;
         if !matches!(
             device_context.target,
             RuntimeDeviceContextTarget::Memory { .. }
         ) || device_context.owner_thread_id != thread_id
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "delete-dc-relation-mismatch",
+            return Err(RuntimeStateError::new(
                 "DeleteDC requires a compatible memory DC owned by the current guest thread",
             ));
         }
-        self.validate_memory_dc_selections(&device_context)?;
-        Ok(RuntimeReleaseDcPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_context,
-        })
+        self.validate_memory_dc_selections(device_context)?;
+        self.remove_device_context(device_context_handle)
     }
 
     pub(super) fn validate_screen_dc_access(
@@ -2204,11 +1211,9 @@ impl RuntimeGdi {
         target: RuntimeGdiScreenTarget,
         device_context_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeDeviceContext, RuntimeStateError> {
+    ) -> Result<(), RuntimeStateError> {
         validate_screen_target(target)?;
-        let device_context = self
-            .device_context_by_handle(device_context_handle)?
-            .clone();
+        let device_context = self.device_context_by_handle(device_context_handle)?;
         if target.owner_thread_id != thread_id
             || device_context.owner_thread_id != thread_id
             || device_context.target
@@ -2217,365 +1222,187 @@ impl RuntimeGdi {
                     rect: target.rect,
                 })
         {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "screen-device-context-relation-mismatch",
+            return Err(RuntimeStateError::new(
                 "screen GDI access requires the exact HDC, primary monitor, and acquiring guest thread relation",
             ));
         }
-        Ok(device_context)
-    }
-
-    pub(super) fn commit_release_dc(
-        &mut self,
-        plan: RuntimeReleaseDcPlan,
-    ) -> Result<(), RuntimeStateError> {
-        self.preflight_release_dc(&plan)?;
-        self.commit_preflighted_release_dc(plan);
         Ok(())
     }
 
-    pub(super) fn preflight_release_dc(
-        &self,
-        plan: &RuntimeReleaseDcPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.device_contexts.get(&plan.device_context.id) != Some(&plan.device_context)
-            || self
-                .device_context_handle_index
-                .get(&plan.device_context.handle)
-                != Some(&plan.device_context.id)
-        {
-            return Err(stale_plan("release-dc-plan-stale"));
-        }
+    fn remove_device_context(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
+        let device_context = self.device_context_by_handle(handle)?;
+        let id = device_context.id;
         if let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
-            plan.device_context.target
-            && self.graphics_surface_dc_index.get(&surface_id) != Some(&plan.device_context.id)
+            device_context.target
+            && self.graphics_surface_dc_index.get(&surface_id) != Some(&device_context.id)
         {
-            return Err(stale_plan("release-dc-plan-stale"));
+            return Err(RuntimeStateError::new(
+                "graphics surface HDC association disagrees with the live device context",
+            ));
         }
-        Ok(())
-    }
+        let surface_id = match device_context.target {
+            RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } => Some(surface_id),
+            _ => None,
+        };
 
-    pub(super) fn commit_preflighted_release_dc(&mut self, plan: RuntimeReleaseDcPlan) {
-        debug_assert!(self.preflight_release_dc(&plan).is_ok());
-        if let RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } =
-            plan.device_context.target
-        {
+        if let Some(surface_id) = surface_id {
             self.graphics_surface_dc_index.remove(&surface_id);
         }
-        self.device_contexts.remove(&plan.device_context.id);
-        self.device_context_handle_index
-            .remove(&plan.device_context.handle);
-        self.generation = plan.next_generation;
+        self.device_contexts.remove(&id);
+        self.device_context_handle_index.remove(&handle);
+
+        Ok(())
     }
 
-    pub(super) fn plan_fill_rect(
-        &self,
+    pub(super) fn fill_rect(
+        &mut self,
         device_context_handle: u32,
         rect: RuntimeRect,
         brush_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeFillRectPlan, RuntimeStateError> {
-        let device_context = self
-            .device_context_by_handle(device_context_handle)?
-            .clone();
+    ) -> Result<(), RuntimeStateError> {
+        let device_context = self.device_context_by_handle(device_context_handle)?;
         if device_context.owner_thread_id != thread_id {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "device-context-thread-mismatch",
+            return Err(RuntimeStateError::new(
                 "FillRect requires the guest thread that acquired the logical HDC",
             ));
         }
         let RuntimeDeviceContextTarget::Window { surface_id, .. } = device_context.target else {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "fill-rect-target-mismatch",
-                "window FillRect planning received a non-window HDC",
+            return Err(RuntimeStateError::new(
+                "window FillRect received a non-window HDC",
             ));
         };
-        let brush_id = self
-            .object_handle_index
-            .get(&brush_handle)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-gdi",
-                    "gdi-object-handle-unknown",
-                    format!("logical GDI object {brush_handle:#010x} is not live"),
-                )
-            })?;
-        let brush = self.objects.get(&brush_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "gdi-object-handle-index-dangling",
-                "logical GDI object handle index does not resolve to a live object",
-            )
-        })?;
+        let brush = self.object_by_handle(brush_handle)?;
         let RuntimeGdiObjectKind::StockBrush { color_ref, .. } = &brush.object else {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "fill-rect-object-not-brush",
+            return Err(RuntimeStateError::new(
                 "FillRect requires a logical brush object",
             ));
         };
         let surface = self.surfaces.get(&surface_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "device-context-surface-dangling",
-                "logical HDC does not resolve to its window surface",
-            )
+            RuntimeStateError::new("logical HDC does not resolve to its window surface")
         })?;
         validate_fill_rect(rect, surface)?;
         let empty = rect.left == rect.right || rect.top == rect.bottom;
         if !empty && surface.fills.len() >= RUNTIME_GDI_SURFACE_FILL_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "surface-fill-capacity-exhausted",
+            return Err(RuntimeStateError::new(
                 "logical GDI surface fill history capacity is exhausted",
             ));
         }
         let fill = (!empty).then_some(RuntimeGdiSurfaceFill {
-            sequence: self.next_fill_sequence,
             rect,
-            brush_id,
             color_ref: *color_ref,
         });
-        let (next_generation, next_surface_generation, next_fill_sequence) = if fill.is_some() {
-            (
-                checked_next_generation(self.generation)?,
-                surface.generation.checked_add(1).ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-gdi",
-                        "surface-generation-exhausted",
-                        "logical GDI surface generation is exhausted",
-                    )
-                })?,
-                checked_next_identity(self.next_fill_sequence, "surface-fill-sequence-exhausted")?,
-            )
-        } else {
-            (self.generation, surface.generation, self.next_fill_sequence)
-        };
-        Ok(RuntimeFillRectPlan {
-            expected_generation: self.generation,
-            next_generation,
-            device_context,
-            brush_id,
-            surface_generation: surface.generation,
-            next_surface_generation,
-            fill,
-            next_fill_sequence,
-        })
-    }
-
-    pub(super) fn commit_fill_rect(
-        &mut self,
-        plan: RuntimeFillRectPlan,
-    ) -> Result<RuntimeFillRectResult, RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.device_contexts.get(&plan.device_context.id) != Some(&plan.device_context)
-            || !self.objects.contains_key(&plan.brush_id)
-        {
-            return Err(stale_plan("fill-rect-plan-stale"));
-        }
-        let surface = self
-            .surfaces
-            .get_mut(&match plan.device_context.target {
-                RuntimeDeviceContextTarget::Window { surface_id, .. } => surface_id,
-                RuntimeDeviceContextTarget::Screen { .. }
-                | RuntimeDeviceContextTarget::Memory { .. }
-                | RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
-                    return Err(stale_plan("fill-rect-plan-stale"));
-                }
-            })
-            .ok_or_else(|| stale_plan("fill-rect-plan-stale"))?;
-        if surface.generation != plan.surface_generation {
-            return Err(stale_plan("fill-rect-plan-stale"));
-        }
-        if let Some(fill) = plan.fill {
-            if fill.sequence != self.next_fill_sequence
-                || surface.fills.len() >= RUNTIME_GDI_SURFACE_FILL_LIMIT
-                || surface.generation.checked_add(1) != Some(plan.next_surface_generation)
-            {
-                return Err(stale_plan("fill-rect-plan-stale"));
-            }
+        if let Some(fill) = fill {
+            let surface = self
+                .surfaces
+                .get_mut(&surface_id)
+                .expect("validated GDI surface");
             surface.fills.push(fill);
-            surface.generation = plan.next_surface_generation;
-            self.next_fill_sequence = plan.next_fill_sequence;
-            self.generation = plan.next_generation;
         }
-        Ok(RuntimeFillRectResult {
-            surface_id: surface.id,
-            surface_generation: surface.generation,
-            fill: plan.fill,
-        })
+        Ok(())
     }
 
-    pub(super) fn plan_graphics_surface_fill_rect(
+    pub(super) fn graphics_surface_fill_color(
         &self,
         device_context_handle: u32,
         rect: RuntimeRect,
         brush_handle: u32,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeGraphicsSurfaceFillRectPlan, RuntimeStateError> {
-        let device_context = self
-            .device_context_by_handle(device_context_handle)?
-            .clone();
+    ) -> Result<u32, RuntimeStateError> {
+        let device_context = self.device_context_by_handle(device_context_handle)?;
         if device_context.owner_thread_id != thread_id {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "device-context-thread-mismatch",
+            return Err(RuntimeStateError::new(
                 "FillRect requires the guest thread that acquired the logical HDC",
             ));
         }
         let RuntimeDeviceContextTarget::GraphicsSurface { width, height, .. } =
             device_context.target
         else {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "fill-rect-target-mismatch",
+            return Err(RuntimeStateError::new(
                 "graphics FillRect planning received a window HDC",
             ));
         };
-        let brush_id = self
-            .object_handle_index
-            .get(&brush_handle)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-gdi",
-                    "gdi-object-handle-unknown",
-                    format!("logical GDI object {brush_handle:#010x} is not live"),
-                )
-            })?;
-        let brush = self.objects.get(&brush_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "gdi-object-handle-index-dangling",
-                "logical GDI object handle index does not resolve to a live object",
-            )
-        })?;
+        let brush = self.object_by_handle(brush_handle)?;
         let RuntimeGdiObjectKind::StockBrush { color_ref, .. } = &brush.object else {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-gdi",
-                "fill-rect-object-not-brush",
+            return Err(RuntimeStateError::new(
                 "FillRect requires a logical brush object",
             ));
         };
         validate_fill_rect_bounds(rect, width, height)?;
-        Ok(RuntimeGraphicsSurfaceFillRectPlan {
-            expected_generation: self.generation,
-            device_context,
-            brush_id,
-            rect,
-            color_ref: *color_ref,
-        })
+        Ok(*color_ref)
     }
 
-    pub(super) fn preflight_graphics_surface_fill_rect(
+    pub(super) fn device_context_option(
         &self,
-        plan: &RuntimeGraphicsSurfaceFillRectPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.device_contexts.get(&plan.device_context.id) != Some(&plan.device_context)
-            || self
-                .device_context_handle_index
-                .get(&plan.device_context.handle)
-                != Some(&plan.device_context.id)
-            || !self.objects.contains_key(&plan.brush_id)
-        {
-            return Err(stale_plan("graphics-fill-rect-plan-stale"));
-        }
-        let RuntimeDeviceContextTarget::GraphicsSurface { width, height, .. } =
-            plan.device_context.target
-        else {
-            return Err(stale_plan("graphics-fill-rect-plan-stale"));
+        handle: u32,
+    ) -> Result<Option<&RuntimeDeviceContext>, RuntimeStateError> {
+        let Some(id) = self.device_context_handle_index.get(&handle).copied() else {
+            return Ok(None);
         };
-        validate_fill_rect_bounds(plan.rect, width, height)
+        let device_context = self.device_contexts.get(&id).ok_or_else(|| {
+            RuntimeStateError::new("logical HDC index does not resolve to a live device context")
+        })?;
+        if device_context.handle != handle || device_context.id != id {
+            return Err(RuntimeStateError::new(
+                "logical HDC index and device context identity disagree",
+            ));
+        }
+        Ok(Some(device_context))
     }
 
     pub fn device_context_by_handle(
         &self,
         handle: u32,
     ) -> Result<&RuntimeDeviceContext, RuntimeStateError> {
-        let id = self
-            .device_context_handle_index
-            .get(&handle)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-gdi",
-                    "device-context-handle-unknown",
-                    format!("logical HDC {handle:#010x} is not live"),
-                )
-            })?;
-        self.device_contexts.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "device-context-handle-index-dangling",
-                "logical HDC index does not resolve to a live device context",
-            )
+        self.device_context_option(handle)?.ok_or_else(|| {
+            RuntimeStateError::new(format!("logical HDC {handle:#010x} is not live"))
         })
+    }
+
+    pub(super) fn object_option(
+        &self,
+        handle: u32,
+    ) -> Result<Option<&RuntimeGdiObject>, RuntimeStateError> {
+        let Some(id) = self.object_handle_index.get(&handle).copied() else {
+            return Ok(None);
+        };
+        let object = self.objects.get(&id).ok_or_else(|| {
+            RuntimeStateError::new(
+                "logical GDI object handle index does not resolve to a live object",
+            )
+        })?;
+        if object.id != id || object.handle != handle {
+            return Err(RuntimeStateError::new(
+                "logical GDI object handle index disagrees with the object identity",
+            ));
+        }
+        Ok(Some(object))
     }
 
     pub fn object_by_handle(&self, handle: u32) -> Result<&RuntimeGdiObject, RuntimeStateError> {
-        let id = self
-            .object_handle_index
-            .get(&handle)
-            .copied()
-            .ok_or_else(|| {
-                RuntimeStateError::not_found(
-                    "runtime-gdi",
-                    "gdi-object-handle-unknown",
-                    format!("logical GDI object {handle:#010x} is not live"),
-                )
-            })?;
-        self.objects.get(&id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "gdi-object-handle-index-dangling",
-                "logical GDI object handle index does not resolve to a live object",
-            )
+        self.object_option(handle)?.ok_or_else(|| {
+            RuntimeStateError::new(format!("logical GDI object {handle:#010x} is not live"))
         })
     }
 
-    pub fn device_contexts(&self) -> &BTreeMap<RuntimeDeviceContextId, RuntimeDeviceContext> {
+    #[cfg(test)]
+    pub(crate) fn device_contexts(
+        &self,
+    ) -> &BTreeMap<RuntimeDeviceContextId, RuntimeDeviceContext> {
         &self.device_contexts
     }
 
-    pub fn objects(&self) -> &BTreeMap<RuntimeGdiObjectId, RuntimeGdiObject> {
+    #[cfg(test)]
+    pub(crate) fn objects(&self) -> &BTreeMap<RuntimeGdiObjectId, RuntimeGdiObject> {
         &self.objects
     }
 
-    pub fn surfaces(&self) -> &BTreeMap<RuntimeGdiSurfaceId, RuntimeGdiSurface> {
+    #[cfg(test)]
+    pub(crate) fn surfaces(&self) -> &BTreeMap<RuntimeGdiSurfaceId, RuntimeGdiSurface> {
         &self.surfaces
     }
 
-    pub(crate) fn plan_com_object_retirements(
-        &self,
-        com_object_ids: &BTreeSet<RuntimeComObjectId>,
-    ) -> Result<Option<RuntimeGdiComRetirementGuard>, RuntimeStateError> {
-        if com_object_ids.is_empty() {
-            return Ok(None);
-        }
-        self.reject_live_graphics_surface_dc_retirements(com_object_ids)?;
-        Ok(Some(RuntimeGdiComRetirementGuard {
-            expected_generation: self.generation,
-            retired_graphics_surface_objects: com_object_ids.clone(),
-        }))
-    }
-
-    pub(crate) fn preflight_com_object_retirements(
-        &self,
-        guard: &RuntimeGdiComRetirementGuard,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != guard.expected_generation {
-            return Err(stale_plan("gdi-com-retirement-guard-stale"));
-        }
-        self.reject_live_graphics_surface_dc_retirements(&guard.retired_graphics_surface_objects)
-    }
-
-    fn reject_live_graphics_surface_dc_retirements(
+    pub(crate) fn validate_com_object_retirements(
         &self,
         com_object_ids: &BTreeSet<RuntimeComObjectId>,
     ) -> Result<(), RuntimeStateError> {
@@ -2588,58 +1415,11 @@ impl RuntimeGdi {
                 } if com_object_ids.contains(&surface_com_object_id)
             )
         }) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-gdi",
-                "graphics-surface-dc-still-acquired",
+            return Err(RuntimeStateError::new(
                 "logical graphics surface cannot retire while its HDC is outstanding",
             ));
         }
         Ok(())
-    }
-
-    pub(super) fn plan_process_teardown(
-        &self,
-    ) -> Result<Option<RuntimeGdiTeardownPlan>, RuntimeStateError> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(RuntimeGdiTeardownPlan {
-            expected_generation: self.generation,
-            next_generation: checked_next_generation(self.generation)?,
-            device_contexts: self.device_contexts.len(),
-            objects: self.objects.len(),
-            surfaces: self.surfaces.len(),
-        }))
-    }
-
-    pub(super) fn preflight_process_teardown(
-        &self,
-        plan: &RuntimeGdiTeardownPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.generation != plan.expected_generation
-            || self.device_contexts.len() != plan.device_contexts
-            || self.objects.len() != plan.objects
-            || self.surfaces.len() != plan.surfaces
-        {
-            return Err(stale_plan("gdi-teardown-plan-stale"));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_process_teardown(&mut self, plan: RuntimeGdiTeardownPlan) {
-        self.device_contexts.clear();
-        self.device_context_handle_index.clear();
-        self.objects.clear();
-        self.object_handle_index.clear();
-        self.stock_object_index.clear();
-        self.surfaces.clear();
-        self.window_surface_index.clear();
-        self.graphics_surface_dc_index.clear();
-        self.generation = plan.next_generation;
-    }
-
-    pub(super) fn is_empty(&self) -> bool {
-        self.device_contexts.is_empty() && self.objects.is_empty() && self.surfaces.is_empty()
     }
 
     fn stock_object_by_index(
@@ -2649,30 +1429,34 @@ impl RuntimeGdi {
         let Some(object_id) = self.stock_object_index.get(&index) else {
             return Ok(None);
         };
-        self.objects.get(object_id).map(Some).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "stock-object-index-dangling",
-                "GDI stock object index does not resolve to a live object",
-            )
-        })
-    }
-
-    fn plan_resolves_default_object(
-        &self,
-        object_id: RuntimeGdiObjectId,
-        new_objects: &[RuntimeGdiObject],
-        validate: fn(&RuntimeGdiObject) -> Result<(), RuntimeStateError>,
-    ) -> Result<bool, RuntimeStateError> {
-        let object = new_objects
-            .iter()
-            .find(|object| object.id == object_id)
-            .or_else(|| self.objects.get(&object_id));
-        let Some(object) = object else {
-            return Ok(false);
+        let object = self.objects.get(object_id).ok_or_else(|| {
+            RuntimeStateError::new("GDI stock object index does not resolve to a live object")
+        })?;
+        let matching_index = match &object.object {
+            RuntimeGdiObjectKind::StockFont {
+                index: stored_index,
+            }
+            | RuntimeGdiObjectKind::StockBitmap {
+                index: stored_index,
+                ..
+            }
+            | RuntimeGdiObjectKind::StockBrush {
+                index: stored_index,
+                ..
+            } => *stored_index == index,
+            _ => false,
         };
-        validate(object)?;
-        Ok(true)
+        if object.id != *object_id || !object.shared || !matching_index {
+            return Err(RuntimeStateError::new(
+                "GDI stock object index does not match a shared live stock identity",
+            ));
+        }
+        if self.object_handle_index.get(&object.handle) != Some(object_id) {
+            return Err(RuntimeStateError::new(
+                "GDI stock object handle index does not resolve to the same object",
+            ));
+        }
+        Ok(Some(object))
     }
 
     fn validate_memory_dc_selections(
@@ -2680,56 +1464,44 @@ impl RuntimeGdi {
         device_context: &RuntimeDeviceContext,
     ) -> Result<(), RuntimeStateError> {
         let Some(font_id) = device_context.selected_font_id else {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "memory-dc-font-selection-missing",
+            return Err(RuntimeStateError::new(
                 "logical memory DC has no selected font identity",
             ));
         };
         let Some(bitmap_id) = device_context.selected_bitmap_id else {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "memory-dc-bitmap-selection-missing",
+            return Err(RuntimeStateError::new(
                 "logical memory DC has no selected bitmap identity",
             ));
         };
         let font = self.objects.get(&font_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "memory-dc-font-selection-dangling",
+            RuntimeStateError::new(
                 "logical memory DC selected font does not resolve to a live object",
             )
         })?;
         validate_selectable_font_object(font)?;
         let bitmap = self.objects.get(&bitmap_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "memory-dc-bitmap-selection-dangling",
+            RuntimeStateError::new(
                 "logical memory DC selected bitmap does not resolve to a live object",
             )
         })?;
         validate_selectable_bitmap_object(bitmap)
     }
 
-    fn plan_object_allocation(&self) -> Result<RuntimeGdiObjectAllocation, RuntimeStateError> {
-        self.plan_object_allocations(1)?
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-gdi",
-                    "gdi-object-allocation-missing",
-                    "single logical GDI object allocation plan is empty",
-                )
-            })
+    fn try_plan_object_allocation(
+        &self,
+    ) -> Result<Option<RuntimeGdiObjectAllocation>, RuntimeStateError> {
+        if self.objects.len() >= RUNTIME_GDI_OBJECT_LIMIT {
+            return Ok(None);
+        }
+        self.try_checked_object_allocation(self.next_object_id, self.next_object_handle)
     }
 
-    fn plan_object_allocations(
+    fn try_plan_object_allocations(
         &self,
         count: usize,
-    ) -> Result<Vec<RuntimeGdiObjectAllocation>, RuntimeStateError> {
+    ) -> Result<Option<Vec<RuntimeGdiObjectAllocation>>, RuntimeStateError> {
         if count == 0 {
-            return Ok(Vec::new());
+            return Ok(Some(Vec::new()));
         }
         if self
             .objects
@@ -2737,109 +1509,89 @@ impl RuntimeGdi {
             .checked_add(count)
             .is_none_or(|length| length > RUNTIME_GDI_OBJECT_LIMIT)
         {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "gdi-object-capacity-exhausted",
-                "logical GDI object capacity is exhausted",
-            ));
+            return Ok(None);
         }
         let mut allocations = Vec::with_capacity(count);
         let mut next_id = self.next_object_id;
         let mut next_handle = self.next_object_handle;
         for _ in 0..count {
-            let id = RuntimeGdiObjectId(next_id);
-            let handle = next_handle;
-            if self.objects.contains_key(&id)
-                || handle < RUNTIME_GDI_OBJECT_HANDLE_BASE
-                || self.object_handle_index.contains_key(&handle)
-            {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-gdi",
-                    "gdi-object-handle-allocator-invalid",
-                    "logical GDI object allocator is not at a free identity and handle pair",
-                ));
-            }
-            next_id = checked_next_identity(next_id, "gdi-object-identity-exhausted")?;
-            next_handle = handle.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-gdi",
-                    "gdi-object-handle-exhausted",
-                    "logical GDI object handle namespace is exhausted",
-                )
-            })?;
-            allocations.push(RuntimeGdiObjectAllocation {
-                id,
-                handle,
-                next_id,
-                next_handle,
-            });
+            let Some(allocation) = self.try_checked_object_allocation(next_id, next_handle)? else {
+                return Ok(None);
+            };
+            next_id = allocation.next_id;
+            next_handle = allocation.next_handle;
+            allocations.push(allocation);
         }
-        Ok(allocations)
+        Ok(Some(allocations))
+    }
+
+    fn try_checked_object_allocation(
+        &self,
+        next_id: u64,
+        handle: u32,
+    ) -> Result<Option<RuntimeGdiObjectAllocation>, RuntimeStateError> {
+        let id = RuntimeGdiObjectId(next_id);
+        if self.objects.contains_key(&id)
+            || handle < RUNTIME_GDI_OBJECT_HANDLE_BASE
+            || self.object_handle_index.contains_key(&handle)
+        {
+            return Err(RuntimeStateError::new(
+                "logical GDI object allocator is not at a free identity and handle pair",
+            ));
+        }
+        let (Some(next_id), Some(next_handle)) = (next_id.checked_add(1), handle.checked_add(1))
+        else {
+            return Ok(None);
+        };
+        Ok(Some(RuntimeGdiObjectAllocation {
+            id,
+            handle,
+            next_id,
+            next_handle,
+        }))
     }
 
     fn plan_device_context_allocation(
         &self,
     ) -> Result<RuntimeDeviceContextAllocation, RuntimeStateError> {
+        self.try_plan_device_context_allocation()?.ok_or_else(|| {
+            RuntimeStateError::new("logical device-context capacity or identity space is exhausted")
+        })
+    }
+
+    fn try_plan_device_context_allocation(
+        &self,
+    ) -> Result<Option<RuntimeDeviceContextAllocation>, RuntimeStateError> {
         if self.device_contexts.len() >= RUNTIME_GDI_DEVICE_CONTEXT_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "device-context-capacity-exhausted",
-                "logical device-context capacity is exhausted",
-            ));
+            return Ok(None);
         }
         let id = RuntimeDeviceContextId(self.next_device_context_id);
-        let next_id = checked_next_identity(
-            self.next_device_context_id,
-            "device-context-identity-exhausted",
-        )?;
         let handle = self.next_device_context_handle;
         if handle < RUNTIME_DEVICE_CONTEXT_HANDLE_BASE
             || self.device_context_handle_index.contains_key(&handle)
+            || self.device_contexts.contains_key(&id)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-gdi",
-                "device-context-handle-allocator-invalid",
+            return Err(RuntimeStateError::new(
                 "logical device-context handle allocator is not at a free namespace value",
             ));
         }
-        let next_handle = handle.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "device-context-handle-exhausted",
-                "logical device-context handle namespace is exhausted",
-            )
-        })?;
-        Ok(RuntimeDeviceContextAllocation {
+        let (Some(next_id), Some(next_handle)) = (
+            self.next_device_context_id.checked_add(1),
+            handle.checked_add(1),
+        ) else {
+            return Ok(None);
+        };
+        Ok(Some(RuntimeDeviceContextAllocation {
             id,
             handle,
             next_id,
             next_handle,
-        })
-    }
-}
-
-fn default_object_index(object: &RuntimeGdiObject) -> Option<i32> {
-    match object.object {
-        RuntimeGdiObjectKind::StockFont {
-            index: RUNTIME_GDI_SYSTEM_FONT_INDEX,
-        } => Some(RUNTIME_GDI_SYSTEM_FONT_INDEX),
-        RuntimeGdiObjectKind::StockBitmap {
-            index: RUNTIME_GDI_DEFAULT_BITMAP_INDEX,
-            width: 1,
-            height: 1,
-            bits_per_pixel: 1,
-        } => Some(RUNTIME_GDI_DEFAULT_BITMAP_INDEX),
-        RuntimeGdiObjectKind::StockBrush { .. }
-        | RuntimeGdiObjectKind::StockFont { .. }
-        | RuntimeGdiObjectKind::StockBitmap { .. }
-        | RuntimeGdiObjectKind::FontA { .. }
-        | RuntimeGdiObjectKind::DibSection { .. } => None,
+        }))
     }
 }
 
 fn validate_default_font_object(object: &RuntimeGdiObject) -> Result<(), RuntimeStateError> {
     if !object.shared
-        || object.namespace != LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE
         || !matches!(
             object.object,
             RuntimeGdiObjectKind::StockFont {
@@ -2847,9 +1599,7 @@ fn validate_default_font_object(object: &RuntimeGdiObject) -> Result<(), Runtime
             }
         )
     {
-        return Err(RuntimeStateError::runtime_defect(
-            "runtime-gdi",
-            "memory-dc-default-font-invalid",
+        return Err(RuntimeStateError::new(
             "logical memory DC default font identity is not the shared system font",
         ));
     }
@@ -2858,7 +1608,6 @@ fn validate_default_font_object(object: &RuntimeGdiObject) -> Result<(), Runtime
 
 fn validate_default_bitmap_object(object: &RuntimeGdiObject) -> Result<(), RuntimeStateError> {
     if !object.shared
-        || object.namespace != LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE
         || !matches!(
             object.object,
             RuntimeGdiObjectKind::StockBitmap {
@@ -2869,9 +1618,7 @@ fn validate_default_bitmap_object(object: &RuntimeGdiObject) -> Result<(), Runti
             }
         )
     {
-        return Err(RuntimeStateError::runtime_defect(
-            "runtime-gdi",
-            "memory-dc-default-bitmap-invalid",
+        return Err(RuntimeStateError::new(
             "logical memory DC default bitmap identity is not the shared 1x1 monochrome bitmap",
         ));
     }
@@ -2885,9 +1632,7 @@ fn validate_selectable_font_object(object: &RuntimeGdiObject) -> Result<(), Runt
         RuntimeGdiObjectKind::StockBrush { .. }
         | RuntimeGdiObjectKind::StockBitmap { .. }
         | RuntimeGdiObjectKind::DibSection { .. }
-        | RuntimeGdiObjectKind::FontA { .. } => Err(RuntimeStateError::runtime_defect(
-            "runtime-gdi",
-            "memory-dc-font-selection-invalid",
+        | RuntimeGdiObjectKind::FontA { .. } => Err(RuntimeStateError::new(
             "logical memory DC selected font identity is not a supported font object",
         )),
     }
@@ -2907,9 +1652,7 @@ fn validate_selectable_bitmap_object(object: &RuntimeGdiObject) -> Result<(), Ru
                 backing.range,
             )?;
             if backing.memory_owner.0 == 0 {
-                return Err(RuntimeStateError::runtime_defect(
-                    "runtime-gdi",
-                    "dib-section-memory-owner-invalid",
+                return Err(RuntimeStateError::new(
                     "logical DIB section backing has no guest-memory owner",
                 ));
             }
@@ -2918,9 +1661,7 @@ fn validate_selectable_bitmap_object(object: &RuntimeGdiObject) -> Result<(), Ru
         RuntimeGdiObjectKind::StockBrush { .. }
         | RuntimeGdiObjectKind::StockFont { .. }
         | RuntimeGdiObjectKind::FontA { .. }
-        | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::runtime_defect(
-            "runtime-gdi",
-            "memory-dc-bitmap-selection-invalid",
+        | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::new(
             "logical memory DC selected bitmap identity is not a supported bitmap object",
         )),
     }
@@ -2938,25 +1679,15 @@ fn validate_dib_section_descriptor(
         || descriptor.palette.len() != 256
         || descriptor.palette.iter().any(|color| color.reserved != 0)
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "dib-section-descriptor-invalid",
+        return Err(RuntimeStateError::new(
             "logical DIB section requires a nonempty 8bpp BI_RGB shape and 256 RGBQUAD colors",
         ));
     }
     let width = u32::try_from(descriptor.width).map_err(|_| {
-        RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "dib-section-width-invalid",
-            "logical DIB section width must be a positive x86 integer",
-        )
+        RuntimeStateError::new("logical DIB section width must be a positive x86 integer")
     })?;
     let height = u32::try_from(descriptor.height.abs()).map_err(|_| {
-        RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "dib-section-height-invalid",
-            "logical DIB section height must fit unsigned x86 pixel accounting",
-        )
+        RuntimeStateError::new("logical DIB section height must fit unsigned x86 pixel accounting")
     })?;
     let stride_bytes = width
         .checked_mul(u32::from(descriptor.bits_per_pixel))
@@ -2964,26 +1695,16 @@ fn validate_dib_section_descriptor(
         .map(|bits| bits / 32)
         .and_then(|words| words.checked_mul(4))
         .ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-gdi",
-                "dib-section-stride-overflow",
-                "logical DIB section stride overflowed x86 accounting",
-            )
+            RuntimeStateError::new("logical DIB section stride overflowed x86 accounting")
         })?;
     let pixel_byte_length = stride_bytes.checked_mul(height).ok_or_else(|| {
-        RuntimeStateError::resource_limit(
-            "runtime-gdi",
-            "dib-section-pixel-length-overflow",
-            "logical DIB section pixel byte length overflowed x86 accounting",
-        )
+        RuntimeStateError::new("logical DIB section pixel byte length overflowed x86 accounting")
     })?;
     if descriptor.stride_bytes != stride_bytes
         || descriptor.pixel_byte_length != pixel_byte_length
         || pixel_byte_length == 0
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "dib-section-derived-layout-invalid",
+        return Err(RuntimeStateError::new(
             "logical DIB section stride or pixel byte length does not match its descriptor",
         ));
     }
@@ -3006,9 +1727,7 @@ fn validate_dib_section_backing_shape(
             .is_multiple_of(crate::memory::GUEST_PAGE_SIZE)
         || backing_range.byte_length() < u64::from(descriptor.pixel_byte_length)
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "dib-section-backing-invalid",
+        return Err(RuntimeStateError::new(
             "logical DIB section backing must be allocation-owned, page-aligned, and large enough",
         ));
     }
@@ -3019,9 +1738,7 @@ fn validate_log_font_a(log_font: &RuntimeLogFontA) -> Result<(), RuntimeStateErr
     if log_font.face_name_windows_932.len() >= RUNTIME_LOG_FONT_A_FACE_CAPACITY
         || log_font.face_name_windows_932.contains(&0)
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "log-font-a-face-name-invalid",
+        return Err(RuntimeStateError::new(
             "logical LOGFONTA face name must fit LF_FACESIZE with one trailing NUL",
         ));
     }
@@ -3036,9 +1753,7 @@ fn validate_window_target(target: RuntimeGdiWindowTarget) -> Result<(), RuntimeS
         || i32::try_from(target.client_width).is_err()
         || i32::try_from(target.client_height).is_err()
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "window-dc-target-invalid",
+        return Err(RuntimeStateError::new(
             "logical window DC target requires nonzero identity and x86 RECT-sized client geometry",
         ));
     }
@@ -3053,9 +1768,7 @@ fn validate_screen_target(target: RuntimeGdiScreenTarget) -> Result<(), RuntimeS
         || target.rect.right <= target.rect.left
         || target.rect.bottom <= target.rect.top
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "screen-dc-target-invalid",
+        return Err(RuntimeStateError::new(
             "logical screen DC target requires a live monitor, guest thread, and positive origin-based rectangle",
         ));
     }
@@ -3074,9 +1787,7 @@ fn validate_graphics_surface_target(
         || i32::try_from(target.height).is_err()
         || target.color_format != RuntimeGraphicsColorFormat::B8g8r8x8Unorm
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "graphics-surface-dc-target-invalid",
+        return Err(RuntimeStateError::new(
             "logical graphics surface DC target requires live identity and supported x86 geometry and color format",
         ));
     }
@@ -3096,18 +1807,10 @@ fn validate_fill_rect_bounds(
     surface_height: u32,
 ) -> Result<(), RuntimeStateError> {
     let width = i32::try_from(surface_width).map_err(|_| {
-        RuntimeStateError::runtime_defect(
-            "runtime-gdi",
-            "surface-width-invalid",
-            "logical GDI surface width does not fit x86 coordinates",
-        )
+        RuntimeStateError::new("logical GDI surface width does not fit x86 coordinates")
     })?;
     let height = i32::try_from(surface_height).map_err(|_| {
-        RuntimeStateError::runtime_defect(
-            "runtime-gdi",
-            "surface-height-invalid",
-            "logical GDI surface height does not fit x86 coordinates",
-        )
+        RuntimeStateError::new("logical GDI surface height does not fit x86 coordinates")
     })?;
     if rect.left < 0
         || rect.top < 0
@@ -3116,41 +1819,17 @@ fn validate_fill_rect_bounds(
         || rect.right > width
         || rect.bottom > height
     {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-gdi",
-            "fill-rect-outside-supported-surface",
+        return Err(RuntimeStateError::new(
             "bounded FillRect requires an ordered rectangle inside the logical client surface",
         ));
     }
     Ok(())
 }
 
-fn checked_next_identity(value: u64, code: &'static str) -> Result<u64, RuntimeStateError> {
-    value.checked_add(1).ok_or_else(|| {
-        RuntimeStateError::resource_limit(
-            "runtime-gdi",
-            code,
-            "logical GDI identity sequence is exhausted",
-        )
-    })
-}
-
-fn checked_next_generation(value: u64) -> Result<u64, RuntimeStateError> {
-    value.checked_add(1).ok_or_else(|| {
-        RuntimeStateError::resource_limit(
-            "runtime-gdi",
-            "gdi-generation-exhausted",
-            "logical GDI owner generation is exhausted",
-        )
-    })
-}
-
-fn stale_plan(code: &'static str) -> RuntimeStateError {
-    RuntimeStateError::conflict(
-        "runtime-gdi",
-        code,
-        "logical GDI state changed after the mutation was planned",
-    )
+fn checked_next_identity(value: u64) -> Result<u64, RuntimeStateError> {
+    value
+        .checked_add(1)
+        .ok_or_else(|| RuntimeStateError::new("logical GDI identity sequence is exhausted"))
 }
 
 #[cfg(test)]
@@ -3239,44 +1918,37 @@ mod tests {
     }
 
     #[test]
-    fn device_context_serialization_preserves_window_shape_and_types_graphics_targets() {
+    fn device_context_targets_keep_their_typed_owner_and_surface() {
         let mut gdi = RuntimeGdi::default();
-        let window = gdi
-            .commit_get_dc(gdi.plan_get_dc(target()).unwrap())
-            .unwrap();
+        let window = gdi.get_window_dc(target()).unwrap();
+        let window_dc = gdi.device_context_by_handle(window.handle).unwrap();
+        assert_eq!(window_dc.id, RuntimeDeviceContextId(1));
+        assert_eq!(window_dc.owner_thread_id, RuntimeThreadId(8192));
         assert_eq!(
-            serde_json::to_value(gdi.device_context_by_handle(window.handle).unwrap()).unwrap(),
-            serde_json::json!({
-                "id": 1,
-                "handle": 0x4701_0001_u32,
-                "namespace": "vine.logical-gdi-dc.v1",
-                "windowId": 1,
-                "windowHandle": 0x4801_0001_u32,
-                "ownerThreadId": 8192,
-                "surfaceId": 1,
-            })
+            window_dc.target,
+            RuntimeDeviceContextTarget::Window {
+                window_id: RuntimeWindowId(1),
+                window_handle: 0x4801_0001,
+                surface_id: RuntimeGdiSurfaceId(1),
+            }
         );
 
         let graphics = gdi
-            .commit_get_graphics_surface_dc(
-                gdi.plan_get_graphics_surface_dc(graphics_target(7, 5))
-                    .unwrap(),
-            )
+            .get_graphics_surface_dc(graphics_target(7, 5))
+            .unwrap()
             .unwrap();
+        let graphics_dc = gdi.device_context_by_handle(graphics).unwrap();
+        assert_eq!(graphics_dc.id, RuntimeDeviceContextId(2));
+        assert_eq!(graphics_dc.owner_thread_id, RuntimeThreadId(8192));
         assert_eq!(
-            serde_json::to_value(gdi.device_context_by_handle(graphics.handle).unwrap()).unwrap(),
-            serde_json::json!({
-                "id": 2,
-                "handle": 0x4701_0002_u32,
-                "namespace": "vine.logical-gdi-dc.v1",
-                "ownerThreadId": 8192,
-                "targetKind": "graphics-surface",
-                "surfaceId": 7,
-                "surfaceComObjectId": "5",
-                "width": 1024,
-                "height": 1024,
-                "colorFormat": "b8g8r8x8-unorm",
-            })
+            graphics_dc.target,
+            RuntimeDeviceContextTarget::GraphicsSurface {
+                surface_id: RuntimeGraphicsSurfaceId(7),
+                surface_com_object_id: RuntimeComObjectId(5),
+                width: 1024,
+                height: 1024,
+                color_format: RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
+            }
         );
     }
 
@@ -3286,86 +1958,76 @@ mod tests {
         let invalid_before = gdi.clone();
         let mut invalid_target = screen_target();
         invalid_target.monitor_handle = 0;
-        assert_eq!(
-            gdi.plan_get_screen_dc(invalid_target).unwrap_err().code,
-            "screen-dc-target-invalid"
-        );
+        gdi.get_screen_dc(invalid_target).unwrap_err();
         assert_eq!(gdi, invalid_before);
 
-        let first_plan = gdi.plan_get_screen_dc(screen_target()).unwrap();
-        let stale_acquisition = first_plan.clone();
-        let first = gdi.commit_get_screen_dc(first_plan).unwrap();
-        assert_eq!(first.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
-        assert_eq!(first.monitor_handle, screen_target().monitor_handle);
+        let first = gdi.get_screen_dc(screen_target()).unwrap();
+        assert_eq!(first, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
+        let screen_dc = gdi.device_context_by_handle(first).unwrap();
+        assert_eq!(screen_dc.id, RuntimeDeviceContextId(1));
+        assert_eq!(screen_dc.owner_thread_id, RuntimeThreadId(8192));
         assert_eq!(
-            serde_json::to_value(gdi.device_context_by_handle(first.handle).unwrap()).unwrap(),
-            serde_json::json!({
-                "id": 1,
-                "handle": 0x4701_0001_u32,
-                "namespace": "vine.logical-gdi-dc.v1",
-                "ownerThreadId": 8192,
-                "targetKind": "screen",
-                "monitorHandle": 0x4f01_0001_u32,
-                "rect": {
-                    "left": 0,
-                    "top": 0,
-                    "right": 1920,
-                    "bottom": 1080,
-                },
-            })
+            screen_dc.target,
+            RuntimeDeviceContextTarget::Screen {
+                monitor_handle: screen_target().monitor_handle,
+                rect: screen_target().rect,
+            }
         );
-        assert_eq!(
-            gdi.commit_get_screen_dc(stale_acquisition)
-                .unwrap_err()
-                .code,
-            "screen-get-dc-plan-stale"
-        );
-
-        let second = gdi
-            .commit_get_screen_dc(gdi.plan_get_screen_dc(screen_target()).unwrap())
-            .unwrap();
-        assert_ne!(first.handle, second.handle);
+        let second = gdi.get_screen_dc(screen_target()).unwrap();
+        assert_ne!(first, second);
         assert!(gdi.surfaces.is_empty());
 
         let before_wrong_release = gdi.clone();
         let mut wrong_target = screen_target();
         wrong_target.monitor_handle += 1;
-        assert_eq!(
-            gdi.plan_release_screen_dc(
-                wrong_target,
-                first.handle,
-                screen_target().owner_thread_id,
-            )
-            .unwrap_err()
-            .code,
-            "screen-device-context-relation-mismatch"
-        );
+        gdi.release_screen_dc(wrong_target, first, screen_target().owner_thread_id)
+            .unwrap_err();
         assert_eq!(gdi, before_wrong_release);
 
         let before_wrong_thread = gdi.clone();
-        assert_eq!(
-            gdi.plan_release_screen_dc(screen_target(), first.handle, RuntimeThreadId(8193))
-                .unwrap_err()
-                .code,
-            "screen-device-context-relation-mismatch"
-        );
+        gdi.release_screen_dc(screen_target(), first, RuntimeThreadId(8193))
+            .unwrap_err();
         assert_eq!(gdi, before_wrong_thread);
 
-        let release = gdi
-            .plan_release_screen_dc(
-                screen_target(),
-                first.handle,
-                screen_target().owner_thread_id,
-            )
+        gdi.release_screen_dc(screen_target(), first, screen_target().owner_thread_id)
             .unwrap();
-        let stale_release = release.clone();
-        gdi.commit_release_dc(release).unwrap();
-        assert_eq!(
-            gdi.commit_release_dc(stale_release).unwrap_err().code,
-            "release-dc-plan-stale"
+        assert!(
+            gdi.release_screen_dc(screen_target(), first, screen_target().owner_thread_id)
+                .is_err()
         );
-        assert!(gdi.device_context_by_handle(first.handle).is_err());
-        assert!(gdi.device_context_by_handle(second.handle).is_ok());
+        assert!(gdi.device_context_by_handle(first).is_err());
+        assert!(gdi.device_context_by_handle(second).is_ok());
+    }
+
+    #[test]
+    fn forged_hdc_alias_cannot_retire_the_original_context() {
+        let mut gdi = RuntimeGdi::default();
+        let dc = gdi.get_screen_dc(screen_target()).unwrap();
+        let alias = dc + 1;
+        let id = gdi.device_context_by_handle(dc).unwrap().id;
+        assert!(gdi.device_context_option(alias).unwrap().is_none());
+        gdi.device_context_handle_index.insert(alias, id);
+        let before = gdi.clone();
+        gdi.device_context_option(alias).unwrap_err();
+        gdi.device_context_by_handle(alias).unwrap_err();
+        gdi.validate_screen_dc_access(screen_target(), alias, screen_target().owner_thread_id)
+            .unwrap_err();
+        gdi.release_screen_dc(screen_target(), alias, screen_target().owner_thread_id)
+            .unwrap_err();
+        assert_eq!(gdi, before);
+        assert!(gdi.device_context_by_handle(dc).is_ok());
+    }
+
+    #[test]
+    fn screen_dc_allocator_rejects_an_occupied_id_without_overwriting_the_first_dc() {
+        let mut gdi = RuntimeGdi::default();
+        let first = gdi.get_screen_dc(screen_target()).unwrap();
+        let id = gdi.device_context_by_handle(first).unwrap().id;
+        gdi.next_device_context_id = id.0;
+        let before = gdi.clone();
+        assert!(gdi.get_screen_dc(screen_target()).is_err());
+        assert_eq!(gdi, before);
+        assert_eq!(gdi.device_context_by_handle(first).unwrap().id, id);
     }
 
     #[test]
@@ -3374,381 +2036,674 @@ mod tests {
         let mut invalid_target = screen_target();
         invalid_target.monitor_handle = 0;
         let before_invalid = gdi.clone();
-        assert_eq!(
-            gdi.plan_create_compatible_dc(invalid_target)
-                .unwrap_err()
-                .code,
-            "screen-dc-target-invalid"
-        );
+        gdi.create_compatible_dc(invalid_target).unwrap_err();
         assert_eq!(gdi, before_invalid);
 
-        let first_plan = gdi.plan_create_compatible_dc(screen_target()).unwrap();
-        let stale_first = first_plan.clone();
-        let first = gdi.commit_create_compatible_dc(first_plan).unwrap();
-        assert_eq!(first.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
-        assert_eq!(first.selected_font_id, RuntimeGdiObjectId(1));
-        assert_eq!(first.selected_bitmap_id, RuntimeGdiObjectId(2));
-        assert!(first.default_objects_created);
+        let first = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
+        assert_eq!(first, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
         assert_eq!(gdi.objects.len(), 2);
-        validate_default_font_object(&gdi.objects[&first.selected_font_id]).unwrap();
-        validate_default_bitmap_object(&gdi.objects[&first.selected_bitmap_id]).unwrap();
-        assert_eq!(
-            serde_json::to_value(gdi.device_context_by_handle(first.handle).unwrap()).unwrap(),
-            serde_json::json!({
-                "id": 1,
-                "handle": 0x4701_0001_u32,
-                "namespace": "vine.logical-gdi-dc.v1",
-                "ownerThreadId": 8192,
-                "targetKind": "memory",
-                "compatibleMonitorHandle": 0x4f01_0001_u32,
-                "compatibleRect": {
-                    "left": 0,
-                    "top": 0,
-                    "right": 1920,
-                    "bottom": 1080,
-                },
-                "selectedFontId": 1,
-                "selectedBitmapId": 2,
-                "selectionGeneration": 0,
-            })
-        );
-        assert_eq!(
-            gdi.commit_create_compatible_dc(stale_first)
-                .unwrap_err()
-                .code,
-            "create-compatible-dc-plan-stale"
-        );
-
-        let second = gdi
-            .commit_create_compatible_dc(gdi.plan_create_compatible_dc(screen_target()).unwrap())
+        let memory_dc = gdi.device_context_by_handle(first).unwrap();
+        validate_default_font_object(&gdi.objects[&memory_dc.selected_font_id.unwrap()]).unwrap();
+        validate_default_bitmap_object(&gdi.objects[&memory_dc.selected_bitmap_id.unwrap()])
             .unwrap();
-        assert_eq!(second.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE + 1);
-        assert_eq!(second.selected_font_id, first.selected_font_id);
-        assert_eq!(second.selected_bitmap_id, first.selected_bitmap_id);
-        assert!(!second.default_objects_created);
+        assert_eq!(memory_dc.id, RuntimeDeviceContextId(1));
+        assert_eq!(memory_dc.owner_thread_id, RuntimeThreadId(8192));
+        assert_eq!(
+            memory_dc.target,
+            RuntimeDeviceContextTarget::Memory {
+                compatible_monitor_handle: screen_target().monitor_handle,
+                compatible_rect: screen_target().rect,
+            }
+        );
+        assert_eq!(memory_dc.selected_font_id, Some(RuntimeGdiObjectId(1)));
+        assert_eq!(memory_dc.selected_bitmap_id, Some(RuntimeGdiObjectId(2)));
+        assert_eq!(memory_dc.selection_generation, 0);
+        let defaults = (memory_dc.selected_font_id, memory_dc.selected_bitmap_id);
+        let second = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
+        assert_eq!(second, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE + 1);
+        let second_dc = gdi.device_context_by_handle(second).unwrap();
+        assert_eq!(
+            (second_dc.selected_font_id, second_dc.selected_bitmap_id),
+            defaults
+        );
         assert_eq!(gdi.objects.len(), 2);
 
         let before_wrong_thread = gdi.clone();
-        assert_eq!(
-            gdi.plan_delete_compatible_dc(first.handle, RuntimeThreadId(8193))
-                .unwrap_err()
-                .code,
-            "delete-dc-relation-mismatch"
-        );
+        gdi.delete_compatible_dc(first, RuntimeThreadId(8193))
+            .unwrap_err();
         assert_eq!(gdi, before_wrong_thread);
 
-        let screen = gdi
-            .commit_get_screen_dc(gdi.plan_get_screen_dc(screen_target()).unwrap())
-            .unwrap();
+        let screen = gdi.get_screen_dc(screen_target()).unwrap();
         let before_wrong_target = gdi.clone();
-        assert_eq!(
-            gdi.plan_delete_compatible_dc(screen.handle, screen_target().owner_thread_id)
-                .unwrap_err()
-                .code,
-            "delete-dc-relation-mismatch"
-        );
+        gdi.delete_compatible_dc(screen, screen_target().owner_thread_id)
+            .unwrap_err();
         assert_eq!(gdi, before_wrong_target);
 
-        let delete = gdi
-            .plan_delete_compatible_dc(first.handle, screen_target().owner_thread_id)
+        gdi.delete_compatible_dc(first, screen_target().owner_thread_id)
             .unwrap();
-        let stale_delete = delete.clone();
-        gdi.commit_release_dc(delete).unwrap();
-        assert_eq!(
-            gdi.commit_release_dc(stale_delete).unwrap_err().code,
-            "release-dc-plan-stale"
+        assert!(
+            gdi.delete_compatible_dc(first, screen_target().owner_thread_id)
+                .is_err()
         );
-        assert!(gdi.device_context_by_handle(first.handle).is_err());
-        assert!(gdi.device_context_by_handle(second.handle).is_ok());
+        assert!(gdi.device_context_by_handle(first).is_err());
+        assert!(gdi.device_context_by_handle(second).is_ok());
         assert_eq!(gdi.objects.len(), 2);
     }
 
     #[test]
     fn compatible_memory_dc_multi_object_preflight_preserves_all_allocators() {
-        let gdi = RuntimeGdi {
+        let mut gdi = RuntimeGdi {
             next_object_handle: u32::MAX - 1,
             ..RuntimeGdi::default()
         };
         let before = gdi.clone();
-        assert_eq!(
-            gdi.plan_create_compatible_dc(screen_target())
-                .unwrap_err()
-                .code,
-            "gdi-object-handle-exhausted"
-        );
+        assert!(gdi.create_compatible_dc(screen_target()).unwrap().is_none());
         assert_eq!(gdi, before);
     }
 
     #[test]
     fn selected_font_query_requires_same_thread_memory_dc_and_created_font() {
         let mut gdi = RuntimeGdi::default();
-        let device_context = gdi
-            .commit_create_compatible_dc(gdi.plan_create_compatible_dc(screen_target()).unwrap())
-            .unwrap();
+        let device_context = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
         let before_stock = gdi.clone();
-        assert_eq!(
-            gdi.selected_font_a(device_context.handle, screen_target().owner_thread_id)
-                .unwrap_err()
-                .code,
-            "outline-text-metrics-selected-font-unsupported"
-        );
+        gdi.selected_font_a(device_context, screen_target().owner_thread_id)
+            .unwrap_err();
         assert_eq!(gdi, before_stock);
-        assert_eq!(
-            gdi.selected_font_a(device_context.handle, RuntimeThreadId(8193))
-                .unwrap_err()
-                .code,
-            "outline-text-metrics-device-context-relation-mismatch"
-        );
+        gdi.selected_font_a(device_context, RuntimeThreadId(8193))
+            .unwrap_err();
         assert_eq!(gdi, before_stock);
 
-        let created = gdi
-            .commit_create_font_a(gdi.plan_create_font_a(font()).unwrap())
+        let created = gdi.create_font_a(font()).unwrap().unwrap();
+        gdi.select_object(device_context, created, screen_target().owner_thread_id)
+            .unwrap()
             .unwrap();
-        let selected = gdi
-            .plan_select_object(
-                device_context.handle,
-                created.handle,
-                screen_target().owner_thread_id,
-            )
-            .unwrap();
-        gdi.commit_select_object(selected).unwrap();
         let before_query = gdi.clone();
         assert_eq!(
-            gdi.selected_font_a(device_context.handle, screen_target().owner_thread_id)
+            gdi.selected_font_a(device_context, screen_target().owner_thread_id)
                 .unwrap(),
-            font()
+            &font()
         );
         assert_eq!(gdi, before_query);
     }
 
     #[test]
+    fn select_object_checks_owner_before_mutation_and_does_not_advance_on_reselection() {
+        let mut gdi = RuntimeGdi::default();
+        let dc = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
+        let font = gdi.create_font_a(font()).unwrap().unwrap();
+        let before = gdi.clone();
+        assert!(
+            gdi.select_object(dc, font, RuntimeThreadId(8193))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            gdi.select_object(dc, u32::MAX, screen_target().owner_thread_id)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(gdi, before);
+
+        let selected = gdi
+            .select_object(dc, font, screen_target().owner_thread_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            gdi.device_context_by_handle(dc).unwrap().selected_font_id,
+            Some(gdi.object_by_handle(font).unwrap().id)
+        );
+        assert_ne!(selected, font);
+        let after = gdi.clone();
+        let repeated = gdi
+            .select_object(dc, font, screen_target().owner_thread_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(repeated, font);
+        assert_eq!(gdi, after);
+    }
+
+    #[test]
+    fn ordinary_object_failures_preserve_state_but_corrupt_indexes_fault() {
+        let mut gdi = RuntimeGdi::default();
+        let thread = screen_target().owner_thread_id;
+        let dc = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
+        let font = gdi.create_font_a(font()).unwrap().unwrap();
+        let stock = gdi
+            .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+            .unwrap()
+            .unwrap();
+        gdi.select_object(dc, font, thread).unwrap().unwrap();
+        let before = gdi.clone();
+        for (target_dc, target_font, owner) in [
+            (0, font, thread),
+            (dc, 0, thread),
+            (dc, stock, thread),
+            (dc, font, RuntimeThreadId(thread.0 + 1)),
+        ] {
+            assert!(
+                gdi.select_object(target_dc, target_font, owner)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        for handle in [0, stock, font] {
+            assert!(gdi.delete_object(handle, |_| Ok(())).unwrap().is_none());
+        }
+        assert!(gdi.object_bytes(font, 1).unwrap().is_none());
+        assert!(
+            gdi.object_bytes(0, RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32)
+                .unwrap()
+                .is_none()
+        );
+        assert!(gdi.text_raster_target(0, thread).unwrap().is_none());
+        assert_eq!(gdi, before);
+
+        let alias = font + 1;
+        let font_id = gdi.object_by_handle(font).unwrap().id;
+        gdi.object_handle_index.insert(alias, font_id);
+        let corrupt_before = gdi.clone();
+        assert!(gdi.select_object(dc, alias, thread).is_err());
+        assert!(gdi.delete_object(alias, |_| Ok(())).is_err());
+        assert!(
+            gdi.object_bytes(alias, RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32)
+                .is_err()
+        );
+        assert_eq!(gdi, corrupt_before);
+
+        gdi.object_handle_index.remove(&alias);
+        let dc_id = gdi.device_context_by_handle(dc).unwrap().id;
+        gdi.device_context_handle_index.insert(dc + 1, dc_id);
+        let corrupt_before = gdi.clone();
+        assert!(gdi.select_object(dc + 1, font, thread).is_err());
+        assert!(gdi.text_raster_target(dc + 1, thread).is_err());
+        assert_eq!(gdi, corrupt_before);
+    }
+
+    #[test]
+    fn dib_section_acquisition_validates_before_publishing_objects() {
+        let mut gdi = RuntimeGdi::default();
+        let dc = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
+        let backing = RuntimeGdiDibSectionBacking {
+            address_allocation_id: ProcessAddressAllocationId(1),
+            memory_owner: MemoryOwnerId(1),
+            range: GuestRange::new(GuestAddress(0x7200_0000), 0x3000).unwrap(),
+            content_generation: 0,
+        };
+        let before = gdi.clone();
+        assert!(
+            gdi.create_dib_section(
+                0,
+                screen_target().owner_thread_id,
+                dib_descriptor(),
+                backing.address_allocation_id,
+                backing.range,
+                || panic!("invalid HDC must be rejected before allocating memory"),
+            )
+            .is_err()
+        );
+        assert_eq!(gdi, before);
+        assert!(
+            gdi.create_dib_section(
+                dc,
+                screen_target().owner_thread_id,
+                dib_descriptor(),
+                backing.address_allocation_id,
+                backing.range,
+                || Err(RuntimeStateError::new("memory installation failed")),
+            )
+            .is_err()
+        );
+        assert_eq!(gdi, before);
+        for mut exhausted in [
+            RuntimeGdi {
+                next_object_id: u64::MAX,
+                ..gdi.clone()
+            },
+            RuntimeGdi {
+                next_object_handle: u32::MAX,
+                ..gdi.clone()
+            },
+        ] {
+            let before = exhausted.clone();
+            assert!(
+                exhausted
+                    .create_dib_section(
+                        dc,
+                        screen_target().owner_thread_id,
+                        dib_descriptor(),
+                        backing.address_allocation_id,
+                        backing.range,
+                        || panic!("exhausted GDI capacity must not allocate memory"),
+                    )
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(exhausted, before);
+        }
+        gdi.create_dib_section(
+            dc,
+            screen_target().owner_thread_id,
+            dib_descriptor(),
+            backing.address_allocation_id,
+            backing.range,
+            || Ok(Some(backing.memory_owner)),
+        )
+        .unwrap();
+        let before_duplicate = gdi.clone();
+        assert!(
+            gdi.create_dib_section(
+                dc,
+                screen_target().owner_thread_id,
+                dib_descriptor(),
+                backing.address_allocation_id,
+                backing.range,
+                || panic!("duplicate backing must be rejected before allocating memory"),
+            )
+            .is_err()
+        );
+        assert_eq!(gdi, before_duplicate);
+    }
+
+    #[test]
     fn text_raster_plan_requires_exact_font_dib_selection_and_advances_content_once() {
         let mut gdi = RuntimeGdi::default();
-        let device_context = gdi
-            .commit_create_compatible_dc(gdi.plan_create_compatible_dc(screen_target()).unwrap())
-            .unwrap();
-        let created_font = gdi
-            .commit_create_font_a(gdi.plan_create_font_a(font()).unwrap())
-            .unwrap();
-        let dib_plan = gdi
-            .plan_create_dib_section(
-                device_context.handle,
+        let device_context = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
+        let created_font = gdi.create_font_a(font()).unwrap().unwrap();
+        let created_dib = gdi
+            .create_dib_section(
+                device_context,
                 screen_target().owner_thread_id,
                 dib_descriptor(),
                 ProcessAddressAllocationId(1),
                 GuestRange::new(GuestAddress(0x7200_0000), 0x3000).unwrap(),
+                || Ok(Some(MemoryOwnerId(1))),
             )
-            .unwrap();
-        let created_dib = gdi
-            .commit_create_dib_section(dib_plan, MemoryOwnerId(1))
+            .unwrap()
             .unwrap();
 
         let before_stock_font = gdi.clone();
-        assert_eq!(
-            gdi.text_raster_target(device_context.handle, screen_target().owner_thread_id)
-                .unwrap_err()
-                .code,
-            "text-raster-selected-font-unsupported"
-        );
+        gdi.text_raster_target(device_context, screen_target().owner_thread_id)
+            .unwrap_err();
         assert_eq!(gdi, before_stock_font);
-        gdi.commit_select_object(
-            gdi.plan_select_object(
-                device_context.handle,
-                created_font.handle,
-                screen_target().owner_thread_id,
-            )
-            .unwrap(),
+        gdi.select_object(
+            device_context,
+            created_font,
+            screen_target().owner_thread_id,
         )
+        .unwrap()
         .unwrap();
         let before_stock_bitmap = gdi.clone();
-        assert_eq!(
-            gdi.text_raster_target(device_context.handle, screen_target().owner_thread_id)
-                .unwrap_err()
-                .code,
-            "text-raster-selected-bitmap-unsupported"
-        );
+        gdi.text_raster_target(device_context, screen_target().owner_thread_id)
+            .unwrap_err();
         assert_eq!(gdi, before_stock_bitmap);
-        gdi.commit_select_object(
-            gdi.plan_select_object(
-                device_context.handle,
-                created_dib.handle,
-                screen_target().owner_thread_id,
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        gdi.select_object(device_context, created_dib, screen_target().owner_thread_id)
+            .unwrap()
+            .unwrap();
 
         let target = gdi
-            .text_raster_target(device_context.handle, screen_target().owner_thread_id)
+            .text_raster_target(device_context, screen_target().owner_thread_id)
+            .unwrap()
             .unwrap();
         assert_eq!(target.log_font, font());
         assert_eq!(target.descriptor, dib_descriptor());
         assert_eq!(target.backing.content_generation, 0);
-        let plan = gdi.plan_text_raster_commit(target.clone()).unwrap();
-        let stale = plan.clone();
-        let result = gdi.commit_text_raster(plan).unwrap();
-        assert_eq!(result.content_generation, 1);
-        assert_eq!(result.selection_generation, 2);
+        gdi.validate_text_raster_completion(&target).unwrap();
+        gdi.publish_text_raster_completion(&target);
         assert_eq!(
-            gdi.text_raster_target(device_context.handle, screen_target().owner_thread_id)
+            gdi.device_context_by_handle(device_context)
+                .unwrap()
+                .selection_generation,
+            2
+        );
+        assert_eq!(
+            gdi.text_raster_target(device_context, screen_target().owner_thread_id)
+                .unwrap()
                 .unwrap()
                 .backing
                 .content_generation,
             1
         );
+        gdi.validate_text_raster_completion(&target)
+            .expect_err("the previous content generation cannot complete twice");
         assert_eq!(
-            gdi.commit_text_raster(stale).unwrap_err().code,
-            "text-raster-plan-stale"
+            gdi.text_raster_target(device_context, screen_target().owner_thread_id)
+                .unwrap()
+                .unwrap()
+                .backing
+                .content_generation,
+            1
         );
+        assert!(
+            gdi.text_raster_target(device_context, RuntimeThreadId(8193))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn window_dc_acquisition_checks_capacity_and_surface_identity_before_publication() {
+        for (exhausted, mut gdi) in [
+            RuntimeGdi {
+                next_surface_id: u64::MAX,
+                ..RuntimeGdi::default()
+            },
+            RuntimeGdi {
+                next_device_context_id: u64::MAX,
+                ..RuntimeGdi::default()
+            },
+            RuntimeGdi {
+                next_device_context_handle: u32::MAX,
+                ..RuntimeGdi::default()
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(gdi.preview_window_dc(target()).is_err());
+            assert!(gdi.get_window_dc(target()).is_err());
+            assert!(gdi.surfaces.is_empty());
+            assert!(gdi.window_surface_index.is_empty());
+            assert!(gdi.device_contexts.is_empty());
+            assert!(gdi.device_context_handle_index.is_empty());
+            match exhausted {
+                0 => gdi.next_surface_id = 1,
+                1 => gdi.next_device_context_id = 1,
+                2 => gdi.next_device_context_handle = RUNTIME_DEVICE_CONTEXT_HANDLE_BASE,
+                _ => unreachable!(),
+            }
+            let acquired = gdi.get_window_dc(target()).unwrap();
+            assert_eq!(acquired.surface_id.0, 1);
+            assert_eq!(acquired.device_context_id.0, 1);
+            assert_eq!(acquired.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
+        }
+
+        let mut gdi = RuntimeGdi::default();
+        let first = gdi.get_window_dc(target()).unwrap();
+        let corrupt_id = RuntimeGdiSurfaceId(first.surface_id.0 + 1);
+        gdi.surfaces.get_mut(&first.surface_id).unwrap().id = corrupt_id;
+        gdi.get_window_dc(target())
+            .expect_err("a live surface must agree with its index");
+        assert_eq!(gdi.surfaces[&first.surface_id].id, corrupt_id);
+        assert_eq!(gdi.surfaces.len(), 1);
         assert_eq!(
-            gdi.text_raster_target(device_context.handle, RuntimeThreadId(8193))
-                .unwrap_err()
-                .code,
-            "text-raster-device-context-relation-mismatch"
+            gdi.window_surface_index[&target().window_id],
+            first.surface_id
         );
+        assert_eq!(gdi.device_contexts.len(), 1);
+        assert_eq!(
+            gdi.device_context_by_handle(first.handle).unwrap().id,
+            first.device_context_id
+        );
+        gdi.surfaces.get_mut(&first.surface_id).unwrap().id = first.surface_id;
+        let second = gdi.get_window_dc(target()).unwrap();
+        assert_eq!(second.surface_id, first.surface_id);
+        assert_eq!(second.device_context_id.0, first.device_context_id.0 + 1);
+        assert_eq!(second.handle, first.handle + 1);
+    }
+
+    #[test]
+    fn window_dc_rejects_missing_surface_index_without_consuming_identity() {
+        let mut gdi = RuntimeGdi::default();
+        let first = gdi.get_window_dc(target()).unwrap();
+        gdi.window_surface_index.remove(&target().window_id);
+        let surface = gdi.surfaces[&first.surface_id].clone();
+        gdi.get_window_dc(target())
+            .expect_err("a live unindexed surface is corruption, not absence");
+        assert_eq!(gdi.surfaces[&first.surface_id], surface);
+        assert_eq!(gdi.device_contexts.len(), 1);
+        gdi.window_surface_index
+            .insert(target().window_id, first.surface_id);
+        let retry = gdi.get_window_dc(target()).unwrap();
+        assert_eq!(retry.device_context_id.0, first.device_context_id.0 + 1);
+        assert_eq!(retry.handle, first.handle + 1);
+        assert_eq!(retry.surface_id, first.surface_id);
+        assert_eq!(gdi.surfaces.len(), 1);
     }
 
     #[test]
     fn device_context_acquisitions_are_distinct_and_release_is_relation_checked() {
         let mut gdi = RuntimeGdi::default();
-        let first_plan = gdi.plan_get_dc(target()).unwrap();
-        let stale = first_plan.clone();
-        let first = gdi.commit_get_dc(first_plan).unwrap();
-        assert!(first.surface_created);
+        let preview = gdi.preview_window_dc(target()).unwrap();
+        assert!(gdi.device_contexts.is_empty());
+        assert!(gdi.device_context_handle_index.is_empty());
+        assert!(gdi.surfaces.is_empty());
+        assert!(gdi.window_surface_index.is_empty());
+        let first = gdi.get_window_dc(target()).unwrap();
+        assert_eq!(first, preview);
+        assert_eq!(gdi.surfaces.len(), 1);
         assert_eq!(first.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
-        assert_eq!(
-            gdi.commit_get_dc(stale).unwrap_err().code,
-            "get-dc-plan-stale"
-        );
 
-        let second = gdi
-            .commit_get_dc(gdi.plan_get_dc(target()).unwrap())
-            .unwrap();
+        let second = gdi.get_window_dc(target()).unwrap();
         assert_ne!(first.handle, second.handle);
         assert_eq!(first.surface_id, second.surface_id);
-        assert!(!second.surface_created);
-        let before_wrong_release = gdi.clone();
-        assert_eq!(
-            gdi.plan_release_dc(0x4801_0002, first.handle, RuntimeThreadId(8192))
-                .unwrap_err()
-                .code,
-            "device-context-relation-mismatch"
-        );
-        assert_eq!(gdi, before_wrong_release);
+        assert_eq!(gdi.surfaces.len(), 1);
+        let surface = gdi.surfaces[&first.surface_id].clone();
+        for (window_handle, owner) in [
+            (0x4801_0002, target().owner_thread_id),
+            (target().window_handle, RuntimeThreadId(8193)),
+        ] {
+            gdi.release_window_dc(window_handle, first.handle, owner)
+                .expect_err("ReleaseDC requires the original window and acquiring thread");
+            assert_eq!(
+                gdi.device_context_by_handle(first.handle).unwrap().id,
+                first.device_context_id
+            );
+            assert_eq!(
+                gdi.device_context_by_handle(second.handle).unwrap().id,
+                second.device_context_id
+            );
+            assert_eq!(gdi.device_contexts.len(), 2);
+            assert_eq!(gdi.surfaces[&first.surface_id], surface);
+        }
 
-        let release = gdi
-            .plan_release_dc(
+        gdi.release_window_dc(
+            target().window_handle,
+            first.handle,
+            target().owner_thread_id,
+        )
+        .unwrap();
+        assert!(
+            gdi.release_window_dc(
                 target().window_handle,
                 first.handle,
-                target().owner_thread_id,
+                target().owner_thread_id
             )
-            .unwrap();
-        let stale_release = release.clone();
-        gdi.commit_release_dc(release).unwrap();
-        assert_eq!(
-            gdi.commit_release_dc(stale_release).unwrap_err().code,
-            "release-dc-plan-stale"
+            .is_err()
         );
-        assert_eq!(
-            gdi.device_context_by_handle(first.handle)
-                .unwrap_err()
-                .class,
-            super::super::RuntimeStateErrorClass::NotFound
-        );
+        assert!(gdi.device_context_by_handle(first.handle).is_err());
         assert!(gdi.device_context_by_handle(second.handle).is_ok());
+        assert_eq!(gdi.surfaces[&first.surface_id], surface);
+        gdi.release_window_dc(
+            target().window_handle,
+            second.handle,
+            target().owner_thread_id,
+        )
+        .unwrap();
+        assert!(gdi.device_contexts.is_empty());
+        assert!(gdi.device_context_handle_index.is_empty());
+        let reacquired = gdi.get_window_dc(target()).unwrap();
+        assert_eq!(reacquired.surface_id, first.surface_id);
+        assert_eq!(
+            reacquired.device_context_id.0,
+            second.device_context_id.0 + 1
+        );
+        assert_eq!(reacquired.handle, second.handle + 1);
+        assert_eq!(gdi.surfaces[&first.surface_id], surface);
+    }
+
+    #[test]
+    fn synchronous_stock_brush_and_font_fail_before_publishing_exhausted_handles() {
+        let mut gdi = RuntimeGdi {
+            next_object_handle: u32::MAX,
+            ..RuntimeGdi::default()
+        };
+        let before = gdi.clone();
+        assert!(
+            gdi.get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(gdi, before);
+        assert!(gdi.create_font_a(font()).unwrap().is_none());
+        assert_eq!(gdi, before);
+
+        let mut gdi = RuntimeGdi::default();
+        let stock = gdi
+            .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+            .unwrap()
+            .unwrap();
+        gdi.object_handle_index.remove(&stock);
+        let before = gdi.clone();
+        gdi.get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+            .unwrap_err();
+        assert_eq!(gdi, before);
+    }
+
+    #[test]
+    fn stock_reuse_rejects_corrupt_live_identity_and_memory_dc_defaults() {
+        for damage in 0..4 {
+            let mut gdi = RuntimeGdi::default();
+            let handle = gdi
+                .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+                .unwrap()
+                .unwrap();
+            let id = gdi.object_by_handle(handle).unwrap().id;
+            let object = gdi.objects.get_mut(&id).unwrap();
+            match damage {
+                0 => object.id.0 += 1,
+                1 => object.shared = false,
+                2 => object.object = RuntimeGdiObjectKind::FontA { log_font: font() },
+                3 => {
+                    object.object = RuntimeGdiObjectKind::StockBrush {
+                        index: RUNTIME_GDI_BLACK_BRUSH_INDEX + 1,
+                        color_ref: 0,
+                    }
+                }
+                _ => unreachable!(),
+            }
+            let before = gdi.clone();
+            gdi.get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+                .unwrap_err();
+            assert_eq!(gdi, before);
+        }
+
+        let mut gdi = RuntimeGdi::default();
+        let dc = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
+        let font_id = gdi
+            .device_context_by_handle(dc)
+            .unwrap()
+            .selected_font_id
+            .unwrap();
+        gdi.objects.get_mut(&font_id).unwrap().id.0 += 1;
+        let before = gdi.clone();
+        gdi.create_compatible_dc(screen_target()).unwrap_err();
+        assert_eq!(gdi, before);
+    }
+
+    #[test]
+    fn forged_brush_handle_cannot_fill_with_the_original_object() {
+        let mut gdi = RuntimeGdi::default();
+        let dc = gdi.get_window_dc(target()).unwrap();
+        let brush = gdi
+            .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+            .unwrap()
+            .unwrap();
+        let alias = brush + 1;
+        let brush_id = gdi.object_by_handle(brush).unwrap().id;
+        gdi.object_handle_index.insert(alias, brush_id);
+        let before = gdi.clone();
+        gdi.object_option(alias).unwrap_err();
+        assert!(gdi.object_option(0x4702_ffff).unwrap().is_none());
+        gdi.fill_rect(
+            dc.handle,
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 10,
+                bottom: 10,
+            },
+            alias,
+            target().owner_thread_id,
+        )
+        .unwrap_err();
+        assert_eq!(gdi, before);
+        assert!(gdi.object_by_handle(brush).is_ok());
     }
 
     #[test]
     fn stock_brush_and_surface_fill_preserve_failure_atomicity() {
         let mut gdi = RuntimeGdi::default();
-        let dc = gdi
-            .commit_get_dc(gdi.plan_get_dc(target()).unwrap())
-            .unwrap();
+        let dc = gdi.get_window_dc(target()).unwrap();
         let invalid_before = gdi.clone();
-        assert_eq!(
-            gdi.plan_get_stock_object(-1).unwrap_err().code,
-            "stock-object-index-unsupported"
-        );
+        for index in [-1, i32::MAX] {
+            assert!(gdi.get_stock_object(index).unwrap().is_none());
+        }
+        gdi.get_stock_object(1).unwrap_err();
         assert_eq!(gdi, invalid_before);
 
         let brush = gdi
-            .commit_get_stock_object(
-                gdi.plan_get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-                    .unwrap(),
-            )
+            .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+            .unwrap()
             .unwrap();
+        let before_repeat = gdi.clone();
         let repeated = gdi
-            .commit_get_stock_object(
-                gdi.plan_get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-                    .unwrap(),
-            )
+            .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+            .unwrap()
             .unwrap();
-        assert_eq!(brush.handle, repeated.handle);
-        assert!(!brush.already_created);
-        assert!(repeated.already_created);
+        assert_eq!(brush, repeated);
+        assert_eq!(gdi, before_repeat);
 
-        let fill = gdi
-            .commit_fill_rect(
-                gdi.plan_fill_rect(
-                    dc.handle,
-                    RuntimeRect {
-                        left: 0,
-                        top: 0,
-                        right: 800,
-                        bottom: 600,
-                    },
-                    brush.handle,
-                    target().owner_thread_id,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        assert_eq!(fill.surface_generation, 1);
-        assert_eq!(fill.fill.unwrap().color_ref, 0);
+        gdi.fill_rect(
+            dc.handle,
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+            brush,
+            target().owner_thread_id,
+        )
+        .unwrap();
+        let surface = &gdi.surfaces[&dc.surface_id];
+        assert_eq!(surface.fills[0].color_ref, 0);
         let before_empty = gdi.clone();
-        let empty = gdi
-            .commit_fill_rect(
-                gdi.plan_fill_rect(
-                    dc.handle,
-                    RuntimeRect {
-                        left: 0,
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                    },
-                    brush.handle,
-                    target().owner_thread_id,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        assert!(empty.fill.is_none());
+        gdi.fill_rect(
+            dc.handle,
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            },
+            brush,
+            target().owner_thread_id,
+        )
+        .unwrap();
         assert_eq!(gdi, before_empty);
 
         let before_invalid = gdi.clone();
-        assert_eq!(
-            gdi.plan_fill_rect(
-                dc.handle,
-                RuntimeRect {
-                    left: -1,
-                    top: 0,
-                    right: 1,
-                    bottom: 1,
-                },
-                brush.handle,
-                target().owner_thread_id,
-            )
-            .unwrap_err()
-            .code,
-            "fill-rect-outside-supported-surface"
-        );
+        gdi.fill_rect(
+            dc.handle,
+            RuntimeRect {
+                left: -1,
+                top: 0,
+                right: 1,
+                bottom: 1,
+            },
+            brush,
+            target().owner_thread_id,
+        )
+        .unwrap_err();
         assert_eq!(gdi, before_invalid);
 
         let surface = gdi.surfaces.get_mut(&dc.surface_id).unwrap();
-        surface.generation = u64::MAX;
-        let before_generation_exhaustion = gdi.clone();
-        assert_eq!(
-            gdi.plan_fill_rect(
+        surface
+            .fills
+            .resize(RUNTIME_GDI_SURFACE_FILL_LIMIT, surface.fills[0]);
+        let before_capacity_exhaustion = gdi.clone();
+        assert!(
+            gdi.fill_rect(
                 dc.handle,
                 RuntimeRect {
                     left: 0,
@@ -3756,118 +2711,94 @@ mod tests {
                     right: 1,
                     bottom: 1,
                 },
-                brush.handle,
+                brush,
                 target().owner_thread_id,
             )
-            .unwrap_err()
-            .code,
-            "surface-generation-exhausted"
+            .is_err()
         );
-        assert_eq!(gdi, before_generation_exhaustion);
+        assert_eq!(gdi, before_capacity_exhaustion);
+        gdi.fill_rect(
+            dc.handle,
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1,
+                bottom: 1,
+            },
+            brush,
+            RuntimeThreadId(8193),
+        )
+        .unwrap_err();
+        assert_eq!(gdi, before_capacity_exhaustion);
     }
 
     #[test]
     fn window_surface_resize_preserves_identity_clears_content_and_rejects_live_dc() {
         let mut absent = RuntimeGdi::default();
-        let absent_before = absent.clone();
-        let absent_plan = absent
-            .plan_window_surface_resize(target().window_id, 800, 600, 1_280, 720)
-            .unwrap();
         absent
-            .preflight_window_surface_resize(&absent_plan)
+            .resize_window_surface(target().window_id, 800, 600, 1_280, 720)
             .unwrap();
-        absent.commit_preflighted_window_surface_resize(absent_plan);
-        assert_eq!(absent, absent_before);
+        assert!(absent.surfaces.is_empty());
+        assert!(absent.window_surface_index.is_empty());
 
         let mut gdi = RuntimeGdi::default();
-        let dc = gdi
-            .commit_get_dc(gdi.plan_get_dc(target()).unwrap())
-            .unwrap();
+        let dc = gdi.get_window_dc(target()).unwrap();
         let brush = gdi
-            .commit_get_stock_object(
-                gdi.plan_get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-                    .unwrap(),
-            )
+            .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
+            .unwrap()
             .unwrap();
-        gdi.commit_fill_rect(
-            gdi.plan_fill_rect(
-                dc.handle,
-                RuntimeRect {
-                    left: 0,
-                    top: 0,
-                    right: 800,
-                    bottom: 600,
-                },
-                brush.handle,
-                target().owner_thread_id,
-            )
-            .unwrap(),
+        gdi.fill_rect(
+            dc.handle,
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+            brush,
+            target().owner_thread_id,
         )
         .unwrap();
-        let before_live_dc = gdi.clone();
-        assert_eq!(
-            gdi.plan_window_surface_resize(target().window_id, 800, 600, 1_280, 720)
-                .unwrap_err()
-                .code,
-            "window-surface-resize-dc-live"
-        );
-        assert_eq!(gdi, before_live_dc);
-
-        let release = gdi
-            .plan_release_dc(target().window_handle, dc.handle, target().owner_thread_id)
+        let surface_before = gdi.surfaces[&dc.surface_id].clone();
+        gdi.resize_window_surface(target().window_id, 800, 600, 1_280, 720)
+            .expect_err("a live window DC prevents resize");
+        assert_eq!(gdi.surfaces[&dc.surface_id], surface_before);
+        assert_eq!(gdi.device_contexts[&dc.device_context_id].handle, dc.handle);
+        gdi.release_window_dc(target().window_handle, dc.handle, target().owner_thread_id)
             .unwrap();
-        gdi.commit_release_dc(release).unwrap();
-        let plan = gdi
-            .plan_window_surface_resize(target().window_id, 800, 600, 1_280, 720)
-            .unwrap();
-        let stale = plan.clone();
-        let before_commit = gdi.clone();
-        gdi.preflight_window_surface_resize(&plan).unwrap();
-        assert_eq!(gdi, before_commit);
-        gdi.commit_preflighted_window_surface_resize(plan);
+        gdi.resize_window_surface(target().window_id, 800, 600, 1_280, 720)
+            .expect("resize succeeds after releasing the live DC");
 
         let surface = &gdi.surfaces[&dc.surface_id];
         assert_eq!(surface.id, dc.surface_id);
         assert_eq!(surface.window_id, target().window_id);
         assert_eq!((surface.width, surface.height), (1_280, 720));
         assert!(surface.fills.is_empty());
-        assert_eq!(surface.generation, 2);
-        assert_eq!(
-            gdi.preflight_window_surface_resize(&stale)
-                .unwrap_err()
-                .code,
-            "window-surface-resize-plan-stale"
-        );
     }
 
     #[test]
-    fn font_creation_owns_distinct_identity_and_rejects_stale_or_invalid_plans() {
+    fn font_creation_owns_distinct_identity_and_rejects_invalid_inputs() {
         let mut gdi = RuntimeGdi::default();
         let mut invalid = font();
         invalid.face_name_windows_932 = vec![b'x'; RUNTIME_LOG_FONT_A_FACE_CAPACITY];
         let before_invalid = gdi.clone();
-        assert_eq!(
-            gdi.plan_create_font_a(invalid).unwrap_err().code,
-            "log-font-a-face-name-invalid"
-        );
+        gdi.create_font_a(invalid).unwrap_err();
         assert_eq!(gdi, before_invalid);
 
-        let first_plan = gdi.plan_create_font_a(font()).unwrap();
-        let stale_plan = first_plan.clone();
-        let first = gdi.commit_create_font_a(first_plan).unwrap();
-        assert_eq!(first.object_id, RuntimeGdiObjectId(1));
-        assert_eq!(first.handle, RUNTIME_GDI_OBJECT_HANDLE_BASE);
+        let first = gdi.create_font_a(font()).unwrap().unwrap();
         assert_eq!(
-            gdi.commit_create_font_a(stale_plan).unwrap_err().code,
-            "create-font-a-plan-stale"
+            gdi.object_by_handle(first).unwrap().id,
+            RuntimeGdiObjectId(1)
         );
-        let second = gdi
-            .commit_create_font_a(gdi.plan_create_font_a(font()).unwrap())
-            .unwrap();
-        assert_eq!(second.object_id, RuntimeGdiObjectId(2));
-        assert_eq!(second.handle, RUNTIME_GDI_OBJECT_HANDLE_BASE + 1);
+        assert_eq!(first, RUNTIME_GDI_OBJECT_HANDLE_BASE);
+        let second = gdi.create_font_a(font()).unwrap().unwrap();
+        assert_eq!(
+            gdi.object_by_handle(second).unwrap().id,
+            RuntimeGdiObjectId(2)
+        );
+        assert_eq!(second, RUNTIME_GDI_OBJECT_HANDLE_BASE + 1);
 
-        let object = gdi.objects.get(&first.object_id).unwrap();
+        let object = gdi.object_by_handle(first).unwrap();
         let RuntimeGdiObjectKind::FontA { log_font } = &object.object else {
             panic!("created GDI object is not a font")
         };
@@ -3880,26 +2811,20 @@ mod tests {
             ]
         );
 
-        let dc = gdi
-            .commit_get_dc(gdi.plan_get_dc(target()).unwrap())
-            .unwrap();
+        let dc = gdi.get_window_dc(target()).unwrap();
         let before_wrong_kind = gdi.clone();
-        assert_eq!(
-            gdi.plan_fill_rect(
-                dc.handle,
-                RuntimeRect {
-                    left: 0,
-                    top: 0,
-                    right: 1,
-                    bottom: 1,
-                },
-                first.handle,
-                target().owner_thread_id,
-            )
-            .unwrap_err()
-            .code,
-            "fill-rect-object-not-brush"
-        );
+        gdi.fill_rect(
+            dc.handle,
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1,
+                bottom: 1,
+            },
+            first,
+            target().owner_thread_id,
+        )
+        .unwrap_err();
         assert_eq!(gdi, before_wrong_kind);
     }
 
@@ -3907,74 +2832,62 @@ mod tests {
     fn graphics_surface_dc_is_single_outstanding_and_guards_com_retirement() {
         let mut gdi = RuntimeGdi::default();
         let target = graphics_target(1, 9);
-        let plan = gdi.plan_get_graphics_surface_dc(target).unwrap();
-        let stale_acquire = plan.clone();
-        let acquired = gdi.commit_get_graphics_surface_dc(plan).unwrap();
-        assert_eq!(acquired.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
-        assert_eq!(acquired.surface_id, target.surface_id);
+        let acquired = gdi.get_graphics_surface_dc(target).unwrap().unwrap();
+        assert_eq!(acquired, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
+        assert_eq!(
+            gdi.device_context_by_handle(acquired).unwrap().target,
+            RuntimeDeviceContextTarget::GraphicsSurface {
+                surface_id: target.surface_id,
+                surface_com_object_id: target.surface_com_object_id,
+                width: target.width,
+                height: target.height,
+                color_format: target.color_format,
+            }
+        );
         assert_eq!(gdi.device_contexts.len(), 1);
 
         let before_repeat = gdi.clone();
-        assert_eq!(
-            gdi.plan_get_graphics_surface_dc(target).unwrap_err().code,
-            "graphics-surface-dc-already-acquired"
-        );
+        assert!(gdi.get_graphics_surface_dc(target).unwrap().is_none());
         assert_eq!(gdi, before_repeat);
-        assert_eq!(
-            gdi.commit_get_graphics_surface_dc(stale_acquire)
-                .unwrap_err()
-                .code,
-            "graphics-surface-get-dc-plan-stale"
-        );
 
         let before_retirement = gdi.clone();
-        assert_eq!(
-            gdi.plan_com_object_retirements(&[target.surface_com_object_id].into_iter().collect())
-                .unwrap_err()
-                .code,
-            "graphics-surface-dc-still-acquired"
-        );
+        gdi.validate_com_object_retirements(&[target.surface_com_object_id].into_iter().collect())
+            .unwrap_err();
         assert_eq!(gdi, before_retirement);
 
         let before_wrong_release = gdi.clone();
-        assert_eq!(
-            gdi.plan_release_graphics_surface_dc(
+        assert!(
+            !gdi.release_graphics_surface_dc(
                 graphics_target(1, 10),
-                acquired.handle,
+                acquired,
                 target.owner_thread_id,
             )
-            .unwrap_err()
-            .code,
-            "graphics-surface-dc-relation-mismatch"
+            .unwrap()
+        );
+        assert!(
+            !gdi.release_graphics_surface_dc(target, 0, target.owner_thread_id)
+                .unwrap()
         );
         assert_eq!(gdi, before_wrong_release);
 
-        let release = gdi
-            .plan_release_graphics_surface_dc(target, acquired.handle, target.owner_thread_id)
-            .unwrap();
-        let stale_release = release.clone();
-        gdi.commit_release_dc(release).unwrap();
+        assert!(
+            gdi.release_graphics_surface_dc(target, acquired, target.owner_thread_id)
+                .unwrap()
+        );
         assert!(gdi.device_contexts.is_empty());
-        assert_eq!(
-            gdi.commit_release_dc(stale_release).unwrap_err().code,
-            "release-dc-plan-stale"
+        assert!(
+            !gdi.release_graphics_surface_dc(target, acquired, target.owner_thread_id)
+                .unwrap()
         );
 
-        let guard = gdi
-            .plan_com_object_retirements(&[target.surface_com_object_id].into_iter().collect())
+        gdi.validate_com_object_retirements(&[target.surface_com_object_id].into_iter().collect())
+            .unwrap();
+        // An unrelated surface DC does not prevent retirement of the released surface.
+        gdi.get_graphics_surface_dc(graphics_target(2, 10))
             .unwrap()
             .unwrap();
-        gdi.preflight_com_object_retirements(&guard).unwrap();
-        let second = gdi
-            .plan_get_graphics_surface_dc(graphics_target(2, 10))
+        gdi.validate_com_object_retirements(&[target.surface_com_object_id].into_iter().collect())
             .unwrap();
-        gdi.commit_get_graphics_surface_dc(second).unwrap();
-        assert_eq!(
-            gdi.preflight_com_object_retirements(&guard)
-                .unwrap_err()
-                .code,
-            "gdi-com-retirement-guard-stale"
-        );
     }
 
     #[test]
@@ -3982,19 +2895,14 @@ mod tests {
         let mut gdi = RuntimeGdi::default();
         for index in 0..RUNTIME_GDI_DEVICE_CONTEXT_LIMIT {
             let target = graphics_target(index as u64 + 1, index as u64 + 1);
-            let plan = gdi.plan_get_graphics_surface_dc(target).unwrap();
-            gdi.commit_get_graphics_surface_dc(plan).unwrap();
+            gdi.get_graphics_surface_dc(target).unwrap().unwrap();
         }
         let before = gdi.clone();
-        assert_eq!(
-            gdi.plan_get_graphics_surface_dc(graphics_target(
-                RUNTIME_GDI_DEVICE_CONTEXT_LIMIT as u64 + 1,
-                RUNTIME_GDI_DEVICE_CONTEXT_LIMIT as u64 + 1,
-            ))
-            .unwrap_err()
-            .code,
-            "device-context-capacity-exhausted"
-        );
+        gdi.get_graphics_surface_dc(graphics_target(
+            RUNTIME_GDI_DEVICE_CONTEXT_LIMIT as u64 + 1,
+            RUNTIME_GDI_DEVICE_CONTEXT_LIMIT as u64 + 1,
+        ))
+        .unwrap_err();
         assert_eq!(gdi, before);
     }
 }

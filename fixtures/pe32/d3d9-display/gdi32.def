@@ -1,0 +1,12 @@
+LIBRARY gdi32.dll
+EXPORTS
+    EnumFontFamiliesExA@20
+    CreateFontA@56
+    DeleteObject@4
+    SelectObject@8
+    GetOutlineTextMetricsA@12
+    TextOutA@20
+    CreateCompatibleDC@4
+    DeleteDC@4
+    CreateDIBSection@24
+  GetStockObject@4

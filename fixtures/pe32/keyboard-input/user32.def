@@ -1,0 +1,15 @@
+LIBRARY user32.dll
+EXPORTS
+    LoadIconA@8
+    LoadCursorA@8
+    RegisterClassExA@4
+    CreateWindowExA@48
+    DefWindowProcA@16
+    SendMessageA@16
+    SetWindowPos@28
+    SetFocus@4
+    PeekMessageA@20
+    TranslateMessage@4
+    DispatchMessageA@4
+    GetAsyncKeyState@4
+    GetQueueStatus@4

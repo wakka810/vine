@@ -97,7 +97,7 @@ export interface DirtyMirrorPage {
   bytes: Uint8Array;
 }
 
-const cpuWritebackMagic = Uint8Array.from([0x56, 0x49, 0x4e, 0x45, 0x57, 0x42, 0x30, 0x31]);
+const cpuWritebackMagic = Uint8Array.from([0x56, 0x49, 0x4e, 0x45, 0x57, 0x42, 0x43, 0x4b]);
 
 export interface CpuWritebackBuffers {
   control: Uint8Array;
@@ -169,16 +169,16 @@ function mappingRange(controlView: DataView, offset: number): MemoryRange {
 }
 
 export function decodeReflection(control: Uint8Array, payload: Uint8Array): MemoryReflection {
-  const headerBytes = 40;
+  const headerBytes = 36;
   const descriptorBytes = 16;
-  expectMagic(control, "VINERF01");
+  expectMagic(control, "VINEREFL");
+  invariant(control.byteLength >= headerBytes, "reflection control header is truncated");
   const controlView = view(control);
-  invariant(controlView.getUint32(8, true) === 1, "unsupported reflection version");
-  invariant(controlView.getUint32(12, true) === pageSize, "unexpected reflection page size");
-  const generation = controlView.getBigUint64(16, true);
-  const count = controlView.getUint32(24, true);
+  invariant(controlView.getUint32(8, true) === pageSize, "unexpected reflection page size");
+  const generation = controlView.getBigUint64(12, true);
+  const count = controlView.getUint32(20, true);
   invariant(
-    controlView.getUint32(28, true) === descriptorBytes,
+    controlView.getUint32(24, true) === descriptorBytes,
     "unexpected reflection descriptor size",
   );
   invariant(
@@ -205,30 +205,29 @@ export function decodeReflection(control: Uint8Array, payload: Uint8Array): Memo
   );
   return {
     generation,
-    cacheEffects: cacheEffects(controlView.getUint32(32, true)),
+    cacheEffects: cacheEffects(controlView.getUint32(28, true)),
     pages,
   };
 }
 
 export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostMemoryDelta {
-  const headerBytes = 56;
+  const headerBytes = 52;
+  const mappingDescriptorBytes = 40;
   const pageDescriptorBytes = 16;
-  expectMagic(control, "VINEDL01");
+  expectMagic(control, "VINEDELT");
+  invariant(control.byteLength >= headerBytes, "host delta control header is truncated");
   const controlView = view(control);
-  const version = controlView.getUint32(8, true);
-  invariant(version === 1 || version === 2, "unsupported host delta version");
-  const mappingDescriptorBytes = version === 1 ? 32 : 40;
-  invariant(controlView.getUint32(12, true) === pageSize, "unexpected host delta page size");
-  const fromGeneration = controlView.getBigUint64(16, true);
-  const generation = controlView.getBigUint64(24, true);
-  const mappingCount = controlView.getUint32(32, true);
-  const dirtyCount = controlView.getUint32(40, true);
+  invariant(controlView.getUint32(8, true) === pageSize, "unexpected host delta page size");
+  const fromGeneration = controlView.getBigUint64(12, true);
+  const generation = controlView.getBigUint64(20, true);
+  const mappingCount = controlView.getUint32(28, true);
+  const dirtyCount = controlView.getUint32(36, true);
   invariant(
-    controlView.getUint32(36, true) === mappingDescriptorBytes,
+    controlView.getUint32(32, true) === mappingDescriptorBytes,
     "unexpected mapping descriptor size",
   );
   invariant(
-    controlView.getUint32(44, true) === pageDescriptorBytes,
+    controlView.getUint32(40, true) === pageDescriptorBytes,
     "unexpected delta page descriptor size",
   );
   invariant(
@@ -245,8 +244,7 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
     const kind = controlView.getUint32(offset + 8, true);
     const protectionFlags = controlView.getUint32(offset + 12, true);
     const range = mappingRange(controlView, offset);
-    const encodedAddressAllocationId =
-      version === 1 ? 0n : controlView.getBigUint64(offset + 28, true);
+    const encodedAddressAllocationId = controlView.getBigUint64(offset + 28, true);
     invariant(
       encodedAddressAllocationId <= BigInt(Number.MAX_SAFE_INTEGER),
       "mapping address allocation ID exceeds exact browser accounting",
@@ -256,7 +254,7 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
       addressAllocationId === 0 ? {} : { addressAllocationId };
     invariant(owner !== 0, "mapping operation owner is zero");
     invariant(
-      controlView.getUint32(offset + (version === 1 ? 28 : 36), true) === 0,
+      controlView.getUint32(offset + 36, true) === 0,
       "mapping descriptor reserved field is nonzero",
     );
     switch (operation) {
@@ -321,7 +319,7 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
   return {
     fromGeneration,
     generation,
-    cacheEffects: cacheEffects(controlView.getUint32(48, true)),
+    cacheEffects: cacheEffects(controlView.getUint32(44, true)),
     mappingOperations,
     pages,
   };
@@ -331,7 +329,7 @@ export function encodeCpuWritebackControl(
   generation: bigint,
   pages: DirtyMirrorPage[],
 ): Uint8Array {
-  const headerBytes = 32;
+  const headerBytes = 28;
   const descriptorBytes = 8;
   const control = new Uint8Array(headerBytes + pages.length * descriptorBytes);
   encodeCpuWritebackControlInto(control, generation, pages);
@@ -340,7 +338,7 @@ export function encodeCpuWritebackControl(
 
 export function cpuWritebackControlByteLength(pageCount: number): number {
   invariant(Number.isSafeInteger(pageCount) && pageCount >= 0, "invalid writeback page count");
-  return 32 + pageCount * 8;
+  return 28 + pageCount * 8;
 }
 
 export function encodeCpuWritebackControlInto(
@@ -348,7 +346,7 @@ export function encodeCpuWritebackControlInto(
   generation: bigint,
   pages: DirtyMirrorPage[],
 ): void {
-  const headerBytes = 32;
+  const headerBytes = 28;
   const descriptorBytes = 8;
   const controlLength = cpuWritebackControlByteLength(pages.length);
   invariant(
@@ -358,11 +356,10 @@ export function encodeCpuWritebackControlInto(
   control.fill(0, 0, controlLength);
   control.set(cpuWritebackMagic, 0);
   const controlView = view(control);
-  controlView.setUint32(8, 1, true);
-  controlView.setUint32(12, pageSize, true);
-  controlView.setBigUint64(16, generation, true);
-  controlView.setUint32(24, pages.length, true);
-  controlView.setUint32(28, descriptorBytes, true);
+  controlView.setUint32(8, pageSize, true);
+  controlView.setBigUint64(12, generation, true);
+  controlView.setUint32(20, pages.length, true);
+  controlView.setUint32(24, descriptorBytes, true);
   pages.forEach((page, index) => {
     invariant(page.bytes.byteLength === pageSize, "writeback page is not 4 KiB");
     const offset = headerBytes + index * descriptorBytes;

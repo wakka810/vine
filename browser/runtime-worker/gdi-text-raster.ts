@@ -1,8 +1,7 @@
 /// <reference lib="webworker" />
 
-const requestVersion = 1;
-const requestWordCount = 21;
-const maximumPixelBytes = 448 * 336;
+const requestWordCount = 18;
+const maximumPixelBytes = 2 * 1024 * 1024;
 const windows932 = new TextDecoder("shift_jis", { fatal: true });
 
 interface TextRasterRequest {
@@ -15,7 +14,6 @@ interface TextRasterRequest {
   pixelByteLength: number;
   characterCount: number;
   packedText: number;
-  initialPixel: number;
 }
 
 function invariant(condition: unknown, message: string): asserts condition {
@@ -30,20 +28,20 @@ function signed(word: number): number {
 
 function decodeRequest(arguments_: readonly number[]): TextRasterRequest {
   invariant(
-    arguments_.length === requestWordCount && arguments_[0] === requestVersion,
-    "GDI text raster request version or size mismatch",
+    arguments_.length === requestWordCount &&
+      arguments_.every((word) => Number.isInteger(word) && word >= 0 && word <= 0xffffffff),
+    "GDI text raster request has invalid words or size",
   );
   const request: TextRasterRequest = {
-    fontHeight: signed(arguments_[10]!),
-    fontWidth: signed(arguments_[11]!),
-    fontWeight: signed(arguments_[12]!),
-    dibWidth: signed(arguments_[13]!),
-    dibHeight: signed(arguments_[14]!),
-    strideBytes: arguments_[15]!,
-    pixelByteLength: arguments_[16]!,
-    characterCount: arguments_[17]!,
-    packedText: arguments_[18]!,
-    initialPixel: arguments_[19]!,
+    fontHeight: signed(arguments_[9]!),
+    fontWidth: signed(arguments_[10]!),
+    fontWeight: signed(arguments_[11]!),
+    dibWidth: signed(arguments_[12]!),
+    dibHeight: signed(arguments_[13]!),
+    strideBytes: arguments_[14]!,
+    pixelByteLength: arguments_[15]!,
+    characterCount: arguments_[16]!,
+    packedText: arguments_[17]!,
   };
   const height = Math.abs(request.dibHeight);
   invariant(
@@ -51,58 +49,15 @@ function decodeRequest(arguments_: readonly number[]): TextRasterRequest {
     "GDI text raster request has an unsupported Windows-932 glyph length",
   );
   invariant(
-    request.initialPixel === 0 &&
-      request.fontWeight === 100 &&
-      ((request.fontHeight === 64 &&
-        request.fontWidth === 32 &&
-        request.dibWidth === 128 &&
-        request.dibHeight === -96 &&
-        request.strideBytes === 128 &&
-        request.pixelByteLength === 12_288) ||
-        (request.fontHeight === 224 &&
-          request.fontWidth === 112 &&
-          request.dibWidth === 448 &&
-          request.dibHeight === -336 &&
-          request.strideBytes === 448 &&
-          request.pixelByteLength === 150_528) ||
-        (request.fontHeight === 80 &&
-          request.fontWidth === 40 &&
-          request.dibWidth === 160 &&
-          request.dibHeight === -120 &&
-          request.strideBytes === 160 &&
-          request.pixelByteLength === 19_200) ||
-        (request.fontHeight === 192 &&
-          request.fontWidth === 96 &&
-          request.dibWidth === 384 &&
-          request.dibHeight === -288 &&
-          request.strideBytes === 384 &&
-          request.pixelByteLength === 110_592) ||
-        (request.fontHeight === 144 &&
-          request.fontWidth === 144 &&
-          request.dibWidth === 576 &&
-          request.dibHeight === -216 &&
-          request.strideBytes === 576 &&
-          request.pixelByteLength === 124_416) ||
-        (request.fontHeight === 128 &&
-          request.fontWidth === 64 &&
-          request.dibWidth === 256 &&
-          request.dibHeight === -192 &&
-          request.strideBytes === 256 &&
-          request.pixelByteLength === 49_152) ||
-        (request.fontHeight === 144 &&
-          request.fontWidth === 72 &&
-          request.dibWidth === 288 &&
-          request.dibHeight === -216 &&
-          request.strideBytes === 288 &&
-          request.pixelByteLength === 62_208)),
-    "GDI text raster request is outside the reached font/DIB profile pairs",
-  );
-  invariant(
-    height > 0 &&
-      request.strideBytes === request.dibWidth &&
+    request.fontHeight !== 0 && Math.abs(request.fontHeight) <= 4096 &&
+      request.fontWidth > 0 && request.fontWidth <= 4096 &&
+      request.fontWeight >= 0 && request.fontWeight <= 1000 &&
+      request.dibWidth > 0 && request.dibWidth <= 4096 &&
+      request.dibHeight < 0 && height <= 4096 &&
+      request.strideBytes === Math.ceil(request.dibWidth / 4) * 4 &&
       request.pixelByteLength === request.strideBytes * height &&
       request.pixelByteLength <= maximumPixelBytes,
-    "GDI text raster request has an invalid bounded pixel plane",
+    "GDI text raster request has an invalid bounded 8bpp pixel plane",
   );
   return request;
 }
@@ -137,7 +92,7 @@ export function rasterizeGdiText(arguments_: readonly number[]): Uint8Array {
   context.fillStyle = "white";
   context.textBaseline = "top";
   context.textAlign = "left";
-  context.font = `${request.fontWeight} ${Math.abs(request.fontHeight)}px "MS Gothic", monospace`;
+  context.font = `400 ${Math.abs(request.fontHeight)}px "MS Gothic", monospace`;
 
   const measuredWidth = context.measureText(glyph).width;
   const requestedWidth = Math.abs(request.fontWidth) * request.characterCount;
@@ -152,8 +107,10 @@ export function rasterizeGdiText(arguments_: readonly number[]): Uint8Array {
 
   const rgba = context.getImageData(0, 0, request.dibWidth, height).data;
   const pixels = new Uint8Array(request.pixelByteLength);
-  for (let index = 0; index < pixels.length; index += 1) {
-    pixels[index] = rgba[index * 4]!;
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < request.dibWidth; column += 1) {
+      pixels[row * request.strideBytes + column] = rgba[(row * request.dibWidth + column) * 4]!;
+    }
   }
   return pixels;
 }

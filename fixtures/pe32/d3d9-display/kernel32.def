@@ -1,0 +1,17 @@
+LIBRARY kernel32.dll
+EXPORTS
+    GetLastError@0
+    GlobalMemoryStatus@4
+    SetLastError@4
+    VirtualAlloc@16
+    VirtualFree@12
+    InitializeCriticalSection@4
+    InitializeCriticalSectionAndSpinCount@8
+    EnterCriticalSection@4
+    LeaveCriticalSection@4
+    DeleteCriticalSection@4
+    CreateMutexA@12
+    CloseHandle@4
+    CreateEventA@16
+    WaitForMultipleObjects@16
+  Sleep@4

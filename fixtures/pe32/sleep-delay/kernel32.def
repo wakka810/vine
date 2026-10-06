@@ -1,0 +1,6 @@
+LIBRARY kernel32.dll
+EXPORTS
+    Sleep@4
+    GetTickCount@0
+    SetLastError@4
+    GetLastError@0

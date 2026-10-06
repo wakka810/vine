@@ -2,6 +2,29 @@ LIBRARY kernel32.dll
 EXPORTS
   CloseHandle@4
   CreateFileA@28
+  CreateDirectoryA@8
+  DeleteFileA@4
+  GetFileType@4
   GetFileSize@8
+  GetFileAttributesA@4
+  FindFirstFileA@8
+  FindNextFileA@8
+  FindClose@4
+  SetLastError@4
+  GetLastError@0
+  LoadLibraryA@4
   ReadFile@20
+  WriteFile@20
+  FlushFileBuffers@4
   SetFilePointer@16
+  WideCharToMultiByte@32
+  MultiByteToWideChar@24
+  GetStringTypeW@16
+  LCMapStringW@24
+  HeapCreate@12
+  HeapAlloc@12
+  HeapReAlloc@16
+  HeapSize@12
+  HeapFree@12
+  VirtualAlloc@16
+  VirtualFree@12

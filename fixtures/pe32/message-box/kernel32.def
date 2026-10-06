@@ -1,0 +1,6 @@
+LIBRARY kernel32.dll
+EXPORTS
+  CreateThread@24
+  Sleep@4
+  WaitForSingleObject@8
+  CloseHandle@4

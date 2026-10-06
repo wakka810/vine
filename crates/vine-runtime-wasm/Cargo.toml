@@ -9,5 +9,6 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+encoding_rs.workspace = true
 serde_json.workspace = true
 vine-core = { path = "../vine-core" }

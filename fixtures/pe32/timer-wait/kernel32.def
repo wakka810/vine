@@ -1,0 +1,12 @@
+LIBRARY kernel32.dll
+EXPORTS
+  CreateThread@24
+  WaitForSingleObject@8
+  CreateWaitableTimerA@12
+  SetWaitableTimer@24
+  WaitForSingleObjectEx@12
+  GetLastError@0
+  GetTickCount@0
+  SetLastError@4
+  CloseHandle@4
+  Sleep@4

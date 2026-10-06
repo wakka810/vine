@@ -1,0 +1,4 @@
+LIBRARY imm32.dll
+EXPORTS
+    ImmGetDefaultIMEWnd@4
+    ImmAssociateContext@8

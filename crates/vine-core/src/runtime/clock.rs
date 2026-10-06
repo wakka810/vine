@@ -1,93 +1,8 @@
-use serde::{Deserialize, Serialize, Serializer};
-
 use super::RuntimeStateError;
-
-pub const RUNTIME_CLOCK_PROFILE_SCHEMA: &str = "vine.runtime-clock-profile";
-pub const RUNTIME_CLOCK_PROFILE_VERSION: u32 = 1;
-pub const RUNTIME_SCHEDULED_SHARED_CLOCK_PROFILE_ID: &str = "scheduled-shared-logical-deadline-v1";
-pub const RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND: u64 = 2_000_000;
 
 const FILE_TIME_TICKS_PER_SECOND: u128 = 10_000_000;
 const FILE_TIME_TICKS_PER_MILLISECOND: u64 = 10_000;
-const MAX_CLOCK_PROFILE_ID_BYTES: usize = 128;
-const RUNTIME_API_READ_INCREMENT_CLOCK_PROFILE_ID: &str = "api-read-increment-v1";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RuntimeClockProgression {
-    ApiReadIncrement,
-    ScheduledShared,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RuntimeClockProfile {
-    pub schema: String,
-    pub schema_version: u32,
-    pub id: String,
-    pub progression: RuntimeClockProgression,
-}
-
-impl RuntimeClockProfile {
-    pub fn api_read_increment_v1() -> Self {
-        Self {
-            schema: RUNTIME_CLOCK_PROFILE_SCHEMA.to_owned(),
-            schema_version: RUNTIME_CLOCK_PROFILE_VERSION,
-            id: RUNTIME_API_READ_INCREMENT_CLOCK_PROFILE_ID.to_owned(),
-            progression: RuntimeClockProgression::ApiReadIncrement,
-        }
-    }
-
-    pub fn scheduled_shared_v1() -> Self {
-        Self {
-            schema: RUNTIME_CLOCK_PROFILE_SCHEMA.to_owned(),
-            schema_version: RUNTIME_CLOCK_PROFILE_VERSION,
-            id: RUNTIME_SCHEDULED_SHARED_CLOCK_PROFILE_ID.to_owned(),
-            progression: RuntimeClockProgression::ScheduledShared,
-        }
-    }
-
-    pub fn validate(&self) -> Result<(), RuntimeStateError> {
-        if self.schema != RUNTIME_CLOCK_PROFILE_SCHEMA
-            || self.schema_version != RUNTIME_CLOCK_PROFILE_VERSION
-            || self.id.is_empty()
-            || self.id.len() > MAX_CLOCK_PROFILE_ID_BYTES
-            || !self.id.is_ascii()
-            || self.id.as_bytes().contains(&0)
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-clock",
-                "clock-profile-identity-invalid",
-                "runtime clock profile requires the supported schema and one bounded ASCII identity",
-            ));
-        }
-        match self.progression {
-            RuntimeClockProgression::ApiReadIncrement
-                if self.id != RUNTIME_API_READ_INCREMENT_CLOCK_PROFILE_ID =>
-            {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-clock",
-                    "api-read-clock-profile-identity-invalid",
-                    "API-read clock progression requires its versioned runtime profile identity",
-                ));
-            }
-            RuntimeClockProgression::ScheduledShared
-                if self.id != RUNTIME_SCHEDULED_SHARED_CLOCK_PROFILE_ID =>
-            {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-clock",
-                    "scheduled-clock-profile-identity-invalid",
-                    "scheduled shared clock progression requires its versioned runtime profile identity",
-                ));
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeClockState {
     pub wall_clock_file_time: u64,
     pub tick_count: u32,
@@ -95,86 +10,12 @@ pub struct RuntimeClockState {
     pub performance_frequency: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeTimerClockState {
-    pub current_time_100ns: u64,
-    pub generation: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeScheduledExecutionClockState {
-    pub retired_instructions: u64,
-    pub pending_retired_instructions: u64,
-    pub retired_instructions_per_second: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) struct RuntimeClock {
     epoch: RuntimeClockState,
     state: RuntimeClockState,
-    timer: RuntimeTimerClockState,
-    scheduled_execution: RuntimeScheduledExecutionClockState,
-    profile: RuntimeClockProfile,
-    profile_revision: u64,
-}
-
-impl Serialize for RuntimeClock {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.state.serialize(serializer)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeClockProfilePlan {
-    previous_profile: RuntimeClockProfile,
-    previous_revision: u64,
-    next_profile: RuntimeClockProfile,
-    next_revision: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeClockAdvancePlan {
-    previous_timer: RuntimeTimerClockState,
-    previous_state: RuntimeClockState,
-    expected_profile_revision: u64,
-    next_timer: RuntimeTimerClockState,
-    next_state: RuntimeClockState,
-}
-
-impl RuntimeClockAdvancePlan {
-    pub(super) const fn timer_after(&self) -> RuntimeTimerClockState {
-        self.next_timer
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeScheduledExecutionAdvancePlan {
-    previous_execution: RuntimeScheduledExecutionClockState,
-    next_execution: RuntimeScheduledExecutionClockState,
-    clock: RuntimeClockAdvancePlan,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeTickCountSamplePlan {
-    previous: u32,
-    returned: u32,
-    next: u32,
-    expected_timer: RuntimeTimerClockState,
-    expected_profile_revision: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimePerformanceCounterSamplePlan {
-    previous: u64,
-    returned: u64,
-    next: u64,
-    expected_timer: RuntimeTimerClockState,
-    expected_profile_revision: u64,
+    timer_time_100ns: u64,
+    retired_instructions: u64,
 }
 
 impl RuntimeClock {
@@ -183,17 +24,8 @@ impl RuntimeClock {
         Ok(Self {
             epoch: state.clone(),
             state,
-            timer: RuntimeTimerClockState {
-                current_time_100ns: 0,
-                generation: 0,
-            },
-            scheduled_execution: RuntimeScheduledExecutionClockState {
-                retired_instructions: 0,
-                pending_retired_instructions: 0,
-                retired_instructions_per_second: RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND,
-            },
-            profile: RuntimeClockProfile::api_read_increment_v1(),
-            profile_revision: 0,
+            timer_time_100ns: 0,
+            retired_instructions: 0,
         })
     }
 
@@ -201,399 +33,68 @@ impl RuntimeClock {
         &self.state
     }
 
-    pub(super) fn timer_state(&self) -> RuntimeTimerClockState {
-        self.timer
+    pub(super) fn timer_time_100ns(&self) -> u64 {
+        self.timer_time_100ns
     }
 
-    pub(super) fn profile(&self) -> &RuntimeClockProfile {
-        &self.profile
+    pub(super) fn synchronized_instruction_count(&self) -> u64 {
+        self.retired_instructions
     }
 
-    pub(super) fn scheduled_execution_state(&self) -> Option<RuntimeScheduledExecutionClockState> {
-        self.uses_scheduled_shared_progression()
-            .then_some(self.scheduled_execution)
-    }
-
-    pub(super) fn uses_scheduled_shared_progression(&self) -> bool {
-        self.profile.progression == RuntimeClockProgression::ScheduledShared
-    }
-
-    #[cfg(test)]
-    pub(super) fn set_tick_count_for_test(&mut self, tick_count: u32) {
-        self.state.tick_count = tick_count;
-    }
-
-    #[cfg(test)]
-    pub(super) fn set_performance_counter_for_test(&mut self, performance_counter: u64) {
-        self.state.performance_counter = performance_counter;
-    }
-
-    pub(super) fn plan_profile_configuration(
-        &self,
-        profile: RuntimeClockProfile,
-    ) -> Result<RuntimeClockProfilePlan, RuntimeStateError> {
-        profile.validate()?;
-        if self.profile.progression != RuntimeClockProgression::ApiReadIncrement
-            || self.profile_revision != 0
-            || self.timer.current_time_100ns != 0
-            || self.timer.generation != 0
-            || self.state != self.epoch
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-clock",
-                "clock-profile-already-active",
-                "runtime clock profile can only be selected before clock sampling or scheduled progression",
-            ));
-        }
-        let next_revision = self.profile_revision.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-clock",
-                "clock-profile-revision-exhausted",
-                "runtime clock profile revision is exhausted",
-            )
-        })?;
-        Ok(RuntimeClockProfilePlan {
-            previous_profile: self.profile.clone(),
-            previous_revision: self.profile_revision,
-            next_profile: profile,
-            next_revision,
-        })
-    }
-
-    pub(super) fn preflight_profile_configuration(
-        &self,
-        plan: &RuntimeClockProfilePlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.profile != plan.previous_profile
-            || self.profile_revision != plan.previous_revision
-            || self.timer.current_time_100ns != 0
-            || self.timer.generation != 0
-            || self.state != self.epoch
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-clock",
-                "clock-profile-plan-stale",
-                "runtime clock changed after profile selection preflight",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_profile_configuration(
-        &mut self,
-        plan: RuntimeClockProfilePlan,
-    ) -> Result<&RuntimeClockProfile, RuntimeStateError> {
-        self.preflight_profile_configuration(&plan)?;
-        self.profile = plan.next_profile;
-        self.profile_revision = plan.next_revision;
-        Ok(&self.profile)
-    }
-
-    pub(super) fn plan_tick_count_sample(
-        &self,
-        increment_per_read: u32,
-    ) -> Result<RuntimeTickCountSamplePlan, RuntimeStateError> {
-        let next = if self.uses_scheduled_shared_progression() {
-            self.state.tick_count
-        } else {
-            if increment_per_read == 0 {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-process-clock",
-                    "tick-count-increment-zero",
-                    "advancing tick-count sampling requires a nonzero increment",
-                ));
-            }
-            self.state.tick_count.wrapping_add(increment_per_read)
-        };
-        Ok(RuntimeTickCountSamplePlan {
-            previous: self.state.tick_count,
-            returned: self.state.tick_count,
-            next,
-            expected_timer: self.timer,
-            expected_profile_revision: self.profile_revision,
-        })
-    }
-
-    pub(super) fn commit_tick_count_sample(
-        &mut self,
-        plan: RuntimeTickCountSamplePlan,
-    ) -> Result<u32, RuntimeStateError> {
-        if self.state.tick_count != plan.previous
-            || self.timer != plan.expected_timer
-            || self.profile_revision != plan.expected_profile_revision
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-process-clock",
-                "tick-count-sample-plan-stale",
-                "process clock changed after tick-count sampling preflight",
-            ));
-        }
-        self.state.tick_count = plan.next;
-        Ok(plan.returned)
-    }
-
-    pub(super) fn plan_performance_counter_sample(
-        &self,
-        increment_per_read: u64,
-    ) -> Result<RuntimePerformanceCounterSamplePlan, RuntimeStateError> {
-        let next = if self.uses_scheduled_shared_progression() {
-            self.state.performance_counter
-        } else {
-            if increment_per_read == 0 {
-                return Err(RuntimeStateError::invalid_input(
-                    "runtime-process-clock",
-                    "performance-counter-increment-zero",
-                    "advancing performance-counter sampling requires a nonzero increment",
-                ));
-            }
-            self.state
-                .performance_counter
-                .checked_add(increment_per_read)
-                .filter(|next| *next <= i64::MAX as u64)
-                .ok_or_else(|| {
-                    RuntimeStateError::resource_limit(
-                        "runtime-process-clock",
-                        "performance-counter-range-exhausted",
-                        "performance-counter sampling exceeded the nonnegative LARGE_INTEGER range",
-                    )
-                })?
-        };
-        Ok(RuntimePerformanceCounterSamplePlan {
-            previous: self.state.performance_counter,
-            returned: self.state.performance_counter,
-            next,
-            expected_timer: self.timer,
-            expected_profile_revision: self.profile_revision,
-        })
-    }
-
-    pub(super) fn commit_performance_counter_sample(
-        &mut self,
-        plan: RuntimePerformanceCounterSamplePlan,
-    ) -> Result<u64, RuntimeStateError> {
-        if self.state.performance_counter != plan.previous
-            || self.timer != plan.expected_timer
-            || self.profile_revision != plan.expected_profile_revision
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-process-clock",
-                "performance-counter-sample-plan-stale",
-                "process clock changed after performance-counter sampling preflight",
-            ));
-        }
-        self.state.performance_counter = plan.next;
-        Ok(plan.returned)
-    }
-
-    pub(super) fn plan_advance(
+    pub(super) fn project_advance(
         &self,
         target_time_100ns: u64,
-    ) -> Result<RuntimeClockAdvancePlan, RuntimeStateError> {
-        if target_time_100ns < self.timer.current_time_100ns {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-timer-clock",
-                "timer-clock-target-regressed",
+    ) -> Result<(u64, RuntimeClockState), RuntimeStateError> {
+        if target_time_100ns < self.timer_time_100ns {
+            return Err(RuntimeStateError::new(
                 "logical timer clock cannot move backwards",
             ));
         }
-        let generation = if target_time_100ns == self.timer.current_time_100ns {
-            self.timer.generation
-        } else {
-            self.timer.generation.checked_add(1).ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-timer-clock",
-                    "timer-clock-generation-exhausted",
-                    "logical timer clock generation is exhausted",
-                )
-            })?
-        };
-        let next_state = if self.uses_scheduled_shared_progression() {
-            project_scheduled_state(&self.epoch, target_time_100ns)?
-        } else {
-            self.state.clone()
-        };
-        Ok(RuntimeClockAdvancePlan {
-            previous_timer: self.timer,
-            previous_state: self.state.clone(),
-            expected_profile_revision: self.profile_revision,
-            next_timer: RuntimeTimerClockState {
-                current_time_100ns: target_time_100ns,
-                generation,
-            },
-            next_state,
-        })
+        let next_state = project_scheduled_state(&self.epoch, target_time_100ns)?;
+        Ok((target_time_100ns, next_state))
     }
 
-    pub(super) fn plan_scheduled_execution_advance(
-        &self,
-        retired_instructions: u64,
-    ) -> Result<RuntimeScheduledExecutionAdvancePlan, RuntimeStateError> {
-        if !self.uses_scheduled_shared_progression() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-clock",
-                "scheduled-execution-clock-profile-inactive",
-                "retired-instruction clock progression requires the scheduled shared profile",
-            ));
-        }
-        if retired_instructions < self.scheduled_execution.retired_instructions {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-clock",
-                "scheduled-execution-instruction-count-regressed",
-                "retired guest instruction count cannot move backwards",
-            ));
-        }
-        let retired_delta = retired_instructions - self.scheduled_execution.retired_instructions;
-        let pending_retired_instructions = self
-            .scheduled_execution
-            .pending_retired_instructions
-            .checked_add(retired_delta)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-clock",
-                    "scheduled-execution-instruction-range-exhausted",
-                    "pending retired guest instruction progression exceeded its range",
-                )
-            })?;
-        let retired_instructions_per_millisecond =
-            self.scheduled_execution.retired_instructions_per_second / 1_000;
-        let elapsed_milliseconds =
-            pending_retired_instructions / retired_instructions_per_millisecond;
-        let pending_retired_instructions =
-            pending_retired_instructions % retired_instructions_per_millisecond;
-        let elapsed_delta_100ns = elapsed_milliseconds
-            .checked_mul(FILE_TIME_TICKS_PER_MILLISECOND)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-clock",
-                    "scheduled-execution-time-range-exhausted",
-                    "retired guest instruction progression exceeded the logical clock range",
-                )
-            })?;
-        let target_time_100ns = self
-            .timer
-            .current_time_100ns
-            .checked_add(elapsed_delta_100ns)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-clock",
-                    "scheduled-execution-time-range-exhausted",
-                    "retired guest instruction progression exceeded the logical clock range",
-                )
-            })?;
-        Ok(RuntimeScheduledExecutionAdvancePlan {
-            previous_execution: self.scheduled_execution,
-            next_execution: RuntimeScheduledExecutionClockState {
-                retired_instructions,
-                pending_retired_instructions,
-                ..self.scheduled_execution
-            },
-            clock: self.plan_advance(target_time_100ns)?,
-        })
-    }
-
-    pub(super) fn plan_scheduled_host_execution_advance(
-        &self,
-        retired_instructions: u64,
-        host_elapsed_time_100ns: u64,
-    ) -> Result<RuntimeScheduledExecutionAdvancePlan, RuntimeStateError> {
-        if !self.uses_scheduled_shared_progression() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-clock",
-                "scheduled-host-clock-profile-inactive",
-                "host-monotonic clock synchronization requires the scheduled shared profile",
-            ));
-        }
-        if retired_instructions < self.scheduled_execution.retired_instructions {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-clock",
-                "scheduled-execution-instruction-count-regressed",
-                "retired guest instruction count cannot move backwards",
-            ));
-        }
-        let target_time_100ns = host_elapsed_time_100ns.max(self.timer.current_time_100ns);
-        Ok(RuntimeScheduledExecutionAdvancePlan {
-            previous_execution: self.scheduled_execution,
-            next_execution: RuntimeScheduledExecutionClockState {
-                retired_instructions,
-                pending_retired_instructions: 0,
-                ..self.scheduled_execution
-            },
-            clock: self.plan_advance(target_time_100ns)?,
-        })
-    }
-
-    pub(super) fn preflight_scheduled_execution_advance(
-        &self,
-        plan: &RuntimeScheduledExecutionAdvancePlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.scheduled_execution != plan.previous_execution {
-            return Err(RuntimeStateError::conflict(
-                "runtime-clock",
-                "scheduled-execution-advance-plan-stale",
-                "retired guest instruction state changed after clock progression preflight",
-            ));
-        }
-        self.preflight_advance(&plan.clock)
-    }
-
-    pub(super) fn commit_scheduled_execution_advance(
-        &mut self,
-        plan: RuntimeScheduledExecutionAdvancePlan,
-    ) -> Result<RuntimeTimerClockState, RuntimeStateError> {
-        self.preflight_scheduled_execution_advance(&plan)?;
-        let next_execution = plan.next_execution;
-        let timer = self.commit_advance(plan.clock)?;
-        self.scheduled_execution = next_execution;
+    pub(super) fn advance(&mut self, target_time_100ns: u64) -> Result<u64, RuntimeStateError> {
+        let (timer, state) = self.project_advance(target_time_100ns)?;
+        self.timer_time_100ns = timer;
+        self.state = state;
         Ok(timer)
     }
 
-    pub(super) fn preflight_advance(
-        &self,
-        plan: &RuntimeClockAdvancePlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.timer != plan.previous_timer
-            || self.state != plan.previous_state
-            || self.profile_revision != plan.expected_profile_revision
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-timer-clock",
-                "timer-clock-advance-plan-stale",
-                "logical clock changed after advance planning",
+    pub(super) fn advance_scheduled_host_execution(
+        &mut self,
+        retired_instructions: u64,
+        host_elapsed_time_100ns: u64,
+    ) -> Result<u64, RuntimeStateError> {
+        if retired_instructions < self.retired_instructions {
+            return Err(RuntimeStateError::new(
+                "retired guest instruction count cannot move backwards",
             ));
         }
-        Ok(())
+        let target_time_100ns = host_elapsed_time_100ns.max(self.timer_time_100ns);
+        let timer = self.advance(target_time_100ns)?;
+        self.retired_instructions = retired_instructions;
+        Ok(timer)
     }
 
-    pub(super) fn commit_advance(
-        &mut self,
-        plan: RuntimeClockAdvancePlan,
-    ) -> Result<RuntimeTimerClockState, RuntimeStateError> {
-        self.preflight_advance(&plan)?;
-        self.timer = plan.next_timer;
-        self.state = plan.next_state;
-        Ok(self.timer)
+    pub(super) fn apply_advance(&mut self, projection: (u64, RuntimeClockState)) {
+        (self.timer_time_100ns, self.state) = projection;
     }
 }
 
 fn validate_clock_state(state: &RuntimeClockState) -> Result<(), RuntimeStateError> {
     if state.performance_frequency == 0 {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-clock",
-            "performance-frequency-zero",
+        return Err(RuntimeStateError::new(
             "runtime performance-counter frequency must be nonzero",
         ));
     }
     if state.performance_frequency > i64::MAX as u64 {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-clock",
-            "performance-frequency-range-invalid",
+        return Err(RuntimeStateError::new(
             "runtime performance-counter frequency must fit a nonnegative LARGE_INTEGER",
         ));
     }
     if state.performance_counter > i64::MAX as u64 {
-        return Err(RuntimeStateError::invalid_input(
-            "runtime-clock",
-            "performance-counter-range-invalid",
+        return Err(RuntimeStateError::new(
             "runtime performance counter must fit a nonnegative LARGE_INTEGER",
         ));
     }
@@ -608,11 +109,7 @@ fn project_scheduled_state(
         .wall_clock_file_time
         .checked_add(elapsed_time_100ns)
         .ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-clock",
-                "wall-clock-range-exhausted",
-                "scheduled shared clock exceeded the FILETIME range",
-            )
+            RuntimeStateError::new("scheduled shared clock exceeded the FILETIME range")
         })?;
     let elapsed_milliseconds = elapsed_time_100ns / FILE_TIME_TICKS_PER_MILLISECOND;
     let tick_count = epoch.tick_count.wrapping_add(elapsed_milliseconds as u32);
@@ -624,9 +121,7 @@ fn project_scheduled_state(
         .filter(|counter| *counter <= i64::MAX as u128)
         .and_then(|counter| u64::try_from(counter).ok())
         .ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-clock",
-                "performance-counter-range-exhausted",
+            RuntimeStateError::new(
                 "scheduled shared clock exceeded the nonnegative LARGE_INTEGER range",
             )
         })?;
@@ -653,111 +148,72 @@ mod tests {
     }
 
     #[test]
-    fn scheduled_profile_projects_one_elapsed_timeline_without_read_progression() {
+    fn scheduled_clock_projects_one_elapsed_timeline() {
         let mut clock = clock();
-        let profile = clock
-            .plan_profile_configuration(RuntimeClockProfile::scheduled_shared_v1())
-            .unwrap();
-        clock.commit_profile_configuration(profile).unwrap();
+        assert_eq!(clock.state().tick_count, 3_600_000);
+        assert_eq!(clock.state().performance_counter, 12_345_678_901);
+        assert_eq!(clock.timer_time_100ns(), 0);
 
-        for _ in 0..2 {
-            let tick = clock.plan_tick_count_sample(1).unwrap();
-            assert_eq!(clock.commit_tick_count_sample(tick).unwrap(), 3_600_000);
-            let counter = clock.plan_performance_counter_sample(10_000).unwrap();
-            assert_eq!(
-                clock.commit_performance_counter_sample(counter).unwrap(),
-                12_345_678_901
-            );
-        }
-        assert_eq!(clock.timer_state().current_time_100ns, 0);
-
-        let advance = clock.plan_advance(25_000).unwrap();
-        assert_eq!(clock.timer_state().current_time_100ns, 0);
-        clock.commit_advance(advance).unwrap();
+        clock.advance(25_000).unwrap();
         assert_eq!(clock.state().wall_clock_file_time, 134_282_016_000_025_000);
         assert_eq!(clock.state().tick_count, 3_600_002);
         assert_eq!(clock.state().performance_counter, 12_345_703_901);
-        assert_eq!(clock.timer_state().current_time_100ns, 25_000);
-        assert_eq!(clock.timer_state().generation, 1);
+        assert_eq!(clock.timer_time_100ns(), 25_000);
     }
 
     #[test]
-    fn scheduled_profile_and_advance_failures_are_atomic() {
+    fn scheduled_advance_is_idempotent_and_rejects_regression_before_mutation() {
         let mut clock = clock();
-        let invalid = RuntimeClockProfile {
-            id: "wrong-scheduled-profile".to_owned(),
-            ..RuntimeClockProfile::scheduled_shared_v1()
-        };
-        let before = clock.clone();
-        assert_eq!(
-            clock.plan_profile_configuration(invalid).unwrap_err().code,
-            "scheduled-clock-profile-identity-invalid"
-        );
-        assert_eq!(clock, before);
+        clock.advance(2).unwrap();
+        assert!(clock.project_advance(1).is_err());
+        assert!(clock.advance(1).is_err());
+        assert_eq!(clock.timer_time_100ns(), 2);
+        assert_eq!(clock.state().performance_counter, 12_345_678_903);
+        assert_eq!(clock.state().wall_clock_file_time, 134_282_016_000_000_002);
 
-        let profile = clock
-            .plan_profile_configuration(RuntimeClockProfile::scheduled_shared_v1())
-            .unwrap();
-        clock.commit_profile_configuration(profile).unwrap();
-        let advance = clock.plan_advance(1).unwrap();
-        let competing = clock.plan_advance(2).unwrap();
-        clock.commit_advance(competing).unwrap();
-        let before_stale = clock.clone();
-        assert_eq!(
-            clock.commit_advance(advance).unwrap_err().code,
-            "timer-clock-advance-plan-stale"
-        );
-        assert_eq!(clock, before_stale);
-        assert_eq!(
-            clock.plan_advance(1).unwrap_err().code,
-            "timer-clock-target-regressed"
-        );
+        clock.advance(2).unwrap();
+        assert_eq!(clock.timer_time_100ns(), 2);
+        assert_eq!(clock.state().performance_counter, 12_345_678_903);
+        let (target, projected) = clock.project_advance(2).unwrap();
+        assert_eq!(target, 2);
+        assert_eq!(projected.performance_counter, 12_345_678_903);
+        clock.advance(3).unwrap();
+        assert_eq!(clock.timer_time_100ns(), 3);
+        assert_eq!(clock.state().performance_counter, 12_345_678_904);
     }
 
     #[test]
-    fn scheduled_read_plans_reject_an_intervening_subresolution_advance() {
+    fn scheduled_reads_observe_subresolution_advance_without_mutating_clock() {
         let mut clock = clock();
-        let profile = clock
-            .plan_profile_configuration(RuntimeClockProfile::scheduled_shared_v1())
-            .unwrap();
-        clock.commit_profile_configuration(profile).unwrap();
-        let tick = clock.plan_tick_count_sample(1).unwrap();
-        let counter = clock.plan_performance_counter_sample(10_000).unwrap();
-        let advance = clock.plan_advance(1).unwrap();
-        clock.commit_advance(advance).unwrap();
+        clock.advance(1).unwrap();
+        assert_eq!(clock.state().tick_count, 3_600_000);
+        assert_eq!(clock.state().performance_counter, 12_345_678_902);
+    }
 
-        let before = clock.clone();
-        assert_eq!(
-            clock.commit_tick_count_sample(tick).unwrap_err().code,
-            "tick-count-sample-plan-stale"
-        );
-        assert_eq!(clock, before);
-        assert_eq!(
+    #[test]
+    fn scheduled_projection_checks_overflow_before_mutating() {
+        let mut clock = clock();
+        assert!(clock.advance(u64::MAX).is_err());
+        assert_eq!(clock.timer_time_100ns(), 0);
+        assert_eq!(clock.state().performance_counter, 12_345_678_901);
+        assert!(
             clock
-                .commit_performance_counter_sample(counter)
-                .unwrap_err()
-                .code,
-            "performance-counter-sample-plan-stale"
+                .advance_scheduled_host_execution(100, u64::MAX)
+                .is_err()
         );
-        assert_eq!(clock, before);
-    }
-
-    #[test]
-    fn scheduled_profile_fixture_is_the_validated_public_selection() {
-        let profile: RuntimeClockProfile = serde_json::from_str(include_str!(
-            "../../../../fixtures/runtime-clock-profiles/scheduled-shared-logical-deadline-v1.json"
-        ))
-        .unwrap();
-        profile.validate().unwrap();
-        assert_eq!(profile, RuntimeClockProfile::scheduled_shared_v1());
-
-        let invalid_legacy = RuntimeClockProfile {
-            id: "renamed-api-read-clock".to_owned(),
-            ..RuntimeClockProfile::api_read_increment_v1()
+        assert_eq!(clock.timer_time_100ns(), 0);
+        assert_eq!(clock.state().performance_counter, 12_345_678_901);
+        assert_eq!(clock.synchronized_instruction_count(), 0);
+        clock.advance(1).unwrap();
+        assert_eq!(clock.timer_time_100ns(), 1);
+        assert_eq!(clock.state().performance_counter, 12_345_678_902);
+        let epoch = RuntimeClockState {
+            tick_count: u32::MAX,
+            ..clock.state().clone()
         };
         assert_eq!(
-            invalid_legacy.validate().unwrap_err().code,
-            "api-read-clock-profile-identity-invalid"
+            project_scheduled_state(&epoch, 10_000).unwrap().tick_count,
+            0
         );
     }
 }

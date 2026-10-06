@@ -1,88 +1,44 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use serde::Serialize;
-
 use super::{
     RuntimeHandle, RuntimeMutexId, RuntimeObjectId, RuntimeStateError, RuntimeThreadId,
-    RuntimeTimerClockState, RuntimeWaitState, RuntimeWaitableTimer,
+    RuntimeWaitState, RuntimeWaitableTimer,
 };
 
-pub const RUNTIME_WAITABLE_TIMER_PACING_PAYLOAD_VERSION: u32 = 1;
-pub const RUNTIME_WAITABLE_TIMER_PACING_SERVICE: &str = "runtime.timer-delay.v1";
+pub const RUNTIME_WAITABLE_TIMER_PACING_SERVICE: &str = "browser.timer-delay";
 
-const fn is_false(value: &bool) -> bool {
-    !*value
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeWaitRegistrationId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeWaitRegistration {
     pub id: RuntimeWaitRegistrationId,
     pub thread_id: RuntimeThreadId,
     pub object_id: RuntimeObjectId,
     pub handle: RuntimeHandle,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_deadline_time_100ns: Option<u64>,
-    #[serde(skip_serializing_if = "is_false")]
     pub alertable: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub waitable_timer_pacing: Option<RuntimeWaitableTimerPacing>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeWaitableTimerPacing {
     pub request_id: u64,
     pub delay_milliseconds: u32,
     pub target_time_100ns: u64,
-    pub timer_clock_before: RuntimeTimerClockState,
+    pub started_at_time_100ns: u64,
     pub timer_before: RuntimeWaitableTimer,
     pub outcome: RuntimeWaitForSingleObjectExOutcome,
+    pub signaled: bool,
 }
 
-impl RuntimeWaitableTimerPacing {
-    pub fn encode_host_payload(self, registration_id: RuntimeWaitRegistrationId) -> [u8; 52] {
-        let arm_generation = self.timer_before.arm.map_or(0, |arm| arm.generation);
-        let outcome = match self.outcome {
-            RuntimeWaitForSingleObjectExOutcome::ObjectSignaled => 0,
-            RuntimeWaitForSingleObjectExOutcome::TimedOut => 1,
-        };
-        let words = [
-            RUNTIME_WAITABLE_TIMER_PACING_PAYLOAD_VERSION,
-            self.delay_milliseconds,
-            registration_id.0 as u32,
-            (registration_id.0 >> 32) as u32,
-            self.timer_before.id.0 as u32,
-            (self.timer_before.id.0 >> 32) as u32,
-            self.target_time_100ns as u32,
-            (self.target_time_100ns >> 32) as u32,
-            self.timer_clock_before.generation as u32,
-            (self.timer_clock_before.generation >> 32) as u32,
-            arm_generation as u32,
-            (arm_generation >> 32) as u32,
-            outcome,
-        ];
-        let mut payload = [0; 52];
-        for (index, word) in words.into_iter().enumerate() {
-            payload[index * 4..index * 4 + 4].copy_from_slice(&word.to_le_bytes());
-        }
-        payload
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeWaitCompletion {
     pub registration: RuntimeWaitRegistration,
     pub wait_state: RuntimeWaitState,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeWaitDisposition {
     AlreadySignaled {
         object_id: RuntimeObjectId,
@@ -99,50 +55,26 @@ pub enum RuntimeWaitDisposition {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeWaitForSingleObjectExOutcome {
     ObjectSignaled,
     TimedOut,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeWaitForSingleObjectExResult {
-    pub outcome: RuntimeWaitForSingleObjectExOutcome,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub registration: Option<RuntimeWaitRegistration>,
-    pub object_id: RuntimeObjectId,
-    pub object_wait_state: RuntimeWaitState,
-    pub timer: RuntimeWaitableTimer,
-    pub timer_clock_before: RuntimeTimerClockState,
-    pub timer_clock_after: RuntimeTimerClockState,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "disposition", rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeWaitForSingleObjectExBegin {
     Immediate {
-        result: RuntimeWaitForSingleObjectExResult,
+        outcome: RuntimeWaitForSingleObjectExOutcome,
     },
     Deferred {
         registration: RuntimeWaitRegistration,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeWaits {
     wait_registrations: BTreeMap<RuntimeWaitRegistrationId, RuntimeWaitRegistration>,
     object_waiters: BTreeMap<RuntimeObjectId, VecDeque<RuntimeWaitRegistrationId>>,
-    #[serde(skip)]
-    next_registration_id: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeWaitRegistrationPlan {
-    registration: RuntimeWaitRegistration,
-    previous_next_registration_id: u64,
     next_registration_id: u64,
 }
 
@@ -162,12 +94,6 @@ impl Default for RuntimeWaits {
     }
 }
 
-impl RuntimeWaitRegistrationPlan {
-    pub(super) const fn registration(&self) -> RuntimeWaitRegistration {
-        self.registration
-    }
-}
-
 impl RuntimeWaits {
     pub(super) fn registrations(
         &self,
@@ -181,20 +107,24 @@ impl RuntimeWaits {
         &self.object_waiters
     }
 
-    pub(super) const fn next_registration_id(&self) -> u64 {
+    #[cfg(test)]
+    pub(crate) const fn next_registration_id(&self) -> u64 {
         self.next_registration_id
     }
 
-    pub(super) fn plan_registration(
-        &self,
+    pub(super) fn register(
+        &mut self,
         thread_id: RuntimeThreadId,
         object_id: RuntimeObjectId,
         handle: RuntimeHandle,
-    ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
-        self.plan_registration_with_options(thread_id, object_id, handle, None, false, None)
+    ) -> Result<RuntimeWaitRegistration, RuntimeStateError> {
+        let registration =
+            self.checked_registration(thread_id, object_id, handle, None, false, None)?;
+        self.publish_registration(registration);
+        Ok(registration)
     }
 
-    pub(super) fn plan_registration_with_options(
+    pub(super) fn checked_registration(
         &self,
         thread_id: RuntimeThreadId,
         object_id: RuntimeObjectId,
@@ -202,15 +132,11 @@ impl RuntimeWaits {
         timeout_deadline_time_100ns: Option<u64>,
         alertable: bool,
         waitable_timer_pacing: Option<RuntimeWaitableTimerPacing>,
-    ) -> Result<RuntimeWaitRegistrationPlan, RuntimeStateError> {
+    ) -> Result<RuntimeWaitRegistration, RuntimeStateError> {
         let id = RuntimeWaitRegistrationId(self.next_registration_id);
-        let next_registration_id = self.next_registration_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-wait",
-                "wait-registration-id-overflow",
-                "wait registration ID space is exhausted",
-            )
-        })?;
+        self.next_registration_id
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("wait registration ID space is exhausted"))?;
         let registration = RuntimeWaitRegistration {
             id,
             thread_id,
@@ -221,9 +147,7 @@ impl RuntimeWaits {
             waitable_timer_pacing,
         };
         if self.wait_registrations.contains_key(&registration.id) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-wait",
-                "wait-registration-id-collision",
+            return Err(RuntimeStateError::new(
                 "wait registration allocator selected a live ID",
             ));
         }
@@ -232,9 +156,7 @@ impl RuntimeWaits {
             .values()
             .any(|existing| existing.thread_id == registration.thread_id)
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-wait",
-                "wait-registration-thread-duplicate",
+            return Err(RuntimeStateError::new(
                 "runtime thread already owns a wait registration",
             ));
         }
@@ -243,58 +165,19 @@ impl RuntimeWaits {
             .values()
             .any(|queue| queue.contains(&registration.id))
         {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-wait",
-                "wait-registration-id-index-collision",
+            return Err(RuntimeStateError::new(
                 "wait registration ID is already present in an object queue",
             ));
         }
-        Ok(RuntimeWaitRegistrationPlan {
-            registration,
-            previous_next_registration_id: self.next_registration_id,
-            next_registration_id,
-        })
+        Ok(registration)
     }
 
-    pub(super) fn preflight_registration(
-        &self,
-        plan: &RuntimeWaitRegistrationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let registration = plan.registration;
-        if self.next_registration_id != plan.previous_next_registration_id
-            || plan.previous_next_registration_id.checked_add(1) != Some(plan.next_registration_id)
-            || self.wait_registrations.contains_key(&registration.id)
-            || self
-                .wait_registrations
-                .values()
-                .any(|existing| existing.thread_id == registration.thread_id)
-            || self
-                .object_waiters
-                .values()
-                .any(|queue| queue.contains(&registration.id))
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-wait",
-                "wait-registration-plan-stale",
-                "wait registration state changed after planning",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_registration(
-        &mut self,
-        plan: RuntimeWaitRegistrationPlan,
-    ) -> RuntimeWaitRegistration {
-        debug_assert!(
-            self.preflight_registration(&plan).is_ok(),
-            "wait registration plan became stale"
-        );
-        debug_assert_eq!(
-            self.next_registration_id,
-            plan.previous_next_registration_id
-        );
-        let registration = plan.registration;
+    pub(super) fn publish_registration(&mut self, registration: RuntimeWaitRegistration) {
+        let next_id = registration
+            .id
+            .0
+            .checked_add(1)
+            .expect("validated wait registration ID");
         let previous = self
             .wait_registrations
             .insert(registration.id, registration);
@@ -303,8 +186,42 @@ impl RuntimeWaits {
             .entry(registration.object_id)
             .or_default()
             .push_back(registration.id);
-        self.next_registration_id = plan.next_registration_id;
-        registration
+        self.next_registration_id = next_id;
+    }
+
+    pub(super) fn replace_timer_pacing(
+        &mut self,
+        registration: RuntimeWaitRegistration,
+        pacing: RuntimeWaitableTimerPacing,
+    ) {
+        let live = self
+            .wait_registrations
+            .get_mut(&registration.id)
+            .expect("validated timer wait registration");
+        debug_assert_eq!(*live, registration);
+        live.waitable_timer_pacing = Some(pacing);
+    }
+
+    pub(super) fn signal_timer_waiters(
+        &mut self,
+        object_id: RuntimeObjectId,
+        deadline_time_100ns: u64,
+        manual_reset: bool,
+    ) {
+        for registration in self.wait_registrations.values_mut() {
+            if registration.object_id == object_id
+                && registration
+                    .timeout_deadline_time_100ns
+                    .is_some_and(|timeout| timeout >= deadline_time_100ns)
+                && let Some(pacing) = &mut registration.waitable_timer_pacing
+                && !pacing.signaled
+            {
+                pacing.signaled = true;
+                if !manual_reset {
+                    break;
+                }
+            }
+        }
     }
 
     pub(super) fn registration_for_thread(
@@ -318,9 +235,7 @@ impl RuntimeWaits {
             .copied();
         let registration = registrations.next();
         if registrations.next().is_some() {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-wait",
-                "wait-registration-thread-duplicate",
+            return Err(RuntimeStateError::new(
                 "one runtime thread owns multiple wait registrations",
             ));
         }
@@ -344,30 +259,25 @@ impl RuntimeWaits {
             if !matches!(wait_state, RuntimeWaitState::Signaled { .. }) {
                 continue;
             }
-            let queued_ids = self
-                .object_waiters
-                .get(&object_id)
-                .cloned()
-                .unwrap_or_default();
+            let queued_ids = self.object_waiters.get(&object_id);
             for registration in self
                 .wait_registrations
                 .values()
                 .filter(|registration| registration.object_id == object_id)
             {
-                if !queued_ids.contains(&registration.id) {
-                    return Err(RuntimeStateError::runtime_defect(
-                        "runtime-wait",
-                        "wait-registration-object-index-missing",
+                if queued_ids.is_none_or(|queue| !queue.contains(&registration.id)) {
+                    return Err(RuntimeStateError::new(
                         "wait registration is absent from its object queue",
                     ));
                 }
             }
+            let Some(queued_ids) = queued_ids else {
+                continue;
+            };
             let mut seen_registration_ids = BTreeSet::new();
-            for registration_id in queued_ids {
+            for &registration_id in queued_ids {
                 if !seen_registration_ids.insert(registration_id) {
-                    return Err(RuntimeStateError::runtime_defect(
-                        "runtime-wait",
-                        "wait-object-queue-registration-duplicate",
+                    return Err(RuntimeStateError::new(
                         "object wait queue contains a duplicate registration",
                     ));
                 }
@@ -376,24 +286,18 @@ impl RuntimeWaits {
                     .get(&registration_id)
                     .copied()
                     .ok_or_else(|| {
-                        RuntimeStateError::runtime_defect(
-                            "runtime-wait",
-                            "wait-object-queue-registration-missing",
+                        RuntimeStateError::new(
                             "object wait queue references an unknown registration",
                         )
                     })?;
                 if registration.object_id != object_id {
-                    return Err(RuntimeStateError::runtime_defect(
-                        "runtime-wait",
-                        "wait-object-queue-object-mismatch",
+                    return Err(RuntimeStateError::new(
                         "object wait queue references a registration for another object",
                     ));
                 }
                 let excluded = excluded_threads.contains(&registration.thread_id);
                 if !excluded && !planned_threads.insert(registration.thread_id) {
-                    return Err(RuntimeStateError::runtime_defect(
-                        "runtime-wait",
-                        "wait-wake-thread-duplicate",
+                    return Err(RuntimeStateError::new(
                         "one thread cannot be woken by multiple object signals",
                     ));
                 }
@@ -447,22 +351,19 @@ mod tests {
     }
 
     #[test]
-    fn registration_plans_are_mutation_free_and_indexes_commit_together() {
+    fn registration_publishes_both_indexes() {
         let mut waits = RuntimeWaits::default();
         let registration = registration(1, 0x2000, 2);
-        let plan = waits
-            .plan_registration(
-                registration.thread_id,
-                registration.object_id,
-                registration.handle,
-            )
-            .unwrap();
-        assert_eq!(plan.registration(), registration);
-        assert!(waits.registrations().is_empty());
-        assert!(waits.object_waiters().is_empty());
-        assert_eq!(waits.next_registration_id(), 1);
-
-        assert_eq!(waits.commit_registration(plan), registration);
+        assert_eq!(
+            waits
+                .register(
+                    registration.thread_id,
+                    registration.object_id,
+                    registration.handle
+                )
+                .unwrap(),
+            registration
+        );
         assert_eq!(waits.next_registration_id(), 2);
         assert_eq!(
             waits.registration_for_thread(RuntimeThreadId(0x2000)),
@@ -479,14 +380,12 @@ mod tests {
         let mut waits = RuntimeWaits::default();
         let first = registration(1, 0x2000, 2);
         let second = registration(2, 0x1001, 2);
-        let first_plan = waits
-            .plan_registration(first.thread_id, first.object_id, first.handle)
+        waits
+            .register(first.thread_id, first.object_id, first.handle)
             .unwrap();
-        waits.commit_registration(first_plan);
-        let second_plan = waits
-            .plan_registration(second.thread_id, second.object_id, second.handle)
+        waits
+            .register(second.thread_id, second.object_id, second.handle)
             .unwrap();
-        waits.commit_registration(second_plan);
 
         let candidates = waits
             .plan_wakes(
@@ -516,75 +415,90 @@ mod tests {
     fn rejected_registration_preserves_both_indexes() {
         let mut waits = RuntimeWaits::default();
         let existing = registration(1, 0x2000, 2);
-        let plan = waits
-            .plan_registration(existing.thread_id, existing.object_id, existing.handle)
+        waits
+            .register(existing.thread_id, existing.object_id, existing.handle)
             .unwrap();
-        waits.commit_registration(plan);
-        let before = waits.clone();
-
-        assert_eq!(
+        let next_handle = RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 3).unwrap();
+        assert!(
             waits
-                .plan_registration(
-                    RuntimeThreadId(0x2000),
-                    RuntimeObjectId(3),
-                    RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 3).unwrap(),
-                )
-                .unwrap_err()
-                .code,
-            "wait-registration-thread-duplicate"
+                .register(existing.thread_id, RuntimeObjectId(3), next_handle)
+                .is_err()
         );
-        assert_eq!(waits, before);
+        assert_eq!(waits.next_registration_id(), 2);
+        assert_eq!(
+            waits.registration_for_thread(existing.thread_id).unwrap(),
+            Some(existing)
+        );
+        assert_eq!(waits.registrations().len(), 1);
+        assert_eq!(
+            waits.object_waiters().get(&existing.object_id),
+            Some(&VecDeque::from([existing.id]))
+        );
+        assert!(!waits.object_waiters().contains_key(&RuntimeObjectId(3)));
 
         waits.next_registration_id = 1;
-        let collision_before = waits.clone();
-        assert_eq!(
+        assert!(
             waits
-                .plan_registration(
-                    RuntimeThreadId(0x1001),
-                    RuntimeObjectId(3),
-                    RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 3).unwrap(),
-                )
-                .unwrap_err()
-                .code,
-            "wait-registration-id-collision"
+                .register(RuntimeThreadId(0x1001), RuntimeObjectId(3), next_handle)
+                .is_err()
         );
-        assert_eq!(waits, collision_before);
+        assert_eq!(waits.next_registration_id(), 1);
+        assert_eq!(
+            waits.registration_for_thread(existing.thread_id).unwrap(),
+            Some(existing)
+        );
+        assert_eq!(waits.registrations().len(), 1);
+        assert_eq!(
+            waits.object_waiters().get(&existing.object_id),
+            Some(&VecDeque::from([existing.id]))
+        );
+        assert!(!waits.object_waiters().contains_key(&RuntimeObjectId(3)));
+        waits.next_registration_id = 2;
+        let retry = waits
+            .register(RuntimeThreadId(0x1001), RuntimeObjectId(3), next_handle)
+            .unwrap();
+        assert_eq!(retry.id, RuntimeWaitRegistrationId(2));
+        assert_eq!(
+            waits.registration_for_thread(existing.thread_id).unwrap(),
+            Some(existing)
+        );
+        assert_eq!(
+            waits.object_waiters().get(&retry.object_id),
+            Some(&VecDeque::from([retry.id]))
+        );
     }
 
     #[test]
     fn exhausted_registration_allocator_is_mutation_free() {
-        let waits = RuntimeWaits {
+        let mut waits = RuntimeWaits {
             next_registration_id: u64::MAX,
             ..RuntimeWaits::default()
         };
-        let before = waits.clone();
-
-        assert_eq!(
+        assert!(
             waits
-                .plan_registration(
+                .register(
                     RuntimeThreadId(0x2000),
                     RuntimeObjectId(2),
-                    RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 2).unwrap(),
+                    RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 2).unwrap()
                 )
-                .unwrap_err()
-                .code,
-            "wait-registration-id-overflow"
+                .is_err()
         );
-        assert_eq!(waits, before);
+        assert_eq!(waits.next_registration_id(), u64::MAX);
+        assert!(waits.registrations().is_empty());
+        assert!(waits.object_waiters().is_empty());
     }
 
     #[test]
     fn excluded_wakes_still_return_candidates_for_cross_subsystem_validation() {
         let mut waits = RuntimeWaits::default();
         let registration = registration(1, 0x2000, 2);
-        let plan = waits
-            .plan_registration(
+        waits
+            .register(
                 registration.thread_id,
                 registration.object_id,
                 registration.handle,
             )
             .unwrap();
-        waits.commit_registration(plan);
 
         let candidates = waits
             .plan_wakes(

@@ -1,0 +1,24 @@
+LIBRARY user32.dll
+EXPORTS
+  RegisterClassExA@4
+  CreateWindowExA@48
+  DefWindowProcA@16
+  LoadIconA@8
+  LoadCursorA@8
+  GetClientRect@8
+  GetDC@4
+  ReleaseDC@8
+  FillRect@12
+  SetTimer@16
+  GetSystemMenu@8
+  EnableMenuItem@12
+  SendMessageA@16
+  SetWindowPos@28
+  SetFocus@4
+  IsIconic@4
+  SetWindowLongA@12
+  MonitorFromWindow@8
+  GetMonitorInfoA@8
+  PeekMessageA@20
+  TranslateMessage@4
+  DispatchMessageA@4

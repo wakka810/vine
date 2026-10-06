@@ -1,13 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::Serialize;
-
 use super::{ProcessAddressAllocationId, RuntimeStateError};
-use crate::memory::{GuestAddress, GuestRange, GuestWriteResult, MemoryOwnerId};
+use crate::com::{COM_RPC_E_CHANGED_MODE, COM_S_FALSE, COM_S_OK, ComHResult};
+use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
 
-pub const LOGICAL_TLS_INDEX_NAMESPACE: &str = "vine.logical-tls-index.v1";
-pub const LOGICAL_FLS_INDEX_NAMESPACE: &str = "vine.logical-fls-index.v1";
-pub const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
+pub(crate) const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
+const TLS_INDEX_LIMIT: u32 = 1088;
 pub const FLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const RUNTIME_TLS_MINIMUM_AVAILABLE: u32 = 64;
 pub const RUNTIME_FLS_INDEX_LIMIT: u32 = 128;
@@ -17,55 +15,25 @@ pub const RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE: u64 = 0x1000_0000;
 pub const RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE: GuestAddress = GuestAddress(0x7f03_0000);
 pub const RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE: u64 = 0x00c0_0000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeComApartmentModel {
     SingleThreaded,
     MultiThreaded,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeComApartmentState {
     pub model: RuntimeComApartmentModel,
     pub initialization_count: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum RuntimeComInitializationDisposition {
-    Initialized,
-    AlreadyInitialized,
-    ChangedMode,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeComInitializationOutcome {
-    pub thread_id: RuntimeThreadId,
-    pub requested_model: RuntimeComApartmentModel,
-    pub apartment: RuntimeComApartmentState,
-    pub disposition: RuntimeComInitializationDisposition,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeComUninitializationOutcome {
-    pub thread_id: RuntimeThreadId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub apartment: Option<RuntimeComApartmentState>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeThreadId(pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeCallbackFrameId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeCallbackScratch {
     pub slot: u16,
     pub address: GuestAddress,
@@ -73,49 +41,17 @@ pub struct RuntimeCallbackScratch {
     pub capacity: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum RuntimeTlsValue {
-    Raw {
-        value: u32,
-    },
-    DynamicEndpoint {
-        endpoint_id: u32,
-        address: GuestAddress,
-    },
-}
-
-impl RuntimeTlsValue {
-    pub fn raw_value(&self) -> u32 {
-        match self {
-            Self::Raw { value } => *value,
-            Self::DynamicEndpoint { address, .. } => address.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeFlsSlot {
-    pub namespace: String,
-    pub index: u32,
-    pub callback: Option<GuestAddress>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeCallbackFrame {
     pub id: RuntimeCallbackFrameId,
     pub thread_id: RuntimeThreadId,
     pub target: GuestAddress,
     pub return_sentinel: GuestAddress,
     pub entry_last_error: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub scratch: Option<RuntimeCallbackScratch>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeThreadLifecycleState {
     Initialized,
     Running,
@@ -123,8 +59,7 @@ pub enum RuntimeThreadLifecycleState {
     Exited { exit_code: u32 },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeThreadPriority {
     Idle,
     Lowest,
@@ -174,62 +109,41 @@ impl RuntimeThreadPriority {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeCancellation {
-    pub thread_id: RuntimeThreadId,
-    pub exit_code: u32,
-    pub host_requests_cancelled: usize,
-    pub callback_frames_cancelled: usize,
-    pub wait_registrations_cancelled: usize,
-    pub messages_discarded: usize,
-    pub scheduler_events_discarded: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeThreadState {
     pub id: RuntimeThreadId,
     pub lifecycle: RuntimeThreadLifecycleState,
     pub last_error: u32,
-    #[serde(skip_serializing_if = "is_zero_i32")]
     pub cursor_display_count: i32,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub com_apartment: Option<RuntimeComApartmentState>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub affinity_mask: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<RuntimeThreadPriority>,
-    pub tls_values: BTreeMap<u32, RuntimeTlsValue>,
+    pub tls_values: BTreeMap<u32, u32>,
     pub fls_storage_initialized: bool,
     pub fls_values: BTreeMap<u32, u32>,
     pub callback_frames: Vec<RuntimeCallbackFrame>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub stack: Option<RuntimeThreadStack>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<RuntimeThreadEnvironment>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_bootstrap: Option<RuntimeGuestThreadBootstrap>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeThreadStack {
     pub thread_id: RuntimeThreadId,
     pub address_allocation_id: ProcessAddressAllocationId,
     pub memory_owner: MemoryOwnerId,
     pub reserved_range: GuestRange,
     pub committed_range: GuestRange,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // The process image default does not grow when a running thread consumes its stack guard.
+    pub initial_commit_bytes: u64,
     pub guard_page: Option<GuestRange>,
-    pub committed_pages: usize,
     pub stack_top: GuestAddress,
     pub initial_stack_pointer: GuestAddress,
     pub return_sentinel: GuestAddress,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeThreadEnvironment {
     pub thread_id: RuntimeThreadId,
     pub address_allocation_id: ProcessAddressAllocationId,
@@ -239,8 +153,7 @@ pub struct RuntimeThreadEnvironment {
     pub peb_address: GuestAddress,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeGuestThreadBootstrap {
     pub thread_id: RuntimeThreadId,
     pub entry_point: GuestAddress,
@@ -251,7 +164,7 @@ pub struct RuntimeGuestThreadBootstrap {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuntimeCreateThreadRequest {
+pub(crate) struct RuntimeCreateThreadRequest {
     pub stack_reserve_bytes: u64,
     pub stack_commit_bytes: u64,
     pub entry_point: GuestAddress,
@@ -260,161 +173,16 @@ pub struct RuntimeCreateThreadRequest {
     pub initial_suspend_count: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeCreateThreadResult {
-    pub thread_id: RuntimeThreadId,
-    pub handle: super::RuntimeHandle,
-    pub stack: RuntimeThreadStack,
-    pub environment: RuntimeThreadEnvironment,
-    pub bootstrap: RuntimeGuestThreadBootstrap,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id_output: Option<GuestAddress>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id_write: Option<GuestWriteResult>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeResumeThreadResult {
-    pub thread_id: RuntimeThreadId,
-    pub handle: super::RuntimeHandle,
-    pub previous_suspend_count: u32,
-    pub remaining_suspend_count: u32,
-    pub became_runnable: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeThreadStackGrowth {
-    pub thread_id: RuntimeThreadId,
-    pub address_allocation_id: ProcessAddressAllocationId,
-    pub memory_owner: MemoryOwnerId,
-    pub fault_address: GuestAddress,
-    pub page_fault_error_code: u32,
-    pub committed_page: GuestRange,
-    pub previous_guard_page: GuestRange,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_guard_page: Option<GuestRange>,
-    pub committed_pages: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub(super) struct RuntimeThreads {
     states: BTreeMap<RuntimeThreadId, RuntimeThreadState>,
-    #[serde(skip)]
     allocated_tls_indices: BTreeSet<u32>,
-    #[serde(skip)]
-    fls_slots: BTreeMap<u32, RuntimeFlsSlot>,
-    #[serde(skip)]
+    fls_slots: BTreeMap<u32, Option<GuestAddress>>,
     next_tls_index: u32,
-    #[serde(skip)]
     next_fls_index: u32,
-    #[serde(skip)]
     next_callback_frame_id: u64,
-    #[serde(skip)]
     next_thread_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeThreadMutationPlan {
-    previous: Option<RuntimeThreadState>,
-    next: RuntimeThreadState,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeThreadIdAllocationPlan {
-    expected_next_thread_id: u64,
-    thread_id: RuntimeThreadId,
-    next_thread_id: u64,
-}
-
-impl RuntimeThreadIdAllocationPlan {
-    pub(super) const fn thread_id(self) -> RuntimeThreadId {
-        self.thread_id
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeThreadAffinityPlan {
-    mutation: RuntimeThreadMutationPlan,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeThreadPriorityPlan {
-    mutation: RuntimeThreadMutationPlan,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeThreadCursorDisplayPlan {
-    mutation: RuntimeThreadMutationPlan,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeComInitializationPlan {
-    previous: RuntimeThreadState,
-    next: Option<RuntimeThreadState>,
-    outcome: RuntimeComInitializationOutcome,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeComUninitializationPlan {
-    previous: RuntimeThreadState,
-    next: RuntimeThreadState,
-    outcome: RuntimeComUninitializationOutcome,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeTlsIndexAllocationPlan {
-    previous_next_index: u32,
-    index: u32,
-    next_index: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeFlsSlotAllocationPlan {
-    previous_next_index: u32,
-    slot: RuntimeFlsSlot,
-    next_index: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct RuntimeCallbackFrameIdPlan {
-    previous_next_id: u64,
-    id: RuntimeCallbackFrameId,
-    next_id: u64,
-}
-
-impl RuntimeCallbackFrameIdPlan {
-    pub(super) const fn id(&self) -> RuntimeCallbackFrameId {
-        self.id
-    }
-}
-
-impl RuntimeThreadMutationPlan {
-    pub(super) fn next(&self) -> &RuntimeThreadState {
-        &self.next
-    }
-
-    pub(super) fn terminal_after_request(&self, exit_code: u32) -> Result<Self, RuntimeStateError> {
-        if self.next.lifecycle != (RuntimeThreadLifecycleState::ExitRequested { exit_code }) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-thread",
-                "thread-terminal-plan-request-mismatch",
-                "terminal thread plan requires the matching exit-requested state",
-            ));
-        }
-        let previous = self.next.clone();
-        let mut next = previous.clone();
-        next.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
-        next.com_apartment = None;
-        next.cursor_display_count = 0;
-        Ok(Self {
-            previous: Some(previous),
-            next,
-        })
-    }
 }
 
 impl RuntimeThreads {
@@ -425,7 +193,6 @@ impl RuntimeThreads {
             last_error: initial_last_error,
             cursor_display_count: 0,
             com_apartment: None,
-            affinity_mask: None,
             priority: None,
             tls_values: BTreeMap::new(),
             fls_storage_initialized: false,
@@ -446,181 +213,123 @@ impl RuntimeThreads {
         }
     }
 
-    pub(super) const fn next_thread_id(&self) -> u64 {
-        self.next_thread_id
-    }
-
-    pub(super) fn allocated_tls_indices(&self) -> &BTreeSet<u32> {
+    #[cfg(test)]
+    pub(crate) fn allocated_tls_indices(&self) -> &BTreeSet<u32> {
         &self.allocated_tls_indices
     }
 
-    pub(super) fn fls_slots(&self) -> &BTreeMap<u32, RuntimeFlsSlot> {
-        &self.fls_slots
-    }
-
-    pub(super) const fn next_tls_index(&self) -> u32 {
+    #[cfg(test)]
+    const fn next_tls_index(&self) -> u32 {
         self.next_tls_index
     }
 
-    pub(super) const fn next_fls_index(&self) -> u32 {
+    #[cfg(test)]
+    const fn next_fls_index(&self) -> u32 {
         self.next_fls_index
     }
 
-    pub(super) const fn next_callback_frame_id(&self) -> u64 {
-        self.next_callback_frame_id
-    }
-
-    pub(super) fn plan_tls_index_allocation(
-        &self,
-    ) -> Result<RuntimeTlsIndexAllocationPlan, RuntimeStateError> {
-        if self.next_tls_index == TLS_OUT_OF_INDEXES {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-tls",
-                "tls-index-space-exhausted",
-                "logical TLS index space is exhausted",
-            ));
+    pub(super) fn allocate_tls_index(&mut self) -> Result<u32, RuntimeStateError> {
+        if self.next_tls_index >= TLS_INDEX_LIMIT {
+            return Ok(TLS_OUT_OF_INDEXES);
         }
         let index = self.next_tls_index;
         if self.allocated_tls_indices.contains(&index) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-tls",
-                "tls-index-allocator-collision",
+            return Err(RuntimeStateError::new(
                 "logical TLS allocator selected an already allocated index",
             ));
         }
-        let next_index = index.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-tls",
-                "tls-index-counter-overflow",
-                "logical TLS index counter overflowed",
-            )
-        })?;
-        Ok(RuntimeTlsIndexAllocationPlan {
-            previous_next_index: self.next_tls_index,
-            index,
-            next_index,
-        })
-    }
-
-    pub(super) fn commit_tls_index_allocation(
-        &mut self,
-        plan: RuntimeTlsIndexAllocationPlan,
-    ) -> u32 {
-        debug_assert_eq!(self.next_tls_index, plan.previous_next_index);
-        let inserted = self.allocated_tls_indices.insert(plan.index);
-        debug_assert!(inserted);
+        self.allocated_tls_indices.insert(index);
         // TlsSetValue performs only minimal validation for the guaranteed low-index range, so a
         // caller may have populated this slot before TlsAlloc formally assigns it. Allocation
         // initializes the slot to NULL for every thread.
         for thread in self.states.values_mut() {
-            thread.tls_values.remove(&plan.index);
+            thread.tls_values.remove(&index);
         }
-        self.next_tls_index = plan.next_index;
-        plan.index
+        self.next_tls_index = index + 1;
+        Ok(index)
+    }
+
+    pub(super) fn tls_index_available(&self, index: u32) -> bool {
+        index < RUNTIME_TLS_MINIMUM_AVAILABLE || self.allocated_tls_indices.contains(&index)
     }
 
     pub(super) fn require_tls_index(&self, index: u32) -> Result<(), RuntimeStateError> {
-        if index >= RUNTIME_TLS_MINIMUM_AVAILABLE && !self.allocated_tls_indices.contains(&index) {
-            return Err(RuntimeStateError::not_found(
-                "runtime-tls",
-                "tls-index-unallocated",
-                format!("logical TLS index {index} is not allocated"),
-            ));
+        if !self.tls_index_available(index) {
+            return Err(RuntimeStateError::new(format!(
+                "logical TLS index {index} is not allocated"
+            )));
         }
         Ok(())
     }
 
-    pub(super) fn plan_fls_slot_allocation(
-        &self,
+    pub(super) fn allocate_fls_slot(
+        &mut self,
+        thread_id: RuntimeThreadId,
         callback: Option<crate::memory::GuestAddress>,
-    ) -> Result<RuntimeFlsSlotAllocationPlan, RuntimeStateError> {
+    ) -> Result<u32, RuntimeStateError> {
         if self.next_fls_index >= RUNTIME_FLS_INDEX_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-fls",
-                "fls-index-space-exhausted",
-                format!("logical FLS allocation is limited to {RUNTIME_FLS_INDEX_LIMIT} slots"),
-            ));
+            return Ok(FLS_OUT_OF_INDEXES);
         }
         let index = self.next_fls_index;
         if self.fls_slots.contains_key(&index) {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-fls",
-                "fls-index-allocator-collision",
+            return Err(RuntimeStateError::new(
                 "logical FLS allocator selected an already allocated index",
             ));
         }
-        let next_index = index.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-fls",
-                "fls-index-counter-overflow",
-                "logical FLS index counter overflowed",
-            )
-        })?;
-        Ok(RuntimeFlsSlotAllocationPlan {
-            previous_next_index: self.next_fls_index,
-            slot: RuntimeFlsSlot {
-                namespace: LOGICAL_FLS_INDEX_NAMESPACE.to_owned(),
-                index,
-                callback,
-            },
-            next_index,
-        })
+        let next_index = (index + 1..RUNTIME_FLS_INDEX_LIMIT)
+            .find(|candidate| !self.fls_slots.contains_key(candidate))
+            .unwrap_or(RUNTIME_FLS_INDEX_LIMIT);
+        self.current_state(thread_id)?;
+        // All fallible checks precede the slot and thread-storage mutations.
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated thread state")
+            .fls_storage_initialized = true;
+        self.fls_slots.insert(index, callback);
+        self.next_fls_index = next_index;
+        Ok(index)
     }
 
-    pub(super) fn commit_fls_slot_allocation(
-        &mut self,
-        plan: RuntimeFlsSlotAllocationPlan,
-        thread_plan: RuntimeThreadMutationPlan,
-    ) -> &RuntimeFlsSlot {
-        debug_assert_eq!(self.next_fls_index, plan.previous_next_index);
-        let index = plan.slot.index;
-        let previous = self.fls_slots.insert(index, plan.slot);
-        debug_assert!(previous.is_none());
-        self.next_fls_index = plan.next_index;
-        self.commit(thread_plan);
-        self.fls_slots
-            .get(&index)
-            .expect("committed FLS slot disappeared")
-    }
-
-    pub(super) fn fls_slot(&self, index: u32) -> Result<&RuntimeFlsSlot, RuntimeStateError> {
-        self.fls_slots.get(&index).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-fls",
-                "fls-index-unallocated",
-                format!("logical FLS index {index} is not allocated"),
-            )
-        })
-    }
-
-    pub(super) fn plan_callback_frame_id(
-        &self,
-    ) -> Result<RuntimeCallbackFrameIdPlan, RuntimeStateError> {
-        let id = RuntimeCallbackFrameId(self.next_callback_frame_id);
-        let next_id = self.next_callback_frame_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-callback",
-                "callback-frame-id-overflow",
-                "callback frame ID space is exhausted",
-            )
-        })?;
-        Ok(RuntimeCallbackFrameIdPlan {
-            previous_next_id: self.next_callback_frame_id,
-            id,
-            next_id,
-        })
-    }
-
-    pub(super) fn commit_callback_mutation(
-        &mut self,
-        id_plan: Option<RuntimeCallbackFrameIdPlan>,
-        thread_plan: RuntimeThreadMutationPlan,
-    ) -> &RuntimeThreadState {
-        if let Some(id_plan) = id_plan {
-            debug_assert_eq!(self.next_callback_frame_id, id_plan.previous_next_id);
-            self.next_callback_frame_id = id_plan.next_id;
+    pub(super) fn free_fls_slot(&mut self, index: u32) -> Result<bool, RuntimeStateError> {
+        let callback = self.fls_slot(index)?;
+        // A non-null callback would require running guest code for each live value.
+        // Do not consume the slot before that behavior exists.
+        if callback.is_some()
+            && self.states.values().any(|thread| {
+                thread
+                    .fls_values
+                    .get(&index)
+                    .is_some_and(|value| *value != 0)
+            })
+        {
+            return Ok(false);
         }
-        self.commit(thread_plan)
+        self.fls_slots.remove(&index);
+        for thread in self.states.values_mut() {
+            thread.fls_values.remove(&index);
+        }
+        self.next_fls_index = self.next_fls_index.min(index);
+        Ok(true)
+    }
+
+    pub(super) fn fls_slot(&self, index: u32) -> Result<Option<GuestAddress>, RuntimeStateError> {
+        self.fls_slots.get(&index).copied().ok_or_else(|| {
+            RuntimeStateError::new(format!("logical FLS index {index} is not allocated"))
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn exhaust_callback_ids_for_test(&mut self) {
+        self.next_callback_frame_id = u64::MAX;
+    }
+
+    pub(super) fn next_callback_frame_id(
+        &self,
+    ) -> Result<RuntimeCallbackFrameId, RuntimeStateError> {
+        self.next_callback_frame_id
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("callback frame ID space is exhausted"))?;
+        Ok(RuntimeCallbackFrameId(self.next_callback_frame_id))
     }
 
     pub(super) fn contains(&self, thread_id: RuntimeThreadId) -> bool {
@@ -632,11 +341,10 @@ impl RuntimeThreads {
         thread_id: RuntimeThreadId,
     ) -> Result<&RuntimeThreadState, RuntimeStateError> {
         self.states.get(&thread_id).ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-thread-registry",
-                "runtime-thread-id-unknown",
-                format!("runtime thread ID {} is not registered", thread_id.0),
-            )
+            RuntimeStateError::new(format!(
+                "runtime thread ID {} is not registered",
+                thread_id.0
+            ))
         })
     }
 
@@ -645,67 +353,60 @@ impl RuntimeThreads {
         thread_id: RuntimeThreadId,
     ) -> Result<&RuntimeThreadState, RuntimeStateError> {
         self.states.get(&thread_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-thread",
-                "current-thread-state-missing",
-                "scheduler current thread has no runtime thread state",
-            )
+            RuntimeStateError::new("scheduler current thread has no runtime thread state")
         })
     }
 
-    pub(super) fn iter(&self) -> impl Iterator<Item = (&RuntimeThreadId, &RuntimeThreadState)> {
-        self.states.iter()
-    }
-
-    pub(super) fn plan_registration(
+    pub(super) fn validate_registration(
         &self,
         thread_id: RuntimeThreadId,
-        initial_last_error: u32,
-    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
+    ) -> Result<(), RuntimeStateError> {
         if thread_id.0 == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-thread-registry",
-                "thread-id-zero",
-                "runtime thread IDs must be nonzero",
-            ));
+            return Err(RuntimeStateError::new("runtime thread IDs must be nonzero"));
         }
         if self.states.contains_key(&thread_id) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-registry",
-                "thread-id-duplicate",
-                format!("runtime thread ID {} is already registered", thread_id.0),
-            ));
+            return Err(RuntimeStateError::new(format!(
+                "runtime thread ID {} is already registered",
+                thread_id.0
+            )));
         }
-        Ok(RuntimeThreadMutationPlan {
-            previous: None,
-            next: RuntimeThreadState {
-                id: thread_id,
-                lifecycle: RuntimeThreadLifecycleState::Running,
-                last_error: initial_last_error,
-                cursor_display_count: 0,
-                com_apartment: None,
-                affinity_mask: None,
-                priority: None,
-                tls_values: BTreeMap::new(),
-                fls_storage_initialized: false,
-                fls_values: BTreeMap::new(),
-                callback_frames: Vec::new(),
-                stack: None,
-                environment: None,
-                guest_bootstrap: None,
-            },
-        })
+        Ok(())
     }
 
-    pub(super) fn plan_thread_id_allocation(
+    pub(super) fn register(&mut self, thread_id: RuntimeThreadId, initial_last_error: u32) {
+        let previous = self.states.insert(
+            thread_id,
+            Self::new_registration(thread_id, initial_last_error),
+        );
+        assert!(
+            previous.is_none(),
+            "thread registration must be validated before insertion"
+        );
+    }
+
+    fn new_registration(thread_id: RuntimeThreadId, initial_last_error: u32) -> RuntimeThreadState {
+        RuntimeThreadState {
+            id: thread_id,
+            lifecycle: RuntimeThreadLifecycleState::Running,
+            last_error: initial_last_error,
+            cursor_display_count: 0,
+            com_apartment: None,
+            priority: None,
+            tls_values: BTreeMap::new(),
+            fls_storage_initialized: false,
+            fls_values: BTreeMap::new(),
+            callback_frames: Vec::new(),
+            stack: None,
+            environment: None,
+            guest_bootstrap: None,
+        }
+    }
+
+    pub(super) fn next_guest_thread_id(
         &self,
-    ) -> Result<RuntimeThreadIdAllocationPlan, RuntimeStateError> {
+    ) -> Result<Option<RuntimeThreadId>, RuntimeStateError> {
         if self.states.len() >= RUNTIME_GUEST_THREAD_LIMIT {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-thread-registry",
-                "runtime-thread-capacity-exhausted",
-                format!("runtime thread capacity of {RUNTIME_GUEST_THREAD_LIMIT} is exhausted"),
-            ));
+            return Ok(None);
         }
         let mut candidate = self.next_thread_id;
         while candidate <= u64::from(u32::MAX)
@@ -713,36 +414,21 @@ impl RuntimeThreads {
         {
             candidate += 1;
         }
-        let thread_id = u32::try_from(candidate).map(RuntimeThreadId).map_err(|_| {
-            RuntimeStateError::resource_limit(
-                "runtime-thread-registry",
-                "runtime-thread-id-space-exhausted",
-                "logical runtime thread ID space is exhausted",
-            )
-        })?;
-        let next_thread_id = candidate.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-thread-registry",
-                "runtime-thread-id-space-exhausted",
-                "logical runtime thread ID space is exhausted",
-            )
-        })?;
-        Ok(RuntimeThreadIdAllocationPlan {
-            expected_next_thread_id: self.next_thread_id,
-            thread_id,
-            next_thread_id,
-        })
+        let Ok(thread_id) = u32::try_from(candidate).map(RuntimeThreadId) else {
+            return Ok(None);
+        };
+        self.validate_registration(thread_id)?;
+        Ok(Some(thread_id))
     }
 
-    pub(super) fn plan_guest_registration(
+    pub(super) fn validate_guest_registration(
         &self,
-        allocation: RuntimeThreadIdAllocationPlan,
-        initial_last_error: u32,
-        stack: RuntimeThreadStack,
-        environment: RuntimeThreadEnvironment,
-        bootstrap: RuntimeGuestThreadBootstrap,
-    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
-        let thread_id = allocation.thread_id;
+        thread_id: RuntimeThreadId,
+        stack: &RuntimeThreadStack,
+        environment: &RuntimeThreadEnvironment,
+        bootstrap: &RuntimeGuestThreadBootstrap,
+    ) -> Result<(), RuntimeStateError> {
+        self.validate_registration(thread_id)?;
         if stack.thread_id != thread_id
             || environment.thread_id != thread_id
             || bootstrap.thread_id != thread_id
@@ -750,145 +436,127 @@ impl RuntimeThreads {
             || bootstrap.return_sentinel != stack.return_sentinel
             || bootstrap.fs_base != environment.teb_address
         {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-thread-bootstrap",
-                "guest-thread-bootstrap-identity-mismatch",
+            return Err(RuntimeStateError::new(
                 "guest thread stack, TEB, and execution bootstrap identities must agree",
-            ));
-        }
-        let mut plan = self.plan_registration(thread_id, initial_last_error)?;
-        plan.next.stack = Some(stack);
-        plan.next.environment = Some(environment);
-        plan.next.guest_bootstrap = Some(bootstrap);
-        Ok(plan)
-    }
-
-    pub(super) fn preflight_guest_registration_commit(
-        &self,
-        allocation: &RuntimeThreadIdAllocationPlan,
-        registration: &RuntimeThreadMutationPlan,
-    ) -> Result<(), RuntimeStateError> {
-        if self.next_thread_id != allocation.expected_next_thread_id
-            || registration.previous.is_some()
-            || registration.next.id != allocation.thread_id
-            || self.states.contains_key(&allocation.thread_id)
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-registry",
-                "guest-thread-registration-plan-stale",
-                "runtime threads changed after guest thread creation preflight",
             ));
         }
         Ok(())
     }
 
-    pub(super) fn commit_guest_registration(
+    pub(super) fn register_guest(
         &mut self,
-        allocation: RuntimeThreadIdAllocationPlan,
-        registration: RuntimeThreadMutationPlan,
-    ) -> &RuntimeThreadState {
-        debug_assert_eq!(self.next_thread_id, allocation.expected_next_thread_id);
-        debug_assert_eq!(registration.next.id, allocation.thread_id);
-        self.next_thread_id = allocation.next_thread_id;
-        self.commit(registration)
+        thread_id: RuntimeThreadId,
+        initial_last_error: u32,
+        stack: RuntimeThreadStack,
+        environment: RuntimeThreadEnvironment,
+        bootstrap: RuntimeGuestThreadBootstrap,
+    ) {
+        let mut state = Self::new_registration(thread_id, initial_last_error);
+        state.stack = Some(stack);
+        state.environment = Some(environment);
+        state.guest_bootstrap = Some(bootstrap);
+        self.next_thread_id = u64::from(thread_id.0) + 1;
+        let previous = self.states.insert(thread_id, state);
+        assert!(
+            previous.is_none(),
+            "guest thread registration must be validated before insertion"
+        );
     }
 
-    pub(super) fn plan_start(
+    pub(super) fn validate_start(
         &self,
         thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
-        if previous.lifecycle != RuntimeThreadLifecycleState::Initialized {
-            return Err(RuntimeStateError::conflict(
-                "runtime-lifecycle",
-                "initial-thread-start-transition-invalid",
+    ) -> Result<(), RuntimeStateError> {
+        if self.current_state(thread_id)?.lifecycle != RuntimeThreadLifecycleState::Initialized {
+            return Err(RuntimeStateError::new(
                 "initial thread start requires initialized thread state",
             ));
         }
-        let mut next = previous.clone();
-        next.lifecycle = RuntimeThreadLifecycleState::Running;
-        Ok(RuntimeThreadMutationPlan {
-            previous: Some(previous),
-            next,
-        })
+        Ok(())
     }
 
-    pub(super) fn plan_stack_registration(
-        &self,
+    pub(super) fn start(&mut self, thread_id: RuntimeThreadId) -> Result<(), RuntimeStateError> {
+        self.validate_start(thread_id)?;
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated initial thread")
+            .lifecycle = RuntimeThreadLifecycleState::Running;
+        Ok(())
+    }
+
+    pub(super) fn register_stack(
+        &mut self,
         thread_id: RuntimeThreadId,
         stack: RuntimeThreadStack,
-    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
-        let previous = self.state(thread_id)?.clone();
-        if previous.stack.is_some() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-stack",
-                "thread-stack-already-registered",
+    ) -> Result<(), RuntimeStateError> {
+        if self.state(thread_id)?.stack.is_some() {
+            return Err(RuntimeStateError::new(
                 "runtime thread stack may be registered only once",
             ));
         }
         if stack.thread_id != thread_id {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-thread-stack",
-                "thread-stack-owner-mismatch",
+            return Err(RuntimeStateError::new(
                 "runtime thread stack identity does not match its owner thread",
             ));
         }
-        let mut next = previous.clone();
-        next.stack = Some(stack);
-        Ok(RuntimeThreadMutationPlan {
-            previous: Some(previous),
-            next,
-        })
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated stack owner")
+            .stack = Some(stack);
+        Ok(())
     }
 
-    pub(super) fn plan_stack_growth(
-        &self,
+    pub(super) fn stack_mut(
+        &mut self,
         thread_id: RuntimeThreadId,
-        next_stack: RuntimeThreadStack,
-    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
-        let previous = self.state(thread_id)?.clone();
-        let stack = previous.stack.as_ref().ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-thread-stack",
-                "thread-stack-not-registered",
-                format!("runtime thread ID {} has no registered stack", thread_id.0),
-            )
+    ) -> Result<&mut RuntimeThreadStack, RuntimeStateError> {
+        let thread = self.states.get_mut(&thread_id).ok_or_else(|| {
+            RuntimeStateError::new(format!(
+                "runtime thread ID {} is not registered",
+                thread_id.0
+            ))
         })?;
-        if next_stack.thread_id != thread_id
-            || next_stack.address_allocation_id != stack.address_allocation_id
-            || next_stack.memory_owner != stack.memory_owner
-            || next_stack.reserved_range != stack.reserved_range
-        {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-thread-stack",
-                "thread-stack-growth-identity-mismatch",
-                "thread stack growth cannot replace its allocation identity",
+        let stack = thread.stack.as_mut().ok_or_else(|| {
+            RuntimeStateError::new(format!(
+                "runtime thread ID {} has no registered stack",
+                thread_id.0
+            ))
+        })?;
+        if stack.thread_id != thread_id {
+            return Err(RuntimeStateError::new(
+                "runtime thread stack identity does not match its owner thread",
             ));
         }
-        let mut next = previous.clone();
-        next.stack = Some(next_stack);
-        Ok(RuntimeThreadMutationPlan {
-            previous: Some(previous),
-            next,
-        })
+        Ok(stack)
     }
 
     pub(super) fn last_error(&self, thread_id: RuntimeThreadId) -> Result<u32, RuntimeStateError> {
         Ok(self.current_state(thread_id)?.last_error)
     }
 
-    pub(super) fn plan_last_error(
-        &self,
+    pub(super) fn last_error_mut(
+        &mut self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<&mut u32, RuntimeStateError> {
+        self.current_state(thread_id)?;
+        Ok(&mut self
+            .states
+            .get_mut(&thread_id)
+            .expect("validated current thread")
+            .last_error)
+    }
+
+    pub(super) fn set_last_error(
+        &mut self,
         thread_id: RuntimeThreadId,
         value: u32,
-    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
-        let mut next = previous.clone();
-        next.last_error = value;
-        Ok(RuntimeThreadMutationPlan {
-            previous: Some(previous),
-            next,
-        })
+    ) -> Result<(), RuntimeStateError> {
+        self.current_state(thread_id)?;
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated current thread")
+            .last_error = value;
+        Ok(())
     }
 
     pub(super) fn com_apartment(
@@ -898,220 +566,45 @@ impl RuntimeThreads {
         Ok(self.current_state(thread_id)?.com_apartment.as_ref())
     }
 
-    pub(super) fn plan_com_initialization(
-        &self,
+    pub(super) fn initialize_com_apartment(
+        &mut self,
         thread_id: RuntimeThreadId,
         requested_model: RuntimeComApartmentModel,
-    ) -> Result<RuntimeComInitializationPlan, RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
+    ) -> Result<ComHResult, RuntimeStateError> {
+        let previous = self.current_state(thread_id)?;
         if previous.lifecycle != RuntimeThreadLifecycleState::Running {
-            return Err(RuntimeStateError::conflict(
-                "runtime-com-apartment",
-                "com-initialization-lifecycle-state-invalid",
+            return Err(RuntimeStateError::new(
                 "COM initialization requires a running runtime thread",
             ));
         }
-        let (next, apartment, disposition) = match previous.com_apartment {
+        let (apartment, result) = match previous.com_apartment {
             None => {
                 let apartment = RuntimeComApartmentState {
                     model: requested_model,
                     initialization_count: 1,
                 };
-                let mut next = previous.clone();
-                next.com_apartment = Some(apartment);
-                (
-                    Some(next),
-                    apartment,
-                    RuntimeComInitializationDisposition::Initialized,
-                )
+                (apartment, COM_S_OK)
             }
             Some(apartment) if apartment.model == requested_model => {
                 let initialization_count = apartment
                     .initialization_count
                     .checked_add(1)
                     .ok_or_else(|| {
-                        RuntimeStateError::resource_limit(
-                            "runtime-com-apartment",
-                            "com-initialization-count-overflow",
-                            "COM apartment initialization count is exhausted",
-                        )
+                        RuntimeStateError::new("COM apartment initialization count is exhausted")
                     })?;
                 let apartment = RuntimeComApartmentState {
                     model: requested_model,
                     initialization_count,
                 };
-                let mut next = previous.clone();
-                next.com_apartment = Some(apartment);
-                (
-                    Some(next),
-                    apartment,
-                    RuntimeComInitializationDisposition::AlreadyInitialized,
-                )
+                (apartment, COM_S_FALSE)
             }
-            Some(apartment) => (
-                None,
-                apartment,
-                RuntimeComInitializationDisposition::ChangedMode,
-            ),
+            Some(_) => return Ok(COM_RPC_E_CHANGED_MODE),
         };
-        Ok(RuntimeComInitializationPlan {
-            previous,
-            next,
-            outcome: RuntimeComInitializationOutcome {
-                thread_id,
-                requested_model,
-                apartment,
-                disposition,
-            },
-        })
-    }
-
-    pub(super) fn commit_com_initialization(
-        &mut self,
-        plan: RuntimeComInitializationPlan,
-    ) -> Result<RuntimeComInitializationOutcome, RuntimeStateError> {
-        if self.states.get(&plan.previous.id) != Some(&plan.previous) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-com-apartment",
-                "com-initialization-plan-stale",
-                "runtime thread changed after COM initialization preflight",
-            ));
-        }
-        if let Some(next) = plan.next {
-            self.states.insert(next.id, next);
-        }
-        Ok(plan.outcome)
-    }
-
-    pub(super) fn plan_com_uninitialization(
-        &self,
-        thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeComUninitializationPlan, RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
-        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
-            return Err(RuntimeStateError::conflict(
-                "runtime-com-apartment",
-                "com-uninitialization-lifecycle-state-invalid",
-                "COM uninitialization requires a running runtime thread",
-            ));
-        }
-        let apartment = previous.com_apartment.ok_or_else(|| {
-            RuntimeStateError::conflict(
-                "runtime-com-apartment",
-                "com-apartment-uninitialized",
-                "current runtime thread has no initialized COM apartment",
-            )
-        })?;
-        if apartment.initialization_count == 0 {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-com-apartment",
-                "com-initialization-count-zero",
-                "initialized COM apartment has a zero initialization count",
-            ));
-        }
-        let remaining = apartment.initialization_count - 1;
-        let next_apartment = (remaining != 0).then_some(RuntimeComApartmentState {
-            model: apartment.model,
-            initialization_count: remaining,
-        });
-        let mut next = previous.clone();
-        next.com_apartment = next_apartment;
-        Ok(RuntimeComUninitializationPlan {
-            previous,
-            next,
-            outcome: RuntimeComUninitializationOutcome {
-                thread_id,
-                apartment: next_apartment,
-            },
-        })
-    }
-
-    pub(super) fn commit_com_uninitialization(
-        &mut self,
-        plan: RuntimeComUninitializationPlan,
-    ) -> Result<RuntimeComUninitializationOutcome, RuntimeStateError> {
-        if self.states.get(&plan.previous.id) != Some(&plan.previous) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-com-apartment",
-                "com-uninitialization-plan-stale",
-                "runtime thread changed after COM uninitialization preflight",
-            ));
-        }
-        self.states.insert(plan.next.id, plan.next);
-        Ok(plan.outcome)
-    }
-
-    pub(super) fn effective_affinity_mask(
-        &self,
-        thread_id: RuntimeThreadId,
-        process_mask: u32,
-    ) -> Result<u32, RuntimeStateError> {
-        if process_mask == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-thread-affinity",
-                "thread-affinity-process-mask-zero",
-                "runtime thread affinity requires a nonzero virtual process mask",
-            ));
-        }
-        let thread = self.current_state(thread_id)?;
-        let affinity_mask = thread.affinity_mask.unwrap_or(process_mask);
-        if affinity_mask == 0 || affinity_mask & !process_mask != 0 {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-thread-affinity",
-                "thread-affinity-state-outside-process-mask",
-                "runtime thread affinity state is outside the virtual process mask",
-            ));
-        }
-        Ok(affinity_mask)
-    }
-
-    pub(super) fn plan_affinity_mask(
-        &self,
-        thread_id: RuntimeThreadId,
-        process_mask: u32,
-        requested_mask: u32,
-    ) -> Result<(RuntimeThreadAffinityPlan, u32), RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
-        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-affinity",
-                "thread-affinity-lifecycle-state-invalid",
-                "thread affinity can change only for a running runtime thread",
-            ));
-        }
-        let previous_mask = self.effective_affinity_mask(thread_id, process_mask)?;
-        if requested_mask == 0 || requested_mask & !process_mask != 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-thread-affinity",
-                "thread-affinity-mask-outside-process-mask",
-                "requested runtime thread affinity must be a nonzero subset of the virtual process mask",
-            ));
-        }
-        let mut next = previous.clone();
-        next.affinity_mask = Some(requested_mask);
-        Ok((
-            RuntimeThreadAffinityPlan {
-                mutation: RuntimeThreadMutationPlan {
-                    previous: Some(previous),
-                    next,
-                },
-            },
-            previous_mask,
-        ))
-    }
-
-    pub(super) fn commit_affinity_mask(
-        &mut self,
-        plan: RuntimeThreadAffinityPlan,
-    ) -> Result<&RuntimeThreadState, RuntimeStateError> {
-        if self.states.get(&plan.mutation.next.id) != plan.mutation.previous.as_ref() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-affinity",
-                "thread-affinity-plan-stale",
-                "runtime thread changed after affinity preflight",
-            ));
-        }
-        Ok(self.commit(plan.mutation))
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated current thread")
+            .com_apartment = Some(apartment);
+        Ok(result)
     }
 
     pub(super) fn effective_priority(
@@ -1124,45 +617,20 @@ impl RuntimeThreads {
             .unwrap_or(RuntimeThreadPriority::Normal))
     }
 
-    pub(super) fn plan_priority(
-        &self,
+    pub(super) fn set_priority(
+        &mut self,
         thread_id: RuntimeThreadId,
         requested_priority: RuntimeThreadPriority,
-    ) -> Result<(RuntimeThreadPriorityPlan, RuntimeThreadPriority), RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
+    ) -> Result<bool, RuntimeStateError> {
+        let previous = self.current_state(thread_id)?;
         if previous.lifecycle != RuntimeThreadLifecycleState::Running {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-priority",
-                "thread-priority-lifecycle-state-invalid",
-                "thread priority can change only for a running runtime thread",
-            ));
+            return Ok(false);
         }
-        let previous_priority = previous.priority.unwrap_or(RuntimeThreadPriority::Normal);
-        let mut next = previous.clone();
-        next.priority = Some(requested_priority);
-        Ok((
-            RuntimeThreadPriorityPlan {
-                mutation: RuntimeThreadMutationPlan {
-                    previous: Some(previous),
-                    next,
-                },
-            },
-            previous_priority,
-        ))
-    }
-
-    pub(super) fn commit_priority(
-        &mut self,
-        plan: RuntimeThreadPriorityPlan,
-    ) -> Result<&RuntimeThreadState, RuntimeStateError> {
-        if self.states.get(&plan.mutation.next.id) != plan.mutation.previous.as_ref() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-priority",
-                "thread-priority-plan-stale",
-                "runtime thread changed after priority preflight",
-            ));
-        }
-        Ok(self.commit(plan.mutation))
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated current thread")
+            .priority = Some(requested_priority);
+        Ok(true)
     }
 
     pub(super) fn cursor_display_count(
@@ -1172,16 +640,14 @@ impl RuntimeThreads {
         Ok(self.current_state(thread_id)?.cursor_display_count)
     }
 
-    pub(super) fn plan_cursor_display_count_change(
-        &self,
+    pub(super) fn change_cursor_display_count(
+        &mut self,
         thread_id: RuntimeThreadId,
         show: bool,
-    ) -> Result<(RuntimeThreadCursorDisplayPlan, i32), RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
+    ) -> Result<i32, RuntimeStateError> {
+        let previous = self.current_state(thread_id)?;
         if previous.lifecycle != RuntimeThreadLifecycleState::Running {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-cursor-display",
-                "cursor-display-lifecycle-state-invalid",
+            return Err(RuntimeStateError::new(
                 "cursor display count can change only for a running runtime thread",
             ));
         }
@@ -1191,69 +657,31 @@ impl RuntimeThreads {
             previous.cursor_display_count.checked_sub(1)
         }
         .ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-thread-cursor-display",
-                "cursor-display-count-overflow",
+            RuntimeStateError::new(
                 "logical cursor display counter exceeds the signed Win32 INT range",
             )
         })?;
-        let mut next = previous.clone();
-        next.cursor_display_count = next_count;
-        Ok((
-            RuntimeThreadCursorDisplayPlan {
-                mutation: RuntimeThreadMutationPlan {
-                    previous: Some(previous),
-                    next,
-                },
-            },
-            next_count,
-        ))
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated current thread")
+            .cursor_display_count = next_count;
+        Ok(next_count)
     }
 
-    pub(super) fn commit_cursor_display_count_change(
+    pub(super) fn set_fls_value(
         &mut self,
-        plan: RuntimeThreadCursorDisplayPlan,
-    ) -> Result<&RuntimeThreadState, RuntimeStateError> {
-        if self.states.get(&plan.mutation.next.id) != plan.mutation.previous.as_ref() {
-            return Err(RuntimeStateError::conflict(
-                "runtime-thread-cursor-display",
-                "cursor-display-count-plan-stale",
-                "runtime thread changed after cursor display count preflight",
-            ));
-        }
-        Ok(self.commit(plan.mutation))
-    }
-
-    pub(super) fn plan_initialize_fls_storage(
-        &self,
-        thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
-        let mut next = previous.clone();
-        next.fls_storage_initialized = true;
-        Ok(RuntimeThreadMutationPlan {
-            previous: Some(previous),
-            next,
-        })
-    }
-
-    pub(super) fn plan_fls_value(
-        &self,
         thread_id: RuntimeThreadId,
         index: u32,
         value: u32,
-    ) -> Result<(RuntimeThreadMutationPlan, Option<u32>), RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
-        let mut next = previous.clone();
-        next.fls_storage_initialized = true;
-        let replaced = next.fls_values.insert(index, value);
-        Ok((
-            RuntimeThreadMutationPlan {
-                previous: Some(previous),
-                next,
-            },
-            replaced,
-        ))
+    ) -> Result<(), RuntimeStateError> {
+        self.current_state(thread_id)?;
+        let thread = self
+            .states
+            .get_mut(&thread_id)
+            .expect("validated thread state");
+        thread.fls_storage_initialized = true;
+        thread.fls_values.insert(index, value);
+        Ok(())
     }
 
     pub(super) fn fls_value_or_unset(
@@ -1262,44 +690,35 @@ impl RuntimeThreads {
         index: u32,
     ) -> Result<Option<u32>, RuntimeStateError> {
         let thread = self.current_state(thread_id)?;
-        if !thread.fls_storage_initialized {
-            return Err(RuntimeStateError::not_found(
-                "runtime-fls",
-                "fls-thread-storage-uninitialized",
-                format!("current thread has no FLS storage for logical index {index}"),
-            ));
-        }
+        // A thread that has not stored an FLS value reads the allocated slot as NULL.
         Ok(thread.fls_values.get(&index).copied())
     }
 
-    pub(super) fn plan_tls_value(
-        &self,
+    pub(super) fn set_tls_value(
+        &mut self,
         thread_id: RuntimeThreadId,
         index: u32,
-        value: RuntimeTlsValue,
-    ) -> Result<RuntimeThreadMutationPlan, RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
-        let mut next = previous.clone();
-        next.tls_values.insert(index, value);
-        Ok(RuntimeThreadMutationPlan {
-            previous: Some(previous),
-            next,
-        })
+        value: u32,
+    ) -> Result<(), RuntimeStateError> {
+        self.current_state(thread_id)?;
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated current thread")
+            .tls_values
+            .insert(index, value);
+        Ok(())
     }
 
     pub(super) fn tls_value_or_unset(
         &self,
         thread_id: RuntimeThreadId,
         index: u32,
-    ) -> Result<Option<&RuntimeTlsValue>, RuntimeStateError> {
-        Ok(self.current_state(thread_id)?.tls_values.get(&index))
-    }
-
-    pub(super) fn initialized_tls_thread_count(&self, index: u32) -> usize {
-        self.states
-            .values()
-            .filter(|thread| thread.tls_values.contains_key(&index))
-            .count()
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        Ok(self
+            .current_state(thread_id)?
+            .tls_values
+            .get(&index)
+            .copied())
     }
 
     pub(super) fn callback_depth(
@@ -1309,179 +728,132 @@ impl RuntimeThreads {
         Ok(self.current_state(thread_id)?.callback_frames.len())
     }
 
-    pub(super) fn plan_callback_push(
+    pub(super) fn validate_callback_entry(
         &self,
         thread_id: RuntimeThreadId,
-        frame: RuntimeCallbackFrame,
-    ) -> Result<(RuntimeThreadMutationPlan, usize), RuntimeStateError> {
-        if frame.thread_id != thread_id {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-callback",
-                "callback-frame-thread-mismatch",
-                "callback frame identity does not match the selected thread",
-            ));
+        replacing: Option<RuntimeCallbackFrameId>,
+    ) -> Result<usize, RuntimeStateError> {
+        let depth = self.callback_depth(thread_id)?;
+        if let Some(expected) = replacing {
+            self.callback_frame_for_return(thread_id, expected)?;
+            return Ok(depth);
         }
-        let previous = self.current_state(thread_id)?.clone();
-        let mut next = previous.clone();
-        next.callback_frames.push(frame);
-        let depth = next.callback_frames.len();
-        Ok((
-            RuntimeThreadMutationPlan {
-                previous: Some(previous),
-                next,
-            },
-            depth,
-        ))
+        depth
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("callback depth exceeds the host range"))
     }
 
-    pub(super) fn plan_callback_pop(
+    pub(super) fn callback_frame_for_return(
         &self,
         thread_id: RuntimeThreadId,
         expected: RuntimeCallbackFrameId,
-    ) -> Result<(RuntimeThreadMutationPlan, RuntimeCallbackFrame, usize), RuntimeStateError> {
-        let previous = self.current_state(thread_id)?.clone();
-        let frame = previous.callback_frames.last().copied().ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-callback",
-                "callback-frame-stack-empty",
-                "current thread has no callback frame to return",
-            )
+    ) -> Result<RuntimeCallbackFrame, RuntimeStateError> {
+        let thread = self.current_state(thread_id)?;
+        let frame = thread.callback_frames.last().copied().ok_or_else(|| {
+            RuntimeStateError::new("current thread has no callback frame to return")
         })?;
         if frame.id != expected {
-            return Err(RuntimeStateError::conflict(
-                "runtime-callback",
-                "callback-frame-return-order-mismatch",
+            return Err(RuntimeStateError::new(
                 "callback frame return is not strict LIFO order",
             ));
         }
-        let mut next = previous.clone();
-        next.callback_frames.pop();
-        let depth = next.callback_frames.len();
-        Ok((
-            RuntimeThreadMutationPlan {
-                previous: Some(previous),
-                next,
-            },
-            frame,
-            depth,
-        ))
+        Ok(frame)
     }
 
-    pub(super) fn plan_callback_replace(
-        &self,
+    pub(super) fn publish_callback_frame(
+        &mut self,
+        frame: RuntimeCallbackFrame,
+        replacing: bool,
+    ) -> Option<RuntimeCallbackFrame> {
+        // Frame identity and entry were checked immediately before the caller's
+        // synchronous memory writes. Only publication consumes the next ID.
+        self.next_callback_frame_id = frame.id.0 + 1;
+        let thread = self
+            .states
+            .get_mut(&frame.thread_id)
+            .expect("validated callback thread");
+        if replacing {
+            Some(std::mem::replace(
+                thread
+                    .callback_frames
+                    .last_mut()
+                    .expect("validated callback frame"),
+                frame,
+            ))
+        } else {
+            thread.callback_frames.push(frame);
+            None
+        }
+    }
+
+    pub(super) fn pop_callback_frame(
+        &mut self,
         thread_id: RuntimeThreadId,
         expected: RuntimeCallbackFrameId,
-        frame: RuntimeCallbackFrame,
-    ) -> Result<(RuntimeThreadMutationPlan, RuntimeCallbackFrame, usize), RuntimeStateError> {
-        if frame.thread_id != thread_id {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-callback",
-                "callback-frame-thread-mismatch",
-                "callback frame identity does not match the selected thread",
-            ));
-        }
-        let previous = self.current_state(thread_id)?.clone();
-        let replaced = previous.callback_frames.last().copied().ok_or_else(|| {
-            RuntimeStateError::not_found(
-                "runtime-callback",
-                "callback-frame-stack-empty",
-                "current thread has no callback frame to replace",
-            )
-        })?;
-        if replaced.id != expected {
-            return Err(RuntimeStateError::conflict(
-                "runtime-callback",
-                "callback-frame-return-order-mismatch",
-                "callback frame replacement is not strict LIFO order",
-            ));
-        }
-        let mut next = previous.clone();
-        *next
+    ) -> Result<RuntimeCallbackFrame, RuntimeStateError> {
+        let frame = self.callback_frame_for_return(thread_id, expected)?;
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated callback thread")
             .callback_frames
-            .last_mut()
-            .expect("validated callback frame disappeared") = frame;
-        let depth = next.callback_frames.len();
-        Ok((
-            RuntimeThreadMutationPlan {
-                previous: Some(previous),
-                next,
-            },
-            replaced,
-            depth,
-        ))
+            .pop();
+        Ok(frame)
     }
 
-    pub(super) fn plan_exit_request(
+    pub(super) fn validate_exit_request(
         &self,
         thread_id: RuntimeThreadId,
-        exit_code: u32,
-    ) -> Result<(RuntimeThreadMutationPlan, usize), RuntimeStateError> {
-        let previous = self.state(thread_id)?.clone();
-        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
-            return Err(RuntimeStateError::conflict(
-                "runtime-lifecycle",
-                "thread-exit-request-transition-invalid",
+    ) -> Result<(), RuntimeStateError> {
+        let thread = self.state(thread_id)?;
+        if thread.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::new(
                 "thread exit request requires a running thread",
             ));
         }
-        let callback_frames_cancelled = previous.callback_frames.len();
-        let mut next = previous.clone();
-        next.callback_frames.clear();
-        next.lifecycle = RuntimeThreadLifecycleState::ExitRequested { exit_code };
-        Ok((
-            RuntimeThreadMutationPlan {
-                previous: Some(previous),
-                next,
-            },
-            callback_frames_cancelled,
-        ))
+        Ok(())
     }
 
-    pub(super) fn plan_exit_completion(
+    pub(super) fn request_exit(
+        &mut self,
+        thread_id: RuntimeThreadId,
+        exit_code: u32,
+    ) -> Result<(), RuntimeStateError> {
+        self.validate_exit_request(thread_id)?;
+        let thread = self
+            .states
+            .get_mut(&thread_id)
+            .expect("validated thread disappeared");
+        thread.callback_frames.clear();
+        thread.lifecycle = RuntimeThreadLifecycleState::ExitRequested { exit_code };
+        Ok(())
+    }
+
+    pub(super) fn validate_exit_completion(
         &self,
         thread_id: RuntimeThreadId,
-    ) -> Result<(RuntimeThreadMutationPlan, u32), RuntimeStateError> {
-        let previous = self.state(thread_id)?.clone();
-        let exit_code = match previous.lifecycle {
-            RuntimeThreadLifecycleState::ExitRequested { exit_code } => exit_code,
-            _ => {
-                return Err(RuntimeStateError::conflict(
-                    "runtime-lifecycle",
-                    "thread-exit-completion-transition-invalid",
-                    "thread exit completion requires a prior exit request",
-                ));
-            }
-        };
-        let mut next = previous.clone();
-        next.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
-        next.com_apartment = None;
-        next.cursor_display_count = 0;
-        Ok((
-            RuntimeThreadMutationPlan {
-                previous: Some(previous),
-                next,
-            },
-            exit_code,
-        ))
+    ) -> Result<u32, RuntimeStateError> {
+        match self.state(thread_id)?.lifecycle {
+            RuntimeThreadLifecycleState::ExitRequested { exit_code } => Ok(exit_code),
+            _ => Err(RuntimeStateError::new(
+                "thread exit completion requires a prior exit request",
+            )),
+        }
     }
 
-    pub(super) fn commit(&mut self, plan: RuntimeThreadMutationPlan) -> &RuntimeThreadState {
-        debug_assert_eq!(
-            self.states.get(&plan.next.id),
-            plan.previous.as_ref(),
-            "thread plan was not committed against its preflight state"
-        );
-        let thread_id = plan.next.id;
-        let previous = self.states.insert(thread_id, plan.next);
-        debug_assert_eq!(previous, plan.previous);
-        self.states
-            .get(&thread_id)
-            .expect("committed runtime thread disappeared")
+    pub(super) fn complete_exit(
+        &mut self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<u32, RuntimeStateError> {
+        let exit_code = self.validate_exit_completion(thread_id)?;
+        let thread = self
+            .states
+            .get_mut(&thread_id)
+            .expect("validated thread disappeared");
+        thread.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
+        thread.com_apartment = None;
+        thread.cursor_display_count = 0;
+        Ok(exit_code)
     }
-}
-
-fn is_zero_i32(value: &i32) -> bool {
-    *value == 0
 }
 
 #[cfg(test)]
@@ -1494,27 +866,17 @@ mod tests {
     const SECOND: RuntimeThreadId = RuntimeThreadId(0x1001);
 
     #[test]
-    fn com_apartment_plans_are_counted_thread_local_and_failure_atomic() {
+    fn com_apartment_initialization_is_counted_thread_local_and_failure_atomic() {
         let mut threads = RuntimeThreads::new(INITIAL, 11);
-        let start = threads.plan_start(INITIAL).unwrap();
-        threads.commit(start);
-        let registration = threads.plan_registration(SECOND, 33).unwrap();
-        threads.commit(registration);
+        threads.start(INITIAL).unwrap();
+        threads.validate_registration(SECOND).unwrap();
+        threads.register(SECOND, 33);
 
-        let first = threads
-            .plan_com_initialization(INITIAL, RuntimeComApartmentModel::SingleThreaded)
-            .unwrap();
         assert_eq!(threads.com_apartment(INITIAL), Ok(None));
-        let first = threads.commit_com_initialization(first).unwrap();
-        assert_eq!(
-            first.disposition,
-            RuntimeComInitializationDisposition::Initialized
-        );
-        assert_eq!(first.apartment.initialization_count, 1);
-
-        let repeat = threads
-            .plan_com_initialization(INITIAL, RuntimeComApartmentModel::SingleThreaded)
+        let first = threads
+            .initialize_com_apartment(INITIAL, RuntimeComApartmentModel::SingleThreaded)
             .unwrap();
+        assert_eq!(first, COM_S_OK);
         assert_eq!(
             threads
                 .com_apartment(INITIAL)
@@ -1523,30 +885,30 @@ mod tests {
                 .initialization_count,
             1
         );
-        let repeat = threads.commit_com_initialization(repeat).unwrap();
+
+        let repeat = threads
+            .initialize_com_apartment(INITIAL, RuntimeComApartmentModel::SingleThreaded)
+            .unwrap();
+        assert_eq!(repeat, COM_S_FALSE);
         assert_eq!(
-            repeat.disposition,
-            RuntimeComInitializationDisposition::AlreadyInitialized
+            threads
+                .com_apartment(INITIAL)
+                .unwrap()
+                .unwrap()
+                .initialization_count,
+            2
         );
-        assert_eq!(repeat.apartment.initialization_count, 2);
 
         let before_conflict = threads.clone();
         let conflict = threads
-            .plan_com_initialization(INITIAL, RuntimeComApartmentModel::MultiThreaded)
+            .initialize_com_apartment(INITIAL, RuntimeComApartmentModel::MultiThreaded)
             .unwrap();
-        assert_eq!(
-            conflict.outcome.disposition,
-            RuntimeComInitializationDisposition::ChangedMode
-        );
-        assert!(conflict.next.is_none());
-        let conflict = threads.commit_com_initialization(conflict).unwrap();
-        assert_eq!(conflict.apartment.initialization_count, 2);
+        assert_eq!(conflict, COM_RPC_E_CHANGED_MODE);
         assert_eq!(threads, before_conflict);
 
-        let second = threads
-            .plan_com_initialization(SECOND, RuntimeComApartmentModel::MultiThreaded)
+        threads
+            .initialize_com_apartment(SECOND, RuntimeComApartmentModel::MultiThreaded)
             .unwrap();
-        threads.commit_com_initialization(second).unwrap();
         assert_eq!(
             threads.com_apartment(SECOND).unwrap().unwrap().model,
             RuntimeComApartmentModel::MultiThreaded
@@ -1556,184 +918,81 @@ mod tests {
             RuntimeComApartmentModel::SingleThreaded
         );
 
-        let stale = threads
-            .plan_com_initialization(SECOND, RuntimeComApartmentModel::MultiThreaded)
-            .unwrap();
-        let last_error = threads.plan_last_error(SECOND, 44).unwrap();
-        threads.commit(last_error);
-        let before_stale = threads.clone();
-        assert_eq!(
-            threads.commit_com_initialization(stale).unwrap_err().code,
-            "com-initialization-plan-stale"
-        );
-        assert_eq!(threads, before_stale);
-
-        let stale_uninitialize = threads.plan_com_uninitialization(INITIAL).unwrap();
-        let last_error = threads.plan_last_error(INITIAL, 12).unwrap();
-        threads.commit(last_error);
-        let before_stale = threads.clone();
+        threads.set_last_error(INITIAL, 12).unwrap();
         assert_eq!(
             threads
-                .commit_com_uninitialization(stale_uninitialize)
-                .unwrap_err()
-                .code,
-            "com-uninitialization-plan-stale"
+                .com_apartment(INITIAL)
+                .unwrap()
+                .unwrap()
+                .initialization_count,
+            2
         );
-        assert_eq!(threads, before_stale);
-
-        let first_uninitialize = threads.plan_com_uninitialization(INITIAL).unwrap();
-        let first_uninitialize = threads
-            .commit_com_uninitialization(first_uninitialize)
-            .unwrap();
         assert_eq!(
-            first_uninitialize.apartment.unwrap().initialization_count,
+            threads
+                .com_apartment(SECOND)
+                .unwrap()
+                .unwrap()
+                .initialization_count,
             1
         );
-        let final_uninitialize = threads.plan_com_uninitialization(INITIAL).unwrap();
-        let final_uninitialize = threads
-            .commit_com_uninitialization(final_uninitialize)
-            .unwrap();
-        assert_eq!(final_uninitialize.apartment, None);
-        let before_duplicate = threads.clone();
-        assert_eq!(
-            threads.plan_com_uninitialization(INITIAL).unwrap_err().code,
-            "com-apartment-uninitialized"
-        );
-        assert_eq!(threads, before_duplicate);
     }
 
     #[test]
     fn com_apartment_overflow_and_thread_exit_do_not_leak_state() {
         let mut threads = RuntimeThreads::new(INITIAL, 11);
-        let start = threads.plan_start(INITIAL).unwrap();
-        threads.commit(start);
+        threads.start(INITIAL).unwrap();
         threads.states.get_mut(&INITIAL).unwrap().com_apartment = Some(RuntimeComApartmentState {
             model: RuntimeComApartmentModel::SingleThreaded,
             initialization_count: u32::MAX,
         });
         let before_overflow = threads.clone();
-        assert_eq!(
-            threads
-                .plan_com_initialization(INITIAL, RuntimeComApartmentModel::SingleThreaded)
-                .unwrap_err()
-                .code,
-            "com-initialization-count-overflow"
-        );
+        threads
+            .initialize_com_apartment(INITIAL, RuntimeComApartmentModel::SingleThreaded)
+            .unwrap_err();
         assert_eq!(threads, before_overflow);
 
-        let (request, _) = threads.plan_exit_request(INITIAL, 23).unwrap();
-        let terminal = request.terminal_after_request(23).unwrap();
-        threads.commit(request);
-        threads.commit(terminal);
+        threads.request_exit(INITIAL, 23).unwrap();
+        threads.complete_exit(INITIAL).unwrap();
         assert_eq!(threads.state(INITIAL).unwrap().com_apartment, None);
-        assert_eq!(
-            threads
-                .plan_com_initialization(INITIAL, RuntimeComApartmentModel::SingleThreaded)
-                .unwrap_err()
-                .code,
-            "com-initialization-lifecycle-state-invalid"
-        );
-        assert_eq!(
-            threads.plan_com_uninitialization(INITIAL).unwrap_err().code,
-            "com-uninitialization-lifecycle-state-invalid"
-        );
+        threads
+            .initialize_com_apartment(INITIAL, RuntimeComApartmentModel::SingleThreaded)
+            .unwrap_err();
     }
 
     #[test]
-    fn plans_are_mutation_free_and_thread_local_values_remain_isolated() {
+    fn thread_local_values_remain_isolated() {
         let mut threads = RuntimeThreads::new(INITIAL, 11);
         let before_start = threads.clone();
-        let start = threads.plan_start(INITIAL).unwrap();
-        assert_eq!(threads, before_start);
-        threads.commit(start);
+        threads.start(INITIAL).unwrap();
+        assert_ne!(threads, before_start);
+        let running = threads.clone();
+        assert!(threads.start(INITIAL).is_err());
+        assert_eq!(threads, running);
 
-        let registration = threads.plan_registration(SECOND, 33).unwrap();
+        threads.validate_registration(SECOND).unwrap();
         assert!(!threads.contains(SECOND));
-        threads.commit(registration);
-        let initial_tls = threads
-            .plan_tls_value(INITIAL, 0, RuntimeTlsValue::Raw { value: 0x1111 })
-            .unwrap();
-        let second_tls = threads
-            .plan_tls_value(SECOND, 0, RuntimeTlsValue::Raw { value: 0x2222 })
-            .unwrap();
-        threads.commit(initial_tls);
-        threads.commit(second_tls);
+        threads.register(SECOND, 33);
+        threads.set_tls_value(INITIAL, 0, 0x1111).unwrap();
+        threads.set_tls_value(SECOND, 0, 0x2222).unwrap();
 
         assert_eq!(threads.last_error(INITIAL), Ok(11));
         assert_eq!(threads.last_error(SECOND), Ok(33));
         assert_eq!(
-            threads
-                .tls_value_or_unset(INITIAL, 0)
-                .unwrap()
-                .unwrap()
-                .raw_value(),
+            threads.tls_value_or_unset(INITIAL, 0).unwrap().unwrap(),
             0x1111
         );
         assert_eq!(
-            threads
-                .tls_value_or_unset(SECOND, 0)
-                .unwrap()
-                .unwrap()
-                .raw_value(),
+            threads.tls_value_or_unset(SECOND, 0).unwrap().unwrap(),
             0x2222
         );
     }
 
     #[test]
-    fn affinity_plans_use_the_virtual_process_default_and_commit_per_thread() {
+    fn priority_uses_normal_default_and_is_thread_local() {
         let mut threads = RuntimeThreads::new(INITIAL, 11);
-        let start = threads.plan_start(INITIAL).unwrap();
-        threads.commit(start);
-        let registration = threads.plan_registration(SECOND, 33).unwrap();
-        threads.commit(registration);
-
-        assert_eq!(threads.effective_affinity_mask(INITIAL, 0b111), Ok(0b111));
-        assert_eq!(threads.effective_affinity_mask(SECOND, 0b111), Ok(0b111));
-        let before = threads.clone();
-        let (plan, previous) = threads.plan_affinity_mask(INITIAL, 0b111, 0b001).unwrap();
-        assert_eq!(previous, 0b111);
-        assert_eq!(threads, before, "affinity planning must not mutate state");
-        threads.commit_affinity_mask(plan).unwrap();
-        assert_eq!(threads.effective_affinity_mask(INITIAL, 0b111), Ok(0b001));
-        assert_eq!(threads.effective_affinity_mask(SECOND, 0b111), Ok(0b111));
-
-        let before_invalid = threads.clone();
-        assert_eq!(
-            threads
-                .plan_affinity_mask(INITIAL, 0b111, 0)
-                .unwrap_err()
-                .code,
-            "thread-affinity-mask-outside-process-mask"
-        );
-        assert_eq!(
-            threads
-                .plan_affinity_mask(INITIAL, 0b111, 0b1000)
-                .unwrap_err()
-                .code,
-            "thread-affinity-mask-outside-process-mask"
-        );
-        assert_eq!(threads, before_invalid);
-
-        let (restore, previous) = threads.plan_affinity_mask(INITIAL, 0b111, 0b111).unwrap();
-        assert_eq!(previous, 0b001);
-        let stale = threads.plan_affinity_mask(INITIAL, 0b111, 0b010).unwrap().0;
-        threads.commit_affinity_mask(restore).unwrap();
-        assert_eq!(threads.effective_affinity_mask(INITIAL, 0b111), Ok(0b111));
-        let before_stale = threads.clone();
-        assert_eq!(
-            threads.commit_affinity_mask(stale).unwrap_err().code,
-            "thread-affinity-plan-stale"
-        );
-        assert_eq!(threads, before_stale);
-    }
-
-    #[test]
-    fn priority_plans_use_normal_default_and_commit_per_thread() {
-        let mut threads = RuntimeThreads::new(INITIAL, 11);
-        let start = threads.plan_start(INITIAL).unwrap();
-        threads.commit(start);
-        let registration = threads.plan_registration(SECOND, 33).unwrap();
-        threads.commit(registration);
+        threads.start(INITIAL).unwrap();
+        threads.validate_registration(SECOND).unwrap();
+        threads.register(SECOND, 33);
 
         assert_eq!(
             threads.effective_priority(INITIAL),
@@ -1743,13 +1002,10 @@ mod tests {
             threads.effective_priority(SECOND),
             Ok(RuntimeThreadPriority::Normal)
         );
-        let before = threads.clone();
-        let (plan, previous) = threads
-            .plan_priority(INITIAL, RuntimeThreadPriority::AboveNormal)
-            .unwrap();
-        assert_eq!(previous, RuntimeThreadPriority::Normal);
-        assert_eq!(threads, before, "priority planning must not mutate state");
-        threads.commit_priority(plan).unwrap();
+        assert_eq!(
+            threads.set_priority(INITIAL, RuntimeThreadPriority::AboveNormal),
+            Ok(true)
+        );
         assert_eq!(
             threads.effective_priority(INITIAL),
             Ok(RuntimeThreadPriority::AboveNormal)
@@ -1759,75 +1015,32 @@ mod tests {
             Ok(RuntimeThreadPriority::Normal)
         );
 
-        let (restore, previous) = threads
-            .plan_priority(INITIAL, RuntimeThreadPriority::Normal)
-            .unwrap();
-        assert_eq!(previous, RuntimeThreadPriority::AboveNormal);
-        let stale = threads
-            .plan_priority(INITIAL, RuntimeThreadPriority::Highest)
-            .unwrap()
-            .0;
-        threads.commit_priority(restore).unwrap();
+        assert_eq!(
+            threads.set_priority(INITIAL, RuntimeThreadPriority::Normal),
+            Ok(true)
+        );
         assert_eq!(
             threads.effective_priority(INITIAL),
             Ok(RuntimeThreadPriority::Normal)
         );
-        let before_stale = threads.clone();
-        assert_eq!(
-            threads.commit_priority(stale).unwrap_err().code,
-            "thread-priority-plan-stale"
-        );
-        assert_eq!(threads, before_stale);
     }
 
     #[test]
     fn cursor_display_count_is_signed_atomic_thread_local_and_terminal() {
         let mut threads = RuntimeThreads::new(INITIAL, 11);
-        let start = threads.plan_start(INITIAL).unwrap();
-        threads.commit(start);
-        let registration = threads.plan_registration(SECOND, 33).unwrap();
-        threads.commit(registration);
+        threads.start(INITIAL).unwrap();
+        threads.validate_registration(SECOND).unwrap();
+        threads.register(SECOND, 33);
 
         assert_eq!(threads.cursor_display_count(INITIAL), Ok(0));
         assert_eq!(threads.cursor_display_count(SECOND), Ok(0));
-        let initial_serialized = serde_json::to_value(&threads).unwrap();
-        assert_eq!(initial_serialized["8192"].get("cursorDisplayCount"), None);
-        assert_eq!(initial_serialized["4097"].get("cursorDisplayCount"), None);
-        let (stale_initial, _) = threads
-            .plan_cursor_display_count_change(INITIAL, false)
-            .unwrap();
-        let (show_initial, count) = threads
-            .plan_cursor_display_count_change(INITIAL, true)
-            .unwrap();
-        assert_eq!(count, 1);
-        threads
-            .commit_cursor_display_count_change(show_initial)
-            .unwrap();
+        assert_eq!(threads.change_cursor_display_count(INITIAL, true), Ok(1));
         assert_eq!(threads.cursor_display_count(INITIAL), Ok(1));
         assert_eq!(threads.cursor_display_count(SECOND), Ok(0));
 
-        let before_stale = threads.clone();
-        assert_eq!(
-            threads
-                .commit_cursor_display_count_change(stale_initial)
-                .unwrap_err()
-                .code,
-            "cursor-display-count-plan-stale"
-        );
-        assert_eq!(threads, before_stale);
-
-        let (hide_second, count) = threads
-            .plan_cursor_display_count_change(SECOND, false)
-            .unwrap();
-        assert_eq!(count, -1);
-        threads
-            .commit_cursor_display_count_change(hide_second)
-            .unwrap();
+        assert_eq!(threads.change_cursor_display_count(SECOND, false), Ok(-1));
         assert_eq!(threads.cursor_display_count(INITIAL), Ok(1));
         assert_eq!(threads.cursor_display_count(SECOND), Ok(-1));
-        let changed_serialized = serde_json::to_value(&threads).unwrap();
-        assert_eq!(changed_serialized["8192"]["cursorDisplayCount"], 1);
-        assert_eq!(changed_serialized["4097"]["cursorDisplayCount"], -1);
 
         threads
             .states
@@ -1835,13 +1048,9 @@ mod tests {
             .unwrap()
             .cursor_display_count = i32::MAX;
         let before_overflow = threads.clone();
-        assert_eq!(
-            threads
-                .plan_cursor_display_count_change(INITIAL, true)
-                .unwrap_err()
-                .code,
-            "cursor-display-count-overflow"
-        );
+        threads
+            .change_cursor_display_count(INITIAL, true)
+            .unwrap_err();
         assert_eq!(threads, before_overflow);
 
         threads
@@ -1850,38 +1059,48 @@ mod tests {
             .unwrap()
             .cursor_display_count = i32::MIN;
         let before_underflow = threads.clone();
-        assert_eq!(
-            threads
-                .plan_cursor_display_count_change(INITIAL, false)
-                .unwrap_err()
-                .code,
-            "cursor-display-count-overflow"
-        );
+        threads
+            .change_cursor_display_count(INITIAL, false)
+            .unwrap_err();
         assert_eq!(threads, before_underflow);
 
-        let (request, _) = threads.plan_exit_request(SECOND, 23).unwrap();
-        let terminal = request.terminal_after_request(23).unwrap();
-        threads.commit(request);
-        threads.commit(terminal);
+        threads.request_exit(SECOND, 23).unwrap();
+        threads.complete_exit(SECOND).unwrap();
         assert_eq!(threads.cursor_display_count(SECOND), Ok(0));
-        assert_eq!(
-            serde_json::to_value(&threads).unwrap()["4097"].get("cursorDisplayCount"),
-            None
-        );
-        assert_eq!(
-            threads
-                .plan_cursor_display_count_change(SECOND, true)
-                .unwrap_err()
-                .code,
-            "cursor-display-lifecycle-state-invalid"
-        );
+        threads
+            .change_cursor_display_count(SECOND, true)
+            .unwrap_err();
     }
 
     #[test]
-    fn callback_and_exit_plans_commit_in_explicit_order() {
+    fn direct_exit_rejects_invalid_transitions_without_mutating_threads() {
         let mut threads = RuntimeThreads::new(INITIAL, 7);
-        let start = threads.plan_start(INITIAL).unwrap();
-        threads.commit(start);
+        let initialized = threads.clone();
+        for id in [INITIAL, SECOND] {
+            assert!(threads.request_exit(id, 23).is_err());
+            assert!(threads.complete_exit(id).is_err());
+            assert_eq!(threads, initialized);
+        }
+        threads.start(INITIAL).unwrap();
+        let running = threads.clone();
+        assert!(threads.complete_exit(INITIAL).is_err());
+        assert_eq!(threads, running);
+        threads.request_exit(INITIAL, 23).unwrap();
+        let requested = threads.clone();
+        assert!(threads.request_exit(INITIAL, 99).is_err());
+        assert_eq!(threads, requested);
+        assert_eq!(threads.complete_exit(INITIAL).unwrap(), 23);
+        let exited = threads.clone();
+        assert!(threads.request_exit(INITIAL, 99).is_err());
+        assert!(threads.complete_exit(INITIAL).is_err());
+        assert_eq!(threads, exited);
+        assert_eq!(threads.last_error(INITIAL).unwrap(), 7);
+    }
+
+    #[test]
+    fn callback_handoffs_and_direct_exit_keep_explicit_order() {
+        let mut threads = RuntimeThreads::new(INITIAL, 7);
+        threads.start(INITIAL).unwrap();
         let frame = RuntimeCallbackFrame {
             id: RuntimeCallbackFrameId(1),
             thread_id: INITIAL,
@@ -1890,38 +1109,39 @@ mod tests {
             entry_last_error: 7,
             scratch: None,
         };
-        let (push, depth) = threads.plan_callback_push(INITIAL, frame).unwrap();
+        let depth = threads.validate_callback_entry(INITIAL, None).unwrap();
         assert_eq!(depth, 1);
         assert_eq!(threads.callback_depth(INITIAL), Ok(0));
-        threads.commit(push);
+        threads.publish_callback_frame(frame, false);
 
         let replacement = RuntimeCallbackFrame {
             id: RuntimeCallbackFrameId(2),
             target: GuestAddress(0x1000_2000),
             ..frame
         };
-        let (replace, replaced, depth) = threads
-            .plan_callback_replace(INITIAL, frame.id, replacement)
+        let depth = threads
+            .validate_callback_entry(INITIAL, Some(frame.id))
             .unwrap();
-        assert_eq!(replaced, frame);
         assert_eq!(depth, 1);
         assert_eq!(
             threads.state(INITIAL).unwrap().callback_frames,
             [frame],
-            "callback replacement remains mutation-free until commit"
+            "entry validation preserves the active callback"
         );
-        threads.commit(replace);
+        assert_eq!(
+            threads.publish_callback_frame(replacement, true),
+            Some(frame)
+        );
         assert_eq!(
             threads.state(INITIAL).unwrap().callback_frames,
             [replacement]
         );
 
-        let (request, cancelled) = threads.plan_exit_request(INITIAL, 23).unwrap();
-        let terminal = request.terminal_after_request(23).unwrap();
-        assert_eq!(cancelled, 1);
+        threads.validate_exit_request(INITIAL).unwrap();
         assert_eq!(threads.state(INITIAL).unwrap().callback_frames.len(), 1);
-        threads.commit(request);
-        threads.commit(terminal);
+        threads.request_exit(INITIAL, 23).unwrap();
+        assert!(threads.state(INITIAL).unwrap().callback_frames.is_empty());
+        assert_eq!(threads.complete_exit(INITIAL).unwrap(), 23);
         assert_eq!(
             threads.state(INITIAL).unwrap().lifecycle,
             RuntimeThreadLifecycleState::Exited { exit_code: 23 }
@@ -1929,105 +1149,327 @@ mod tests {
     }
 
     #[test]
-    fn rejected_plans_preserve_the_registry_and_allocator_identity() {
-        let threads = RuntimeThreads::new(INITIAL, 0);
+    fn callback_stack_transitions_preserve_tls_fls_and_last_error() {
+        let mut threads = RuntimeThreads::new(INITIAL, 37);
+        threads.start(INITIAL).unwrap();
+        let tls = threads.allocate_tls_index().unwrap();
+        let fls = threads.allocate_fls_slot(INITIAL, None).unwrap();
+        threads.set_tls_value(INITIAL, tls, 0x1234).unwrap();
+        threads.set_fls_value(INITIAL, fls, 0x5678).unwrap();
+        let assert_values = |threads: &RuntimeThreads| {
+            assert_eq!(
+                threads.tls_value_or_unset(INITIAL, tls).unwrap(),
+                Some(0x1234)
+            );
+            assert_eq!(
+                threads.fls_value_or_unset(INITIAL, fls).unwrap(),
+                Some(0x5678)
+            );
+            assert_eq!(threads.last_error(INITIAL).unwrap(), 37);
+            assert_eq!(
+                threads.state(INITIAL).unwrap().lifecycle,
+                RuntimeThreadLifecycleState::Running
+            );
+        };
+        let frame = RuntimeCallbackFrame {
+            id: RuntimeCallbackFrameId(1),
+            thread_id: INITIAL,
+            target: GuestAddress(0x1000_1000),
+            return_sentinel: GuestAddress(0x7f01_0000),
+            entry_last_error: 37,
+            scratch: None,
+        };
+        let depth = threads.validate_callback_entry(INITIAL, None).unwrap();
+        assert_eq!(depth, 1);
+        threads.publish_callback_frame(frame, false);
+        assert_values(&threads);
+        assert!(
+            threads
+                .pop_callback_frame(INITIAL, RuntimeCallbackFrameId(99))
+                .is_err()
+        );
+        assert_eq!(threads.state(INITIAL).unwrap().callback_frames, [frame]);
+        assert_values(&threads);
+        let replacement = RuntimeCallbackFrame {
+            id: RuntimeCallbackFrameId(2),
+            ..frame
+        };
+        let depth = threads
+            .validate_callback_entry(INITIAL, Some(frame.id))
+            .unwrap();
+        assert_eq!(depth, 1);
+        assert_eq!(
+            threads.publish_callback_frame(replacement, true),
+            Some(frame)
+        );
+        assert_values(&threads);
+        let returned = threads.pop_callback_frame(INITIAL, replacement.id).unwrap();
+        assert_eq!(returned, replacement);
+        assert!(threads.state(INITIAL).unwrap().callback_frames.is_empty());
+        assert_values(&threads);
+    }
+
+    #[test]
+    fn stack_access_and_registration_preserve_other_thread_state() {
+        let mut threads = RuntimeThreads::new(INITIAL, 37);
+        let stack = RuntimeThreadStack {
+            thread_id: INITIAL,
+            address_allocation_id: ProcessAddressAllocationId(1),
+            memory_owner: MemoryOwnerId(1),
+            reserved_range: GuestRange::new(GuestAddress(0x1000), 0x2000).unwrap(),
+            committed_range: GuestRange::new(GuestAddress(0x2000), 0x1000).unwrap(),
+            initial_commit_bytes: 0x1000,
+            guard_page: Some(GuestRange::new(GuestAddress(0x1000), 0x1000).unwrap()),
+            stack_top: GuestAddress(0x3000),
+            initial_stack_pointer: GuestAddress(0x2ffc),
+            return_sentinel: GuestAddress(0x4000),
+        };
+        let mut wrong_owner = stack.clone();
+        wrong_owner.thread_id = SECOND;
+        assert!(threads.register_stack(INITIAL, wrong_owner).is_err());
+        assert!(threads.state(INITIAL).unwrap().stack.is_none());
+        assert!(threads.stack_mut(INITIAL).is_err());
+        assert!(threads.stack_mut(SECOND).is_err());
+        assert_eq!(threads.last_error(INITIAL).unwrap(), 37);
+        threads.register_stack(INITIAL, stack.clone()).unwrap();
+        assert!(threads.register_stack(INITIAL, stack.clone()).is_err());
+        assert_eq!(threads.state(INITIAL).unwrap().stack.as_ref(), Some(&stack));
+        {
+            let live = threads.stack_mut(INITIAL).unwrap();
+            live.committed_range = live.reserved_range;
+            live.guard_page = None;
+        }
+        let grown = threads.state(INITIAL).unwrap().stack.as_ref().unwrap();
+        assert_eq!(grown.thread_id, stack.thread_id);
+        assert_eq!(grown.address_allocation_id, stack.address_allocation_id);
+        assert_eq!(grown.memory_owner, stack.memory_owner);
+        assert_eq!(grown.reserved_range, stack.reserved_range);
+        assert_eq!(grown.committed_range, stack.reserved_range);
+        assert_eq!(grown.initial_commit_bytes, stack.initial_commit_bytes);
+        assert_eq!(grown.guard_page, None);
+        assert_eq!(threads.last_error(INITIAL).unwrap(), 37);
+        threads.stack_mut(INITIAL).unwrap().thread_id = SECOND;
+        assert!(threads.stack_mut(INITIAL).is_err());
+        assert_eq!(threads.last_error(INITIAL).unwrap(), 37);
+        let stack = threads
+            .states
+            .get_mut(&INITIAL)
+            .unwrap()
+            .stack
+            .as_mut()
+            .unwrap();
+        assert_eq!(stack.thread_id, SECOND);
+        assert_eq!(stack.committed_range, stack.reserved_range);
+        stack.thread_id = INITIAL;
+        assert_eq!(threads.stack_mut(INITIAL).unwrap().thread_id, INITIAL);
+    }
+
+    #[test]
+    fn guest_thread_identity_selection_checks_bounds_and_capacity_without_mutation() {
+        let mut threads = RuntimeThreads::new(INITIAL, 0);
+        threads.next_thread_id = u64::from(INITIAL.0);
         let before = threads.clone();
         assert_eq!(
-            threads.plan_registration(INITIAL, 1).unwrap_err().code,
-            "thread-id-duplicate"
+            threads.next_guest_thread_id().unwrap(),
+            Some(RuntimeThreadId(INITIAL.0 + 1))
         );
+        assert_eq!(threads, before);
+
+        threads.next_thread_id = u64::from(u32::MAX);
+        let before = threads.clone();
         assert_eq!(
-            threads
-                .plan_registration(RuntimeThreadId(0), 1)
-                .unwrap_err()
-                .code,
-            "thread-id-zero"
+            threads.next_guest_thread_id().unwrap(),
+            Some(RuntimeThreadId(u32::MAX))
         );
+        assert_eq!(threads, before);
+        threads.register(RuntimeThreadId(u32::MAX), 0);
+        let before = threads.clone();
+        assert!(threads.next_guest_thread_id().unwrap().is_none());
+        assert_eq!(threads, before);
+
+        let mut threads = RuntimeThreads::new(INITIAL, 0);
+        for id in 1..RUNTIME_GUEST_THREAD_LIMIT as u32 {
+            threads.validate_registration(RuntimeThreadId(id)).unwrap();
+            threads.register(RuntimeThreadId(id), 0);
+        }
+        let before = threads.clone();
+        assert!(threads.next_guest_thread_id().unwrap().is_none());
         assert_eq!(threads, before);
     }
 
     #[test]
-    fn resource_allocator_plans_commit_with_their_owned_thread_state() {
-        let mut threads = RuntimeThreads::new(INITIAL, 7);
-        let start = threads.plan_start(INITIAL).unwrap();
-        threads.commit(start);
+    fn rejected_registration_preserves_the_registry_and_allocator_identity() {
+        let threads = RuntimeThreads::new(INITIAL, 0);
+        let before = threads.clone();
+        threads.validate_registration(INITIAL).unwrap_err();
+        threads
+            .validate_registration(RuntimeThreadId(0))
+            .unwrap_err();
+        assert_eq!(threads, before);
+    }
 
-        let low_slot = threads
-            .plan_tls_value(INITIAL, 0, RuntimeTlsValue::Raw { value: 0x1234 })
-            .unwrap();
-        threads.commit(low_slot);
+    #[test]
+    fn resource_allocators_publish_with_their_owned_thread_state() {
+        let mut threads = RuntimeThreads::new(INITIAL, 7);
+        threads.start(INITIAL).unwrap();
+
+        threads.set_tls_value(INITIAL, 0, 0x1234).unwrap();
         assert!(threads.state(INITIAL).unwrap().tls_values.contains_key(&0));
-        let tls = threads.plan_tls_index_allocation().unwrap();
         assert!(threads.allocated_tls_indices().is_empty());
         assert_eq!(threads.next_tls_index(), 0);
-        assert_eq!(threads.commit_tls_index_allocation(tls), 0);
+        assert_eq!(threads.allocate_tls_index(), Ok(0));
         assert_eq!(threads.allocated_tls_indices(), &BTreeSet::from([0]));
         assert_eq!(threads.next_tls_index(), 1);
         assert!(!threads.state(INITIAL).unwrap().tls_values.contains_key(&0));
 
-        let fls = threads
-            .plan_fls_slot_allocation(Some(GuestAddress(0x1000_2000)))
-            .unwrap();
-        let initialize = threads.plan_initialize_fls_storage(INITIAL).unwrap();
-        assert!(threads.fls_slots().is_empty());
+        assert!(threads.fls_slots.is_empty());
         assert!(!threads.state(INITIAL).unwrap().fls_storage_initialized);
-        let slot = threads.commit_fls_slot_allocation(fls, initialize).clone();
-        assert_eq!(slot.index, 0);
-        assert_eq!(slot.callback, Some(GuestAddress(0x1000_2000)));
+        let slot = threads
+            .allocate_fls_slot(INITIAL, Some(GuestAddress(0x1000_2000)))
+            .unwrap();
+        assert_eq!(slot, 0);
+        assert_eq!(
+            threads.fls_slot(slot).unwrap(),
+            Some(GuestAddress(0x1000_2000))
+        );
         assert!(threads.state(INITIAL).unwrap().fls_storage_initialized);
         assert_eq!(threads.next_fls_index(), 1);
 
-        let callback_id = threads.plan_callback_frame_id().unwrap();
+        let callback_id = threads.next_callback_frame_id().unwrap();
         let frame = RuntimeCallbackFrame {
-            id: callback_id.id(),
+            id: callback_id,
             thread_id: INITIAL,
             target: GuestAddress(0x1000_3000),
             return_sentinel: GuestAddress(0x7f01_0000),
             entry_last_error: 7,
             scratch: None,
         };
-        let (push, depth) = threads.plan_callback_push(INITIAL, frame).unwrap();
+        let depth = threads.validate_callback_entry(INITIAL, None).unwrap();
         assert_eq!(depth, 1);
-        assert_eq!(threads.next_callback_frame_id(), 1);
+        assert_eq!(
+            threads.next_callback_frame_id().unwrap(),
+            RuntimeCallbackFrameId(1)
+        );
         assert!(threads.state(INITIAL).unwrap().callback_frames.is_empty());
-        threads.commit_callback_mutation(Some(callback_id), push);
-        assert_eq!(threads.next_callback_frame_id(), 2);
+        threads.publish_callback_frame(frame, false);
+        assert_eq!(
+            threads.next_callback_frame_id().unwrap(),
+            RuntimeCallbackFrameId(2)
+        );
         assert_eq!(threads.state(INITIAL).unwrap().callback_frames, [frame]);
+    }
+
+    #[test]
+    fn fls_free_discards_thread_values_and_reuses_the_index() {
+        let mut threads = RuntimeThreads::new(INITIAL, 0);
+        assert_eq!(
+            threads
+                .allocate_fls_slot(INITIAL, Some(GuestAddress(0x1000_2000)))
+                .unwrap(),
+            0
+        );
+        threads.set_fls_value(INITIAL, 0, 42).unwrap();
+        let before = threads.clone();
+        assert!(
+            !threads.free_fls_slot(0).unwrap(),
+            "callback requires guest execution"
+        );
+        assert_eq!(threads, before);
+        assert_eq!(threads.allocate_fls_slot(INITIAL, None).unwrap(), 1);
+        threads.set_fls_value(INITIAL, 1, 99).unwrap();
+        assert!(threads.free_fls_slot(1).unwrap());
+        assert_eq!(threads.allocate_fls_slot(INITIAL, None).unwrap(), 1);
+        assert_eq!(threads.fls_value_or_unset(INITIAL, 1).unwrap(), None);
+        threads.set_fls_value(INITIAL, 0, 0).unwrap();
+        assert!(threads.free_fls_slot(0).unwrap());
+        assert_eq!(threads.allocate_fls_slot(INITIAL, None).unwrap(), 0);
+        assert_eq!(threads.fls_value_or_unset(INITIAL, 0).unwrap(), None);
+    }
+
+    #[test]
+    fn fls_allocation_skips_live_slots_after_nonadjacent_frees() {
+        let mut threads = RuntimeThreads::new(INITIAL, 0);
+        for index in 0..RUNTIME_FLS_INDEX_LIMIT {
+            assert_eq!(threads.allocate_fls_slot(INITIAL, None).unwrap(), index);
+            threads.set_fls_value(INITIAL, index, index + 1).unwrap();
+        }
+        assert!(threads.free_fls_slot(0).unwrap());
+        assert!(threads.free_fls_slot(3).unwrap());
+        assert_eq!(threads.allocate_fls_slot(INITIAL, None).unwrap(), 0);
+        assert_eq!(threads.allocate_fls_slot(INITIAL, None).unwrap(), 3);
+        assert_eq!(
+            threads.allocate_fls_slot(INITIAL, None).unwrap(),
+            FLS_OUT_OF_INDEXES
+        );
+        assert_eq!(threads.fls_slots.len(), RUNTIME_FLS_INDEX_LIMIT as usize);
+        assert_eq!(threads.fls_value_or_unset(INITIAL, 0).unwrap(), None);
+        assert_eq!(threads.fls_value_or_unset(INITIAL, 3).unwrap(), None);
+        for index in 1..RUNTIME_FLS_INDEX_LIMIT {
+            if index != 3 {
+                assert_eq!(
+                    threads.fls_value_or_unset(INITIAL, index).unwrap(),
+                    Some(index + 1)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tls_capacity_failure_preserves_allocated_indices_and_thread_values() {
+        let mut threads = RuntimeThreads::new(INITIAL, 0);
+        threads.validate_registration(SECOND).unwrap();
+        threads.register(SECOND, 0);
+        for index in 0..TLS_INDEX_LIMIT {
+            assert_eq!(threads.allocate_tls_index().unwrap(), index);
+        }
+        threads
+            .set_tls_value(INITIAL, TLS_INDEX_LIMIT - 1, 0x1234)
+            .unwrap();
+        threads
+            .set_tls_value(SECOND, TLS_INDEX_LIMIT - 1, 0x5678)
+            .unwrap();
+        for _ in 0..2 {
+            assert_eq!(threads.allocate_tls_index().unwrap(), TLS_OUT_OF_INDEXES);
+            assert_eq!(
+                threads.allocated_tls_indices.len(),
+                TLS_INDEX_LIMIT as usize
+            );
+            assert_eq!(threads.next_tls_index, TLS_INDEX_LIMIT);
+            assert_eq!(
+                threads
+                    .tls_value_or_unset(INITIAL, TLS_INDEX_LIMIT - 1)
+                    .unwrap(),
+                Some(0x1234)
+            );
+            assert_eq!(
+                threads
+                    .tls_value_or_unset(SECOND, TLS_INDEX_LIMIT - 1)
+                    .unwrap(),
+                Some(0x5678)
+            );
+        }
+        assert!(threads.require_tls_index(TLS_INDEX_LIMIT).is_err());
     }
 
     #[test]
     fn resource_allocator_rejections_preserve_all_owned_state() {
         let mut threads = RuntimeThreads::new(INITIAL, 0);
-        threads.allocated_tls_indices.insert(0);
-        let before_tls_collision = threads.clone();
-        assert_eq!(
-            threads.plan_tls_index_allocation().unwrap_err().code,
-            "tls-index-allocator-collision"
-        );
-        assert_eq!(threads, before_tls_collision);
-
         threads.next_tls_index = TLS_OUT_OF_INDEXES;
         let before_tls_exhaustion = threads.clone();
-        assert_eq!(
-            threads.plan_tls_index_allocation().unwrap_err().code,
-            "tls-index-space-exhausted"
-        );
+        assert_eq!(threads.allocate_tls_index().unwrap(), TLS_OUT_OF_INDEXES);
         assert_eq!(threads, before_tls_exhaustion);
 
         threads.next_fls_index = RUNTIME_FLS_INDEX_LIMIT;
         let before_fls_exhaustion = threads.clone();
         assert_eq!(
-            threads.plan_fls_slot_allocation(None).unwrap_err().code,
-            "fls-index-space-exhausted"
+            threads.allocate_fls_slot(INITIAL, None).unwrap(),
+            FLS_OUT_OF_INDEXES
         );
         assert_eq!(threads, before_fls_exhaustion);
 
         threads.next_callback_frame_id = u64::MAX;
         let before_callback_exhaustion = threads.clone();
-        assert_eq!(
-            threads.plan_callback_frame_id().unwrap_err().code,
-            "callback-frame-id-overflow"
-        );
+        threads.next_callback_frame_id().unwrap_err();
         assert_eq!(threads, before_callback_exhaustion);
     }
 }

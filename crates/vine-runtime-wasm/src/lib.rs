@@ -3,327 +3,87 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
+use encoding_rs::SHIFT_JIS;
 use serde_json::{Value, json};
+use vine_core::directshow::{
+    ComMediaAudio, ComMediaDeferred, ComMediaFormat, ComMediaFrame, ComMediaOperation,
+    ComMediaResponse, ComMediaSource,
+};
 use vine_core::{
-    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiContract, ApiDeferredCall, ApiDirection,
-    ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall, ApiHandlerResult,
-    ApiImmediate, ApiImmediateCompletion, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
-    CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackFastReceipt,
-    CpuWritebackReceipt, D3d9CompatibilityPolicy, Dinput8CompatibilityPolicy, DispatchOutcome,
-    DsoundCompatibilityPolicy, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE,
-    Gdi32CompatibilityPolicy, Gdi32TextRasterHostResponse, GdiplusCompatibilityPolicy,
-    GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
-    GuestMemory, GuestRange, HostCompletion, HostRequest, IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION,
-    IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION, Imm32CompatibilityPolicy, ImportBinding, ImportTarget,
-    InitialThreadStack, Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
-    LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
-    MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, RTL_UNWIND_IMPLEMENTATION,
-    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_GDI_TEXT_RASTER_SERVICE,
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    RUNTIME_WRITABLE_DELETE_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy,
-    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization,
-    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule, RuntimeModuleId,
-    RuntimeObjectKind, RuntimePointerButton, RuntimePointerButtonSourceEvent,
-    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent,
-    RuntimePointerPositionSourceEventKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
-    RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableProfileManifest,
-    SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState, StackCleanup, USER32_WM_IME_CONTROL,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, X86CpuContext, bind_pe32_imports,
-    build_pe32_load_plan, complete_gdi32_text_raster, complete_kernel32_audio_notification_wait,
-    complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
-    complete_kernel32_writable_commit, complete_kernel32_writable_delete,
-    complete_kernel32_writable_directory_create, d3d9_contract_for_endpoint,
-    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
-    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
-    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
-    dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_prevalidated_policy,
-    dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_prevalidated_policy,
-    dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
-    gdiplus_contract_for_endpoint, imm32_contract_for_endpoint, install_controlled_initial_stack,
-    install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
-    install_initial_thread_stack, install_runtime_return_sentinels, install_thread_stack_at,
-    kernel32_contract_for_endpoint, materialize_pe32_image, ole32_contract_for_endpoint,
-    shell32_contract_for_endpoint, user32_contract_for_endpoint, winmm_contract_for_endpoint,
+    ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFault, ApiGuestCallbackCall,
+    ApiImmediate, ApiImmediateCompletion, ApiOwnedTrap, ComAudioDeferred, ComCallTrap,
+    ComDispatchOutcome, DispatchOutcome, Gdi32TextRasterHostResponse, GuestAddress, GuestMemory,
+    HostCompletion, ImportTarget, MemoryDeltaBuffers, MemoryLimits, MemoryRegionKind,
+    ModuleSnapshot, OpfsFileOperation, Pe32Limits, ProcessAddressAllocationPurpose,
+    ProcessAddressAllocationRecord, RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE,
+    RUNTIME_GDI_TEXT_RASTER_SERVICE, RUNTIME_MESSAGE_BOX_SERVICE, RUNTIME_OPFS_READ_SERVICE,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, Runtime, RuntimeBootstrap, RuntimeClockState,
+    RuntimeCursorPositionProfile, RuntimeDisplayProfile, RuntimeDllLifecycleAction,
+    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeInputProfile, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
+    RuntimeMessageBoxIcon, RuntimeModule, RuntimePointerButton, RuntimePointerButtonSourceEvent,
+    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent, RuntimeProcessId,
+    RuntimeRect, RuntimeSchedulerEvent, RuntimeSourceFileManifest, RuntimeSourceMountManifest,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo,
+    RuntimeThreadId, SchedulerThreadState, X86CpuContext, build_pe32_load_plan,
+    complete_gdi32_text_raster, complete_kernel32_audio_notification_wait,
+    complete_kernel32_opfs_open, complete_kernel32_opfs_write, complete_kernel32_source_read,
+    complete_kernel32_waitable_timer_pacing, complete_opfs_file_operation,
+    complete_user32_message_box, install_initial_thread_stack, install_runtime_return_sentinels,
+    materialize_pe32_image,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const FIXTURE_SHA256: &str = "6f3f5d91ee8fe586b70da650c204cc07b1bf2fdbf210b3fa04bc723d09942b56";
-const FIXTURE_MODULE: &str = "vine_browser_fixture.dll";
-const SOURCE_READ_FIXTURE_SHA256: &str =
-    "292d298cb77a8223cb0f6fb66333457b3fab9b8e4f0c1643cf01936b769a1d63";
-const LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
-const SECOND_THREAD_ID: u32 = 8193;
-const SECOND_THREAD_STACK_TOP: GuestAddress = GuestAddress(0x006f_f000);
-const SECOND_THREAD_MARKER: u32 = 0x5448_5244;
-const SECOND_THREAD_EXIT_CODE: u32 = 7;
-const CANCEL_EXIT_CODE: u32 = 0xc000_013a;
-const DEFERRED_ADD: &str = "browser-fixture-deferred-add-v1";
-const CALL_CALLBACK: &str = "browser-fixture-call-callback-v1";
-const COMMIT_OUTPUTS: &str = "browser-fixture-commit-outputs-v1";
-const MAPPING_FIXTURE_STAGE_COUNT: u32 = 11;
-const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
-const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
-const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
 // User-requested 1.5 GiB guest RAM allowance for full traversal and save compression.
-const BGI_MAX_PHYSICAL_PAGES: usize = 384 * 1024;
-const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
-const FAST_DISPATCH_RECORD_VERSION: u32 = 2;
-const FAST_DISPATCH_RECORD_WORDS: usize = 36;
-const FAST_DISPATCH_MAX_ARGUMENTS: usize = 6;
-const FAST_DISPATCH_INLINE_WRITE_BYTES: usize = 28;
+const MAX_GAME_PHYSICAL_PAGES: usize = 384 * 1024;
+const SYSTEM_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 thread_local! {
     static BRIDGE: RefCell<Bridge> = const { RefCell::new(Bridge::new()) };
 }
 
+struct SourceDll {
+    name: String,
+    relative_path: String,
+    snapshot: ModuleSnapshot,
+    loader: vine_core::Pe32LoadPlan,
+}
+
+struct MappedSourceDll {
+    source: SourceDll,
+    image: vine_core::ImageMaterialization,
+    source_id: u32,
+}
+
 struct Bridge {
     input: Vec<u8>,
+    source_dlls: Vec<SourceDll>,
     metadata: Vec<u8>,
     control: Vec<u8>,
     payload: Vec<u8>,
-    fast_writeback_receipt: Option<CpuWritebackFastReceipt>,
-    fast_dispatch_receipt: Option<FastApiDispatchReceipt>,
+    presentation_bytes: Vec<u8>,
+    audio_bytes: Vec<u8>,
+    media_bytes: Vec<u8>,
+    stop_context_metadata: Vec<u8>,
+    writeback_generation: Option<u64>,
     runtime: Option<BrowserRuntime>,
-}
-
-struct FastApiDispatchReceipt {
-    words: [u32; FAST_DISPATCH_RECORD_WORDS],
-}
-
-enum BrowserApiDispatchOutput {
-    Structured {
-        metadata: Value,
-        delta: Option<MemoryDeltaBuffers>,
-    },
-    Fast {
-        receipt: FastApiDispatchReceipt,
-        delta: Option<MemoryDeltaBuffers>,
-    },
-}
-
-impl BrowserApiDispatchOutput {
-    fn structured(metadata: Value, delta: Option<MemoryDeltaBuffers>) -> Self {
-        Self::Structured { metadata, delta }
-    }
-}
-
-impl FastApiDispatchReceipt {
-    fn supports(completion: &ApiImmediateCompletion) -> bool {
-        let implementation = completion.implementation_id.as_str();
-        completion.frame.arguments.len() <= FAST_DISPATCH_MAX_ARGUMENTS
-            && completion
-                .frame
-                .arguments
-                .iter()
-                .all(|argument| argument.words.len() == 1)
-            && fast_dispatch_implementation_code(implementation).is_some()
-            && fast_dispatch_write_shape_supported(
-                implementation,
-                completion.guest_writes.len(),
-                completion
-                    .guest_writes
-                    .first()
-                    .map(|write| write.write.bytes.len()),
-            )
-    }
-
-    fn new(
-        endpoint: &ApiEndpointIdentity,
-        completion: &ApiImmediateCompletion,
-        selection: Option<&vine_core::RuntimeThreadExecutionSelection>,
-    ) -> Result<Self, String> {
-        let implementation = fast_dispatch_implementation_code(&completion.implementation_id)
-            .ok_or_else(|| "API completion is outside the forward fast path".to_owned())?;
-        if completion.frame.arguments.len() > FAST_DISPATCH_MAX_ARGUMENTS
-            || !completion
-                .frame
-                .arguments
-                .iter()
-                .all(|argument| argument.words.len() == 1)
-        {
-            return Err("forward fast API completion has an unsupported frame shape".to_owned());
-        }
-        let (eax_action, eax_value) = encode_fast_register(completion.eax);
-        let (edx_action, edx_value) = encode_fast_register(completion.edx);
-        let (eflags_action, eflags_value) = encode_fast_register(completion.eflags);
-        let execution_boundary = match completion.execution_boundary {
-            vine_core::RuntimeApiBoundaryDisposition::ContinueQuantum => 0,
-            vine_core::RuntimeApiBoundaryDisposition::YieldCurrentThread => 1,
-            vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread => 2,
-            vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread => 3,
-        };
-        let (selection_kind, previous_thread_id, thread_id, callback_depth) = match selection {
-            None => (0, 0, 0, 0),
-            Some(selection) => match selection.state {
-                SchedulerThreadState::Runnable => {
-                    (1, selection.previous_thread_id.0, selection.thread_id.0, 0)
-                }
-                SchedulerThreadState::InCallback { depth } => (
-                    2,
-                    selection.previous_thread_id.0,
-                    selection.thread_id.0,
-                    u32::try_from(depth)
-                        .map_err(|_| "forward fast callback depth exceeds the x86 ABI")?,
-                ),
-                _ => {
-                    return Err(
-                        "forward fast dispatch selected a non-executable thread state".to_owned(),
-                    );
-                }
-            },
-        };
-        let mut words = [0; FAST_DISPATCH_RECORD_WORDS];
-        words[..20].copy_from_slice(&[
-            FAST_DISPATCH_RECORD_VERSION,
-            implementation,
-            endpoint.id.0,
-            endpoint.address.0,
-            completion.instruction_pointer.0,
-            completion.frame.stack_pointer.0,
-            completion.stack_pointer.0,
-            completion.last_error,
-            eax_action,
-            eax_value,
-            edx_action,
-            edx_value,
-            eflags_action,
-            eflags_value,
-            execution_boundary,
-            selection_kind,
-            previous_thread_id,
-            thread_id,
-            callback_depth,
-            completion.frame.arguments.len() as u32,
-        ]);
-        for (index, argument) in completion.frame.arguments.iter().enumerate() {
-            words[20 + index] = argument.words[0];
-        }
-        match completion.guest_writes.as_slice() {
-            [] => {}
-            [write]
-                if write.write.bytes.len() <= FAST_DISPATCH_INLINE_WRITE_BYTES
-                    && write.write.bytes.len().is_multiple_of(4) =>
-            {
-                words[26] = 1;
-                words[27] = write.write.address.0;
-                words[28] = write.write.bytes.len() as u32;
-                for (index, chunk) in write.write.bytes.chunks_exact(4).enumerate() {
-                    words[29 + index] = u32::from_le_bytes(
-                        chunk
-                            .try_into()
-                            .map_err(|_| "fast dispatch write chunk is not a u32")?,
-                    );
-                }
-            }
-            _ => {
-                return Err(
-                    "forward fast API completion has an unsupported guest-write shape".to_owned(),
-                );
-            }
-        }
-        Ok(Self { words })
-    }
-}
-
-fn fast_dispatch_implementation_code(implementation: &str) -> Option<u32> {
-    match implementation {
-        vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION => Some(1),
-        vine_core::GET_SYSTEM_METRICS_IMPLEMENTATION => Some(2),
-        vine_core::IS_ICONIC_IMPLEMENTATION => Some(3),
-        vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION => Some(4),
-        vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION => Some(5),
-        vine_core::HEAP_ALLOC_IMPLEMENTATION => Some(6),
-        vine_core::HEAP_FREE_IMPLEMENTATION => Some(7),
-        vine_core::TIME_GET_TIME_IMPLEMENTATION => Some(8),
-        vine_core::GET_CURSOR_POS_IMPLEMENTATION => Some(9),
-        vine_core::GET_WINDOW_RECT_IMPLEMENTATION => Some(10),
-        vine_core::PEEK_MESSAGE_A_IMPLEMENTATION => Some(11),
-        vine_core::SET_WAITABLE_TIMER_IMPLEMENTATION => Some(12),
-        vine_core::WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION => Some(13),
-        vine_core::GET_LAST_ERROR_IMPLEMENTATION => Some(14),
-        vine_core::SET_LAST_ERROR_IMPLEMENTATION => Some(15),
-        vine_core::TLS_GET_VALUE_IMPLEMENTATION => Some(16),
-        vine_core::FLS_GET_VALUE_IMPLEMENTATION => Some(17),
-        vine_core::GET_CURSOR_INFO_IMPLEMENTATION => Some(18),
-        vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION => Some(19),
-        vine_core::GET_TICK_COUNT_IMPLEMENTATION => Some(20),
-        _ => None,
-    }
-}
-
-fn fast_dispatch_write_shape_supported(
-    implementation: &str,
-    write_count: usize,
-    first_write_length: Option<usize>,
-) -> bool {
-    match write_count {
-        0 => true,
-        1 => {
-            first_write_length
-                == match implementation {
-                    vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION
-                    | vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION => Some(24),
-                    vine_core::GET_CURSOR_INFO_IMPLEMENTATION => Some(20),
-                    vine_core::GET_CURSOR_POS_IMPLEMENTATION => Some(8),
-                    vine_core::GET_WINDOW_RECT_IMPLEMENTATION => Some(16),
-                    vine_core::PEEK_MESSAGE_A_IMPLEMENTATION => Some(28),
-                    _ => None,
-                }
-        }
-        _ => false,
-    }
-}
-
-fn encode_fast_register(update: RegisterUpdate) -> (u32, u32) {
-    match update {
-        RegisterUpdate::Preserve => (0, 0),
-        RegisterUpdate::Set(value) => (1, value),
-    }
-}
-
-#[derive(Clone, Copy)]
-struct BgiCheckpointCapabilities {
-    d3d9_clear: bool,
-    set_rect: bool,
-    d3d9_add_dirty_rect: bool,
-    d3d9_update_texture: bool,
-    d3d9_update_texture_partial_dirty_region: bool,
-    d3d9_begin_scene: bool,
-    d3d9_initial_sampler_states: bool,
-    d3d9_initial_texture_stage_states: bool,
-    d3d9_set_texture: bool,
-    d3d9_set_fvf: bool,
-    d3d9_set_stream_source: bool,
-    d3d9_draw_primitive: bool,
-    d3d9_end_scene: bool,
-    d3d9_present: bool,
-    user32_async_key_state_initial_scan: bool,
-    heap_alloc_24_byte_buffer: bool,
-    post_heap_time_get_time: bool,
-    user32_window_timer_callback_delivery: bool,
-    user32_pointer_button_messages: bool,
-    user32_set_focus_same_window: bool,
-    user32_def_window_proc_a_pointer_down: bool,
-    user32_def_window_proc_a_pointer_release: bool,
-    host_monotonic_clock: bool,
 }
 
 impl Bridge {
     const fn new() -> Self {
         Self {
             input: Vec::new(),
+            source_dlls: Vec::new(),
             metadata: Vec::new(),
             control: Vec::new(),
             payload: Vec::new(),
-            fast_writeback_receipt: None,
-            fast_dispatch_receipt: None,
+            presentation_bytes: Vec::new(),
+            audio_bytes: Vec::new(),
+            media_bytes: Vec::new(),
+            stop_context_metadata: Vec::new(),
+            writeback_generation: None,
             runtime: None,
         }
     }
@@ -332,8 +92,25 @@ impl Bridge {
         self.metadata.clear();
         self.control.clear();
         self.payload.clear();
-        self.fast_writeback_receipt = None;
-        self.fast_dispatch_receipt = None;
+        self.presentation_bytes.clear();
+        self.audio_bytes.clear();
+        self.media_bytes.clear();
+        self.writeback_generation = None;
+    }
+
+    #[cold]
+    fn stop_context(&mut self, instruction_pointer: u32) -> Result<(), String> {
+        let context = StopContext::read(self.runtime.as_ref(), instruction_pointer);
+        self.stop_context_metadata = serde_json::to_vec(&json!({
+            "kind": "stop-context",
+            "threadId": context.thread_id,
+            "instructionPointer": context.instruction_pointer,
+            "lastError": context.last_error,
+            "module": context.module,
+            "symbol": context.symbol,
+        }))
+        .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     fn set_output(
@@ -351,6 +128,9 @@ impl Bridge {
     fn set_error(&mut self, message: String) {
         self.control.clear();
         self.payload.clear();
+        self.presentation_bytes.clear();
+        self.audio_bytes.clear();
+        self.media_bytes.clear();
         self.metadata = serde_json::to_vec(&json!({
             "kind": "error",
             "message": message,
@@ -358,108 +138,146 @@ impl Bridge {
         .unwrap_or_else(|_| b"{\"kind\":\"error\",\"message\":\"serialization failed\"}".to_vec());
     }
 
-    fn prepare(&mut self, input_length: usize, encoded_pointer_cookie: u32) -> Result<(), String> {
-        self.require_replaceable_runtime()?;
-        let fixture = self
-            .input
-            .get(..input_length)
-            .ok_or_else(|| "fixture input length exceeds the bridge buffer".to_owned())?
-            .to_vec();
-        let (runtime, metadata, reflection) =
-            BrowserRuntime::prepare(fixture, encoded_pointer_cookie)?;
-        self.runtime = Some(runtime);
-        self.set_output(metadata, reflection.control, reflection.page_bytes)
-    }
-
-    fn prepare_bgi(
+    fn set_runtime_output(
         &mut self,
-        executable_length: usize,
-        policy_length: usize,
-        source_manifest_length: usize,
-        writable_profile_length: usize,
-        capabilities: BgiCheckpointCapabilities,
-        encoded_pointer_cookie: u32,
+        metadata: Value,
+        delta: Option<MemoryDeltaBuffers>,
+        bytes: Vec<u8>,
     ) -> Result<(), String> {
-        self.require_replaceable_runtime()?;
-        let total_length = executable_length
-            .checked_add(policy_length)
-            .and_then(|length| length.checked_add(source_manifest_length))
-            .and_then(|length| length.checked_add(writable_profile_length))
-            .ok_or_else(|| "BGI bridge input length overflowed".to_owned())?;
-        let input = self
-            .input
-            .get(..total_length)
-            .ok_or_else(|| "BGI input lengths exceed the bridge buffer".to_owned())?;
-        let (executable, remaining) = input.split_at(executable_length);
-        let (policy, storage) = remaining.split_at(policy_length);
-        let (source_manifest, writable_profile) = storage.split_at(source_manifest_length);
-        let policy: Kernel32CompatibilityPolicy =
-            serde_json::from_slice(policy).map_err(|error| error.to_string())?;
-        policy.validate().map_err(error_string)?;
-        let source_manifest = (!source_manifest.is_empty())
-            .then(|| serde_json::from_slice(source_manifest).map_err(|error| error.to_string()))
-            .transpose()?;
-        if writable_profile.is_empty() {
-            return Err("BGI writable profile snapshot is missing".to_owned());
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        if metadata["kind"] == "audio-request" {
+            self.audio_bytes = self
+                .runtime_mut()?
+                .pending_com_audio
+                .as_ref()
+                .ok_or_else(|| "audio request has no pending command".to_owned())?
+                .command_bytes()
+                .to_vec();
         }
-        let writable_profile: RuntimeWritableProfileManifest =
-            serde_json::from_slice(writable_profile).map_err(|error| error.to_string())?;
-        let (runtime, metadata, reflection) = BrowserRuntime::prepare_bgi(
-            executable.to_vec(),
-            policy,
-            source_manifest,
-            writable_profile,
-            capabilities,
-            encoded_pointer_cookie,
-        )?;
-        self.runtime = Some(runtime);
-        self.set_output(metadata, reflection.control, reflection.page_bytes)
+        if metadata["kind"] == "media-data" || metadata["kind"] == "media-request" {
+            self.media_bytes = bytes;
+        } else {
+            self.presentation_bytes = bytes;
+        }
+        self.set_output(metadata, control, payload)
     }
 
-    fn prepare_source_read(
+    fn inspect_executable(
         &mut self,
         executable_length: usize,
-        policy_length: usize,
-        source_manifest_length: usize,
-        encoded_pointer_cookie: u32,
+        name_length: usize,
     ) -> Result<(), String> {
-        self.require_replaceable_runtime()?;
+        let limits = Pe32Limits::default();
+        if executable_length as u64 > limits.max_file_bytes {
+            return Err("executable exceeds the PE32 file limit".to_owned());
+        }
         let total_length = executable_length
-            .checked_add(policy_length)
-            .and_then(|length| length.checked_add(source_manifest_length))
-            .ok_or_else(|| "source read bridge input length overflowed".to_owned())?;
+            .checked_add(name_length)
+            .ok_or_else(|| "executable input length overflowed".to_owned())?;
         let input = self
             .input
             .get(..total_length)
-            .ok_or_else(|| "source read input lengths exceed the bridge buffer".to_owned())?;
-        let (executable, remaining) = input.split_at(executable_length);
-        let (policy, source_manifest) = remaining.split_at(policy_length);
-        let policy: Kernel32CompatibilityPolicy =
-            serde_json::from_slice(policy).map_err(|error| error.to_string())?;
-        policy.validate().map_err(error_string)?;
-        let source_manifest: RuntimeSourceSnapshotManifest =
-            serde_json::from_slice(source_manifest).map_err(|error| error.to_string())?;
-        let (runtime, metadata, reflection) = BrowserRuntime::prepare_source_read(
-            executable.to_vec(),
-            policy,
-            source_manifest,
-            encoded_pointer_cookie,
-        )?;
-        self.runtime = Some(runtime);
-        self.set_output(metadata, reflection.control, reflection.page_bytes)
+            .ok_or_else(|| "executable input exceeds the bridge buffer".to_owned())?;
+        let (bytes, name) = input.split_at(executable_length);
+        let name = std::str::from_utf8(name)
+            .map_err(|_| "selected executable filename is not UTF-8".to_owned())?;
+        virtual_executable_path(name)?;
+        let snapshot = ModuleSnapshot::from_bytes(bytes.to_vec(), &limits).map_err(error_string)?;
+        let plan = build_pe32_load_plan(&snapshot, limits).map_err(error_string)?;
+        if plan.image.kind != vine_core::ImageKind::Executable {
+            return Err("selected PE32 image is a DLL, not an executable".to_owned());
+        }
+        self.set_output(
+            json!({
+                "sha256": snapshot.identity().sha256,
+                "imageBase": plan.image.preferred_image_base,
+                "entryPoint": plan.image.entry_point_address,
+                "importModules": plan.imports.len(),
+                "guestImports": guest_import_names(&plan),
+            }),
+            Vec::new(),
+            Vec::new(),
+        )
     }
 
-    fn require_replaceable_runtime(&self) -> Result<(), String> {
-        if self
-            .runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.memory.has_execution_memory())
+    fn register_source_dll(
+        &mut self,
+        image_length: usize,
+        path_length: usize,
+    ) -> Result<(), String> {
+        if self.source_dlls.len() >= 32 || image_length > 16 * 1024 * 1024 {
+            return Err("source DLL count or byte length exceeds the bounded loader".to_owned());
+        }
+        let total = image_length
+            .checked_add(path_length)
+            .ok_or_else(|| "source DLL input length overflowed".to_owned())?;
+        let input = self
+            .input
+            .get(..total)
+            .ok_or_else(|| "source DLL input exceeds the bridge buffer".to_owned())?;
+        let (bytes, path) = input.split_at(image_length);
+        let relative_path =
+            std::str::from_utf8(path).map_err(|_| "source DLL path is not UTF-8".to_owned())?;
+        virtual_executable_path(relative_path)?;
+        let name = relative_path.rsplit(['/', '\\']).next().unwrap_or_default();
+        if !name.to_ascii_lowercase().ends_with(".dll")
+            || self
+                .source_dlls
+                .iter()
+                .any(|dll| dll.name.eq_ignore_ascii_case(name))
         {
-            return Err(
-                "direct execution backing is pinned until its Worker is destroyed".to_owned(),
-            );
+            return Err("source DLL name is invalid or already registered".to_owned());
         }
-        Ok(())
+        let limits = Pe32Limits::default();
+        let snapshot = ModuleSnapshot::from_bytes(bytes.to_vec(), &limits).map_err(error_string)?;
+        let loader = build_pe32_load_plan(&snapshot, limits).map_err(error_string)?;
+        if loader.image.kind != vine_core::ImageKind::DynamicLibrary {
+            return Err("selected source DLL is not a PE32 dynamic library".to_owned());
+        }
+        let source = snapshot.identity();
+        let imports = guest_import_names(&loader);
+        let source_id = u32::try_from(self.source_dlls.len() + 2)
+            .map_err(|_| "source DLL ID overflow".to_owned())?;
+        self.source_dlls.push(SourceDll {
+            name: name.to_owned(),
+            relative_path: relative_path.to_owned(),
+            snapshot,
+            loader,
+        });
+        self.set_output(
+            json!({"sourceId": source_id, "sha256": source.sha256,
+            "guestImports": imports}),
+            Vec::new(),
+            Vec::new(),
+        )
+    }
+
+    fn prepare_executable(
+        &mut self,
+        executable_length: usize,
+        path_length: usize,
+        encoded_pointer_cookie: u32,
+    ) -> Result<(), String> {
+        let total_length = executable_length
+            .checked_add(path_length)
+            .ok_or_else(|| "selected executable input length overflowed".to_owned())?;
+        let input = self
+            .input
+            .get(..total_length)
+            .ok_or_else(|| "selected executable exceeds the bridge buffer".to_owned())?;
+        let (executable, relative_path) = input.split_at(executable_length);
+        let relative_path = std::str::from_utf8(relative_path)
+            .map_err(|_| "selected executable path is not UTF-8".to_owned())?;
+        let (runtime, metadata, reflection) = BrowserRuntime::prepare_executable(
+            executable.to_vec(),
+            relative_path,
+            std::mem::take(&mut self.source_dlls),
+            encoded_pointer_cookie,
+        )?;
+        self.runtime = Some(runtime);
+        self.set_output(metadata, reflection.control, reflection.page_bytes)
     }
 
     fn complete_source_read(
@@ -503,76 +321,6 @@ impl Bridge {
         self.set_output(metadata, control, payload)
     }
 
-    fn writable_commit_payload(&mut self, request_id: u64) -> Result<(), String> {
-        let (metadata, payload) = self.runtime_mut()?.writable_commit_payload(request_id)?;
-        self.set_output(metadata, Vec::new(), payload)
-    }
-
-    fn complete_writable_commit(
-        &mut self,
-        request_id: u64,
-        control_length: usize,
-    ) -> Result<(), String> {
-        let control = self
-            .input
-            .get(..control_length)
-            .ok_or_else(|| "writable commit input length exceeds the bridge buffer".to_owned())?;
-        let response = RuntimeWritableCommitHostResponse::decode_binary(request_id, control)
-            .map_err(error_string)?;
-        let metadata = self.runtime_mut()?.complete_writable_commit(response)?;
-        self.set_output(metadata, Vec::new(), Vec::new())
-    }
-
-    fn complete_writable_delete(
-        &mut self,
-        request_id: u64,
-        control_length: usize,
-    ) -> Result<(), String> {
-        let control = self
-            .input
-            .get(..control_length)
-            .ok_or_else(|| "writable delete input length exceeds the bridge buffer".to_owned())?;
-        let response = RuntimeWritableCommitHostResponse::decode_binary(request_id, control)
-            .map_err(error_string)?;
-        let metadata = self.runtime_mut()?.complete_writable_delete(response)?;
-        self.set_output(metadata, Vec::new(), Vec::new())
-    }
-
-    fn complete_writable_directory_create(
-        &mut self,
-        request_id: u64,
-        control_length: usize,
-    ) -> Result<(), String> {
-        let control = self.input.get(..control_length).ok_or_else(|| {
-            "writable directory create input length exceeds the bridge buffer".to_owned()
-        })?;
-        let response =
-            RuntimeWritableDirectoryCreateHostResponse::decode_binary(request_id, control)
-                .map_err(error_string)?;
-        let metadata = self
-            .runtime_mut()?
-            .complete_writable_directory_create(response)?;
-        self.set_output(metadata, Vec::new(), Vec::new())
-    }
-
-    fn hydrate_writable_profile_object(
-        &mut self,
-        object_id: u32,
-        generation: u64,
-        input_length: usize,
-    ) -> Result<(), String> {
-        let bytes = self
-            .input
-            .get(..input_length)
-            .ok_or_else(|| "writable profile hydration exceeds the bridge buffer".to_owned())?;
-        let metadata = self
-            .runtime
-            .as_mut()
-            .ok_or_else(|| "runtime bridge is not prepared".to_owned())?
-            .hydrate_writable_profile_object(object_id, generation, bytes)?;
-        self.set_output(metadata, Vec::new(), Vec::new())
-    }
-
     fn runtime_mut(&mut self) -> Result<&mut BrowserRuntime, String> {
         self.runtime
             .as_mut()
@@ -584,19 +332,21 @@ impl Bridge {
         self.set_output(metadata, Vec::new(), Vec::new())
     }
 
-    fn ingest_pointer_button_event(
+    fn ingest_pointer_event(
         &mut self,
-        event: RuntimePointerButtonSourceEvent,
+        sequence: u64,
+        kind: u32,
+        button: u32,
+        normalized_x: u16,
+        normalized_y: u16,
     ) -> Result<(), String> {
-        let metadata = self.runtime_mut()?.ingest_pointer_button_event(event)?;
-        self.set_output(metadata, Vec::new(), Vec::new())
-    }
-
-    fn ingest_pointer_position_event(
-        &mut self,
-        event: RuntimePointerPositionSourceEvent,
-    ) -> Result<(), String> {
-        let metadata = self.runtime_mut()?.ingest_pointer_position_event(event)?;
+        let metadata = self.runtime_mut()?.ingest_pointer_event(
+            sequence,
+            kind,
+            button,
+            normalized_x,
+            normalized_y,
+        )?;
         self.set_output(metadata, Vec::new(), Vec::new())
     }
 
@@ -613,122 +363,84 @@ impl Bridge {
             .get(..total)
             .ok_or_else(|| "writeback input exceeds the bridge buffer".to_owned())?;
         let (control, payload) = input.split_at(control_length);
-        let (metadata, _) = self
+        let generation = self
             .runtime
             .as_mut()
             .ok_or_else(|| "browser runtime has not been prepared".to_owned())?
             .reconcile_writeback(control, payload)?;
-        self.set_output(metadata, Vec::new(), Vec::new())
-    }
-
-    fn reconcile_writeback_input_fast(
-        &mut self,
-        control_length: usize,
-        payload_length: usize,
-    ) -> Result<(), String> {
-        let total = control_length
-            .checked_add(payload_length)
-            .ok_or_else(|| "writeback input length overflowed".to_owned())?;
-        let input = self
-            .input
-            .get(..total)
-            .ok_or_else(|| "writeback input exceeds the bridge buffer".to_owned())?;
-        let (control, payload) = input.split_at(control_length);
-        let receipt = self
-            .runtime
-            .as_mut()
-            .ok_or_else(|| "browser runtime has not been prepared".to_owned())?
-            .reconcile_writeback_fast(control, payload)?;
-        self.fast_writeback_receipt = Some(receipt);
+        self.writeback_generation = Some(generation);
         Ok(())
     }
 }
 
-struct EndpointRoute {
-    id: u32,
-    argument_bytes: u32,
-    endpoint: ApiEndpointIdentity,
-}
-
-struct ActiveCallback {
-    call: ApiGuestCallbackCall,
-    frame_id: RuntimeCallbackFrameId,
-    stack_pointer: GuestAddress,
-}
-
-#[derive(Clone)]
 struct PendingHostCall {
     thread_id: RuntimeThreadId,
     call: ApiDeferredCall,
 }
 
-struct ControlledGuestThread {
-    thread_id: RuntimeThreadId,
-    entry_point: GuestAddress,
-    initial_stack_pointer: GuestAddress,
-    fs_base: GuestAddress,
-    return_sentinel: GuestAddress,
-    marker_address: GuestAddress,
-    marker_value: u32,
-    expected_exit_code: u32,
-}
-
-#[derive(Default)]
-struct BrowserMappingFixture {
-    next_stage: u32,
-    heap_handle: Option<u32>,
-    allocation_address: Option<GuestAddress>,
-    backing_owner: Option<vine_core::MemoryOwnerId>,
-    backing_page: Option<GuestRange>,
-}
-
-enum BrowserRuntimeTarget {
-    ControlledFixture,
-    ControlledSourceRead {
-        kernel32_policy: Box<Kernel32CompatibilityPolicy>,
-    },
-    Bgi {
-        kernel32_policy: Box<Kernel32CompatibilityPolicy>,
-        user32_policy: Box<User32CompatibilityPolicy>,
-        gdi32_policy: Box<Gdi32CompatibilityPolicy>,
-        gdiplus_policy: Box<GdiplusCompatibilityPolicy>,
-        imm32_policy: Box<Imm32CompatibilityPolicy>,
-        winmm_policy: Box<WinmmCompatibilityPolicy>,
-        heap_allocation_evidence: bool,
-        tick_count_evidence: bool,
-        host_monotonic_clock: bool,
-    },
-}
-
-struct BgiRuntimeProcess {
-    runtime: RuntimeState,
+struct PreparedExecutableProcess {
+    runtime: Runtime,
     binding: RuntimeGuestImportBinding,
+    dll_bindings: Vec<RuntimeGuestImportBinding>,
     module_handles: Vec<u32>,
-    attach_order: Vec<RuntimeModuleId>,
 }
 
-type BgiDispatcher = (
-    ApiDispatcher,
-    BTreeMap<GuestAddress, EndpointRoute>,
-    Vec<ApiEndpointIdentity>,
-);
+struct PendingSourceSearch {
+    pattern: Vec<u8>,
+    parent: Vec<u8>,
+    selected: Option<Vec<(Vec<u8>, bool)>>,
+}
 
 struct BrowserRuntime {
-    memory: GuestMemory,
-    runtime: RuntimeState,
+    runtime: Runtime,
     dispatcher: ApiDispatcher,
-    routes: BTreeMap<GuestAddress, EndpointRoute>,
     callback_sentinel: GuestAddress,
-    entry_sentinel: GuestAddress,
-    stack: InitialThreadStack,
     pending_host: BTreeMap<u64, PendingHostCall>,
-    callbacks: BTreeMap<RuntimeThreadId, Vec<ActiveCallback>>,
-    controlled_guest_thread: Option<ControlledGuestThread>,
-    mapping_fixture: BrowserMappingFixture,
-    d3d9_policy: Option<Box<D3d9CompatibilityPolicy>>,
-    dinput8_policy: Option<Box<Dinput8CompatibilityPolicy>>,
-    dsound_policy: Option<Box<DsoundCompatibilityPolicy>>,
-    target: BrowserRuntimeTarget,
+    pending_com_audio: Option<ComAudioDeferred>,
+    pending_com_media: BTreeMap<u64, ComMediaDeferred>,
+    prepared_source_trap: Option<(RuntimeThreadId, GuestAddress, GuestAddress, GuestAddress)>,
+    pending_source_lookup: Option<(u32, Vec<u8>)>,
+    pending_source_search: Option<PendingSourceSearch>,
+}
+
+struct StopContext {
+    thread_id: Option<u32>,
+    instruction_pointer: u32,
+    last_error: Option<u32>,
+    module: Option<String>,
+    symbol: Option<String>,
+}
+
+impl StopContext {
+    #[cold]
+    fn read(browser: Option<&BrowserRuntime>, instruction_pointer: u32) -> Self {
+        let endpoint = browser.and_then(|browser| {
+            browser
+                .dispatcher
+                .endpoint(GuestAddress(instruction_pointer))
+        });
+        let (module, symbol) = if let Some(endpoint) = endpoint {
+            (
+                Some(endpoint.module.clone()),
+                Some(endpoint.diagnostic_symbol()),
+            )
+        } else {
+            browser
+                .map(|browser| {
+                    browser
+                        .runtime
+                        .diagnostic_location(GuestAddress(instruction_pointer))
+                })
+                .unwrap_or_default()
+        };
+        Self {
+            thread_id: browser.map(|browser| browser.runtime.current_thread_id().0),
+            instruction_pointer,
+            last_error: browser.and_then(|browser| browser.runtime.current_last_error().ok()),
+            module,
+            symbol,
+        }
+    }
 }
 
 impl BrowserRuntime {
@@ -736,681 +448,308 @@ impl BrowserRuntime {
         &mut self,
         event: RuntimeKeyboardSourceEvent,
     ) -> Result<Value, String> {
-        let receipt = self
-            .runtime
+        let sequence = event.sequence;
+        self.runtime
             .ingest_keyboard_event(event)
             .map_err(error_string)?;
         Ok(json!({
             "kind": "keyboard-event-ingested",
-            "receipt": receipt,
-            "keyboard": self.runtime.keyboard_state(),
+            "sequence": sequence,
         }))
     }
 
-    fn ingest_pointer_button_event(
+    fn ingest_pointer_event(
         &mut self,
-        event: RuntimePointerButtonSourceEvent,
+        sequence: u64,
+        kind: u32,
+        button: u32,
+        normalized_x: u16,
+        normalized_y: u16,
     ) -> Result<Value, String> {
-        let profile = match &self.target {
-            BrowserRuntimeTarget::Bgi { user32_policy, .. } => user32_policy
-                .pointer_button_messages
-                .clone()
-                .ok_or_else(|| {
-                    "active User32 policy does not enable pointer button messages".to_owned()
-                })?,
-            _ => {
-                return Err(
-                    "pointer button message ingestion requires the private BGI runtime".to_owned(),
-                );
-            }
-        };
-        let receipt = self
+        if self
             .runtime
-            .ingest_pointer_button_event(event, &profile)
-            .map_err(error_string)?;
-        Ok(json!({
-            "kind": "pointer-button-event-ingested",
-            "receipt": receipt,
-            "keyboard": self.runtime.keyboard_state(),
-            "cursor": self.runtime.cursor_position(),
-            "memory": self.memory.stats(),
-        }))
-    }
-
-    fn ingest_pointer_position_event(
-        &mut self,
-        event: RuntimePointerPositionSourceEvent,
-    ) -> Result<Value, String> {
-        let profile = match &self.target {
-            BrowserRuntimeTarget::Bgi { user32_policy, .. } => user32_policy
-                .pointer_button_messages
-                .clone()
-                .ok_or_else(|| {
-                    "active User32 policy does not enable pointer messages".to_owned()
-                })?,
-            _ => {
-                return Err(
-                    "pointer position ingestion requires the private BGI runtime".to_owned(),
-                );
-            }
-        };
-        let receipt = self
-            .runtime
-            .ingest_pointer_position_event(event, &profile)
-            .map_err(error_string)?;
-        Ok(json!({
-            "kind": "pointer-position-event-ingested",
-            "receipt": receipt,
-            "keyboard": self.runtime.keyboard_state(),
-            "cursor": self.runtime.cursor_position(),
-            "memory": self.memory.stats(),
-        }))
-    }
-
-    fn hydrate_writable_profile_object(
-        &mut self,
-        object_id: u32,
-        generation: u64,
-        bytes: &[u8],
-    ) -> Result<Value, String> {
-        if !matches!(self.target, BrowserRuntimeTarget::Bgi { .. }) {
-            return Err("writable profile hydration requires the private BGI runtime".to_owned());
-        }
-        let sha256 = self
-            .runtime
-            .hydrate_writable_profile_object(object_id, generation, bytes)
+            .foreground_window_handle()
             .map_err(error_string)?
-            .sha256
-            .clone();
-        Ok(json!({
-            "kind": "writable-profile-hydrated",
-            "objectId": object_id,
-            "generation": generation,
-            "byteLength": bytes.len(),
-            "sha256": sha256,
-        }))
-    }
-
-    fn prepare(
-        fixture: Vec<u8>,
-        encoded_pointer_cookie: u32,
-    ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
-        let loader_limits = Pe32Limits::default();
-        let snapshot = ModuleSnapshot::from_bytes(fixture, &loader_limits).map_err(error_string)?;
-        snapshot
-            .verify_expected_sha256(FIXTURE_SHA256)
-            .map_err(error_string)?;
-        let plan = build_pe32_load_plan(&snapshot, loader_limits).map_err(error_string)?;
-        let mut memory = GuestMemory::new(MemoryLimits {
-            max_physical_pages: FIXTURE_MAX_PHYSICAL_PAGES,
-            ..MemoryLimits::default()
-        })
-        .map_err(error_string)?;
-        let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, LOAD_BASE)
-            .map_err(error_string)?;
-        let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
-        let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
-        let mut runtime = controlled_runtime_state(encoded_pointer_cookie)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v30();
-        user32_policy.validate().map_err(api_fault_string)?;
-        runtime
-            .configure_display_profile(
-                user32_policy
-                    .display_profile()
-                    .ok_or_else(|| "controlled User32 policy has no display profile".to_owned())?,
-            )
-            .map_err(error_string)?;
-        runtime
-            .configure_input_profile(
-                user32_policy
-                    .input_profile()
-                    .ok_or_else(|| "controlled User32 policy has no input profile".to_owned())?,
-            )
-            .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v31();
-        d3d9_policy.validate().map_err(api_fault_string)?;
-        let mut runtime_exports = [
-            "fixture_deferred_add",
-            "fixture_call_callback",
-            "fixture_commit_outputs",
-        ]
-        .into_iter()
-        .map(|name| RuntimeExport::named(FIXTURE_MODULE, name))
-        .collect::<Vec<_>>();
-        runtime_exports.push(RuntimeExport::named("d3d9.dll", "Direct3DCreate9"));
-        let catalog = RuntimeExportCatalog::new(runtime_exports).map_err(error_string)?;
-        let import_allocation =
-            control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::ImportThunks)?;
-        let binding = bind_pe32_imports(
-            &mut memory,
-            &import_allocation,
-            &plan,
-            &materialization,
-            &catalog,
-        )
-        .map_err(error_string)?;
-        if !binding.complete || !binding.image_owner_sealed {
-            return Err("browser fixture import binding did not complete".to_owned());
-        }
-        let callback_allocation =
-            control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::CallbackReturns)?;
-        let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation)
-            .map_err(error_string)?;
-        let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
-            .map_err(error_string)?;
-        let second_stack = install_thread_stack_at(
-            &mut memory,
-            &sentinels.process_entry_return,
-            SECOND_THREAD_STACK_TOP,
-            GUEST_PAGE_SIZE,
-            GUEST_PAGE_SIZE,
-        )
-        .map_err(error_string)?;
-        let (dispatcher, routes) = build_dispatcher(&binding)?;
-        runtime
-            .register_initial_thread_stack(&stack)
-            .map_err(error_string)?;
-        let second_thread_id = RuntimeThreadId(SECOND_THREAD_ID);
-        runtime
-            .register_thread(second_thread_id, 0)
-            .map_err(error_string)?;
-        runtime
-            .register_thread_stack(second_thread_id, &second_stack)
-            .map_err(error_string)?;
-        let controlled_guest_thread = ControlledGuestThread {
-            thread_id: second_thread_id,
-            entry_point: second_thread_entry,
-            initial_stack_pointer: second_stack.initial_esp,
-            fs_base: GuestAddress(0),
-            return_sentinel: sentinels.process_entry_return.address,
-            marker_address: second_thread_marker,
-            marker_value: SECOND_THREAD_MARKER,
-            expected_exit_code: SECOND_THREAD_EXIT_CODE,
-        };
-        let runtime_stack = runtime
-            .thread_stack(runtime.current_thread_id())
-            .map_err(error_string)?;
-        let stack_allocation = runtime
-            .process_address_space_allocator()
-            .allocation(runtime_stack.address_allocation_id)
-            .map_err(error_string)?;
-        let reflection = memory.pending_reflection().map_err(error_string)?;
-        let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
-        let metadata = json!({
-            "kind": "prepared",
-            "schemaVersion": 2,
-            "workload": "controlled-fixture",
-            "source": snapshot.identity(),
-            "entryPoint": materialization.entry_point_address.0,
-            "fsBase": 0,
-            "generation": reflection.invalidation.generation,
-            "stackTop": stack.stack_top.0,
-            "initialStackPointer": stack.initial_esp.0,
-            "initialThreadStack": runtime_stack,
-            "initialStackAddressAllocation": stack_allocation,
-            "callbackSentinel": sentinels.callback_return.address.0,
-            "entrySentinel": sentinels.process_entry_return.address.0,
-            "pageCount": reflection.pages.len(),
-            "maximumPhysicalPages": FIXTURE_MAX_PHYSICAL_PAGES,
-            "regions": memory.region_snapshots(),
-            "endpoints": binding.thunks,
-            "additionalThreads": [{
-                "threadId": controlled_guest_thread.thread_id.0,
-                "entryPoint": controlled_guest_thread.entry_point.0,
-                "initialStackPointer": controlled_guest_thread.initial_stack_pointer.0,
-                "fsBase": controlled_guest_thread.fs_base.0,
-                "returnSentinel": controlled_guest_thread.return_sentinel.0,
-                "markerAddress": controlled_guest_thread.marker_address.0,
-                "expectedMarkerValue": controlled_guest_thread.marker_value,
-                "expectedExitCode": controlled_guest_thread.expected_exit_code,
-            }],
-            "runtime": {
-                "processId": runtime.process_id().0,
-                "threadId": runtime.current_thread_id().0,
-                "currentDirectoryA": runtime.current_directory_a(),
-                "currentDirectoryGeneration": runtime.current_directory_generation(),
-            },
-        });
-        Ok((
-            Self {
-                memory,
-                runtime,
-                dispatcher,
-                routes,
-                callback_sentinel: sentinels.callback_return.address,
-                entry_sentinel: sentinels.process_entry_return.address,
-                stack,
-                pending_host: BTreeMap::new(),
-                callbacks: BTreeMap::new(),
-                controlled_guest_thread: Some(controlled_guest_thread),
-                mapping_fixture: BrowserMappingFixture::default(),
-                d3d9_policy: Some(Box::new(d3d9_policy)),
-                dinput8_policy: None,
-                dsound_policy: None,
-                target: BrowserRuntimeTarget::ControlledFixture,
-            },
-            metadata,
-            reflection_buffers,
-        ))
-    }
-
-    fn prepare_bgi(
-        executable: Vec<u8>,
-        kernel32_policy: Kernel32CompatibilityPolicy,
-        source_manifest: Option<RuntimeSourceSnapshotManifest>,
-        writable_profile: RuntimeWritableProfileManifest,
-        capabilities: BgiCheckpointCapabilities,
-        encoded_pointer_cookie: u32,
-    ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
-        let loader_limits = Pe32Limits::default();
-        let snapshot =
-            ModuleSnapshot::from_bytes(executable, &loader_limits).map_err(error_string)?;
-        snapshot
-            .verify_expected_sha256(BGI_SHA256)
-            .map_err(error_string)?;
-        let source_identity = snapshot.identity();
-        if source_manifest
-            .as_ref()
-            .is_some_and(|manifest| manifest.title_fingerprint != source_identity.sha256)
+            .is_none()
         {
-            return Err(
-                "source snapshot title fingerprint does not match the prepared BGI executable"
-                    .to_owned(),
-            );
+            self.runtime
+                .skip_unroutable_pointer_event(sequence)
+                .map_err(error_string)?;
+            return Ok(json!({"kind": "pointer-event-ignored", "sequence": sequence}));
         }
-        if writable_profile.title_fingerprint != source_identity.sha256 {
-            return Err(
-                "writable profile title fingerprint does not match the prepared BGI executable"
-                    .to_owned(),
-            );
+        let (message, window_handle) = match kind {
+            1 if button == 0 => {
+                let receipt = self
+                    .runtime
+                    .ingest_pointer_position_event(RuntimePointerPositionSourceEvent {
+                        sequence,
+                        normalized_x,
+                        normalized_y,
+                    })
+                    .map_err(error_string)?;
+                (receipt.message, receipt.hwnd)
+            }
+            2 | 3 => {
+                let button = match button {
+                    1 => RuntimePointerButton::Primary,
+                    2 => RuntimePointerButton::Secondary,
+                    _ => return Err("pointer button is outside the bridge ABI".to_owned()),
+                };
+                let receipt = self
+                    .runtime
+                    .ingest_pointer_button_event(RuntimePointerButtonSourceEvent {
+                        sequence,
+                        kind: if kind == 2 {
+                            RuntimePointerButtonSourceEventKind::ButtonDown
+                        } else {
+                            RuntimePointerButtonSourceEventKind::ButtonUp
+                        },
+                        button,
+                        normalized_x,
+                        normalized_y,
+                    })
+                    .map_err(error_string)?;
+                (receipt.message, receipt.hwnd)
+            }
+            _ => return Err("pointer event kind is outside the bridge ABI".to_owned()),
+        };
+        Ok(
+            json!({"kind": "pointer-event-ingested", "sequence": sequence,
+            "message": message, "windowHandle": window_handle}),
+        )
+    }
+
+    fn prepare_executable(
+        executable: Vec<u8>,
+        relative_path: &str,
+        source_dlls: Vec<SourceDll>,
+        encoded_pointer_cookie: u32,
+    ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
+        let virtual_image_path = virtual_executable_path(relative_path)?;
+        let executable_name = relative_path
+            .rsplit(['/', '\\'])
+            .next()
+            .ok_or_else(|| "selected executable path is empty".to_owned())?;
+        let limits = Pe32Limits::default();
+        let snapshot = ModuleSnapshot::from_bytes(executable, &limits).map_err(error_string)?;
+        let plan = build_pe32_load_plan(&snapshot, limits).map_err(error_string)?;
+        if plan.image.kind != vine_core::ImageKind::Executable {
+            return Err("selected PE32 image is a DLL, not an executable".to_owned());
         }
-        let plan = build_pe32_load_plan(&snapshot, loader_limits).map_err(error_string)?;
+        let all_loaders = std::iter::once(&plan)
+            .chain(source_dlls.iter().map(|dll| &dll.loader))
+            .collect::<Vec<_>>();
+        let required = all_loaders
+            .iter()
+            .flat_map(|loader| guest_import_names(loader))
+            .map(|name| name.to_ascii_lowercase())
+            .collect::<BTreeSet<_>>();
+        let available = source_dlls
+            .iter()
+            .map(|dll| dll.name.to_ascii_lowercase())
+            .collect::<BTreeSet<_>>();
+        if let Some(missing) = required.difference(&available).next() {
+            return Err(format!("imported source DLL {missing} was not supplied"));
+        }
+        if let Some(unused) = available.difference(&required).next() {
+            return Err(format!("unreferenced source DLL {unused} was supplied"));
+        }
         let mut memory = GuestMemory::new(MemoryLimits {
-            max_physical_pages: BGI_MAX_PHYSICAL_PAGES,
+            max_physical_pages: MAX_GAME_PHYSICAL_PAGES,
             ..MemoryLimits::default()
         })
         .map_err(error_string)?;
-        let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, BGI_LOAD_BASE)
+        let main_load_base = guest_image_load_base(
+            &memory,
+            plan.image.preferred_image_base,
+            plan.image.size_of_image,
+        )?;
+        let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, main_load_base)
             .map_err(error_string)?;
-        let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
-        let mut process = prepare_bgi_runtime_process(
-            &mut memory,
+        let catalog = runtime_catalog_for_load_plan(&all_loaders)?;
+        drop(all_loaders);
+        let mut mapped_dlls = Vec::with_capacity(source_dlls.len());
+        for (index, source) in source_dlls.into_iter().enumerate() {
+            let base = guest_image_load_base(
+                &memory,
+                source.loader.image.preferred_image_base,
+                source.loader.image.size_of_image,
+            )?;
+            let image = materialize_pe32_image(&mut memory, &source.snapshot, &source.loader, base)
+                .map_err(error_string)?;
+            mapped_dlls.push(MappedSourceDll {
+                source,
+                image,
+                source_id: u32::try_from(index + 2).map_err(|_| "source DLL ID overflow")?,
+            });
+        }
+        let mut process = prepare_executable_runtime_process(
+            memory,
             &plan,
             &materialization,
-            &runtime_catalog,
-            kernel32_policy.clock_profile().cloned(),
+            &mapped_dlls,
+            &catalog,
             encoded_pointer_cookie,
+            executable_name,
+            virtual_image_path.clone(),
         )?;
-        if let Some(source_manifest) = source_manifest {
-            process
-                .runtime
-                .register_source_snapshot(source_manifest)
-                .map_err(error_string)?;
-        }
+        let source = snapshot.identity();
         process
             .runtime
-            .register_writable_profile(writable_profile)
-            .map_err(error_string)?;
-        let user32_policy = if capabilities.user32_def_window_proc_a_pointer_release {
-            User32CompatibilityPolicy::controlled_v36()
-        } else if capabilities.user32_def_window_proc_a_pointer_down {
-            User32CompatibilityPolicy::controlled_v34()
-        } else if capabilities.user32_set_focus_same_window {
-            User32CompatibilityPolicy::controlled_v33()
-        } else if capabilities.user32_pointer_button_messages {
-            User32CompatibilityPolicy::controlled_v32()
-        } else if capabilities.user32_window_timer_callback_delivery {
-            User32CompatibilityPolicy::controlled_v31()
-        } else {
-            User32CompatibilityPolicy::controlled_v30()
-        };
-        user32_policy.validate().map_err(api_fault_string)?;
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v9();
-        gdi32_policy.validate().map_err(api_fault_string)?;
-        let gdiplus_policy = GdiplusCompatibilityPolicy::controlled_v1();
-        gdiplus_policy.validate().map_err(api_fault_string)?;
-        let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
-        imm32_policy.validate().map_err(api_fault_string)?;
-        let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
-        winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = if capabilities.d3d9_update_texture_partial_dirty_region {
-            D3d9CompatibilityPolicy::controlled_v33()
-        } else if capabilities.user32_async_key_state_initial_scan {
-            D3d9CompatibilityPolicy::controlled_v32()
-        } else {
-            D3d9CompatibilityPolicy::controlled_v31()
-        };
-        if !capabilities.d3d9_clear {
-            d3d9_policy.clear = None;
-        }
-        if !capabilities.d3d9_add_dirty_rect {
-            d3d9_policy.add_dirty_rect = None;
-        }
-        if !capabilities.d3d9_update_texture {
-            d3d9_policy.update_texture = None;
-        }
-        if !capabilities.d3d9_begin_scene {
-            d3d9_policy.begin_scene = None;
-        }
-        if !capabilities.d3d9_initial_sampler_states {
-            d3d9_policy.initial_sampler_states = None;
-        }
-        if !capabilities.d3d9_initial_texture_stage_states {
-            d3d9_policy.initial_texture_stage_states = None;
-        }
-        if !capabilities.d3d9_set_texture {
-            d3d9_policy.texture_binding = None;
-        }
-        if !capabilities.d3d9_set_fvf {
-            d3d9_policy.flexible_vertex_format = None;
-        }
-        if !capabilities.d3d9_set_stream_source {
-            d3d9_policy.stream_source = None;
-        }
-        if !capabilities.d3d9_draw_primitive {
-            d3d9_policy.draw_primitive = None;
-        }
-        if !capabilities.d3d9_end_scene {
-            d3d9_policy.end_scene = None;
-        }
-        if !capabilities.d3d9_present {
-            d3d9_policy.present = None;
-        }
-        d3d9_policy.validate().map_err(api_fault_string)?;
-        let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
-        dinput8_policy.validate().map_err(api_fault_string)?;
-        let dsound_policy = DsoundCompatibilityPolicy::forward_v2();
-        dsound_policy.validate().map_err(api_fault_string)?;
-        process
-            .runtime
-            .configure_display_profile(
-                user32_policy
-                    .display_profile()
-                    .ok_or_else(|| "active User32 policy has no display profile".to_owned())?,
-            )
+            .register_source_snapshot(RuntimeSourceSnapshotManifest {
+                mount: RuntimeSourceMountManifest {
+                    source_id: 1,
+                    root_path_a: b"C:\\Vine\\\0".to_vec(),
+                },
+                files: std::iter::once(RuntimeSourceFileManifest {
+                    object_id: 1,
+                    relative_path_a: virtual_image_path
+                        [b"C:\\Vine\\".len()..virtual_image_path.len() - 1]
+                        .to_vec(),
+                    byte_length: source.bytes,
+                    sha256: source.sha256,
+                })
+                .chain(
+                    mapped_dlls
+                        .iter()
+                        .map(|dll| {
+                            let path = virtual_executable_path(&dll.source.relative_path)?;
+                            let identity = dll.source.snapshot.identity();
+                            Ok(RuntimeSourceFileManifest {
+                                object_id: dll.source_id,
+                                relative_path_a: path[b"C:\\Vine\\".len()..path.len() - 1].to_vec(),
+                                byte_length: identity.bytes,
+                                sha256: identity.sha256,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, String>>()?,
+                )
+                .collect(),
+            })
             .map_err(error_string)?;
         process
             .runtime
-            .configure_input_profile(
-                user32_policy
-                    .input_profile()
-                    .ok_or_else(|| "active User32 policy has no input profile".to_owned())?,
-            )
+            .configure_input_profile(RuntimeInputProfile {
+                initial_mouse_buttons_swapped: false,
+                initial_keyboard_source_focused: Some(false),
+                cursor_position: Some(RuntimeCursorPositionProfile {
+                    initial_screen_x: 960,
+                    initial_screen_y: 540,
+                }),
+            })
+            .map_err(error_string)?;
+        process
+            .runtime
+            .configure_display_profile(RuntimeDisplayProfile {
+                primary_monitor_rect: RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 1920,
+                    bottom: 1080,
+                },
+                primary_work_rect: RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 1920,
+                    bottom: 1032,
+                },
+            })
             .map_err(error_string)?;
         let callback_allocation = control_mapping_allocation(
             &process.runtime,
             ProcessAddressAllocationPurpose::CallbackReturns,
         )?;
-        let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation)
-            .map_err(error_string)?;
+        let sentinels =
+            install_runtime_return_sentinels(process.runtime.memory_mut(), &callback_allocation)
+                .map_err(error_string)?;
         let stack = install_initial_thread_stack(
-            &mut memory,
+            process.runtime.memory_mut(),
             &sentinels.process_entry_return,
-            plan.load_plan.image.stack_reserve,
-            plan.load_plan.image.stack_commit,
+            plan.image.stack_reserve,
+            plan.image.stack_commit,
         )
         .map_err(error_string)?;
         process
             .runtime
             .register_initial_thread_stack(&stack)
             .map_err(error_string)?;
-        let environment = if kernel32_policy.allows_wide_environment_strings() {
-            ExecutionSession::new(&mut memory, &mut process.runtime)
-                .install_controlled_process_environment_with_command_line_ansi_and_environment_strings(
-                    "BGI.exe",
-                )
-                .map_err(error_string)
-        } else if kernel32_policy.allows_ansi_command_line() {
-            ExecutionSession::new(&mut memory, &mut process.runtime)
-                .install_controlled_process_environment_with_command_line_and_ansi("BGI.exe")
-                .map_err(error_string)
+        let command_line = relative_path.replace('/', "\\");
+        let command_line = if command_line.contains(' ') {
+            format!("\"{command_line}\"")
         } else {
-            let mut allocator = process.runtime.process_address_space_allocator().clone();
-            let allocation = allocator
-                .reserve(vine_core::controlled_process_environment_allocation_request(true))
-                .map_err(error_string)?;
-            install_controlled_process_environment_with_command_line(
-                &mut memory,
-                &allocation,
-                "BGI.exe",
-            )
-            .map_err(error_string)
-        }?;
-        let dynamic_allocation = control_mapping_allocation(
-            &process.runtime,
-            ProcessAddressAllocationPurpose::DynamicExports,
-        )?;
-        let mut dynamic_exports = vec![
-            ("kernel32.dll", "FlsAlloc"),
-            ("kernel32.dll", "FlsGetValue"),
-            ("kernel32.dll", "FlsSetValue"),
-            ("kernel32.dll", "FlsFree"),
-        ];
-        if let Some(loader) = kernel32_policy.load_library_a() {
-            for module in &loader.runtime_system_modules {
-                for export in &module.exports {
-                    dynamic_exports.push((module.canonical_name.as_str(), export.as_str()));
+            command_line
+        };
+        let environment = process
+            .runtime
+            .install_process_environment(&command_line)
+            .map_err(error_string)?;
+        let attach =
+            finalize_executable_runtime_process(&mut process, &[], sentinels.callback_return)?;
+        let dll_attach = match attach {
+            RuntimeDllLifecycleAction::Callback {
+                target,
+                stack_pointer,
+            } => Some((target, stack_pointer)),
+            RuntimeDllLifecycleAction::Complete { .. } => None,
+            RuntimeDllLifecycleAction::AttachFailed { failed_module } => {
+                return Err(format!("DLL process attach failed: {}", failed_module));
+            }
+        };
+        let mut endpoint_by_address: BTreeMap<GuestAddress, ApiEndpointIdentity> = BTreeMap::new();
+        for import in process.binding.imports.iter().chain(
+            process
+                .dll_bindings
+                .iter()
+                .flat_map(|binding| &binding.imports),
+        ) {
+            if let Some(endpoint) = ApiEndpointIdentity::from_runtime_guest_import(import) {
+                if let Some(previous) = endpoint_by_address.get(&endpoint.address) {
+                    if previous.id != endpoint.id
+                        || previous.module != endpoint.module
+                        || previous.symbol != endpoint.symbol
+                    {
+                        return Err(
+                            "shared runtime import address has conflicting module identity"
+                                .to_owned(),
+                        );
+                    }
+                } else {
+                    endpoint_by_address.insert(endpoint.address, endpoint);
                 }
             }
         }
-        let dynamic_thunks =
-            install_dynamic_export_thunks(&mut memory, &dynamic_allocation, &dynamic_exports)
-                .map_err(error_string)?;
-        finalize_bgi_runtime_process(
-            &mut process,
-            &dynamic_thunks,
-            sentinels.callback_return.address,
-        )?;
-        let (dispatcher, routes, endpoints) = build_bgi_dispatcher(
-            &process,
-            &kernel32_policy,
-            capabilities.set_rect,
-            capabilities.user32_async_key_state_initial_scan,
-            capabilities.user32_window_timer_callback_delivery
-                || capabilities.user32_pointer_button_messages
-                || capabilities.user32_set_focus_same_window
-                || capabilities.user32_def_window_proc_a_pointer_down
-                || capabilities.user32_def_window_proc_a_pointer_release,
-        )?;
-        let runtime_stack = process
+        let endpoints = endpoint_by_address.into_values().collect::<Vec<_>>();
+        let dispatcher = ApiDispatcher::from_endpoints(endpoints).map_err(api_fault_string)?;
+        let reflection = process
             .runtime
-            .thread_stack(process.runtime.current_thread_id())
+            .memory_mut()
+            .pending_reflection()
             .map_err(error_string)?;
-        let stack_allocation = process
-            .runtime
-            .process_address_space_allocator()
-            .allocation(runtime_stack.address_allocation_id)
-            .map_err(error_string)?;
-        let reflection = memory.pending_reflection().map_err(error_string)?;
         let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
-        let mut runtime_metadata = json!({
-            "processId": process.runtime.process_id().0,
-            "threadId": process.runtime.current_thread_id().0,
-            "currentDirectoryA": process.runtime.current_directory_a(),
-            "currentDirectoryGeneration": process.runtime.current_directory_generation(),
-            "moduleCount": process.runtime.modules().len(),
-            "dependencyEdges": process.binding.dependency_edges.len(),
-            "attachOrder": process.attach_order,
-            "kernel32Policy": kernel32_policy.id,
-            "user32Policy": user32_policy.id,
-            "gdi32Policy": gdi32_policy.id,
-            "gdiplusPolicy": gdiplus_policy.id,
-            "imm32Policy": imm32_policy.id,
-            "winmmPolicy": winmm_policy.id,
-        });
-        if capabilities.user32_async_key_state_initial_scan {
-            runtime_metadata["cursorPosition"] = json!(process.runtime.cursor_position());
-        }
         let metadata = json!({
             "kind": "prepared",
-            "schemaVersion": 2,
-            "workload": "private-bgi",
-            "source": snapshot.identity(),
-            "sourceSnapshot": process.runtime.source_snapshot(),
-            "writableProfile": process.runtime.writable_profile(),
             "entryPoint": materialization.entry_point_address.0,
             "fsBase": environment.teb_address.0,
-            "generation": reflection.invalidation.generation,
-            "contentSha256": reflection.content_sha256,
-            "stackTop": stack.stack_top.0,
             "initialStackPointer": stack.initial_esp.0,
-            "initialThreadStack": runtime_stack,
-            "initialStackAddressAllocation": stack_allocation,
-            "callbackSentinel": sentinels.callback_return.address.0,
             "entrySentinel": sentinels.process_entry_return.address.0,
-            "pageCount": reflection.pages.len(),
-            "maximumPhysicalPages": BGI_MAX_PHYSICAL_PAGES,
-            "regions": memory.region_snapshots(),
-            "endpoints": endpoints,
-            "runtime": runtime_metadata,
+            "callbackSentinel": sentinels.callback_return.0,
+            "dllAttach": dll_attach.map(|(target, stack)| json!({"target": target.0,
+                "stackPointer": stack.0})),
+            "maximumPhysicalPages": MAX_GAME_PHYSICAL_PAGES,
+            "regions": browser_memory_regions(process.runtime.memory()),
+            "runtime": { "threadId": process.runtime.current_thread_id().0 },
         });
         Ok((
             Self {
-                memory,
                 runtime: process.runtime,
                 dispatcher,
-                routes,
-                callback_sentinel: sentinels.callback_return.address,
-                entry_sentinel: sentinels.process_entry_return.address,
-                stack,
+                callback_sentinel: sentinels.callback_return,
                 pending_host: BTreeMap::new(),
-                callbacks: BTreeMap::new(),
-                controlled_guest_thread: None,
-                mapping_fixture: BrowserMappingFixture::default(),
-                d3d9_policy: Some(Box::new(d3d9_policy)),
-                dinput8_policy: Some(Box::new(dinput8_policy)),
-                dsound_policy: Some(Box::new(dsound_policy)),
-                target: BrowserRuntimeTarget::Bgi {
-                    kernel32_policy: Box::new(kernel32_policy),
-                    user32_policy: Box::new(user32_policy),
-                    gdi32_policy: Box::new(gdi32_policy),
-                    gdiplus_policy: Box::new(gdiplus_policy),
-                    imm32_policy: Box::new(imm32_policy),
-                    winmm_policy: Box::new(winmm_policy),
-                    heap_allocation_evidence: capabilities.heap_alloc_24_byte_buffer,
-                    tick_count_evidence: capabilities.post_heap_time_get_time,
-                    host_monotonic_clock: capabilities.host_monotonic_clock,
-                },
-            },
-            metadata,
-            reflection_buffers,
-        ))
-    }
-
-    fn prepare_source_read(
-        executable: Vec<u8>,
-        kernel32_policy: Kernel32CompatibilityPolicy,
-        source_manifest: RuntimeSourceSnapshotManifest,
-        encoded_pointer_cookie: u32,
-    ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
-        let loader_limits = Pe32Limits::default();
-        let snapshot =
-            ModuleSnapshot::from_bytes(executable, &loader_limits).map_err(error_string)?;
-        snapshot
-            .verify_expected_sha256(SOURCE_READ_FIXTURE_SHA256)
-            .map_err(error_string)?;
-        let source_identity = snapshot.identity();
-        if source_manifest.title_fingerprint != source_identity.sha256 {
-            return Err(
-                "source snapshot title fingerprint does not match the controlled source fixture"
-                    .to_owned(),
-            );
-        }
-        let plan = build_pe32_load_plan(&snapshot, loader_limits).map_err(error_string)?;
-        let mut memory = GuestMemory::new(MemoryLimits {
-            max_physical_pages: FIXTURE_MAX_PHYSICAL_PAGES,
-            ..MemoryLimits::default()
-        })
-        .map_err(error_string)?;
-        let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, LOAD_BASE)
-            .map_err(error_string)?;
-        let mut runtime = controlled_runtime_state_with_clock_profile(
-            kernel32_policy.clock_profile().cloned(),
-            encoded_pointer_cookie,
-        )?;
-        runtime
-            .register_source_snapshot(source_manifest)
-            .map_err(error_string)?;
-        let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
-        let import_allocation =
-            control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::ImportThunks)?;
-        let binding = bind_pe32_imports(
-            &mut memory,
-            &import_allocation,
-            &plan,
-            &materialization,
-            &runtime_catalog,
-        )
-        .map_err(error_string)?;
-        if !binding.complete || !binding.image_owner_sealed {
-            return Err("source read fixture import binding did not complete".to_owned());
-        }
-        let callback_allocation =
-            control_mapping_allocation(&runtime, ProcessAddressAllocationPurpose::CallbackReturns)?;
-        let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation)
-            .map_err(error_string)?;
-        let stack = install_controlled_initial_stack(&mut memory, &sentinels.process_entry_return)
-            .map_err(error_string)?;
-        runtime
-            .register_initial_thread_stack(&stack)
-            .map_err(error_string)?;
-        let (dispatcher, routes) = build_source_read_dispatcher(&binding)?;
-        let runtime_stack = runtime
-            .thread_stack(runtime.current_thread_id())
-            .map_err(error_string)?;
-        let stack_allocation = runtime
-            .process_address_space_allocator()
-            .allocation(runtime_stack.address_allocation_id)
-            .map_err(error_string)?;
-        let reflection = memory.pending_reflection().map_err(error_string)?;
-        let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
-        let metadata = json!({
-            "kind": "prepared",
-            "schemaVersion": 2,
-            "workload": "controlled-source-read",
-            "source": source_identity,
-            "sourceSnapshot": runtime.source_snapshot(),
-            "entryPoint": materialization.entry_point_address.0,
-            "fsBase": 0,
-            "generation": reflection.invalidation.generation,
-            "stackTop": stack.stack_top.0,
-            "initialStackPointer": stack.initial_esp.0,
-            "initialThreadStack": runtime_stack,
-            "initialStackAddressAllocation": stack_allocation,
-            "callbackSentinel": sentinels.callback_return.address.0,
-            "entrySentinel": sentinels.process_entry_return.address.0,
-            "pageCount": reflection.pages.len(),
-            "maximumPhysicalPages": FIXTURE_MAX_PHYSICAL_PAGES,
-            "regions": memory.region_snapshots(),
-            "endpoints": binding.thunks,
-            "additionalThreads": [],
-            "runtime": {
-                "processId": runtime.process_id().0,
-                "threadId": runtime.current_thread_id().0,
-                "currentDirectoryA": runtime.current_directory_a(),
-                "currentDirectoryGeneration": runtime.current_directory_generation(),
-                "kernel32Policy": kernel32_policy.id,
-            },
-        });
-        Ok((
-            Self {
-                memory,
-                runtime,
-                dispatcher,
-                routes,
-                callback_sentinel: sentinels.callback_return.address,
-                entry_sentinel: sentinels.process_entry_return.address,
-                stack,
-                pending_host: BTreeMap::new(),
-                callbacks: BTreeMap::new(),
-                controlled_guest_thread: None,
-                mapping_fixture: BrowserMappingFixture::default(),
-                d3d9_policy: None,
-                dinput8_policy: None,
-                dsound_policy: None,
-                target: BrowserRuntimeTarget::ControlledSourceRead {
-                    kernel32_policy: Box::new(kernel32_policy),
-                },
+                pending_com_audio: None,
+                pending_com_media: BTreeMap::new(),
+                prepared_source_trap: None,
+                pending_source_lookup: None,
+                pending_source_search: None,
             },
             metadata,
             reflection_buffers,
@@ -1427,256 +766,22 @@ impl BrowserRuntime {
     }
 
     fn acknowledge_fast(&mut self, generation: u64) -> Result<(), String> {
-        self.memory
+        self.runtime
+            .memory_mut()
             .acknowledge_delta(generation)
             .map_err(error_string)?;
-        debug_assert_eq!(self.memory.stats().dirty_pages, 0);
+        debug_assert_eq!(self.runtime.memory_mut().stats().dirty_pages, 0);
         Ok(())
     }
 
-    fn reconcile_writeback(
-        &mut self,
-        control: &[u8],
-        payload: &[u8],
-    ) -> Result<(Value, CpuWritebackReceipt), String> {
-        let receipt = self
-            .memory
+    fn reconcile_writeback(&mut self, control: &[u8], payload: &[u8]) -> Result<u64, String> {
+        let generation = self
+            .runtime
+            .memory_mut()
             .reconcile_cpu_writeback_binary(control, payload)
             .map_err(error_string)?;
-        debug_assert_eq!(self.memory.stats().dirty_pages, 0);
-        let metadata = json!({
-            "kind": "writeback-reconciled",
-            "receipt": receipt,
-            "dirtyPages": 0,
-        });
-        Ok((metadata, receipt))
-    }
-
-    fn reconcile_writeback_fast(
-        &mut self,
-        control: &[u8],
-        payload: &[u8],
-    ) -> Result<CpuWritebackFastReceipt, String> {
-        let receipt = self
-            .memory
-            .reconcile_cpu_writeback_binary_fast(control, payload)
-            .map_err(error_string)?;
-        debug_assert_eq!(self.memory.stats().dirty_pages, 0);
-        Ok(receipt)
-    }
-
-    fn advance_mapping_fixture(
-        &mut self,
-        requested_stage: u32,
-    ) -> Result<(Value, MemoryDeltaBuffers), String> {
-        if requested_stage != self.mapping_fixture.next_stage
-            || requested_stage >= MAPPING_FIXTURE_STAGE_COUNT
-        {
-            return Err("browser mapping fixture stage is out of order".to_owned());
-        }
-        let stats = self.memory.stats();
-        if stats.generation != stats.acknowledged_generation {
-            return Err(
-                "browser mapping fixture requires the previous delta acknowledgement".to_owned(),
-            );
-        }
-
-        let (stage, probe_address) = match requested_stage {
-            0 => {
-                let handle = self
-                    .runtime
-                    .allocate_private_heap(0, GUEST_PAGE_SIZE as u32, 0)
-                    .map_err(error_string)?
-                    .handle;
-                let allocation = ExecutionSession::new(&mut self.memory, &mut self.runtime)
-                    .allocate_private_heap_block(handle, 0x214, RuntimeHeapInitialization::Zeroed)
-                    .map_err(error_string)?;
-                let backing = self
-                    .runtime
-                    .heap_backing(handle)
-                    .map_err(error_string)?
-                    .ok_or_else(|| "lazy heap allocation did not create a backing".to_owned())?;
-                self.mapping_fixture.heap_handle = Some(handle);
-                self.mapping_fixture.allocation_address = Some(allocation.address);
-                self.mapping_fixture.backing_owner = Some(backing.memory_owner);
-                self.mapping_fixture.backing_page = Some(
-                    GuestRange::new(backing.range.start(), GUEST_PAGE_SIZE)
-                        .map_err(error_string)?,
-                );
-                ("lazy-heap-map", allocation.address)
-            }
-            1 => {
-                let handle = self.mapping_fixture_heap_handle()?;
-                let address = self.mapping_fixture_allocation_address()?;
-                ExecutionSession::new(&mut self.memory, &mut self.runtime)
-                    .free_private_heap_block(handle, address)
-                    .map_err(error_string)?;
-                ("heap-dirty-only", address)
-            }
-            2 => {
-                self.memory
-                    .protect(
-                        self.mapping_fixture_backing_owner()?,
-                        self.mapping_fixture_backing_page()?,
-                        PageProtection {
-                            read: true,
-                            write: false,
-                            execute: false,
-                        },
-                    )
-                    .map_err(error_string)?;
-                (
-                    "heap-protect-read-only",
-                    self.mapping_fixture_allocation_address()?,
-                )
-            }
-            3 => {
-                self.memory
-                    .protect(
-                        self.mapping_fixture_backing_owner()?,
-                        self.mapping_fixture_backing_page()?,
-                        PageProtection {
-                            read: true,
-                            write: true,
-                            execute: false,
-                        },
-                    )
-                    .map_err(error_string)?;
-                (
-                    "heap-protect-read-write",
-                    self.mapping_fixture_allocation_address()?,
-                )
-            }
-            4 => {
-                self.memory
-                    .decommit(
-                        self.mapping_fixture_backing_owner()?,
-                        self.mapping_fixture_backing_page()?,
-                    )
-                    .map_err(error_string)?;
-                ("heap-decommit", self.mapping_fixture_allocation_address()?)
-            }
-            5 => {
-                self.memory
-                    .commit(
-                        self.mapping_fixture_backing_owner()?,
-                        self.mapping_fixture_backing_page()?,
-                        PageProtection {
-                            read: true,
-                            write: true,
-                            execute: false,
-                        },
-                    )
-                    .map_err(error_string)?;
-                ("heap-recommit", self.mapping_fixture_allocation_address()?)
-            }
-            6 | 10 => {
-                let handle = self.mapping_fixture_heap_handle()?;
-                let address = self.mapping_fixture_allocation_address()?;
-                ExecutionSession::new(&mut self.memory, &mut self.runtime)
-                    .destroy_private_heap(handle)
-                    .map_err(error_string)?;
-                ("heap-release", address)
-            }
-            7 => {
-                let handle = self
-                    .runtime
-                    .allocate_private_heap(0, 0x1000, 0)
-                    .map_err(error_string)?
-                    .handle;
-                let allocation = ExecutionSession::new(&mut self.memory, &mut self.runtime)
-                    .allocate_private_heap_block(
-                        handle,
-                        vine_core::RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 0x3000,
-                        RuntimeHeapInitialization::Zeroed,
-                    )
-                    .map_err(error_string)?;
-                let backing = self
-                    .runtime
-                    .large_heap_allocation_backing()
-                    .ok_or_else(|| "large fixture heap has no backing".to_owned())?;
-                self.mapping_fixture.heap_handle = Some(handle);
-                self.mapping_fixture.allocation_address = Some(allocation.address);
-                self.mapping_fixture.backing_owner = Some(backing.memory_owner);
-                ("large-heap-reserve", allocation.address)
-            }
-            8 => {
-                let address = self.mapping_fixture_allocation_address()?;
-                self.runtime
-                    .materialize_private_heap_page(&mut self.memory, address, 6)
-                    .map_err(error_string)?;
-                ("large-heap-first-page", address)
-            }
-            9 => {
-                let address = GuestAddress(
-                    self.mapping_fixture_allocation_address()?.0 + GUEST_PAGE_SIZE as u32,
-                );
-                self.memory
-                    .protect(
-                        self.mapping_fixture_backing_owner()?,
-                        GuestRange::new(address, GUEST_PAGE_SIZE).map_err(error_string)?,
-                        PageProtection {
-                            read: true,
-                            write: false,
-                            execute: false,
-                        },
-                    )
-                    .map_err(error_string)?;
-                ("large-heap-protect-read-only", address)
-            }
-            _ => return Err("browser mapping fixture stage is unsupported".to_owned()),
-        };
-
-        let delta = self
-            .memory
-            .pending_delta_without_content_hash()
-            .map_err(error_string)?;
-        let mapping_operations = delta
-            .mapping_operations
-            .iter()
-            .map(mapping_operation_name)
-            .collect::<Vec<_>>();
-        let metadata = json!({
-            "kind": "mapping-fixture-delta",
-            "stageIndex": requested_stage,
-            "stage": stage,
-            "fromGeneration": delta.from_generation,
-            "generation": delta.generation,
-            "mappingOperations": mapping_operations,
-            "dirtyPages": delta.dirty_pages.len(),
-            "cacheEffects": delta.cache_effects,
-            "probeAddress": probe_address.0,
-        });
-        let buffers = delta.encode_binary().map_err(error_string)?;
-        self.mapping_fixture.next_stage += 1;
-        Ok((metadata, buffers))
-    }
-
-    fn current_reflection(&self) -> Result<(Value, vine_core::MemoryReflectionBuffers), String> {
-        let reflection = self.memory.current_reflection().map_err(error_string)?;
-        let stats = self.memory.stats();
-        let metadata = json!({
-            "kind": "current-reflection",
-            "generation": reflection.invalidation.generation,
-            "acknowledgedGeneration": stats.acknowledged_generation,
-            "pageCount": reflection.pages.len(),
-            "contentSha256": reflection.content_sha256,
-            "regions": self.memory.region_snapshots(),
-        });
-        let buffers = reflection.encode_binary().map_err(error_string)?;
-        Ok((metadata, buffers))
-    }
-
-    fn current_memory_summary(&self) -> Result<Value, String> {
-        let stats = self.memory.stats();
-        Ok(json!({
-            "kind": "current-memory-summary",
-            "generation": stats.generation,
-            "acknowledgedGeneration": stats.acknowledged_generation,
-            "pageCount": stats.committed_pages,
-            "contentSha256": self.memory.current_content_sha256().map_err(error_string)?,
-            "regions": self.memory.region_snapshots(),
-        }))
+        debug_assert_eq!(self.runtime.memory_mut().stats().dirty_pages, 0);
+        Ok(generation)
     }
 
     fn service_page_fault(
@@ -1684,87 +789,15 @@ impl BrowserRuntime {
         fault_address: GuestAddress,
         page_fault_error_code: u32,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
-        if !matches!(self.target, BrowserRuntimeTarget::Bgi { .. }) {
-            return Err("page-fault service is available only to the BGI runtime".to_owned());
-        }
-        let resolution = match self.runtime.service_page_fault(
-            &mut self.memory,
-            fault_address,
-            page_fault_error_code,
-        ) {
-            Ok(resolution) => resolution,
-            Err(error) => {
-                let stats = self.memory.stats();
-                let fault_region = self.memory.region_snapshots().into_iter().find(|region| {
-                    let address = u64::from(fault_address.0);
-                    address >= u64::from(region.range.start().0) && address < region.range.end()
-                });
-                let large_heap_allocation =
-                    self.runtime.large_heap_allocation_backing().map(|backing| {
-                        json!({
-                            "handle": backing.handle,
-                            "memoryOwner": backing.memory_owner,
-                            "addressAllocationId": backing.address_allocation_id,
-                            "range": backing.range,
-                            "allocation": backing.allocation,
-                            "materializedPageCount": backing.materialized_pages.len(),
-                            "firstMaterializedPage": backing.materialized_pages.first(),
-                            "lastMaterializedPage": backing.materialized_pages.last(),
-                        })
-                    });
-                return Ok((
-                    json!({
-                        "kind": "page-fault-rejected",
-                        "faultAddress": fault_address.0,
-                        "pageFaultErrorCode": page_fault_error_code,
-                        "error": error,
-                        "largeHeapAllocation": large_heap_allocation,
-                        "faultRegion": fault_region,
-                        "memory": stats,
-                    }),
-                    None,
-                ));
-            }
-        };
-        let delta = self
-            .memory
-            .pending_delta_without_content_hash()
+        self.runtime
+            .service_page_fault(fault_address, page_fault_error_code)
             .map_err(error_string)?;
-        let metadata = json!({
-            "kind": "page-fault-resolved",
-            "resolution": resolution,
-            "fromGeneration": delta.from_generation,
-            "generation": delta.generation,
-            "mappingOperations": delta.mapping_operations.iter().map(mapping_operation_name).collect::<Vec<_>>(),
-            "dirtyPages": delta.dirty_pages.len(),
-            "cacheEffects": delta.cache_effects,
-        });
-        let buffers = delta.encode_binary().map_err(error_string)?;
-        Ok((metadata, Some(buffers)))
-    }
-
-    fn mapping_fixture_heap_handle(&self) -> Result<u32, String> {
-        self.mapping_fixture
-            .heap_handle
-            .ok_or_else(|| "browser mapping fixture heap is unavailable".to_owned())
-    }
-
-    fn mapping_fixture_allocation_address(&self) -> Result<GuestAddress, String> {
-        self.mapping_fixture
-            .allocation_address
-            .ok_or_else(|| "browser mapping fixture allocation is unavailable".to_owned())
-    }
-
-    fn mapping_fixture_backing_owner(&self) -> Result<vine_core::MemoryOwnerId, String> {
-        self.mapping_fixture
-            .backing_owner
-            .ok_or_else(|| "browser mapping fixture owner is unavailable".to_owned())
-    }
-
-    fn mapping_fixture_backing_page(&self) -> Result<GuestRange, String> {
-        self.mapping_fixture
-            .backing_page
-            .ok_or_else(|| "browser mapping fixture backing page is unavailable".to_owned())
+        let buffers = self
+            .runtime
+            .memory_mut()
+            .pending_delta_binary()
+            .map_err(error_string)?;
+        Ok((json!({"kind": "page-fault-resolved"}), Some(buffers)))
     }
 
     fn synchronize_forward_clock(
@@ -1772,17 +805,6 @@ impl BrowserRuntime {
         retired_instructions: u64,
         host_elapsed_time_100ns: u64,
     ) -> Result<(), String> {
-        if !matches!(
-            &self.target,
-            BrowserRuntimeTarget::Bgi {
-                host_monotonic_clock: true,
-                ..
-            }
-        ) {
-            return Err(
-                "host-monotonic clock synchronization requires forward BGI mode".to_owned(),
-            );
-        }
         self.runtime
             .synchronize_scheduled_clock_for_host_execution(
                 retired_instructions,
@@ -1793,32 +815,156 @@ impl BrowserRuntime {
     }
 
     fn advance_clock_for_dispatch(&mut self, retired_instructions: u64) -> Result<(), String> {
-        if matches!(
-            &self.target,
-            BrowserRuntimeTarget::Bgi {
-                host_monotonic_clock: true,
-                ..
-            }
-        ) {
-            let synchronized = self
-                .runtime
-                .scheduled_execution_clock_state()
-                .ok_or_else(|| "forward BGI runtime has no scheduled clock state".to_owned())?;
-            if synchronized.retired_instructions != retired_instructions {
-                return Err(
-                    "forward dispatch reached Rust before its host clock synchronization"
-                        .to_owned(),
-                );
-            }
-            return Ok(());
+        let synchronized = self.runtime.synchronized_instruction_count();
+        if synchronized != retired_instructions {
+            return Err(
+                "forward dispatch reached Rust before its host clock synchronization".to_owned(),
+            );
         }
-        self.runtime
-            .advance_scheduled_clock_for_execution(retired_instructions)
-            .map_err(error_string)?;
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    fn complete_source_lookup(&mut self, result: Option<Value>) -> Result<Value, String> {
+        if let Some(search) = self.pending_source_search.as_mut() {
+            if let Some(matches) = search.selected.as_ref() {
+                let Some(Value::Array(results)) = result else {
+                    return Err("source search results must be an array".to_owned());
+                };
+                if results.len() != matches.len() {
+                    return Err("source search result count changed during verification".to_owned());
+                }
+                let mut entries = Vec::new();
+                for ((path, file), value) in matches.iter().zip(results) {
+                    if value.is_null() {
+                        continue;
+                    }
+                    let kind = value.get("kind").and_then(Value::as_str);
+                    let info = match (*file, kind) {
+                        (true, Some("file")) => Some((
+                            value
+                                .get("byteLength")
+                                .and_then(Value::as_u64)
+                                .ok_or_else(|| "source search file length is missing".to_owned())?,
+                            value
+                                .get("sha256")
+                                .and_then(Value::as_str)
+                                .ok_or_else(|| "source search file digest is missing".to_owned())?
+                                .to_owned(),
+                        )),
+                        (false, Some("directory")) => None,
+                        _ => {
+                            return Err(
+                                "source search entry changed kind during verification".to_owned()
+                            );
+                        }
+                    };
+                    entries.push((path.clone(), info));
+                }
+                let entries_paths = entries
+                    .iter()
+                    .map(|(path, _)| path.clone())
+                    .collect::<Vec<_>>();
+                let registered = self
+                    .runtime
+                    .register_source_search_batch(&search.parent, entries)
+                    .map_err(error_string)?;
+                self.pending_source_search = None;
+                return Ok(
+                    json!({ "kind": "source-search-complete", "registered": registered.into_iter()
+                    .map(|(index, object_id)| json!({ "objectId": object_id, "path": entries_paths[index] }))
+                    .collect::<Vec<_>>() }),
+                );
+            }
+            let Some(list) = result else {
+                self.pending_source_search = None;
+                return Ok(json!({ "kind": "source-search-complete", "registered": [] }));
+            };
+            let segments = list
+                .get("pathSegments")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "source directory spelling is missing".to_owned())?;
+            if segments.len() > 256 {
+                return Err("source directory exceeds DOS depth".to_owned());
+            }
+            let segments = segments
+                .iter()
+                .map(|part| {
+                    part.as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| "source directory component is invalid".to_owned())
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let names = list
+                .get("entries")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "source directory listing must be an array".to_owned())?;
+            if names.len() > vine_core::RUNTIME_SOURCE_FILE_LIMIT {
+                return Err("source directory listing exceeds the bounded source limit".to_owned());
+            }
+            let names = names
+                .iter()
+                .map(|entry| {
+                    let name = entry
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| "source search name is missing".to_owned())?;
+                    let kind = entry.get("kind").and_then(Value::as_str);
+                    if !matches!(kind, Some("file" | "directory")) {
+                        return Err("source search entry kind is invalid".to_owned());
+                    }
+                    Ok((name.to_owned(), kind == Some("file")))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let (actual_parent, selected) = self
+                .runtime
+                .source_search_matches(&search.pattern, &segments, &names)
+                .map_err(error_string)?;
+            let metadata = json!({ "kind": "source-search-matches", "entries": selected.iter()
+                .map(|(path, _)| path).collect::<Vec<_>>() });
+            search.parent = actual_parent;
+            search.selected = Some(selected);
+            return Ok(metadata);
+        }
+        let (object_id, path) = self
+            .pending_source_lookup
+            .as_ref()
+            .ok_or_else(|| "no source lookup is pending".to_owned())?;
+        let object_id = *object_id;
+        let found = if let Some(result) = result {
+            if result.get("kind").and_then(Value::as_str) == Some("directory") {
+                self.runtime
+                    .register_source_directory(path)
+                    .map_err(error_string)?;
+                self.pending_source_lookup = None;
+                return Ok(json!({ "kind": "source-lookup-complete", "found": true }));
+            }
+            if result.get("kind").and_then(Value::as_str) != Some("file") {
+                return Err("source lookup returned an unknown entry kind".to_owned());
+            }
+            let length = result
+                .get("byteLength")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "source lookup length is missing".to_owned())?;
+            let hash = result
+                .get("sha256")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "source lookup digest is missing".to_owned())?;
+            self.runtime
+                .register_source_file(RuntimeSourceFileManifest {
+                    object_id,
+                    relative_path_a: path.clone(),
+                    byte_length: length,
+                    sha256: hash.to_owned(),
+                })
+                .map_err(error_string)?;
+            true
+        } else {
+            false
+        };
+        self.pending_source_lookup = None;
+        Ok(json!({ "kind": "source-lookup-complete", "found": found, "objectId": object_id }))
+    }
+
     fn dispatch(
         &mut self,
         endpoint_address: GuestAddress,
@@ -1826,253 +972,199 @@ impl BrowserRuntime {
         return_address: GuestAddress,
         retired_instructions: u64,
         x86_context: X86CpuContext,
-        allow_fast_completion: bool,
-        frame_prevalidated_no_arguments: bool,
-    ) -> Result<BrowserApiDispatchOutput, String> {
-        let (route_id, argument_bytes, endpoint) = self
-            .routes
-            .get(&endpoint_address)
-            .map(|route| (route.id, route.argument_bytes, route.endpoint.clone()))
-            .ok_or_else(|| format!("unowned API endpoint {:#010x}", endpoint_address.0))?;
-        self.advance_clock_for_dispatch(retired_instructions)?;
-        let trap = ApiTrap {
-            endpoint_id: vine_core::ImportThunkId(route_id),
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+        if self.pending_com_audio.is_some() {
+            return Err("COM audio handoff must finish before guest dispatch".to_owned());
+        }
+        if self.pending_source_lookup.is_some() || self.pending_source_search.is_some() {
+            return Err("source lookup must finish before guest API dispatch".to_owned());
+        }
+        let identity = (
+            self.runtime.current_thread_id(),
             endpoint_address,
             stack_pointer,
             return_address,
-            argument_bytes,
-        };
-        let exception_unwind_frame = if endpoint.matches(
-            "kernel32.dll",
-            &vine_core::ApiSymbol::Name {
-                name: "RtlUnwind".to_owned(),
-            },
-        ) {
-            let thread_id = self.runtime.current_thread_id();
-            let active = self
-                .callbacks
-                .get(&thread_id)
-                .and_then(|callbacks| callbacks.last())
-                .filter(|active| {
-                    matches!(
-                        active.call.request.completion_policy,
-                        GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
-                    )
-                });
-            if let Some(active) = active {
-                self.runtime
-                    .validate_callback_frame_return(active.frame_id)
-                    .map_err(error_string)?;
-                Some((thread_id, active.frame_id))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        let heap_allocation_evidence = matches!(
-            &self.target,
-            BrowserRuntimeTarget::Bgi {
-                heap_allocation_evidence: true,
-                ..
-            }
         );
-        let heap_free_before = if heap_allocation_evidence
-            && endpoint.matches(
-                "kernel32.dll",
-                &vine_core::ApiSymbol::Name {
-                    name: "HeapFree".to_owned(),
-                },
-            ) {
-            let read_argument = |index: u32| -> Option<u32> {
-                let byte_offset = index.checked_add(1)?.checked_mul(4)?;
-                let address = stack_pointer.0.checked_add(byte_offset).map(GuestAddress)?;
-                let bytes = self.memory.read(address, 4).ok()?;
-                Some(u32::from_le_bytes(bytes.try_into().ok()?))
+        let route = self.dispatcher.endpoint(endpoint_address);
+        let endpoint_id = route.map(|endpoint| endpoint.id);
+        if let Some(prepared) = self.prepared_source_trap {
+            if prepared != identity {
+                return Err("source completion belongs to a different guest trap".to_owned());
+            }
+            self.prepared_source_trap = None;
+        } else if let Some(route) = route
+            && let Some(lookup) = self
+                .runtime
+                .prepare_api_source_lookup(route, stack_pointer)
+                .map_err(api_fault_string)?
+        {
+            let metadata = match lookup {
+                vine_core::ApiSourceLookup::Search { pattern, parent } => {
+                    let metadata = json!({ "kind": "source-search", "relativeDirectoryA": parent });
+                    self.pending_source_search = Some(PendingSourceSearch {
+                        pattern,
+                        parent,
+                        selected: None,
+                    });
+                    metadata
+                }
+                vine_core::ApiSourceLookup::File {
+                    object_id,
+                    relative_path_a,
+                } => {
+                    let metadata = json!({ "kind": "source-lookup", "objectId": object_id, "relativePathA": relative_path_a });
+                    self.pending_source_lookup = Some((object_id, relative_path_a));
+                    metadata
+                }
             };
-            read_argument(0).and_then(|heap_handle| {
-                let allocation = self
-                    .runtime
-                    .private_heap_allocation(heap_handle, GuestAddress(read_argument(2)?))
-                    .ok()?;
-                let live_allocations = self.runtime.heap(heap_handle).ok()?.live_allocations;
-                Some((heap_handle, allocation, live_allocations))
-            })
-        } else {
-            None
-        };
-        let tick_count_increment = (self.runtime.clock_profile().progression
-            == vine_core::RuntimeClockProgression::ApiReadIncrement)
-            .then(|| match &self.target {
-                BrowserRuntimeTarget::Bgi {
-                    winmm_policy,
-                    tick_count_evidence: true,
-                    ..
-                } => winmm_policy
-                    .time_get_time
-                    .as_ref()
-                    .map(|clock| clock.increment_per_read),
-                _ => None,
-            })
-            .flatten();
-        let scheduled_shared_clock = self.runtime.clock_profile().progression
-            == vine_core::RuntimeClockProgression::ScheduledShared;
-        let callback_sentinel = self.callback_sentinel;
-        let target = &self.target;
-        let dispatcher = &self.dispatcher;
-        let mut session = ExecutionSession::with_x86_context(
-            &mut self.memory,
-            &mut self.runtime,
-            x86_context,
-            callback_sentinel,
-            frame_prevalidated_no_arguments,
-        );
-        let outcome =
-            dispatcher.dispatch(
-                trap,
-                &mut session,
-                |contract, frame, session| match &target {
-                    BrowserRuntimeTarget::Bgi {
-                        kernel32_policy,
-                        user32_policy,
-                        gdi32_policy,
-                        gdiplus_policy,
-                        imm32_policy,
-                        winmm_policy,
-                        ..
-                    } => {
-                        if contract.endpoint.module.eq_ignore_ascii_case("user32.dll") {
-                            // prepare_bgi validates this privately owned, immutable policy.
-                            dispatch_user32_api_with_prevalidated_policy(
-                                user32_policy,
-                                callback_sentinel,
-                                contract,
-                                frame,
-                                session,
-                            )
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("gdi32.dll") {
-                            dispatch_gdi32_api_with_policy(
-                                gdi32_policy,
-                                callback_sentinel,
-                                contract,
-                                frame,
-                                session,
-                            )
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("gdiplus.dll") {
-                            dispatch_gdiplus_api_with_policy(
-                                gdiplus_policy,
-                                contract,
-                                frame,
-                                session,
-                            )
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("imm32.dll") {
-                            dispatch_imm32_api_with_policy(imm32_policy, contract, frame, session)
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("ole32.dll") {
-                            dispatch_ole32_api(contract, frame, session)
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("shell32.dll") {
-                            dispatch_shell32_api(contract, frame, session)
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
-                            dispatch_winmm_api_with_policy(winmm_policy, contract, frame, session)
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
-                            dispatch_d3d9_api(contract, frame, session)
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("dinput8.dll") {
-                            dispatch_dinput8_api(contract, frame, session)
-                        } else if contract.endpoint.module.eq_ignore_ascii_case("dsound.dll") {
-                            dispatch_dsound_api(contract, frame, session)
-                        } else {
-                            dispatch_kernel32_api_with_prevalidated_policy(
-                                kernel32_policy,
-                                contract,
-                                frame,
-                                session,
-                            )
-                        }
-                    }
-                    BrowserRuntimeTarget::ControlledFixture => {
-                        if contract.endpoint.module.eq_ignore_ascii_case("d3d9.dll") {
-                            dispatch_d3d9_api(contract, frame, session)
-                        } else {
-                            match contract.implementation_id.as_str() {
-                                DEFERRED_ADD | COMMIT_OUTPUTS => {
-                                    let service = if contract.implementation_id == DEFERRED_ADD {
-                                        "browser.deferred-add"
-                                    } else {
-                                        "browser.commit-outputs"
-                                    };
-                                    let request =
-                                        match session.runtime_mut().begin_host_request(service) {
-                                            Ok(request) => request,
-                                            Err(error) => {
-                                                return ApiHandlerResult::Fault(
-                                                    ApiFault::runtime_defect(
-                                                        "browser-runtime",
-                                                        "host-request-state-invalid",
-                                                        error.to_string(),
-                                                    ),
-                                                );
-                                            }
-                                        };
-                                    let payload = frame
-                                        .arguments
-                                        .iter()
-                                        .flat_map(|argument| {
-                                            argument
-                                                .words
-                                                .iter()
-                                                .flat_map(|word| word.to_le_bytes())
-                                        })
-                                        .collect();
-                                    ApiHandlerResult::Deferred(HostRequest {
-                                        request_id: request.request_id,
-                                        service: request.service,
-                                        payload,
-                                    })
-                                }
-                                CALL_CALLBACK => {
-                                    let target = frame.argument_u32(0).unwrap_or(0);
-                                    let value = frame.argument_u32(1).unwrap_or(0);
-                                    if let Err(error) = session.memory().validate_access(
-                                        GuestAddress(target),
-                                        1,
-                                        vine_core::MemoryAccess::Execute,
-                                    ) {
-                                        return ApiHandlerResult::Fault(ApiFault::invalid_call(
-                                            "browser-runtime",
-                                            "callback-target-not-executable",
-                                            error.to_string(),
-                                        ));
-                                    }
-                                    ApiHandlerResult::GuestCallback(GuestCallbackRequest {
-                                        target: GuestAddress(target),
-                                        arguments: vec![GuestCallbackArgument::U32(value)],
-                                        scratch: Vec::new(),
-                                        scratch_pointer_relocations: Vec::new(),
-                                        return_sentinel: callback_sentinel,
-                                        completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
-                                    })
-                                }
-                                _ => ApiHandlerResult::Fault(ApiFault::unsupported(
-                                    "browser-runtime",
-                                    "fixture-service-unsupported",
-                                    "browser fixture reached an unknown service",
-                                )),
-                            }
-                        }
-                    }
-                    BrowserRuntimeTarget::ControlledSourceRead { kernel32_policy } => {
-                        dispatch_kernel32_api_with_prevalidated_policy(
-                            kernel32_policy,
-                            contract,
-                            frame,
-                            session,
-                        )
-                    }
-                },
+            self.prepared_source_trap = Some(identity);
+            return Ok((metadata, None, Vec::new()));
+        }
+        let Some(endpoint_id) = endpoint_id else {
+            return self.dispatch_com(
+                endpoint_address,
+                stack_pointer,
+                return_address,
+                retired_instructions,
             );
+        };
+        self.advance_clock_for_dispatch(retired_instructions)?;
+        let trap = ApiOwnedTrap {
+            endpoint_id,
+            endpoint_address,
+            stack_pointer,
+            return_address,
+        };
+        let callback_sentinel = self.callback_sentinel;
+        let outcome = self.runtime.dispatch_api_call(
+            &self.dispatcher,
+            trap,
+            callback_sentinel,
+            Some(x86_context),
+        );
         acknowledge_thread_wakes(&mut self.runtime);
-        match outcome {
+        let result: Result<(Value, Option<MemoryDeltaBuffers>), String> = match outcome {
             DispatchOutcome::Deferred(call) => {
-                let arguments = decode_u32_payload(&call.request.payload);
+                let message_box = if call.request.service == RUNTIME_MESSAGE_BOX_SERVICE {
+                    if !call.request.payload.is_empty() {
+                        return Err(
+                            "message box host request contains unexpected payload".to_owned()
+                        );
+                    }
+                    let dialog = self
+                        .runtime
+                        .message_box(call.request.request_id)
+                        .map_err(error_string)?;
+                    Some(json!({
+                        "title": dialog.title,
+                        "text": dialog.text,
+                        "buttons": dialog.buttons.iter().map(|button| json!({
+                            "id": button.id,
+                            "label": button.label,
+                        })).collect::<Vec<_>>(),
+                        "defaultButton": dialog.default_button,
+                        "cancelButton": dialog.cancel_button,
+                        "icon": match dialog.icon {
+                            RuntimeMessageBoxIcon::None => "none",
+                            RuntimeMessageBoxIcon::Error => "error",
+                            RuntimeMessageBoxIcon::Question => "question",
+                            RuntimeMessageBoxIcon::Warning => "warning",
+                            RuntimeMessageBoxIcon::Information => "information",
+                        },
+                    }))
+                } else {
+                    None
+                };
+                let opfs_write = if call.request.service == "browser.opfs-write" {
+                    Some(
+                        self.runtime
+                            .opfs_write_host_info(call.request.request_id)
+                            .map_err(error_string)?,
+                    )
+                } else {
+                    None
+                };
+                let opfs_read_path = if call.request.service == RUNTIME_OPFS_READ_SERVICE {
+                    Some(
+                        self.runtime
+                            .opfs_read_host_path(call.request.request_id)
+                            .map_err(error_string)?,
+                    )
+                } else {
+                    None
+                };
+                let opfs_path = if matches!(
+                    call.request.service.as_str(),
+                    "browser.opfs-create-directory"
+                        | "browser.opfs-delete-file"
+                        | "browser.opfs-stat"
+                        | "browser.opfs-open"
+                ) {
+                    let path = if call.request.service == "browser.opfs-open" {
+                        let header = call
+                            .request
+                            .payload
+                            .get(..3)
+                            .ok_or_else(|| "OPFS file open header is missing".to_owned())?;
+                        let path = call
+                            .request
+                            .payload
+                            .get(3..)
+                            .ok_or_else(|| "OPFS file open path is missing".to_owned())?;
+                        if !matches!(header[0], 2..=4)
+                            || !matches!(header[1], 2 | 3)
+                            || usize::from(header[2])
+                                > path.iter().filter(|byte| **byte == b'/').count()
+                        {
+                            return Err("OPFS file open header is invalid".to_owned());
+                        }
+                        path
+                    } else if matches!(
+                        call.request.service.as_str(),
+                        "browser.opfs-stat"
+                            | "browser.opfs-delete-file"
+                            | "browser.opfs-create-directory"
+                    ) {
+                        let (missing, path) =
+                            call.request.payload.split_first().ok_or_else(|| {
+                                "OPFS source result or path is missing".to_owned()
+                            })?;
+                        if call.request.service == "browser.opfs-create-directory" {
+                            if usize::from(*missing)
+                                > path.iter().filter(|byte| **byte == b'/').count()
+                            {
+                                return Err(
+                                    "OPFS source parent count exceeds the path depth".to_owned()
+                                );
+                            }
+                        } else if !matches!(missing, 2 | 3) {
+                            return Err("OPFS source result is invalid".to_owned());
+                        }
+                        path
+                    } else {
+                        &call.request.payload
+                    };
+                    Some(
+                        String::from_utf8(path.to_vec())
+                            .map_err(|_| "OPFS path is not UTF-8".to_owned())?,
+                    )
+                } else {
+                    None
+                };
+                let arguments = if let Some((_, cursor, transferred)) = &opfs_write {
+                    vec![*cursor as u32, (*cursor >> 32) as u32, *transferred]
+                } else if call.request.service == "browser.opfs-open" {
+                    call.request.payload[..3]
+                        .iter()
+                        .map(|byte| u32::from(*byte))
+                        .collect()
+                } else if call.request.service == "browser.opfs-create-directory" {
+                    vec![u32::from(call.request.payload[0])]
+                } else if opfs_path.is_some() || message_box.is_some() {
+                    Vec::new()
+                } else {
+                    decode_u32_payload(&call.request.payload)
+                };
                 let thread_id = self.runtime.current_thread_id();
                 match self.runtime.scheduler_state().map_err(error_string)? {
                     SchedulerThreadState::WaitingHost { request_id }
@@ -2083,7 +1175,7 @@ impl BrowserRuntime {
                         );
                     }
                 }
-                let metadata = json!({
+                let mut metadata = json!({
                     "kind": "host-request",
                     "requestId": call.request.request_id.to_string(),
                     "threadId": thread_id.0,
@@ -2094,6 +1186,16 @@ impl BrowserRuntime {
                         "requestId": call.request.request_id.to_string(),
                     },
                 });
+                if let Some(dialog) = message_box {
+                    metadata["messageBox"] = dialog;
+                }
+                if let Some(path) = opfs_path
+                    .as_deref()
+                    .or(opfs_read_path.as_deref())
+                    .or_else(|| opfs_write.as_ref().map(|(path, _, _)| *path))
+                {
+                    metadata["relativePath"] = json!(path);
+                }
                 let request_id = call.request.request_id;
                 if self.pending_host.contains_key(&request_id) {
                     return Err(format!("host request ID {request_id} is already pending"));
@@ -2102,455 +1204,37 @@ impl BrowserRuntime {
                     .pending_host
                     .insert(request_id, PendingHostCall { thread_id, call });
                 debug_assert!(previous.is_none());
-                Ok(BrowserApiDispatchOutput::structured(metadata, None))
+                let write_bytes =
+                    opfs_write.map(|_| self.pending_host[&request_id].call.request.payload.clone());
+                Ok((
+                    metadata,
+                    write_bytes.map(|bytes| MemoryDeltaBuffers {
+                        control: Vec::new(),
+                        page_bytes: bytes,
+                    }),
+                ))
             }
             DispatchOutcome::GuestCallback(call) => {
                 let (metadata, delta) = self.begin_callback(call)?;
-                Ok(BrowserApiDispatchOutput::structured(metadata, delta))
+                Ok((metadata, delta))
             }
             DispatchOutcome::Immediate(completion) => {
-                let retired_callback = if completion.implementation_id == RTL_UNWIND_IMPLEMENTATION
-                    && let Some((thread_id, frame_id)) = exception_unwind_frame
-                {
-                    self.runtime
-                        .pop_callback_frame(frame_id)
-                        .map_err(error_string)?;
-                    let callbacks = self.callbacks.get_mut(&thread_id).ok_or_else(|| {
-                        "RtlUnwind lost its preflighted exception callback stack".to_owned()
-                    })?;
-                    let retired = callbacks.pop().ok_or_else(|| {
-                        "RtlUnwind lost its preflighted exception callback frame".to_owned()
-                    })?;
-                    if retired.frame_id != frame_id {
-                        return Err(
-                            "RtlUnwind exception callback frame changed after preflight".to_owned()
-                        );
-                    }
-                    let remaining_depth = callbacks.len();
-                    if remaining_depth == 0 {
-                        self.callbacks.remove(&thread_id);
-                    }
-                    Some((frame_id, remaining_depth))
-                } else {
-                    None
-                };
                 let delta = self.pending_delta()?;
-                let fast_completion = allow_fast_completion
-                    && matches!(&self.target, BrowserRuntimeTarget::Bgi { .. })
-                    && FastApiDispatchReceipt::supports(&completion);
-                if fast_completion {
-                    let selection = if completion.execution_boundary
-                        == vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread
-                    {
-                        None
-                    } else if completion.execution_boundary
-                        == vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread
-                    {
-                        if !matches!(
-                            self.runtime.scheduler_state().map_err(error_string)?,
-                            SchedulerThreadState::WaitingCriticalSection { .. }
-                                | SchedulerThreadState::WaitingObject { .. }
-                        ) {
-                            return Err(
-                                "blocking API completion has no matching scheduler wait".to_owned()
-                            );
-                        }
-                        self.runtime
-                            .select_next_executable_thread()
-                            .map_err(error_string)?
-                    } else {
-                        self.runtime
-                            .complete_api_execution_boundary_with_disposition(
-                                completion.execution_boundary,
-                            )
-                            .map_err(error_string)?
-                    };
-                    let receipt =
-                        FastApiDispatchReceipt::new(&endpoint, &completion, selection.as_ref())?;
-                    return Ok(BrowserApiDispatchOutput::Fast { receipt, delta });
-                }
-                let tick_count = if matches!(
-                    completion.implementation_id.as_str(),
-                    "winmm.time-get-time.v1" | "kernel32.get-tick-count.v1"
-                ) {
-                    let RegisterUpdate::Set(returned_tick_count) = completion.eax else {
-                        return Err(
-                            "completed monotonic tick query did not return a tick count".to_owned()
-                        );
-                    };
-                    let next_tick_count = self.runtime.clock().tick_count;
-                    if scheduled_shared_clock {
-                        if next_tick_count != returned_tick_count {
-                            return Err(
-                                "scheduled monotonic tick query advanced the shared clock on read"
-                                    .to_owned(),
-                            );
-                        }
-                        Some(json!({
-                            "returnedTickCount": returned_tick_count,
-                            "nextTickCount": next_tick_count,
-                            "incrementPerRead": 0,
-                            "clockProfileId": self.runtime.clock_profile().id.clone(),
-                            "timerClock": self.runtime.timer_clock_state(),
-                            "scheduledExecutionClock": self
-                                .runtime
-                                .scheduled_execution_clock_state(),
-                        }))
-                    } else {
-                        let increment_per_read = tick_count_increment.ok_or_else(|| {
-                            "completed monotonic tick query has no API-read clock increment"
-                                .to_owned()
-                        })?;
-                        if next_tick_count != returned_tick_count.wrapping_add(increment_per_read) {
-                            return Err(
-                                "completed monotonic tick query clock state does not follow its policy increment"
-                                    .to_owned(),
-                            );
-                        }
-                        Some(json!({
-                            "returnedTickCount": returned_tick_count,
-                            "nextTickCount": next_tick_count,
-                            "incrementPerRead": increment_per_read,
-                        }))
-                    }
-                } else {
-                    None
-                };
-                let heap_allocation = if heap_allocation_evidence
-                    && completion.implementation_id == "kernel32.heap-alloc.v2"
-                {
-                    let heap_handle = completion.frame.argument_u32(0).ok_or_else(|| {
-                        "completed HeapAlloc frame has no logical heap argument".to_owned()
-                    })?;
-                    let RegisterUpdate::Set(address) = completion.eax else {
-                        return Err("completed HeapAlloc did not return a guest address".to_owned());
-                    };
-                    let allocation = self
+                let mut metadata = completion_metadata("api-complete", &completion);
+                if let Some(thread_id) = completion.created_thread {
+                    let bootstrap = self
                         .runtime
-                        .private_heap_allocation(heap_handle, GuestAddress(address))
-                        .map_err(error_string)?;
-                    if allocation.byte_length
-                        != completion.frame.argument_u32(2).ok_or_else(|| {
-                            "completed HeapAlloc frame has no byte-length argument".to_owned()
-                        })?
-                    {
-                        return Err(
-                            "completed HeapAlloc allocation size does not match its ABI frame"
-                                .to_owned(),
-                        );
-                    }
-                    let live_allocations = self
-                        .runtime
-                        .heap(heap_handle)
+                        .thread_state(thread_id)
                         .map_err(error_string)?
-                        .live_allocations;
-                    Some(json!({
-                        "heapHandle": heap_handle,
-                        "allocation": allocation,
-                        "liveAllocations": live_allocations,
-                    }))
-                } else {
-                    None
-                };
-                let heap_free = heap_free_before
-                    .map(|(heap_handle, allocation, live_allocations_before)| {
-                        let live_allocations_after = self
-                            .runtime
-                            .heap(heap_handle)
-                            .map_err(error_string)?
-                            .live_allocations;
-                        let allocation_retired = self
-                            .runtime
-                            .private_heap_allocation(heap_handle, allocation.address)
-                            .is_err();
-                        if live_allocations_before.checked_sub(1) != Some(live_allocations_after)
-                            || !allocation_retired
-                        {
-                            return Err(
-                                "HeapFree did not atomically retire exactly one allocation"
-                                    .to_owned(),
-                            );
-                        }
-                        Ok(json!({
-                            "heapHandle": heap_handle,
-                            "allocation": allocation,
-                            "liveAllocationsBefore": live_allocations_before,
-                            "liveAllocationsAfter": live_allocations_after,
-                            "allocationRetired": allocation_retired,
-                        }))
-                    })
-                    .transpose()?;
-                let mut metadata = match &self.target {
-                    BrowserRuntimeTarget::ControlledFixture
-                    | BrowserRuntimeTarget::ControlledSourceRead { .. } => {
-                        completion_metadata("api-complete", &completion)
-                    }
-                    BrowserRuntimeTarget::Bgi {
-                        user32_policy,
-                        gdi32_policy,
-                        gdiplus_policy,
-                        imm32_policy,
-                        ..
-                    } => {
-                        let mut metadata = json!({
-                            "kind": "api-complete",
-                            "endpoint": endpoint,
-                            "completion": completion,
-                            "memory": self.memory.synchronization_state(),
-                        });
-                        if let Some(heap_free) = heap_free {
-                            metadata["heapFree"] = heap_free;
-                        }
-                        if let Some(heap_allocation) = heap_allocation {
-                            metadata["heapAllocation"] = heap_allocation;
-                        }
-                        if let Some(tick_count) = tick_count {
-                            metadata["tickCount"] = tick_count;
-                        }
-                        if completion.implementation_id == "kernel32.set-current-directory-a.v1" {
-                            metadata["currentDirectory"] = json!({
-                                "directory": self.runtime.current_directory_a(),
-                                "generation": self.runtime.current_directory_generation(),
-                            });
-                        }
-                        if completion.implementation_id == "kernel32.create-mutex-a.v1"
-                            && let RegisterUpdate::Set(handle) = completion.eax
-                        {
-                            let handle = RuntimeHandle(handle);
-                            metadata["mutex"] = json!({
-                                "handle": handle,
-                                "object": self.runtime.mutex_for_handle(handle).map_err(error_string)?,
-                                "objectRecord": self.runtime.object_for_handle(
-                                    handle,
-                                    RuntimeObjectKind::Mutex,
-                                ).map_err(error_string)?,
-                                "alreadyExists": completion.last_error == 183,
-                            });
-                        }
-                        let waitable_timer_handle = match completion.implementation_id.as_str() {
-                            "kernel32.create-waitable-timer-a.v1" => {
-                                let RegisterUpdate::Set(handle) = completion.eax else {
-                                    return Err(
-                                        "CreateWaitableTimerA completion did not set a handle"
-                                            .to_owned(),
-                                    );
-                                };
-                                (handle != 0).then_some(RuntimeHandle(handle))
-                            }
-                            vine_core::SET_WAITABLE_TIMER_IMPLEMENTATION => {
-                                let RegisterUpdate::Set(result) = completion.eax else {
-                                    return Err(
-                                        "SetWaitableTimer completion did not set BOOL in EAX"
-                                            .to_owned(),
-                                    );
-                                };
-                                if result == 0 {
-                                    None
-                                } else {
-                                    Some(RuntimeHandle(
-                                        completion.frame.argument_u32(0).ok_or_else(|| {
-                                            "SetWaitableTimer completion has no timer handle"
-                                                .to_owned()
-                                        })?,
-                                    ))
-                                }
-                            }
-                            vine_core::WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION => {
-                                let RegisterUpdate::Set(result) = completion.eax else {
-                                    return Err(
-                                        "WaitForSingleObjectEx completion did not set a wait result in EAX"
-                                            .to_owned(),
-                                    );
-                                };
-                                if result == u32::MAX {
-                                    None
-                                } else {
-                                    Some(RuntimeHandle(
-                                        completion.frame.argument_u32(0).ok_or_else(|| {
-                                            "WaitForSingleObjectEx completion has no timer handle"
-                                                .to_owned()
-                                        })?,
-                                    ))
-                                }
-                            }
-                            _ => None,
-                        };
-                        if let Some(handle) = waitable_timer_handle {
-                            metadata["waitableTimer"] = json!({
-                                "handle": handle,
-                                "timer": self
-                                    .runtime
-                                    .waitable_timer_for_handle(handle)
-                                    .map_err(error_string)?,
-                                "objectRecord": self.runtime.object_for_handle(
-                                    handle,
-                                    RuntimeObjectKind::WaitableTimer,
-                                ).map_err(error_string)?,
-                            });
-                            if completion.implementation_id
-                                == vine_core::WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION
-                            {
-                                metadata["waitableTimer"]["timerClock"] =
-                                    json!(self.runtime.timer_clock_state());
-                                metadata["waitableTimer"]["nextWaitRegistrationId"] =
-                                    json!(self.runtime.next_wait_registration_id());
-                            }
-                        }
-                        if completion.implementation_id == vine_core::CREATE_THREAD_IMPLEMENTATION
-                            && let RegisterUpdate::Set(handle) = completion.eax
-                            && handle != 0
-                        {
-                            let handle = RuntimeHandle(handle);
-                            let object = self
-                                .runtime
-                                .object_for_handle(handle, RuntimeObjectKind::Thread)
-                                .map_err(error_string)?;
-                            let vine_core::RuntimeObjectKey::Thread { thread_id } = &object.key
-                            else {
-                                return Err(
-                                    "CreateThread completion resolved to a non-thread identity"
-                                        .to_owned(),
-                                );
-                            };
-                            let thread_id = RuntimeThreadId(*thread_id);
-                            metadata["createdThread"] = json!({
-                                "handle": handle,
-                                "object": object,
-                                "thread": self.runtime.thread_state(thread_id).map_err(error_string)?,
-                                "schedulerState": self
-                                    .runtime
-                                    .scheduler_state_for_thread(thread_id)
-                                    .map_err(error_string)?,
-                            });
-                        }
-                        if completion.implementation_id == vine_core::RESUME_THREAD_IMPLEMENTATION {
-                            let handle =
-                                RuntimeHandle(completion.frame.argument_u32(0).ok_or_else(
-                                    || "ResumeThread completion has no thread handle".to_owned(),
-                                )?);
-                            if let Ok(object) = self
-                                .runtime
-                                .object_for_handle(handle, RuntimeObjectKind::Thread)
-                                && let vine_core::RuntimeObjectKey::Thread { thread_id } =
-                                    &object.key
-                            {
-                                let thread_id = RuntimeThreadId(*thread_id);
-                                metadata["resumedThread"] = json!({
-                                    "handle": handle,
-                                    "threadId": thread_id,
-                                    "previousSuspendCount": match completion.eax {
-                                        RegisterUpdate::Set(value) => value,
-                                        RegisterUpdate::Preserve => u32::MAX,
-                                    },
-                                    "schedulerState": self
-                                        .runtime
-                                        .scheduler_state_for_thread(thread_id)
-                                        .map_err(error_string)?,
-                                });
-                            }
-                        }
-                        if matches!(
-                            completion.implementation_id.as_str(),
-                            "user32.load-icon-a.v1" | "user32.load-image-a.v1"
-                        ) && let RegisterUpdate::Set(handle) = completion.eax
-                        {
-                            metadata["icon"] =
-                                json!(self.runtime.icon(handle).map_err(error_string)?);
-                        }
-                        if completion.implementation_id == "user32.load-cursor-a.v1"
-                            && let RegisterUpdate::Set(handle) = completion.eax
-                        {
-                            metadata["cursor"] =
-                                json!(self.runtime.cursor(handle).map_err(error_string)?);
-                        }
-                        if completion.implementation_id == "user32.register-class-ex-a.v1"
-                            && let RegisterUpdate::Set(atom) = completion.eax
-                        {
-                            let atom = u16::try_from(atom).map_err(|_| {
-                                "RegisterClassExA completion returned an out-of-range ATOM"
-                                    .to_owned()
-                            })?;
-                            metadata["windowClass"] =
-                                json!(self.runtime.window_class(atom).map_err(error_string)?);
-                        }
-                        if matches!(
-                            completion.implementation_id.as_str(),
-                            "user32.set-window-long-a.gwl-style.v1"
-                                | "shell32.drag-accept-files.logical-window-style-v1"
-                                | vine_core::SET_FOCUS_IMPLEMENTATION
-                                | vine_core::SET_WINDOW_TEXT_A_IMPLEMENTATION
-                        ) {
-                            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
-                                format!(
-                                    "{} completion has no logical HWND argument",
-                                    completion.implementation_id
-                                )
-                            })?;
-                            metadata["window"] =
-                                json!(self.runtime.window(handle).map_err(error_string)?);
-                        }
-                        if completion.implementation_id == "ole32.co-initialize.v1" {
-                            metadata["comApartment"] = json!(
-                                self.runtime
-                                    .current_com_apartment()
-                                    .map_err(error_string)?
-                                    .copied()
-                            );
-                        }
-                        if let Some(gdi) =
-                            bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
-                        {
-                            metadata["gdi"] = gdi;
-                        }
-                        if let Some(paint) =
-                            bgi_paint_completion_metadata(&completion, &self.runtime)?
-                        {
-                            metadata["paint"] = paint;
-                        }
-                        if let Some(gdiplus) = bgi_gdiplus_completion_metadata(
-                            &completion,
-                            &self.runtime,
-                            gdiplus_policy,
-                        )? {
-                            metadata["gdiplus"] = gdiplus;
-                        }
-                        if let Some(imm32) = bgi_imm32_completion_metadata(
-                            &completion,
-                            &self.runtime,
-                            imm32_policy,
-                            user32_policy,
-                        )? {
-                            metadata["imm32"] = imm32;
-                        }
-                        if let Some(window_timer) = bgi_window_timer_completion_metadata(
-                            &completion,
-                            &self.runtime,
-                            user32_policy,
-                        )? {
-                            metadata["windowTimer"] = json!(window_timer);
-                        }
-                        if let Some(queued_thread_messages) = bgi_pointer_release_queue_metadata(
-                            &completion,
-                            &self.runtime,
-                            &self.memory,
-                            user32_policy,
-                        )? {
-                            metadata["queuedThreadMessages"] = json!(queued_thread_messages);
-                        }
-                        if let Some(virtual_memory) = bgi_virtual_memory_completion_metadata(
-                            &completion,
-                            &self.runtime,
-                            &self.memory,
-                        )? {
-                            metadata["virtualMemory"] = virtual_memory;
-                        }
-                        metadata
-                    }
-                };
-                if let Some((frame_id, remaining_depth)) = retired_callback {
-                    metadata["retiredCallback"] = json!({
-                        "frameId": frame_id.0,
-                        "remainingDepth": remaining_depth,
+                        .guest_bootstrap
+                        .as_ref()
+                        .ok_or_else(|| "created thread has no CPU bootstrap".to_owned())?;
+                    metadata["createdThread"] = json!({
+                        "threadId": bootstrap.thread_id.0,
+                        "entryPoint": bootstrap.entry_point.0,
+                        "initialStackPointer": bootstrap.initial_stack_pointer.0,
+                        "fsBase": bootstrap.fs_base.0,
+                        "returnSentinel": bootstrap.return_sentinel.0,
                     });
                 }
                 let selection = if completion.execution_boundary
@@ -2580,43 +1264,13 @@ impl BrowserRuntime {
                         .map_err(error_string)?
                 };
                 if let Some(selection) = selection {
-                    metadata["threadSelection"] = json!(selection);
+                    metadata["threadSelection"] = json!({"threadId": selection.0});
                 }
-                Ok(BrowserApiDispatchOutput::structured(metadata, delta))
+                Ok((metadata, delta))
             }
-            DispatchOutcome::Fault(fault) => match &self.target {
-                BrowserRuntimeTarget::ControlledFixture
-                | BrowserRuntimeTarget::ControlledSourceRead { .. } => Err(api_fault_string(fault)),
-                BrowserRuntimeTarget::Bgi { .. } => {
-                    let reflection = self.memory.current_reflection().map_err(error_string)?;
-                    Ok(BrowserApiDispatchOutput::structured(
-                        json!({
-                            "kind": "api-fault",
-                            "endpoint": endpoint,
-                            "capabilityCluster": runtime_capability_cluster(&endpoint),
-                            "fault": fault,
-                            "memory": self.memory.synchronization_state(),
-                            "memoryContentSha256": reflection.content_sha256,
-                        }),
-                        None,
-                    ))
-                }
-            },
-        }
-    }
-
-    fn resolve_com_endpoint(&self, endpoint_address: GuestAddress) -> Result<Value, String> {
-        let live = match self.runtime.resolve_com_method(endpoint_address) {
-            Ok(_) => true,
-            Err(error) if error.class == RuntimeStateErrorClass::NotFound => false,
-            Err(error) => return Err(error_string(error)),
+            DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
         };
-        Ok(json!({
-            "kind": "com-endpoint-resolution",
-            "endpointAddress": endpoint_address,
-            "live": live,
-            "memory": self.memory.synchronization_state(),
-        }))
+        result.map(|(metadata, delta)| (metadata, delta, Vec::new()))
     }
 
     fn dispatch_com(
@@ -2625,220 +1279,263 @@ impl BrowserRuntime {
         stack_pointer: GuestAddress,
         return_address: GuestAddress,
         retired_instructions: u64,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
         self.advance_clock_for_dispatch(retired_instructions)?;
-        let d3d9_policy = self.d3d9_policy.as_deref();
-        let dinput8_policy = self.dinput8_policy.as_deref();
-        let dsound_policy = self.dsound_policy.as_deref();
-        let class_identity = self
-            .runtime
-            .resolve_com_method(endpoint_address)
-            .ok()
-            .map(|target| target.object.class_identity);
-        let routes_to_d3d9 = class_identity
-            .as_deref()
-            .is_some_and(|identity| identity.starts_with("d3d9."));
-        let routes_to_dinput8 = class_identity
-            .as_deref()
-            .is_some_and(|identity| identity.starts_with("dinput8."));
-        let routes_to_dsound = class_identity
-            .as_deref()
-            .is_some_and(|identity| identity.starts_with("dsound."));
-        let outcome = {
-            let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
-            let trap = ComCallTrap {
-                endpoint_address,
-                stack_pointer,
-                return_address,
-                call_site: return_address,
-            };
-            if routes_to_d3d9 {
-                if let Some(policy) = d3d9_policy {
-                    dispatch_d3d9_com_call(policy, trap, &mut session)
-                } else {
-                    session.dispatch_com_call(trap)
-                }
-            } else if routes_to_dinput8 {
-                if let Some(policy) = dinput8_policy {
-                    dispatch_dinput8_com_call(policy, trap, &mut session)
-                } else {
-                    session.dispatch_com_call(trap)
-                }
-            } else if routes_to_dsound {
-                if let Some(policy) = dsound_policy {
-                    dispatch_dsound_com_call(policy, trap, &mut session)
-                } else {
-                    session.dispatch_com_call(trap)
-                }
-            } else {
-                session.dispatch_com_call(trap)
-            }
+
+        let trap = ComCallTrap {
+            endpoint_address,
+            stack_pointer,
+            return_address,
+            call_site: return_address,
         };
+        let outcome = self.runtime.dispatch_com_call(trap);
+        self.com_outcome(outcome, endpoint_address)
+    }
+
+    fn com_outcome(
+        &mut self,
+        outcome: ComDispatchOutcome,
+        endpoint_address: GuestAddress,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
         acknowledge_thread_wakes(&mut self.runtime);
         match outcome {
             ComDispatchOutcome::Completed(completion) => {
-                let graphics_device = if completion.frame.interface == "IDirect3DDevice9"
-                    && matches!(
-                        completion.frame.method.as_str(),
-                        "Clear"
-                            | "BeginScene"
-                            | "SetSamplerState"
-                            | "SetTextureStageState"
-                            | "SetTexture"
-                            | "SetFVF"
-                            | "SetStreamSource"
-                            | "DrawPrimitive"
-                            | "EndScene"
-                            | "Present"
-                    ) {
-                    self.runtime
-                        .graphics_devices()
-                        .values()
-                        .find(|device| device.com_object_id == completion.frame.object_id)
-                        .cloned()
-                } else {
-                    None
-                };
-                let graphics_texture = if completion.frame.interface == "IDirect3DTexture9"
-                    && matches!(
-                        completion.frame.method.as_str(),
-                        "AddDirtyRect" | "LockRect" | "UnlockRect"
-                    ) {
-                    self.runtime
-                        .graphics_textures()
-                        .values()
-                        .find(|texture| texture.com_object_id == completion.frame.object_id)
-                        .cloned()
-                } else {
-                    None
-                };
-                let graphics_texture_update = if completion.frame.interface == "IDirect3DDevice9"
-                    && completion.frame.method == "UpdateTexture"
-                {
-                    match completion.frame.explicit_arguments.as_slice() {
-                        [source_pointer, destination_pointer] => {
-                            let source_object_id = self
-                                .runtime
-                                .com_interface_for_pointer(GuestAddress(*source_pointer))
-                                .ok()
-                                .map(|interface| interface.object_id);
-                            let destination_object_id = self
-                                .runtime
-                                .com_interface_for_pointer(GuestAddress(*destination_pointer))
-                                .ok()
-                                .map(|interface| interface.object_id);
-                            source_object_id.zip(destination_object_id).and_then(
-                                |(source_object_id, destination_object_id)| {
-                                    let source = self
-                                        .runtime
-                                        .graphics_textures()
-                                        .values()
-                                        .find(|texture| texture.com_object_id == source_object_id)?
-                                        .clone();
-                                    let destination = self
-                                        .runtime
-                                        .graphics_textures()
-                                        .values()
-                                        .find(|texture| {
-                                            texture.com_object_id == destination_object_id
-                                        })?
-                                        .clone();
-                                    Some((source, destination))
-                                },
-                            )
-                        }
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-                let audio_buffer = if completion.frame.interface == "IDirectSoundBuffer8"
-                    && matches!(completion.frame.method.as_str(), "Play" | "Stop" | "Unlock")
-                {
-                    self.runtime
-                        .audio_buffers()
-                        .values()
-                        .find(|buffer| buffer.com_object_id == completion.frame.object_id)
-                        .cloned()
-                } else {
-                    None
-                };
                 let delta = self.pending_delta()?;
                 let cpu_resume = json!({
-                    "instructionPointer": completion.instruction_pointer,
-                    "stackPointer": completion.stack_pointer,
-                    "eax": {"action": "set", "value": completion.return_value.eax()},
-                    "edx": {"action": "preserve"},
-                    "eflags": {"action": "preserve"},
+                    "instructionPointer": completion.instruction_pointer.0,
+                    "stackPointer": completion.stack_pointer.0,
+                    "eax": completion.eax,
                 });
+                let mut presentation_bytes = Vec::new();
                 let mut metadata = json!({
                     "kind": "com-complete",
+                    "threadId": self.runtime.current_thread_id().0,
                     "completion": cpu_resume,
-                    "call": completion,
-                    "memory": self.memory.synchronization_state(),
                 });
-                if let Some(graphics_device) = graphics_device {
-                    metadata["graphicsDevice"] = json!(graphics_device);
-                }
-                if let Some(graphics_texture) = graphics_texture {
-                    metadata["graphicsTexture"] = json!(graphics_texture);
-                }
-                if let Some((source, destination)) = graphics_texture_update {
-                    metadata["graphicsTextureUpdate"] = json!({
-                        "source": source,
-                        "destination": destination,
+                if let Some(thread_id) = completion.created_thread {
+                    let bootstrap = self
+                        .runtime
+                        .thread_state(thread_id)
+                        .map_err(error_string)?
+                        .guest_bootstrap
+                        .as_ref()
+                        .ok_or_else(|| "created COM thread has no CPU bootstrap".to_owned())?;
+                    metadata["createdThread"] = json!({
+                        "threadId": bootstrap.thread_id.0,
+                        "entryPoint": bootstrap.entry_point.0,
+                        "initialStackPointer": bootstrap.initial_stack_pointer.0,
+                        "fsBase": bootstrap.fs_base.0,
+                        "returnSentinel": bootstrap.return_sentinel.0,
                     });
                 }
-                if let Some(audio_buffer) = audio_buffer {
-                    metadata["audioBuffer"] = json!(audio_buffer);
+                if let Some(device_id) = completion.presented_device {
+                    let (width, height, frame) = self
+                        .runtime
+                        .presented_graphics_frame(device_id)
+                        .map_err(|error| error.to_string())?;
+                    let draws: Vec<Value> = frame
+                        .draw_submissions
+                        .iter()
+                        .map(|draw| {
+                            let fills: Vec<Value> = draw
+                                .texture_fills
+                                .iter()
+                                .map(|fill| {
+                                    json!({
+                                        "left": fill.rect.left, "top": fill.rect.top,
+                                        "right": fill.rect.right, "bottom": fill.rect.bottom,
+                                        "colorRef": fill.color_ref,
+                                    })
+                                })
+                                .collect();
+                            let pixels = if draw.texture_data.is_empty() { Value::Null } else {
+                                let offset = presentation_bytes.len();
+                                presentation_bytes.extend_from_slice(&draw.texture_data);
+                                json!({ "offset": offset, "length": draw.texture_data.len(),
+                                    "pitch": draw.texture_pitch.expect("captured texture pitch") })
+                            };
+                            json!({
+                                "vertices": draw.vertex_data,
+                                "texture": { "width": draw.texture_width,
+                                    "height": draw.texture_height, "fills": fills, "pixels": pixels },
+                            })
+                        })
+                        .collect();
+                    metadata["presentation"] = json!({
+                        "width": width,
+                        "height": height,
+                        "colorArgb": frame.clear_color,
+                        "draws": draws,
+                    });
                 }
-                Ok((metadata, delta))
+                Ok((metadata, delta, presentation_bytes))
             }
-            ComDispatchOutcome::Fault(fault) => {
-                if !matches!(&self.target, BrowserRuntimeTarget::Bgi { .. }) {
-                    return Err(format!(
-                        "COM dispatch fault {}: {}",
-                        fault.code, fault.message
-                    ));
+            ComDispatchOutcome::AudioPending(pending) => {
+                if self.pending_com_audio.is_some() {
+                    return Err("another COM audio call is pending".to_owned());
                 }
-                let capability_cluster = match fault.target.as_ref() {
-                    Some(target) if target.interface == "IDirect3D9" => "d3d9-idirect3d9-method",
-                    Some(target) if target.interface == "IDirect3DDevice9" => {
-                        "d3d9-idirect3ddevice9-method"
-                    }
-                    Some(target) if target.interface == "IDirect3DTexture9" => {
-                        "d3d9-idirect3dtexture9-method"
-                    }
-                    Some(target) if target.interface == "IDirect3DSurface9" => {
-                        "d3d9-idirect3dsurface9-method"
-                    }
-                    _ => "com-method-dispatch",
-                };
-                let reflection = self.memory.current_reflection().map_err(error_string)?;
-                Ok((
-                    json!({
-                        "kind": "com-fault",
-                        "endpoint": {
-                            "kind": "com-method",
-                            "endpointAddress": endpoint_address,
-                            "target": fault.target.clone(),
-                        },
-                        "capabilityCluster": capability_cluster,
-                        "fault": fault,
-                        "memory": self.memory.synchronization_state(),
-                        "memoryContentSha256": reflection.content_sha256,
-                    }),
-                    None,
+                let metadata = json!({ "kind": "audio-request", "requestId": pending.request_id().to_string(),
+                    "threadId": self.runtime.current_thread_id().0 });
+                self.pending_com_audio = Some(pending);
+                Ok((metadata, None, Vec::new()))
+            }
+            ComDispatchOutcome::GuestCallback(prepared) => Ok((
+                json!({ "kind": "guest-callback", "threadId": self.runtime.current_thread_id().0,
+                    "target": prepared.target.0,
+                    "stackPointer": prepared.stack_pointer.0,
+                    "returnSentinel": prepared.return_sentinel.0 }),
+                self.pending_delta()?,
+                Vec::new(),
+            )),
+            ComDispatchOutcome::MediaPending(pending) => {
+                if self.pending_com_media.contains_key(&pending.request_id) {
+                    return Err("COM media request identity is already pending".to_owned());
+                }
+                let metadata = media_request_metadata(&pending);
+                let audio = pending
+                    .audio
+                    .as_ref()
+                    .map(|audio| audio.pcm_f32le.clone())
+                    .unwrap_or_default();
+                self.pending_com_media.insert(pending.request_id, pending);
+                Ok((metadata, self.pending_delta()?, audio))
+            }
+            ComDispatchOutcome::MediaData(data) => Ok((
+                json!({ "kind": "media-data", "requestId": data.request_id.to_string(),
+                    "threadId": self.runtime.current_thread_id().0,
+                    "offset": data.offset.to_string(), "byteLength": data.bytes.len() }),
+                self.pending_delta()?,
+                data.bytes,
+            )),
+            ComDispatchOutcome::Fault(fault) => {
+                let target = fault
+                    .target
+                    .map(|target| {
+                        format!(
+                            "{} slot {} ({})",
+                            target.interface, target.vtable_slot, target.method
+                        )
+                    })
+                    .unwrap_or_else(|| format!("endpoint {:#010x}", endpoint_address.0));
+                Err(format!(
+                    "COM {} at {:#010x}: {}",
+                    target, fault.call_site.0, fault.message
                 ))
             }
         }
     }
 
+    fn complete_com_audio(
+        &mut self,
+        request_id: u64,
+        accepted: bool,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        if self
+            .pending_com_audio
+            .as_ref()
+            .map(ComAudioDeferred::request_id)
+            != Some(request_id)
+        {
+            return Err("audio acknowledgement does not match the pending COM call".to_owned());
+        }
+        let pending = self
+            .pending_com_audio
+            .take()
+            .expect("checked pending audio");
+        match self.runtime.complete_com_audio(pending, accepted) {
+            ComDispatchOutcome::Completed(completion) => {
+                acknowledge_thread_wakes(&mut self.runtime);
+                let metadata = json!({ "kind": "com-complete", "completion": {
+                    "instructionPointer": completion.instruction_pointer.0,
+                    "stackPointer": completion.stack_pointer.0, "eax": completion.eax,
+                }});
+                Ok((metadata, self.pending_delta()?))
+            }
+            ComDispatchOutcome::Fault(fault) => {
+                Err(format!("COM audio completion: {}", fault.message))
+            }
+            ComDispatchOutcome::AudioPending(_) => {
+                Err("audio completion deferred again".to_owned())
+            }
+            ComDispatchOutcome::GuestCallback(_)
+            | ComDispatchOutcome::MediaPending(_)
+            | ComDispatchOutcome::MediaData(_) => {
+                Err("audio completion returned an unrelated COM operation".to_owned())
+            }
+        }
+    }
+
+    fn read_com_media(
+        &mut self,
+        request_id: u64,
+        offset: u64,
+        length: u32,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+        let pending = self
+            .pending_com_media
+            .get(&request_id)
+            .ok_or_else(|| "encoded read has no pending COM media request".to_owned())?;
+        let thread_id = pending.thread_id;
+        let previous_thread_id = self.runtime.current_thread_id();
+        self.runtime
+            .select_thread(thread_id)
+            .map_err(error_string)?;
+        let outcome = match self.runtime.read_com_media(request_id, offset, length) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.runtime
+                    .select_thread(previous_thread_id)
+                    .map_err(error_string)?;
+                return Err(error_string(error));
+            }
+        };
+        self.com_outcome(outcome, GuestAddress(0))
+    }
+
+    fn complete_com_media(
+        &mut self,
+        request_id: u64,
+        response: ComMediaResponse,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+        let pending = self
+            .pending_com_media
+            .get(&request_id)
+            .ok_or_else(|| "media completion has no pending COM request".to_owned())?;
+        let previous_thread_id = self.runtime.current_thread_id();
+        self.runtime
+            .select_thread(pending.thread_id)
+            .map_err(error_string)?;
+        let outcome = match self.runtime.complete_com_media(pending, response) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.runtime
+                    .select_thread(previous_thread_id)
+                    .map_err(error_string)?;
+                return Err(error_string(error));
+            }
+        };
+        self.pending_com_media.remove(&request_id);
+        self.com_outcome(outcome, GuestAddress(0))
+    }
+
+    fn observe_audio_end(&mut self, resource_id: u64) -> Result<Value, String> {
+        if self.pending_com_audio.is_some() {
+            return Err("audio end observed during a COM audio handoff".to_owned());
+        }
+        let ended = self
+            .runtime
+            .observe_browser_audio_end(resource_id)
+            .map_err(error_string)?;
+        acknowledge_thread_wakes(&mut self.runtime);
+        Ok(json!({ "kind": "audio-end-observed", "ended": ended }))
+    }
+
     fn pending_delta(&mut self) -> Result<Option<MemoryDeltaBuffers>, String> {
-        if !self.memory.has_pending_delta() {
+        if !self.runtime.memory_mut().has_pending_delta() {
             return Ok(None);
         }
-        self.memory
+        self.runtime
+            .memory_mut()
             .pending_delta_binary()
             .map(Some)
             .map_err(error_string)
@@ -2848,41 +1545,151 @@ impl BrowserRuntime {
         &mut self,
         call: ApiGuestCallbackCall,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
-        let prepared = ExecutionSession::new(&mut self.memory, &mut self.runtime)
-            .begin_guest_callback(&call)
-            .map_err(api_fault_string)?;
-        let buffers = self.memory.pending_delta_binary().map_err(error_string)?;
-        let generation = self.memory.stats().generation;
-        let thread_id = self.runtime.current_thread_id();
-        let queued_thread_messages = self
+        let prepared = self
             .runtime
-            .queued_thread_messages(thread_id)
+            .begin_guest_callback(call)
+            .map_err(api_fault_string)?;
+        let buffers = self
+            .runtime
+            .memory_mut()
+            .pending_delta_binary()
             .map_err(error_string)?;
-        let callbacks = self.callbacks.entry(thread_id).or_default();
-        let depth = callbacks.len() + 1;
         let metadata = json!({
             "kind": "guest-callback",
-            "frameId": prepared.frame_id.0,
-            "depth": depth,
-            "target": call.request.target.0,
-            "allocationStart": prepared.allocation_start.0,
+            "target": prepared.target.0,
             "stackPointer": prepared.stack_pointer.0,
-            "scratchAddress": prepared.scratch_address.0,
-            "scratchBytes": prepared.scratch_bytes,
-            "frameBytes": prepared.frame_bytes,
-            "returnSentinel": call.request.return_sentinel.0,
-            "generation": generation,
-            "queuedThreadMessages": queued_thread_messages,
-        });
-        callbacks.push(ActiveCallback {
-            call,
-            frame_id: prepared.frame_id,
-            stack_pointer: prepared.stack_pointer,
+            "returnSentinel": prepared.return_sentinel.0,
         });
         Ok((metadata, Some(buffers)))
     }
 
+    fn complete_opfs_write(
+        &mut self,
+        request_id: u64,
+        observation: u32,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .ok_or_else(|| "OPFS write completion has no pending call".to_owned())?;
+        if pending.call.request.service != "browser.opfs-write"
+            || pending.call.request.request_id != request_id
+        {
+            return Err("OPFS write completion has the wrong host identity".to_owned());
+        }
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let outcome = complete_kernel32_opfs_write(
+            &self.dispatcher,
+            &pending.call,
+            observation,
+            &mut self.runtime,
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => return Err("OPFS write produced another suspended call".to_owned()),
+        };
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(event))
+                if event.request_id == request_id && event.thread_id == owner_thread_id => {}
+            _ => return Err("OPFS write scheduler completion mismatch".to_owned()),
+        }
+        self.pending_host.remove(&request_id);
+        if !self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?
+            .is_executable()
+        {
+            return Err("OPFS write did not resume its guest thread".to_owned());
+        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        let delta = self.pending_delta()?;
+        Ok((
+            json!({
+                "kind": "host-complete", "threadId": owner_thread_id.0,
+                "completion": cpu_resume_metadata(&completion),
+            }),
+            delta,
+        ))
+    }
+
+    fn complete_opfs_open(
+        &mut self,
+        request_id: u64,
+        observation: u32,
+        byte_length: u64,
+    ) -> Result<Value, String> {
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .ok_or_else(|| "OPFS open completion has no pending call".to_owned())?;
+        if pending.call.request.service != "browser.opfs-open"
+            || pending.call.request.request_id != request_id
+        {
+            return Err("OPFS open completion has the wrong host identity".to_owned());
+        }
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let outcome = complete_kernel32_opfs_open(
+            &self.dispatcher,
+            &pending.call,
+            observation,
+            byte_length,
+            &mut self.runtime,
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => return Err("OPFS file open produced another suspended call".to_owned()),
+        };
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(event))
+                if event.request_id == request_id && event.thread_id == owner_thread_id => {}
+            _ => return Err("OPFS open scheduler completion mismatch".to_owned()),
+        }
+        self.pending_host.remove(&request_id);
+        if !self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?
+            .is_executable()
+        {
+            return Err("OPFS open did not resume its guest thread".to_owned());
+        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        Ok(json!({
+            "kind": "host-complete",
+            "threadId": owner_thread_id.0,
+            "completion": cpu_resume_metadata(&completion),
+        }))
+    }
+
     fn complete_host(&mut self, request_id: u64, result: u32) -> Result<Value, String> {
+        if self
+            .pending_host
+            .get(&request_id)
+            .is_some_and(|pending| pending.call.request.service == RUNTIME_MESSAGE_BOX_SERVICE)
+        {
+            return self.complete_message_box(request_id, result);
+        }
         if self.pending_host.get(&request_id).is_some_and(|pending| {
             pending.call.request.service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE
         }) {
@@ -2893,23 +1700,59 @@ impl BrowserRuntime {
         }) {
             return self.complete_audio_notification_wait(request_id, result);
         }
+        // Decode browser outcomes before consuming the pending call or changing
+        // scheduler state. These are host observations, not Windows error codes.
+        let opfs_result = if let Some(pending) = self.pending_host.get(&request_id) {
+            let operation = match pending.call.request.service.as_str() {
+                "browser.opfs-create-directory" => Some(OpfsFileOperation::CreateDirectory),
+                "browser.opfs-delete-file" => Some(OpfsFileOperation::DeleteFile {
+                    source_missing: *pending
+                        .call
+                        .request
+                        .payload
+                        .first()
+                        .ok_or_else(|| "OPFS delete source result is missing".to_owned())?,
+                }),
+                "browser.opfs-stat" => Some(OpfsFileOperation::Attributes {
+                    source_missing: *pending
+                        .call
+                        .request
+                        .payload
+                        .first()
+                        .ok_or_else(|| "OPFS stat source result is missing".to_owned())?,
+                }),
+                _ => None,
+            };
+            operation
+                .map(|operation| {
+                    let preserved = self
+                        .runtime
+                        .thread_state(pending.thread_id)
+                        .map_err(error_string)?
+                        .last_error;
+                    complete_opfs_file_operation(operation, result, preserved)
+                        .map_err(api_fault_string)
+                })
+                .transpose()?
+        } else {
+            None
+        };
         let pending = self
             .pending_host
-            .remove(&request_id)
+            .get(&request_id)
             .ok_or_else(|| "host completion has no pending API call".to_owned())?;
         if pending.call.request.request_id != request_id {
-            self.pending_host.insert(request_id, pending);
             return Err("host completion request identity is corrupt".to_owned());
         }
         let previous_thread_id = self.runtime.current_thread_id();
         let owner_thread_id = pending.thread_id;
-        let runtime_completion = match self.runtime.complete_host_request(request_id) {
-            Ok(completion) => completion,
-            Err(error) => {
-                self.pending_host.insert(request_id, pending);
-                return Err(error_string(error));
-            }
-        };
+        self.dispatcher
+            .validate_deferred_completion(&pending.call, request_id, self.runtime.memory())
+            .map_err(api_fault_string)?;
+        let runtime_completion = self
+            .runtime
+            .complete_host_request(request_id)
+            .map_err(error_string)?;
         match self.runtime.pop_scheduler_event() {
             Some(RuntimeSchedulerEvent::HostCompleted(completion))
                 if completion == runtime_completion => {}
@@ -2922,18 +1765,19 @@ impl BrowserRuntime {
         }
         let dispatcher = &self.dispatcher;
         let sleep_delay = pending.call.request.service == vine_core::RUNTIME_SLEEP_DELAY_SERVICE;
-        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
         let completion = match dispatcher.complete_deferred(
-            pending.call,
+            &pending.call,
             HostCompletion {
                 request_id,
-                result: if sleep_delay {
-                    ApiImmediate::new(ApiReturnValue::Void)
+                result: if let Some(result) = opfs_result {
+                    result
+                } else if sleep_delay {
+                    ApiImmediate::new(None)
                 } else {
-                    ApiImmediate::new(ApiReturnValue::U32(result))
+                    ApiImmediate::new(Some(result))
                 },
             },
-            &mut session,
+            &mut self.runtime,
         ) {
             DispatchOutcome::Immediate(completion) => Ok(completion),
             DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
@@ -2947,11 +1791,70 @@ impl BrowserRuntime {
             return Err("Rust scheduler did not resume the completed host request".to_owned());
         }
         restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        self.pending_host.remove(&request_id);
         Ok(json!({
             "kind": "host-complete",
             "threadId": owner_thread_id.0,
-            "scheduler": scheduler,
-            "completion": completion,
+            "completion": cpu_resume_metadata(&completion),
+        }))
+    }
+
+    fn complete_message_box(&mut self, request_id: u64, button_id: u32) -> Result<Value, String> {
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .ok_or_else(|| "message box completion has no pending API call".to_owned())?;
+        if pending.call.request.request_id != request_id
+            || pending.call.request.service != RUNTIME_MESSAGE_BOX_SERVICE
+            || !pending.call.request.payload.is_empty()
+        {
+            return Err("message box completion request identity is corrupt".to_owned());
+        }
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let outcome = complete_user32_message_box(
+            &self.dispatcher,
+            &pending.call,
+            button_id,
+            &mut self.runtime,
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err("message box completion produced another suspended call".to_owned());
+            }
+        };
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(event))
+                if event.request_id == request_id
+                    && event.thread_id == owner_thread_id
+                    && event.service == RUNTIME_MESSAGE_BOX_SERVICE => {}
+            _ => return Err("message box scheduler completion mismatch".to_owned()),
+        }
+        if !self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?
+            .is_executable()
+        {
+            return Err("message box completion did not resume its guest thread".to_owned());
+        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        self.pending_host.remove(&request_id);
+        Ok(json!({
+            "kind": "host-complete",
+            "threadId": owner_thread_id.0,
+            "completion": cpu_resume_metadata(&completion),
         }))
     }
 
@@ -2963,14 +1866,12 @@ impl BrowserRuntime {
         let pending = self
             .pending_host
             .get(&request_id)
-            .cloned()
             .ok_or_else(|| "timer pacing completion has no pending API call".to_owned())?;
         if pending.call.request.request_id != request_id
             || pending.call.request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
         {
             return Err("timer pacing completion request identity is corrupt".to_owned());
         }
-        let endpoint = pending.call.frame.endpoint.clone();
         let previous_thread_id = self.runtime.current_thread_id();
         let owner_thread_id = pending.thread_id;
         if previous_thread_id != owner_thread_id {
@@ -2978,14 +1879,58 @@ impl BrowserRuntime {
                 .select_thread(owner_thread_id)
                 .map_err(error_string)?;
         }
-        let (outcome, wait_result) = complete_kernel32_waitable_timer_pacing(
+        let outcome = complete_kernel32_waitable_timer_pacing(
             &self.dispatcher,
-            pending.call.clone(),
+            &pending.call,
             acknowledgement,
-            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+            &mut self.runtime,
         );
         let completion = match outcome {
             DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Deferred(retry) => {
+                if previous_thread_id != owner_thread_id {
+                    self.runtime
+                        .select_thread(previous_thread_id)
+                        .map_err(error_string)?;
+                }
+                if retry.request.request_id != request_id
+                    || retry.request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+                    || retry.request.payload.len() != 4
+                    || self
+                        .runtime
+                        .scheduler_state_for_thread(owner_thread_id)
+                        .map_err(error_string)?
+                        != (SchedulerThreadState::WaitingHost { request_id })
+                {
+                    return Err("timer pacing retry request identity is corrupt".to_owned());
+                }
+                let milliseconds = u32::from_le_bytes(
+                    retry
+                        .request
+                        .payload
+                        .as_slice()
+                        .try_into()
+                        .expect("four-byte timer delay"),
+                );
+                if milliseconds == 0 || milliseconds > i32::MAX as u32 {
+                    return Err("timer pacing retry delay exceeds the browser transport".to_owned());
+                }
+                // The core retries the same suspended frame. Keep the original
+                // call here and replace only its refreshed browser delay.
+                self.pending_host
+                    .get_mut(&request_id)
+                    .expect("validated pending timer request")
+                    .call
+                    .request
+                    .payload = retry.request.payload;
+                return Ok(json!({
+                    "kind": "host-retry",
+                    "threadId": owner_thread_id.0,
+                    "requestId": request_id.to_string(),
+                    "service": RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
+                    "arguments": [milliseconds],
+                }));
+            }
             DispatchOutcome::Fault(fault) => {
                 restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
                 return Err(api_fault_string(fault));
@@ -2995,9 +1940,6 @@ impl BrowserRuntime {
                 return Err("timer pacing completion produced a suspended outcome".to_owned());
             }
         };
-        let wait_result = wait_result.ok_or_else(|| {
-            "timer pacing API completed without committing its wait state".to_owned()
-        })?;
         match self.runtime.pop_scheduler_event() {
             Some(RuntimeSchedulerEvent::HostCompleted(completion))
                 if completion.request_id == request_id
@@ -3005,11 +1947,7 @@ impl BrowserRuntime {
                     && completion.service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE => {}
             _ => return Err("timer pacing scheduler completion event mismatch".to_owned()),
         }
-        let removed = self
-            .pending_host
-            .remove(&request_id)
-            .ok_or_else(|| "timer pacing pending call disappeared before commit".to_owned())?;
-        debug_assert_eq!(removed.call.request.request_id, request_id);
+        self.pending_host.remove(&request_id);
         let scheduler = self
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
@@ -3017,35 +1955,12 @@ impl BrowserRuntime {
         if !scheduler.is_executable() {
             return Err("Rust scheduler did not resume the timer pacing request".to_owned());
         }
-        let handle = RuntimeHandle(
-            completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "timer pacing completion has no timer handle".to_owned())?,
-        );
-        let waitable_timer = json!({
-            "handle": handle,
-            "timer": self
-                .runtime
-                .waitable_timer_for_handle(handle)
-                .map_err(error_string)?,
-            "objectRecord": self
-                .runtime
-                .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)
-                .map_err(error_string)?,
-            "timerClock": self.runtime.timer_clock_state(),
-            "nextWaitRegistrationId": self.runtime.next_wait_registration_id(),
-        });
         restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
         Ok(json!({
             "kind": "host-complete",
             "threadId": owner_thread_id.0,
-            "scheduler": scheduler,
-            "endpoint": endpoint,
-            "completion": completion,
-            "waitableTimer": waitable_timer,
-            "waitableTimerPacing": wait_result,
-            "memory": self.memory.synchronization_state(),
+            "completion": cpu_resume_metadata(&completion),
+            "memory": browser_memory_sync(self.runtime.memory()),
         }))
     }
 
@@ -3054,16 +1969,15 @@ impl BrowserRuntime {
         request_id: u64,
         acknowledgement: u32,
     ) -> Result<Value, String> {
-        let pending =
-            self.pending_host.get(&request_id).cloned().ok_or_else(|| {
-                "audio notification completion has no pending API call".to_owned()
-            })?;
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .ok_or_else(|| "audio notification completion has no pending API call".to_owned())?;
         if pending.call.request.request_id != request_id
             || pending.call.request.service != RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE
         {
             return Err("audio notification completion request identity is corrupt".to_owned());
         }
-        let endpoint = pending.call.frame.endpoint.clone();
         let previous_thread_id = self.runtime.current_thread_id();
         let owner_thread_id = pending.thread_id;
         if previous_thread_id != owner_thread_id {
@@ -3071,11 +1985,11 @@ impl BrowserRuntime {
                 .select_thread(owner_thread_id)
                 .map_err(error_string)?;
         }
-        let (outcome, runtime_completion) = complete_kernel32_audio_notification_wait(
+        let outcome = complete_kernel32_audio_notification_wait(
             &self.dispatcher,
-            pending.call.clone(),
+            &pending.call,
             acknowledgement,
-            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+            &mut self.runtime,
         );
         let completion = match outcome {
             DispatchOutcome::Immediate(completion) => completion,
@@ -3088,16 +2002,14 @@ impl BrowserRuntime {
                 return Err("audio notification completion remained suspended".to_owned());
             }
         };
-        let runtime_completion = runtime_completion.ok_or_else(|| {
-            "audio notification API completed without committing pacing state".to_owned()
-        })?;
         match self.runtime.pop_scheduler_event() {
-            Some(RuntimeSchedulerEvent::HostCompleted(event)) if event == runtime_completion => {}
+            Some(RuntimeSchedulerEvent::HostCompleted(event))
+                if event.request_id == request_id
+                    && event.thread_id == owner_thread_id
+                    && event.service == RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE => {}
             _ => return Err("audio notification scheduler completion event mismatch".to_owned()),
         }
-        self.pending_host
-            .remove(&request_id)
-            .ok_or_else(|| "audio notification pending call disappeared".to_owned())?;
+        self.pending_host.remove(&request_id);
         let scheduler = self
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
@@ -3109,11 +2021,9 @@ impl BrowserRuntime {
         Ok(json!({
             "kind": "host-complete",
             "threadId": owner_thread_id.0,
-            "scheduler": scheduler,
-            "endpoint": endpoint,
-            "completion": completion,
+            "completion": cpu_resume_metadata(&completion),
             "audioNotificationPacing": true,
-            "memory": self.memory.synchronization_state(),
+            "memory": browser_memory_sync(self.runtime.memory()),
         }))
     }
 
@@ -3125,12 +2035,10 @@ impl BrowserRuntime {
         let pending = self
             .pending_host
             .get(&request_id)
-            .cloned()
             .ok_or_else(|| "source read completion has no pending API call".to_owned())?;
         if pending.call.request.request_id != request_id {
             return Err("source read completion request identity is corrupt".to_owned());
         }
-        let endpoint = pending.call.frame.endpoint.clone();
         let previous_thread_id = self.runtime.current_thread_id();
         let owner_thread_id = pending.thread_id;
         if previous_thread_id != owner_thread_id {
@@ -3139,12 +2047,8 @@ impl BrowserRuntime {
                 .map_err(error_string)?;
         }
         let dispatcher = &self.dispatcher;
-        let (outcome, source_completion) = complete_kernel32_source_read(
-            dispatcher,
-            pending.call.clone(),
-            response,
-            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
-        );
+        let outcome =
+            complete_kernel32_source_read(dispatcher, &pending.call, response, &mut self.runtime);
         let completion = match outcome {
             DispatchOutcome::Immediate(completion) => completion,
             DispatchOutcome::Fault(fault) => {
@@ -3156,20 +2060,13 @@ impl BrowserRuntime {
                 return Err("source read completion produced a suspended outcome".to_owned());
             }
         };
-        let source_completion = source_completion.ok_or_else(|| {
-            "source read API completed without committing its VFS state".to_owned()
-        })?;
         match self.runtime.pop_scheduler_event() {
             Some(RuntimeSchedulerEvent::HostCompleted(completion))
                 if completion.request_id == request_id
                     && completion.thread_id == owner_thread_id => {}
             _ => return Err("source read scheduler completion event mismatch".to_owned()),
         }
-        let removed = self
-            .pending_host
-            .remove(&request_id)
-            .ok_or_else(|| "source read pending call disappeared before commit".to_owned())?;
-        debug_assert_eq!(removed.call.request.request_id, request_id);
+        self.pending_host.remove(&request_id);
         let scheduler = self
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
@@ -3183,11 +2080,7 @@ impl BrowserRuntime {
             json!({
                 "kind": "host-complete",
                 "threadId": owner_thread_id.0,
-                "scheduler": scheduler,
-                "endpoint": endpoint,
-                "completion": completion,
-                "sourceRead": source_completion,
-                "memory": self.memory.synchronization_state(),
+                "completion": cpu_resume_metadata(&completion),
             }),
             delta,
         ))
@@ -3201,14 +2094,12 @@ impl BrowserRuntime {
         let pending = self
             .pending_host
             .get(&request_id)
-            .cloned()
             .ok_or_else(|| "text raster completion has no pending API call".to_owned())?;
         if pending.call.request.request_id != request_id
             || pending.call.request.service != RUNTIME_GDI_TEXT_RASTER_SERVICE
         {
             return Err("text raster completion request identity is corrupt".to_owned());
         }
-        let endpoint = pending.call.frame.endpoint.clone();
         let previous_thread_id = self.runtime.current_thread_id();
         let owner_thread_id = pending.thread_id;
         if previous_thread_id != owner_thread_id {
@@ -3218,9 +2109,9 @@ impl BrowserRuntime {
         }
         let (outcome, runtime_completion) = complete_gdi32_text_raster(
             &self.dispatcher,
-            pending.call.clone(),
+            &pending.call,
             response,
-            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+            &mut self.runtime,
         );
         let completion = match outcome {
             DispatchOutcome::Immediate(completion) => completion,
@@ -3240,9 +2131,7 @@ impl BrowserRuntime {
             Some(RuntimeSchedulerEvent::HostCompleted(event)) if event == runtime_completion => {}
             _ => return Err("text raster scheduler completion event mismatch".to_owned()),
         }
-        self.pending_host
-            .remove(&request_id)
-            .ok_or_else(|| "text raster pending call disappeared before commit".to_owned())?;
+        self.pending_host.remove(&request_id);
         let scheduler = self
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
@@ -3250,484 +2139,64 @@ impl BrowserRuntime {
         if !scheduler.is_executable() {
             return Err("Rust scheduler did not resume the text raster request".to_owned());
         }
-        let gdi = match &self.target {
-            BrowserRuntimeTarget::Bgi { gdi32_policy, .. } => {
-                bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
-            }
-            _ => None,
-        };
         restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
         let delta = self.pending_delta()?;
-        let mut metadata = json!({
+        let metadata = json!({
             "kind": "host-complete",
             "threadId": owner_thread_id.0,
-            "scheduler": scheduler,
-            "endpoint": endpoint,
-            "completion": completion,
-            "memory": self.memory.synchronization_state(),
+            "completion": cpu_resume_metadata(&completion),
         });
-        if let Some(gdi) = gdi {
-            metadata["gdi"] = gdi;
-        }
         Ok((metadata, delta))
-    }
-
-    fn writable_commit_payload(&self, request_id: u64) -> Result<(Value, Vec<u8>), String> {
-        let pending = self
-            .pending_host
-            .get(&request_id)
-            .ok_or_else(|| "writable commit payload has no pending API call".to_owned())?;
-        if pending.call.request.request_id != request_id
-            || pending.call.request.service != RUNTIME_WRITABLE_COMMIT_SERVICE
-        {
-            return Err("writable commit payload request identity is corrupt".to_owned());
-        }
-        let request = self
-            .runtime
-            .writable_file_commit_request(request_id)
-            .map_err(error_string)?;
-        if pending.call.request.payload != request.encode_host_payload() {
-            return Err("writable commit API payload disagrees with VFS authority".to_owned());
-        }
-        let payload = self
-            .runtime
-            .writable_file_commit_bytes(request_id)
-            .map_err(error_string)?
-            .to_vec();
-        if u64::try_from(payload.len()) != Ok(request.byte_length) {
-            return Err("writable commit content length disagrees with VFS authority".to_owned());
-        }
-        Ok((
-            json!({
-                "kind": "writable-commit-payload",
-                "requestId": request_id.to_string(),
-                "request": request,
-            }),
-            payload,
-        ))
-    }
-
-    fn complete_writable_commit(
-        &mut self,
-        response: RuntimeWritableCommitHostResponse,
-    ) -> Result<Value, String> {
-        let request_id = response.request_id;
-        let pending = self
-            .pending_host
-            .get(&request_id)
-            .cloned()
-            .ok_or_else(|| "writable commit completion has no pending API call".to_owned())?;
-        if pending.call.request.request_id != request_id
-            || pending.call.request.service != RUNTIME_WRITABLE_COMMIT_SERVICE
-        {
-            return Err("writable commit completion request identity is corrupt".to_owned());
-        }
-        let endpoint = pending.call.frame.endpoint.clone();
-        let previous_thread_id = self.runtime.current_thread_id();
-        let owner_thread_id = pending.thread_id;
-        if previous_thread_id != owner_thread_id {
-            self.runtime
-                .select_thread(owner_thread_id)
-                .map_err(error_string)?;
-        }
-        let (outcome, writable_completion) = complete_kernel32_writable_commit(
-            &self.dispatcher,
-            pending.call.clone(),
-            response,
-            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
-        );
-        let completion = match outcome {
-            DispatchOutcome::Immediate(completion) => completion,
-            DispatchOutcome::Fault(fault) => {
-                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-                return Err(api_fault_string(fault));
-            }
-            _ => {
-                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-                return Err("writable commit completion produced a suspended outcome".to_owned());
-            }
-        };
-        let writable_completion = writable_completion.ok_or_else(|| {
-            "writable commit API completed without committing its VFS state".to_owned()
-        })?;
-        match self.runtime.pop_scheduler_event() {
-            Some(RuntimeSchedulerEvent::HostCompleted(completion))
-                if completion.request_id == request_id
-                    && completion.thread_id == owner_thread_id => {}
-            _ => return Err("writable commit scheduler completion event mismatch".to_owned()),
-        }
-        let removed = self
-            .pending_host
-            .remove(&request_id)
-            .ok_or_else(|| "writable commit pending call disappeared before commit".to_owned())?;
-        debug_assert_eq!(removed.call.request.request_id, request_id);
-        let scheduler = self
-            .runtime
-            .scheduler_state_for_thread(owner_thread_id)
-            .map_err(error_string)?;
-        if !scheduler.is_executable() {
-            return Err("Rust scheduler did not resume the writable commit request".to_owned());
-        }
-        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-        Ok(json!({
-            "kind": "host-complete",
-            "threadId": owner_thread_id.0,
-            "scheduler": scheduler,
-            "endpoint": endpoint,
-            "completion": completion,
-            "writableCommit": writable_completion,
-            "memory": self.memory.synchronization_state(),
-        }))
-    }
-
-    fn complete_writable_delete(
-        &mut self,
-        response: RuntimeWritableCommitHostResponse,
-    ) -> Result<Value, String> {
-        let request_id = response.request_id;
-        let pending = self
-            .pending_host
-            .get(&request_id)
-            .cloned()
-            .ok_or_else(|| "writable delete completion has no pending API call".to_owned())?;
-        if pending.call.request.request_id != request_id
-            || pending.call.request.service != RUNTIME_WRITABLE_DELETE_SERVICE
-        {
-            return Err("writable delete completion request identity is corrupt".to_owned());
-        }
-        let endpoint = pending.call.frame.endpoint.clone();
-        let previous_thread_id = self.runtime.current_thread_id();
-        let owner_thread_id = pending.thread_id;
-        if previous_thread_id != owner_thread_id {
-            self.runtime
-                .select_thread(owner_thread_id)
-                .map_err(error_string)?;
-        }
-        let (outcome, writable_delete) = complete_kernel32_writable_delete(
-            &self.dispatcher,
-            pending.call.clone(),
-            response,
-            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
-        );
-        let completion = match outcome {
-            DispatchOutcome::Immediate(completion) => completion,
-            DispatchOutcome::Fault(fault) => {
-                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-                return Err(api_fault_string(fault));
-            }
-            _ => {
-                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-                return Err("writable delete completion produced a suspended outcome".to_owned());
-            }
-        };
-        let writable_delete = writable_delete
-            .ok_or_else(|| "DeleteFileA completed without committing its VFS state".to_owned())?;
-        match self.runtime.pop_scheduler_event() {
-            Some(RuntimeSchedulerEvent::HostCompleted(completion))
-                if completion.request_id == request_id
-                    && completion.thread_id == owner_thread_id => {}
-            _ => return Err("writable delete scheduler completion event mismatch".to_owned()),
-        }
-        let removed = self
-            .pending_host
-            .remove(&request_id)
-            .ok_or_else(|| "writable delete pending call disappeared before commit".to_owned())?;
-        debug_assert_eq!(removed.call.request.request_id, request_id);
-        let scheduler = self
-            .runtime
-            .scheduler_state_for_thread(owner_thread_id)
-            .map_err(error_string)?;
-        if !scheduler.is_executable() {
-            return Err("Rust scheduler did not resume the writable delete request".to_owned());
-        }
-        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-        Ok(json!({
-            "kind": "host-complete",
-            "threadId": owner_thread_id.0,
-            "scheduler": scheduler,
-            "endpoint": endpoint,
-            "completion": completion,
-            "writableDelete": writable_delete,
-            "memory": self.memory.synchronization_state(),
-        }))
-    }
-
-    fn complete_writable_directory_create(
-        &mut self,
-        response: RuntimeWritableDirectoryCreateHostResponse,
-    ) -> Result<Value, String> {
-        let request_id = response.request_id;
-        let pending = self.pending_host.get(&request_id).cloned().ok_or_else(|| {
-            "writable directory create completion has no pending API call".to_owned()
-        })?;
-        if pending.call.request.request_id != request_id
-            || pending.call.request.service != RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE
-        {
-            return Err(
-                "writable directory create completion request identity is corrupt".to_owned(),
-            );
-        }
-        let endpoint = pending.call.frame.endpoint.clone();
-        let previous_thread_id = self.runtime.current_thread_id();
-        let owner_thread_id = pending.thread_id;
-        if previous_thread_id != owner_thread_id {
-            self.runtime
-                .select_thread(owner_thread_id)
-                .map_err(error_string)?;
-        }
-        let (outcome, directory_completion) = complete_kernel32_writable_directory_create(
-            &self.dispatcher,
-            pending.call.clone(),
-            response,
-            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
-        );
-        let completion = match outcome {
-            DispatchOutcome::Immediate(completion) => completion,
-            DispatchOutcome::Fault(fault) => {
-                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-                return Err(api_fault_string(fault));
-            }
-            _ => {
-                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-                return Err(
-                    "writable directory create completion produced a suspended outcome".to_owned(),
-                );
-            }
-        };
-        let directory_completion = directory_completion.ok_or_else(|| {
-            "CreateDirectoryA completed without committing its VFS state".to_owned()
-        })?;
-        match self.runtime.pop_scheduler_event() {
-            Some(RuntimeSchedulerEvent::HostCompleted(completion))
-                if completion.request_id == request_id
-                    && completion.thread_id == owner_thread_id => {}
-            _ => {
-                return Err(
-                    "writable directory create scheduler completion event mismatch".to_owned(),
-                );
-            }
-        }
-        let removed = self.pending_host.remove(&request_id).ok_or_else(|| {
-            "writable directory create pending call disappeared before commit".to_owned()
-        })?;
-        debug_assert_eq!(removed.call.request.request_id, request_id);
-        let scheduler = self
-            .runtime
-            .scheduler_state_for_thread(owner_thread_id)
-            .map_err(error_string)?;
-        if !scheduler.is_executable() {
-            return Err(
-                "Rust scheduler did not resume the writable directory create request".to_owned(),
-            );
-        }
-        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-        Ok(json!({
-            "kind": "host-complete",
-            "threadId": owner_thread_id.0,
-            "scheduler": scheduler,
-            "endpoint": endpoint,
-            "completion": completion,
-            "writableDirectoryCreate": directory_completion,
-            "memory": self.memory.synchronization_state(),
-        }))
     }
 
     fn complete_callback(
         &mut self,
         sentinel: GuestAddress,
         result: u32,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
-        let thread_id = self.runtime.current_thread_id();
-        let (call, frame_id, callback_stack_pointer, remaining_depth) = {
-            let callbacks = self
-                .callbacks
-                .get(&thread_id)
-                .ok_or_else(|| "callback return has no active thread frame".to_owned())?;
-            let active = callbacks
-                .last()
-                .ok_or_else(|| "callback return has no active frame".to_owned())?;
-            if sentinel != active.call.request.return_sentinel {
-                return Err("callback return sentinel mismatch".to_owned());
-            }
-            (
-                active.call.clone(),
-                active.frame_id,
-                active.stack_pointer,
-                callbacks.len() - 1,
-            )
-        };
-        self.runtime
-            .validate_callback_frame_return(frame_id)
-            .map_err(error_string)?;
-        let endpoint = call.frame.endpoint.clone();
-        let completion_policy = call.request.completion_policy;
-        let dispatcher = &self.dispatcher;
-        let outcome = {
-            let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
-            dispatcher.complete_guest_callback_result(call, result, &mut session)
-        };
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+        let outcome = self
+            .runtime
+            .complete_guest_callback(&self.dispatcher, sentinel, result)
+            .map_err(api_fault_string)?;
         match outcome {
-            DispatchOutcome::Immediate(completion) => {
-                let semantic_action = {
-                    let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
-                    session
-                        .runtime_mut()
-                        .pop_callback_frame(frame_id)
-                        .map_err(error_string)?;
-                    session
-                        .commit_guest_callback_semantics(completion_policy, result, &endpoint)
-                        .map_err(api_fault_string)?
-                };
-                let retired = self
-                    .callbacks
-                    .get_mut(&thread_id)
-                    .and_then(Vec::pop)
-                    .ok_or_else(|| {
-                        "validated callback adapter frame disappeared before commit".to_owned()
-                    })?;
-                if retired.frame_id != frame_id {
-                    return Err("callback adapter frame changed after return preflight".to_owned());
-                }
-                if remaining_depth == 0 {
-                    self.callbacks.remove(&thread_id);
-                }
-                let delta = self.pending_delta()?;
-                let mut metadata = json!({
-                    "kind": "callback-complete",
-                    "frameId": frame_id.0,
-                    "callbackStackPointer": callback_stack_pointer.0,
-                    "remainingDepth": remaining_depth,
-                    "endpoint": endpoint,
-                    "completion": completion,
-                    "memory": self.memory.synchronization_state(),
-                });
-                match semantic_action {
-                    Some(vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
-                        vine_core::RuntimeWindowCreationCallbackAction::Created { window },
-                    ))
-                    | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
-                        vine_core::RuntimeSetWindowPosCallbackAction::Completed { window },
-                    ))
-                    | Some(vine_core::RuntimeGuestCallbackSemanticAction::UpdateWindow(
-                        vine_core::RuntimeUpdateWindowCallbackAction::Completed { window },
-                    )) => metadata["window"] = json!(window),
-                    _ => {}
-                }
-                if completion.implementation_id == vine_core::SET_WINDOW_TEXT_A_IMPLEMENTATION {
-                    let handle = completion.frame.argument_u32(0).ok_or_else(|| {
-                        "SetWindowTextA callback completion has no logical HWND argument".to_owned()
-                    })?;
-                    metadata["window"] = json!(self.runtime.window(handle).map_err(error_string)?);
-                }
-                if let BrowserRuntimeTarget::Bgi {
-                    user32_policy,
-                    gdi32_policy,
-                    gdiplus_policy,
-                    ..
-                } = &self.target
-                {
-                    if should_emit_bgi_window_timer_callback_metadata(
-                        user32_policy.window_timer_delivery.is_some(),
-                        completion.implementation_id.as_str(),
-                        completion_policy,
-                    ) {
-                        metadata["windowTimer"] =
-                            json!(latest_delivered_window_timer(&self.runtime)?);
-                    }
-                    if let Some(gdi) =
-                        bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
-                    {
-                        metadata["gdi"] = gdi;
-                    }
-                    if let Some(gdiplus) =
-                        bgi_gdiplus_completion_metadata(&completion, &self.runtime, gdiplus_policy)?
-                    {
-                        metadata["gdiplus"] = gdiplus;
-                    }
-                }
-                Ok((metadata, delta))
+            vine_core::GuestCallbackReturn::Com(outcome) => {
+                self.com_outcome(outcome, GuestAddress(0))
             }
-            DispatchOutcome::GuestCallback(next) => {
-                let (prepared, semantic_action) = {
-                    let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
-                    let prepared = session
-                        .replace_guest_callback(&next, frame_id)
-                        .map_err(api_fault_string)?;
-                    let semantic_action = session
-                        .commit_guest_callback_semantics(completion_policy, result, &endpoint)
-                        .map_err(api_fault_string)?;
-                    (prepared, semantic_action)
-                };
-                let exception_continuation = semantic_action.is_none()
-                    && matches!(
-                        completion_policy,
-                        GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
-                    )
-                    && matches!(
-                        next.request.completion_policy,
-                        GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
-                    );
-                if !exception_continuation
-                    && !matches!(
-                        semantic_action,
-                        Some(
-                            vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
-                                vine_core::RuntimeWindowCreationCallbackAction::Continue { .. }
-                            )
-                        ) | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
-                            vine_core::RuntimeSetWindowPosCallbackAction::Continue { .. }
-                        )) | Some(
-                            vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(
-                                vine_core::RuntimeSetWindowPosDefaultCallbackAction::Continue { .. },
-                            )
-                        )
-                    )
-                {
-                    return Err(
-                        "replacement guest callback did not commit continuation semantics"
-                            .to_owned(),
-                    );
-                }
-                let callbacks = self
-                    .callbacks
-                    .get_mut(&thread_id)
-                    .ok_or_else(|| "callback replacement lost its thread stack".to_owned())?;
-                let depth = callbacks.len();
-                let active = callbacks
-                    .last_mut()
-                    .ok_or_else(|| "callback replacement lost its active frame".to_owned())?;
-                if active.frame_id != frame_id {
-                    return Err("callback adapter frame changed before replacement".to_owned());
-                }
-                *active = ActiveCallback {
-                    call: next.clone(),
-                    frame_id: prepared.frame_id,
-                    stack_pointer: prepared.stack_pointer,
-                };
-                let buffers = self.memory.pending_delta_binary().map_err(error_string)?;
-                let generation = self.memory.stats().generation;
+            vine_core::GuestCallbackReturn::Completed(completion) => {
+                let delta = self.pending_delta()?;
                 Ok((
-                    json!({
-                        "kind": "guest-callback",
-                        "frameId": prepared.frame_id.0,
-                        "replacedFrameId": frame_id.0,
-                        "depth": depth,
-                        "target": next.request.target.0,
-                        "allocationStart": prepared.allocation_start.0,
-                        "stackPointer": prepared.stack_pointer.0,
-                        "scratchAddress": prepared.scratch_address.0,
-                        "scratchBytes": prepared.scratch_bytes,
-                        "frameBytes": prepared.frame_bytes,
-                        "returnSentinel": next.request.return_sentinel.0,
-                        "generation": generation,
-                    }),
-                    Some(buffers),
+                    completion_metadata("callback-complete", &completion),
+                    delta,
+                    Vec::new(),
                 ))
             }
-            DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
-            DispatchOutcome::Deferred(_) => {
-                Err("callback completion produced a deferred outcome".to_owned())
+            vine_core::GuestCallbackReturn::Continue(prepared) => {
+                let metadata = json!({
+                    "kind": "guest-callback",
+                    "target": prepared.target.0,
+                    "stackPointer": prepared.stack_pointer.0,
+                    "returnSentinel": prepared.return_sentinel.0,
+                });
+                let buffers = self
+                    .runtime
+                    .memory_mut()
+                    .pending_delta_binary()
+                    .map_err(error_string)?;
+                Ok((metadata, Some(buffers), Vec::new()))
             }
+            vine_core::GuestCallbackReturn::DllCallback {
+                target,
+                stack_pointer,
+            } => Ok((
+                json!({"kind": "dll-attach-callback", "target": target.0, "stackPointer": stack_pointer.0}),
+                self.pending_delta()?,
+                Vec::new(),
+            )),
+            vine_core::GuestCallbackReturn::DllAttached => Ok((
+                json!({"kind": "dll-attach-complete"}),
+                self.pending_delta()?,
+                Vec::new(),
+            )),
         }
     }
 
@@ -3741,14 +2210,13 @@ impl BrowserRuntime {
         else {
             return Ok(json!({
                 "kind": "scheduler-idle",
+                "audioEndPending": self.runtime.has_browser_audio_end_pending(),
                 "previousThreadId": previous_thread_id.0,
             }));
         };
         Ok(json!({
             "kind": "thread-scheduled",
-            "previousThreadId": selection.previous_thread_id.0,
-            "threadId": selection.thread_id.0,
-            "scheduler": selection.state,
+            "threadId": selection.0,
         }))
     }
 
@@ -3757,62 +2225,49 @@ impl BrowserRuntime {
         exit_code: u32,
     ) -> Result<(Value, Option<vine_core::MemoryDeltaBuffers>), String> {
         let thread_id = self.runtime.current_thread_id();
-        let controlled = self
-            .controlled_guest_thread
-            .as_ref()
-            .filter(|controlled| controlled.thread_id == thread_id);
-        let marker_value = if let Some(controlled) = controlled {
-            if exit_code != controlled.expected_exit_code {
-                return Err(format!(
-                    "controlled guest thread returned {exit_code}, expected {}",
-                    controlled.expected_exit_code
-                ));
-            }
-            let marker_bytes = self
-                .memory
-                .read(controlled.marker_address, 4)
-                .map_err(error_string)?;
-            let marker_value = u32::from_le_bytes(
-                marker_bytes
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| "controlled thread marker length mismatch".to_owned())?,
-            );
-            if marker_value != controlled.marker_value {
-                return Err(format!(
-                    "controlled guest thread marker is {marker_value:#010x}, expected {:#010x}",
-                    controlled.marker_value
-                ));
-            }
-            Some(marker_value)
-        } else {
-            let thread = self.runtime.thread_state(thread_id).map_err(error_string)?;
-            if thread.guest_bootstrap.is_none() {
-                return Err("guest thread exit has no runtime bootstrap authority".to_owned());
-            }
-            None
-        };
-        let cancellation = self
+        let thread = self.runtime.thread_state(thread_id).map_err(error_string)?;
+        if thread.guest_bootstrap.is_none() {
+            return Err("guest thread exit has no runtime bootstrap authority".to_owned());
+        }
+        // A CPU-returned thread can discard queued messages, but must not retire
+        // a suspended browser request or callback behind the Worker's back.
+        if !self
             .runtime
-            .request_current_thread_exit(exit_code)
-            .map_err(error_string)?;
-        if cancellation.host_requests_cancelled != 0
-            || cancellation.callback_frames_cancelled != 0
-            || cancellation.wait_registrations_cancelled != 0
-            || cancellation.messages_discarded != 0
-            || cancellation.scheduler_events_discarded != 0
+            .scheduler_state_for_thread(thread_id)
+            .map_err(error_string)?
+            .is_executable()
+            || !thread.callback_frames.is_empty()
+            || self
+                .pending_host
+                .values()
+                .any(|pending| pending.thread_id == thread_id)
+            || self
+                .runtime
+                .scheduler()
+                .host_requests()
+                .values()
+                .any(|request| request.thread_id == thread_id)
+            || self
+                .runtime
+                .scheduler()
+                .wait_registrations()
+                .values()
+                .any(|registration| registration.thread_id == thread_id)
         {
-            return Err("controlled guest thread exit discarded pending work".to_owned());
+            return Err("guest thread returned with suspended browser or callback work".to_owned());
         }
         self.runtime
-            .complete_current_guest_thread_exit(&mut self.memory)
+            .request_current_thread_exit(exit_code)
+            .map_err(error_string)?;
+        self.runtime
+            .complete_current_guest_thread_exit()
             .map_err(error_string)?;
         acknowledge_thread_wakes(&mut self.runtime);
         let scheduler = self
             .runtime
             .scheduler_state_for_thread(thread_id)
             .map_err(error_string)?;
-        let mut metadata = json!({
+        let metadata = json!({
             "kind": "thread-exit",
             "threadId": thread_id.0,
             "exitCode": exit_code,
@@ -3820,279 +2275,323 @@ impl BrowserRuntime {
                 "state": "terminated",
                 "exitCode": match scheduler {
                     SchedulerThreadState::Terminated { exit_code } => exit_code,
-                    _ => return Err("controlled guest thread did not reach terminated scheduler state".to_owned()),
+                    _ => return Err("guest thread did not reach terminated scheduler state".to_owned()),
                 },
             },
         });
-        if let (Some(controlled), Some(marker_value)) = (controlled, marker_value) {
-            metadata["markerAddress"] = json!(controlled.marker_address.0);
-            metadata["markerValue"] = json!(marker_value);
-        }
-        let delta = if controlled.is_none() {
-            Some(self.memory.pending_delta_binary().map_err(error_string)?)
-        } else {
-            None
-        };
-        Ok((metadata, delta))
-    }
-
-    fn cancel(&mut self, exit_code: u32) -> Result<Value, String> {
-        self.pending_host.clear();
-        self.callbacks.clear();
-        if matches!(&self.target, BrowserRuntimeTarget::ControlledFixture)
-            && self.runtime.current_thread_id() != RuntimeThreadId(THREAD_ID)
-            && self
-                .runtime
-                .thread_state(RuntimeThreadId(THREAD_ID))
-                .is_ok_and(|thread| {
-                    thread.lifecycle == vine_core::RuntimeThreadLifecycleState::Running
-                })
-        {
-            self.runtime
-                .select_thread(RuntimeThreadId(THREAD_ID))
-                .map_err(error_string)?;
-        }
-        let cancellation = if matches!(&self.target, BrowserRuntimeTarget::Bgi { .. }) {
-            if self.runtime.dll_lifecycle_phase() == RuntimeDllLifecyclePhase::ProcessAttached {
-                match self
-                    .runtime
-                    .begin_dll_process_detach(self.callback_sentinel)
-                    .map_err(error_string)?
-                {
-                    RuntimeDllLifecycleAction::Complete { completion }
-                        if completion.phase == RuntimeDllLifecyclePhase::ProcessDetached
-                            && completion.callback_order.is_empty() => {}
-                    _ => {
-                        return Err(
-                            "BGI cancellation did not complete callback-free detach".to_owned()
-                        );
-                    }
-                }
-            }
-            let cancellation = self
-                .runtime
-                .request_current_process_exit(exit_code)
-                .map_err(error_string)?;
-            ExecutionSession::new(&mut self.memory, &mut self.runtime)
-                .teardown_process_heaps()
-                .map_err(error_string)?;
-            self.runtime
-                .complete_current_process_exit()
-                .map_err(error_string)?;
-            cancellation
-        } else {
-            self.runtime
-                .terminate_current_process(exit_code)
-                .map_err(error_string)?
-        };
-        Ok(json!({
-            "kind": "cancelled",
-            "cancellation": cancellation,
-            "processLifecycle": self.runtime.process().lifecycle(),
-            "dllLifecycle": self.runtime.dll_lifecycle_phase(),
-            "pendingHostCalls": self.pending_host.len(),
-            "pendingCallbacks": self.pending_callback_count(),
-        }))
-    }
-
-    fn finish(&mut self, exit_code: u32) -> Result<Value, String> {
-        if !self.pending_host.is_empty() || self.pending_callback_count() != 0 {
-            return Err("process exit has suspended host or callback work".to_owned());
-        }
-        if let Some(controlled) = &self.controlled_guest_thread {
-            if self.runtime.current_thread_id() == controlled.thread_id {
-                return Err(
-                    "controlled process exit cannot originate from the additional thread"
-                        .to_owned(),
-                );
-            }
-            if self
-                .runtime
-                .scheduler_state_for_thread(controlled.thread_id)
-                .map_err(error_string)?
-                != (SchedulerThreadState::Terminated {
-                    exit_code: controlled.expected_exit_code,
-                })
-            {
-                return Err(
-                    "controlled process exit preceded additional thread completion".to_owned(),
-                );
-            }
-        }
-        let termination = self
+        let delta = self
             .runtime
-            .terminate_current_process(exit_code)
+            .memory_mut()
+            .pending_delta_binary()
             .map_err(error_string)?;
-        if termination.host_requests_cancelled != 0
-            || termination.callback_frames_cancelled != 0
-            || termination.wait_registrations_cancelled != 0
-            || termination.messages_discarded != 0
-        {
-            return Err("clean process exit discarded runtime work".to_owned());
-        }
-        Ok(json!({
-            "kind": "process-exit",
-            "exitCode": exit_code,
-            "entrySentinel": self.entry_sentinel.0,
-            "stackTop": self.stack.stack_top.0,
-            "pendingHostCalls": 0,
-            "pendingCallbacks": 0,
-        }))
-    }
-
-    fn pending_callback_count(&self) -> usize {
-        self.callbacks.values().map(Vec::len).sum()
+        Ok((metadata, Some(delta)))
     }
 }
 
-fn mapping_operation_name(operation: &MappingOperation) -> &'static str {
-    match operation {
-        MappingOperation::Reserve { .. } => "reserve",
-        MappingOperation::Commit { .. } => "commit",
-        MappingOperation::Protect { .. } => "protect",
-        MappingOperation::Decommit { .. } => "decommit",
-        MappingOperation::Release { .. } => "release",
-    }
+fn browser_memory_sync(memory: &GuestMemory) -> Value {
+    let state = memory.synchronization_state();
+    json!({ "generation": state.generation, "acknowledgedGeneration": state.acknowledged_generation })
+}
+
+fn browser_memory_regions(memory: &GuestMemory) -> Vec<Value> {
+    memory.regions().map(|region| {
+        let kind = match region.kind {
+            MemoryRegionKind::Image => "image",
+            MemoryRegionKind::Stack => "stack",
+            MemoryRegionKind::ThreadEnvironmentBlock => "thread-environment-block",
+            MemoryRegionKind::ProcessEnvironmentBlock => "process-environment-block",
+            MemoryRegionKind::ProcessParameters => "process-parameters",
+            MemoryRegionKind::CommandLine => "command-line",
+            MemoryRegionKind::Heap => "heap",
+            MemoryRegionKind::Anonymous => "anonymous",
+            MemoryRegionKind::Runtime => "runtime",
+            MemoryRegionKind::Surface => "surface",
+            MemoryRegionKind::GraphicsResource => "graphics-resource",
+            MemoryRegionKind::AudioResource => "audio-resource",
+            MemoryRegionKind::GdiResource => "gdi-resource",
+        };
+        let mut value = json!({
+            "owner": region.owner.0,
+            "kind": kind,
+            "range": { "start": region.range.start().0, "byteLength": region.range.byte_length() },
+        });
+        if let Some(id) = region.address_allocation_id {
+            value["addressAllocationId"] = json!(id);
+        }
+        value
+    }).collect()
+}
+
+fn runtime_system_module(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "kernel32.dll"
+            | "user32.dll"
+            | "gdi32.dll"
+            | "gdiplus.dll"
+            | "imm32.dll"
+            | "shell32.dll"
+            | "comdlg32.dll"
+            | "advapi32.dll"
+            | "wininet.dll"
+            | "ole32.dll"
+            | "d3d9.dll"
+            | "dinput8.dll"
+            | "dsound.dll"
+            | "winmm.dll"
+    )
+}
+
+fn guest_import_names(loader: &vine_core::Pe32LoadPlan) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    loader
+        .imports
+        .iter()
+        .filter(|module| !runtime_system_module(&module.name))
+        .filter(|module| seen.insert(module.name.to_ascii_lowercase()))
+        .map(|module| module.name.clone())
+        .collect()
 }
 
 fn runtime_catalog_for_load_plan(
-    loader: &vine_core::LoaderIngressReport,
+    loaders: &[&vine_core::Pe32LoadPlan],
 ) -> Result<RuntimeExportCatalog, String> {
     let mut keys = BTreeSet::new();
     let mut exports = Vec::new();
-    for module in &loader.load_plan.imports {
+    for module in loaders.iter().flat_map(|loader| &loader.imports) {
+        if !runtime_system_module(&module.name) {
+            continue;
+        }
         for symbol in &module.symbols {
-            let key = match &symbol.target {
+            let export = match &symbol.target {
                 ImportTarget::Name { name, .. } => {
-                    format!("{}!name:{name}", module.name.to_ascii_lowercase())
+                    RuntimeExport::named(module.name.to_ascii_lowercase(), name.clone())
                 }
                 ImportTarget::Ordinal { ordinal } => {
-                    format!("{}!ordinal:{ordinal}", module.name.to_ascii_lowercase())
+                    RuntimeExport::ordinal(module.name.to_ascii_lowercase(), *ordinal)
                 }
             };
-            if !keys.insert(key) {
-                continue;
+            if keys.insert(export.clone()) {
+                exports.push(export);
             }
-            exports.push(match &symbol.target {
-                ImportTarget::Name { name, .. } => {
-                    RuntimeExport::named(module.name.clone(), name.clone())
-                }
-                ImportTarget::Ordinal { ordinal } => {
-                    RuntimeExport::ordinal(module.name.clone(), *ordinal)
-                }
-            });
         }
     }
     RuntimeExportCatalog::new(exports).map_err(error_string)
 }
 
-fn prepare_bgi_runtime_process(
-    memory: &mut GuestMemory,
-    loader: &vine_core::LoaderIngressReport,
+fn guest_image_load_base(
+    memory: &GuestMemory,
+    preferred: u32,
+    size_of_image: u32,
+) -> Result<GuestAddress, String> {
+    let length = u64::from(size_of_image);
+    let available = |base: u32| {
+        let start = u64::from(base);
+        let Some(end) = start.checked_add(length) else {
+            return false;
+        };
+        let thread_stacks = u64::from(vine_core::RUNTIME_GUEST_THREAD_STACK_ARENA_BASE.0);
+        start >= 0x0001_0000
+            && base.is_multiple_of(0x1_0000)
+            && length != 0
+            && end <= 0x7fff_0000
+            && ![
+                (0x0100_0000_u64, 0x1000_0000_u64),
+                (0x2000_0000, 0x4e00_0000),
+                // Import/callback/export pages, thread environments and callback scratch.
+                (0x7f00_0000, 0x7fc8_0000),
+                (
+                    thread_stacks,
+                    thread_stacks + vine_core::RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
+                ),
+            ]
+            .iter()
+            .any(|&(left, right)| start < right && left < end)
+            && memory
+                .regions()
+                .all(|region| start >= region.range.end() || region.range.start().0 as u64 >= end)
+    };
+    if available(preferred) {
+        return Ok(GuestAddress(preferred));
+    }
+    // Leave the entire guest thread-stack arena free even before any thread exists.
+    for slot in 0..16_u32 {
+        let base = 0x6000_0000 + slot * 0x0100_0000;
+        if available(base) {
+            return Ok(GuestAddress(base));
+        }
+    }
+    Err("no free PE32 guest image range outside runtime-owned memory".to_owned())
+}
+
+fn virtual_executable_path(relative_path: &str) -> Result<Vec<u8>, String> {
+    let mut path = b"C:\\Vine\\".to_vec();
+    for component in relative_path.split(['\\', '/']) {
+        if component.is_empty()
+            || component.encode_utf16().count() > 255
+            || component == "."
+            || component == ".."
+            || component.ends_with([' ', '.'])
+            || component
+                .chars()
+                .any(|c| c.is_control() || ":*?\"<>|".contains(c))
+        {
+            return Err("selected executable path is not a Windows relative path".to_owned());
+        }
+        let (encoded, _, had_errors) = SHIFT_JIS.encode(component);
+        if had_errors {
+            return Err("selected executable path is not representable in Windows-932".to_owned());
+        }
+        // A Windows-932 trail byte may be 0x5c, but an encoded Yen sign
+        // must not become an unescaped separator in the virtual DOS path.
+        let mut index = 0;
+        while index < encoded.len() {
+            let byte = encoded[index];
+            if (0x81..=0x9f).contains(&byte) || (0xe0..=0xfc).contains(&byte) {
+                index += 2;
+            } else {
+                if matches!(byte, b'\\' | b'/' | b':') {
+                    return Err("selected executable path encodes a separator".to_owned());
+                }
+                index += 1;
+            }
+        }
+        path.extend_from_slice(&encoded);
+        path.push(b'\\');
+        if path.len() > vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES {
+            return Err("selected executable path exceeds the DOS path limit".to_owned());
+        }
+    }
+    path.pop();
+    path.push(0);
+    Ok(path)
+}
+
+#[allow(clippy::too_many_arguments)] // The existing bootstrap still carries separate loader and process state.
+fn prepare_executable_runtime_process(
+    memory: GuestMemory,
+    loader: &vine_core::Pe32LoadPlan,
     materialization: &vine_core::ImageMaterialization,
+    source_dlls: &[MappedSourceDll],
     runtime_catalog: &RuntimeExportCatalog,
-    clock_profile: Option<vine_core::RuntimeClockProfile>,
     encoded_pointer_cookie: u32,
-) -> Result<BgiRuntimeProcess, String> {
-    let mut runtime = controlled_bgi_runtime_state(clock_profile, encoded_pointer_cookie)?;
-    let mut module_handles = vec![BGI_KERNEL32_HANDLE];
+    executable_name: &str,
+    virtual_image_path: Vec<u8>,
+) -> Result<PreparedExecutableProcess, String> {
+    let mut runtime =
+        controlled_executable_runtime_state(memory, encoded_pointer_cookie, virtual_image_path)?;
+    let mut module_handles = vec![SYSTEM_KERNEL32_HANDLE];
     let mut canonical_modules = BTreeSet::from(["kernel32.dll".to_owned()]);
     let mut next_module_slot = 2_u16;
-    for imported in &loader.load_plan.imports {
+    for imported in std::iter::once(loader)
+        .chain(source_dlls.iter().map(|dll| &dll.source.loader))
+        .flat_map(|loader| &loader.imports)
+    {
         let canonical_name = imported.name.to_ascii_lowercase();
         if !canonical_modules.insert(canonical_name.clone()) {
             continue;
         }
-        let handle = bgi_module_handle(next_module_slot)?;
+        let handle = executable_module_handle(next_module_slot)?;
         next_module_slot = next_module_slot
             .checked_add(1)
-            .ok_or_else(|| "BGI runtime module handle slots are exhausted".to_owned())?;
+            .ok_or_else(|| "runtime module handle slots are exhausted".to_owned())?;
         runtime
             .load_module(RuntimeModule {
-                owner: "bgi-browser-runtime".to_owned(),
-                variant_id: "runtime-system-import-v1".to_owned(),
-                namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
                 handle,
                 requested_name: imported.name.clone(),
                 canonical_name,
-                runtime_system_module: true,
+                runtime_system_module: runtime_system_module(&imported.name),
             })
             .map_err(error_string)?;
         module_handles.push(handle);
     }
-    let main_module_handle = bgi_module_handle(next_module_slot)?;
+    let main_module_handle = executable_module_handle(next_module_slot)?;
     runtime
         .register_main_module(RuntimeModule {
-            owner: "bgi-browser-runtime".to_owned(),
-            variant_id: "mapped-main-executable-v1".to_owned(),
-            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
             handle: main_module_handle,
-            requested_name: "BGI.exe".to_owned(),
-            canonical_name: "bgi.exe".to_owned(),
+            requested_name: executable_name.to_owned(),
+            canonical_name: executable_name.to_ascii_lowercase(),
             runtime_system_module: false,
         })
         .map_err(error_string)?;
     module_handles.push(main_module_handle);
-    let binding = ExecutionSession::new(memory, &mut runtime)
+    let mut dll_bindings = Vec::new();
+    let mut bound_names = BTreeSet::new();
+    while bound_names.len() < source_dlls.len() {
+        let Some(dll) = source_dlls.iter().find(|dll| {
+            !bound_names.contains(&dll.source.name.to_ascii_lowercase())
+                && guest_import_names(&dll.source.loader)
+                    .iter()
+                    .all(|dependency| bound_names.contains(&dependency.to_ascii_lowercase()))
+        }) else {
+            return Err(
+                "circular source DLL imports require a loader cycle implementation".to_owned(),
+            );
+        };
+        let name = dll.source.name.to_ascii_lowercase();
+        let handle = runtime
+            .module_by_name(&name)
+            .map_err(error_string)?
+            .ok_or_else(|| format!("registered source DLL {name} is missing"))?
+            .handle;
+        let binding = runtime
+            .bind_guest_module_imports(handle, &dll.source.loader, &dll.image, runtime_catalog)
+            .map_err(error_string)?;
+        runtime
+            .register_module_image(handle, &dll.source.loader, &dll.image)
+            .map_err(error_string)?;
+        dll_bindings.push(binding);
+        bound_names.insert(name);
+    }
+    let binding = runtime
         .bind_guest_module_imports(main_module_handle, loader, materialization, runtime_catalog)
         .map_err(error_string)?;
-    ExecutionSession::new(memory, &mut runtime)
+    runtime
         .register_module_image(main_module_handle, loader, materialization)
         .map_err(error_string)?;
-    Ok(BgiRuntimeProcess {
+    Ok(PreparedExecutableProcess {
         runtime,
         binding,
+        dll_bindings,
         module_handles,
-        attach_order: Vec::new(),
     })
 }
 
-fn controlled_bgi_runtime_state(
-    clock_profile: Option<vine_core::RuntimeClockProfile>,
+fn controlled_executable_runtime_state(
+    memory: GuestMemory,
     encoded_pointer_cookie: u32,
-) -> Result<RuntimeState, String> {
+    virtual_image_path: Vec<u8>,
+) -> Result<Runtime, String> {
     let mut startup_info = vec![0; 68];
     startup_info[..4].copy_from_slice(&68_u32.to_le_bytes());
-    let mut runtime = RuntimeState::new(RuntimeBootstrap {
-        process_id: RuntimeProcessId(PROCESS_ID),
-        initial_thread_id: RuntimeThreadId(THREAD_ID),
-        initial_last_error: 87,
-        address_space: ProcessAddressSpaceLayout::vine_v1(),
-        clock: RuntimeClockState {
-            wall_clock_file_time: 134_282_016_000_000_000,
-            tick_count: 3_600_000,
-            performance_counter: 12_345_678_901,
-            performance_frequency: 10_000_000,
+    let mut runtime = Runtime::new(
+        RuntimeBootstrap {
+            process_id: RuntimeProcessId(PROCESS_ID),
+            initial_thread_id: RuntimeThreadId(THREAD_ID),
+            initial_last_error: 87,
+            clock: RuntimeClockState {
+                wall_clock_file_time: 134_282_016_000_000_000,
+                tick_count: 3_600_000,
+                performance_counter: 12_345_678_901,
+                performance_frequency: 10_000_000,
+            },
+            startup_info: RuntimeStartupInfo {
+                bytes: startup_info,
+            },
+            process_image_path_a: vine_core::RuntimeProcessImagePathA {
+                bytes_with_nul: virtual_image_path,
+            },
+            initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
+                bytes_with_nul: b"C:\\Vine\0".to_vec(),
+            },
+            encoded_pointer_cookie,
         },
-        startup_info: RuntimeStartupInfo {
-            profile_id: "startupinfow-v68-zero-optional-fields".to_owned(),
-            bytes: startup_info,
-        },
-        process_image_path_a: vine_core::RuntimeProcessImagePathA {
-            source_authority: "browser-private-executable-virtual-path".to_owned(),
-            bytes_with_nul: b"C:\\Vine\\BGI.exe\0".to_vec(),
-            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
-        },
-        initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
-            source_authority: "browser-private-process-bootstrap".to_owned(),
-            bytes_with_nul: b"C:\\Vine\0".to_vec(),
-            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
-        },
-        encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_cookie,
-    })
+        memory,
+    )
     .map_err(error_string)?;
-    if let Some(clock_profile) = clock_profile {
-        runtime
-            .configure_clock_profile(clock_profile)
-            .map_err(error_string)?;
-    }
     runtime
         .load_module(RuntimeModule {
-            owner: "runtime-loaded-modules".to_owned(),
-            variant_id: "runtime-system-module-v1".to_owned(),
-            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
-            handle: BGI_KERNEL32_HANDLE,
+            handle: SYSTEM_KERNEL32_HANDLE,
             requested_name: "KERNEL32.DLL".to_owned(),
             canonical_name: "kernel32.dll".to_owned(),
             runtime_system_module: true,
@@ -4102,18 +2601,18 @@ fn controlled_bgi_runtime_state(
     Ok(runtime)
 }
 
-fn bgi_module_handle(slot: u16) -> Result<u32, String> {
+fn executable_module_handle(slot: u16) -> Result<u32, String> {
     if slot == 0 {
-        return Err("BGI runtime module handle slot cannot be zero".to_owned());
+        return Err("runtime module handle slot cannot be zero".to_owned());
     }
     Ok(0x4d01_0000 | u32::from(slot))
 }
 
-fn finalize_bgi_runtime_process(
-    process: &mut BgiRuntimeProcess,
+fn finalize_executable_runtime_process(
+    process: &mut PreparedExecutableProcess,
     dynamic_thunks: &[vine_core::DynamicExportThunk],
     callback_return_sentinel: GuestAddress,
-) -> Result<(), String> {
+) -> Result<RuntimeDllLifecycleAction, String> {
     for thunk in dynamic_thunks {
         process
             .runtime
@@ -4126,395 +2625,20 @@ fn finalize_bgi_runtime_process(
             .mark_module_ready(*handle)
             .map_err(error_string)?;
     }
-    let completion = match process
+    let action = process
         .runtime
         .begin_dll_process_attach(callback_return_sentinel)
-        .map_err(error_string)?
+        .map_err(error_string)?;
+    if let RuntimeDllLifecycleAction::Complete { phase } = &action
+        && *phase != RuntimeDllLifecyclePhase::ProcessAttached
     {
-        RuntimeDllLifecycleAction::Complete { completion } => completion,
-        RuntimeDllLifecycleAction::Callback { .. } => {
-            return Err("BGI system-module graph unexpectedly requested DllMain".to_owned());
-        }
-        RuntimeDllLifecycleAction::AttachFailed { .. } => {
-            return Err("BGI system-module graph failed process attach".to_owned());
-        }
-    };
-    if completion.phase != RuntimeDllLifecyclePhase::ProcessAttached
-        || !completion.callback_order.is_empty()
-    {
-        return Err("BGI system-module graph did not complete callback-free attach".to_owned());
+        return Err("module graph did not complete process attach".to_owned());
     }
-    process.attach_order = completion.graph_order;
-    Ok(())
-}
-
-fn build_bgi_dispatcher(
-    process: &BgiRuntimeProcess,
-    kernel32_policy: &Kernel32CompatibilityPolicy,
-    set_rect_enabled: bool,
-    user32_async_key_state_initial_scan_enabled: bool,
-    user32_message_dispatch_enabled: bool,
-) -> Result<BgiDispatcher, String> {
-    let mut endpoints = process
-        .binding
-        .imports
-        .iter()
-        .filter_map(ApiEndpointIdentity::from_runtime_guest_import)
-        .collect::<Vec<_>>();
-    if endpoints.len() != process.binding.imports.len() {
-        return Err("BGI browser binding contains a non-runtime endpoint".to_owned());
-    }
-    let mut contracts = endpoints
-        .iter()
-        .filter(|endpoint| {
-            let vine_core::ApiSymbol::Name { name } = &endpoint.symbol else {
-                return true;
-            };
-            match name.as_str() {
-                "GetCommandLineA" => kernel32_policy.allows_ansi_command_line(),
-                "GetEnvironmentStringsW" | "FreeEnvironmentStringsW" => {
-                    kernel32_policy.allows_wide_environment_strings()
-                }
-                "WideCharToMultiByte" => kernel32_policy.wide_char_to_multi_byte().is_some(),
-                "MultiByteToWideChar" => kernel32_policy.multi_byte_to_wide_char().is_some(),
-                "GetStringTypeW" => kernel32_policy.get_string_type_w().is_some(),
-                "LCMapStringW" => kernel32_policy.lc_map_string_w().is_some(),
-                "GetCPInfo" => kernel32_policy.active_code_page_info().is_some(),
-                "LoadLibraryA" => kernel32_policy.load_library_a().is_some(),
-                "Sleep" => kernel32_policy.allows_sleep_zero(),
-                "GlobalMemoryStatus" => kernel32_policy.memory_status().is_some(),
-                "FindFirstFileA" | "FindNextFileA" | "FindClose" => {
-                    kernel32_policy.find_file_a().is_some()
-                }
-                "DeleteFileA" => kernel32_policy.delete_file_a().is_some(),
-                "SetRect" => set_rect_enabled,
-                "GetWindowRect" | "GetCursorPos" => user32_async_key_state_initial_scan_enabled,
-                "TranslateMessage" | "DispatchMessageA" => user32_message_dispatch_enabled,
-                _ => true,
-            }
-        })
-        .filter_map(|endpoint| bgi_contract_for_endpoint(endpoint.clone()).transpose())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(api_fault_string)?;
-    for name in ["FlsAlloc", "FlsGetValue", "FlsSetValue", "FlsFree"] {
-        let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(
-            process
-                .runtime
-                .dynamic_endpoint_by_name("kernel32.dll", name)
-                .map_err(error_string)?,
-        );
-        if matches!(name, "FlsAlloc" | "FlsGetValue" | "FlsSetValue") {
-            let contract = kernel32_contract_for_endpoint(endpoint.clone())
-                .map_err(api_fault_string)?
-                .ok_or_else(|| format!("BGI dynamic endpoint {name} has no Kernel32 contract"))?;
-            contracts.push(contract);
-        }
-        endpoints.push(endpoint);
-    }
-    if let Some(loader) = kernel32_policy.load_library_a() {
-        for module in &loader.runtime_system_modules {
-            for export in &module.exports {
-                endpoints.push(ApiEndpointIdentity::from_dynamic_endpoint(
-                    process
-                        .runtime
-                        .dynamic_endpoint_by_name(&module.canonical_name, export)
-                        .map_err(error_string)?,
-                ));
-            }
-        }
-    }
-    let mut routes = BTreeMap::new();
-    for endpoint in &endpoints {
-        let argument_bytes = contracts
-            .iter()
-            .find(|contract| contract.endpoint == *endpoint)
-            .map(|contract| contract.abi.argument_bytes().map_err(api_fault_string))
-            .transpose()?
-            .unwrap_or(0);
-        routes.insert(
-            endpoint.address,
-            EndpointRoute {
-                id: endpoint.id.0,
-                argument_bytes,
-                endpoint: endpoint.clone(),
-            },
-        );
-    }
-    let dispatcher = ApiDispatcher::new(endpoints.clone(), contracts).map_err(api_fault_string)?;
-    Ok((dispatcher, routes, endpoints))
-}
-
-fn bgi_contract_for_endpoint(
-    endpoint: ApiEndpointIdentity,
-) -> Result<Option<ApiContract>, ApiFault> {
-    if let Some(contract) = kernel32_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = user32_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = shell32_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = gdi32_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = gdiplus_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = imm32_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = ole32_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = d3d9_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = dinput8_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    if let Some(contract) = dsound_contract_for_endpoint(endpoint.clone())? {
-        return Ok(Some(contract));
-    }
-    winmm_contract_for_endpoint(endpoint)
-}
-
-fn runtime_capability_cluster(endpoint: &ApiEndpointIdentity) -> String {
-    let module = endpoint.module.to_ascii_lowercase();
-    match &endpoint.symbol {
-        vine_core::ApiSymbol::Name { name }
-            if module == "kernel32.dll"
-                && matches!(name.as_str(), "EncodePointer" | "DecodePointer") =>
-        {
-            "kernel32-pointer-encoding".to_owned()
-        }
-        vine_core::ApiSymbol::Name { name }
-            if module == "kernel32.dll" && name.starts_with("Fls") =>
-        {
-            "kernel32-fiber-local-storage".to_owned()
-        }
-        vine_core::ApiSymbol::Name { name }
-            if module == "kernel32.dll" && name.contains("CriticalSection") =>
-        {
-            "kernel32-critical-section-synchronization".to_owned()
-        }
-        vine_core::ApiSymbol::Name { name }
-            if module == "kernel32.dll" && matches!(name.as_str(), "HeapAlloc" | "HeapFree") =>
-        {
-            "kernel32-private-heap-allocation".to_owned()
-        }
-        _ => format!("{}-api-contract", module.trim_end_matches(".dll")),
-    }
-}
-
-fn direct_fixture_export_address(
-    loader: &vine_core::LoaderIngressReport,
-    name: &str,
-) -> Result<GuestAddress, String> {
-    let exports = loader
-        .load_plan
-        .exports
-        .as_ref()
-        .ok_or_else(|| "browser fixture has no export directory".to_owned())?;
-    let symbol = exports
-        .symbols
-        .iter()
-        .find(|symbol| symbol.names.iter().any(|candidate| candidate == name))
-        .ok_or_else(|| format!("browser fixture export {name} is missing"))?;
-    let ExportTarget::Address { rva } = &symbol.target else {
-        return Err(format!("browser fixture export {name} is forwarded"));
-    };
-    LOAD_BASE
-        .0
-        .checked_add(rva.0)
-        .map(GuestAddress)
-        .ok_or_else(|| format!("browser fixture export {name} address overflowed"))
-}
-
-fn build_dispatcher(
-    binding: &ImportBinding,
-) -> Result<(ApiDispatcher, BTreeMap<GuestAddress, EndpointRoute>), String> {
-    let endpoints = binding
-        .thunks
-        .iter()
-        .map(ApiEndpointIdentity::from_import_thunk)
-        .collect::<Vec<_>>();
-    let mut contracts = Vec::with_capacity(endpoints.len());
-    let mut routes = BTreeMap::new();
-    for endpoint in &endpoints {
-        if let Some(contract) =
-            d3d9_contract_for_endpoint(endpoint.clone()).map_err(api_fault_string)?
-        {
-            routes.insert(
-                endpoint.address,
-                EndpointRoute {
-                    id: endpoint.id.0,
-                    argument_bytes: contract.abi.argument_bytes().map_err(api_fault_string)?,
-                    endpoint: endpoint.clone(),
-                },
-            );
-            contracts.push(contract);
-            continue;
-        }
-        let name = match &endpoint.symbol {
-            vine_core::ApiSymbol::Name { name } => name.as_str(),
-            vine_core::ApiSymbol::Ordinal { .. } => {
-                return Err("browser fixture imports must be named".to_owned());
-            }
-        };
-        let (implementation, behavior, callback_policy, arguments) = match name {
-            "fixture_deferred_add" => (
-                DEFERRED_ADD,
-                ApiBehavior::Deferred,
-                CallbackPolicy::Forbidden,
-                vec![u32_argument("left"), u32_argument("right")],
-            ),
-            "fixture_call_callback" => (
-                CALL_CALLBACK,
-                ApiBehavior::Immediate,
-                CallbackPolicy::Required,
-                vec![callback_argument("callback"), u32_argument("value")],
-            ),
-            "fixture_commit_outputs" => (
-                COMMIT_OUTPUTS,
-                ApiBehavior::Deferred,
-                CallbackPolicy::Forbidden,
-                vec![
-                    u32_argument("rgba"),
-                    u32_argument("toneHz"),
-                    u32_argument("persistentByte"),
-                ],
-            ),
-            _ => return Err(format!("unsupported browser fixture import {name}")),
-        };
-        let contract = ApiContract {
-            endpoint: endpoint.clone(),
-            abi: AbiSchema {
-                calling_convention: CallingConvention::Cdecl,
-                arguments,
-                return_value: ApiReturnSchema::U32,
-                stack_cleanup: StackCleanup::Caller,
-            },
-            last_error_policy: LastErrorPolicy::Preserve,
-            reentrancy_policy: ReentrancyPolicy::Allowed,
-            behavior,
-            callback_policy,
-            implementation_id: implementation.to_owned(),
-        };
-        routes.insert(
-            endpoint.address,
-            EndpointRoute {
-                id: endpoint.id.0,
-                argument_bytes: contract.abi.argument_bytes().map_err(api_fault_string)?,
-                endpoint: endpoint.clone(),
-            },
-        );
-        contracts.push(contract);
-    }
-    let dispatcher = ApiDispatcher::new(endpoints, contracts).map_err(api_fault_string)?;
-    Ok((dispatcher, routes))
-}
-
-fn build_source_read_dispatcher(
-    binding: &ImportBinding,
-) -> Result<(ApiDispatcher, BTreeMap<GuestAddress, EndpointRoute>), String> {
-    let endpoints = binding
-        .thunks
-        .iter()
-        .map(ApiEndpointIdentity::from_import_thunk)
-        .collect::<Vec<_>>();
-    let mut contracts = Vec::with_capacity(endpoints.len());
-    let mut routes = BTreeMap::new();
-    for endpoint in &endpoints {
-        let contract = kernel32_contract_for_endpoint(endpoint.clone())
-            .map_err(api_fault_string)?
-            .ok_or_else(|| {
-                "controlled source fixture import has no Kernel32 contract".to_owned()
-            })?;
-        routes.insert(
-            endpoint.address,
-            EndpointRoute {
-                id: endpoint.id.0,
-                argument_bytes: contract.abi.argument_bytes().map_err(api_fault_string)?,
-                endpoint: endpoint.clone(),
-            },
-        );
-        contracts.push(contract);
-    }
-    let dispatcher = ApiDispatcher::new(endpoints, contracts).map_err(api_fault_string)?;
-    Ok((dispatcher, routes))
-}
-
-fn u32_argument(name: &str) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::U32,
-    }
-}
-
-fn callback_argument(name: &str) -> ApiArgumentSchema {
-    ApiArgumentSchema {
-        name: name.to_owned(),
-        direction: ApiDirection::In,
-        value: ApiValueSchema::OpaquePointer {
-            nullable: false,
-            alignment: 1,
-        },
-    }
-}
-
-fn controlled_runtime_state(encoded_pointer_cookie: u32) -> Result<RuntimeState, String> {
-    controlled_runtime_state_with_clock_profile(None, encoded_pointer_cookie)
-}
-
-fn controlled_runtime_state_with_clock_profile(
-    clock_profile: Option<vine_core::RuntimeClockProfile>,
-    encoded_pointer_cookie: u32,
-) -> Result<RuntimeState, String> {
-    let mut startup_info = vec![0; 68];
-    startup_info[..4].copy_from_slice(&68_u32.to_le_bytes());
-    let mut runtime = RuntimeState::new(RuntimeBootstrap {
-        process_id: RuntimeProcessId(PROCESS_ID),
-        initial_thread_id: RuntimeThreadId(THREAD_ID),
-        initial_last_error: 0,
-        address_space: ProcessAddressSpaceLayout::vine_v1(),
-        clock: RuntimeClockState {
-            wall_clock_file_time: 134_282_016_000_000_000,
-            tick_count: 3_600_000,
-            performance_counter: 12_345_678_901,
-            performance_frequency: 10_000_000,
-        },
-        startup_info: RuntimeStartupInfo {
-            profile_id: "browser-vertical-startup-v1".to_owned(),
-            bytes: startup_info,
-        },
-        process_image_path_a: vine_core::RuntimeProcessImagePathA {
-            source_authority: "browser-fixture-virtual-path".to_owned(),
-            bytes_with_nul: b"C:\\Vine\\browser-vertical.exe\0".to_vec(),
-            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
-        },
-        initial_current_directory_a: vine_core::RuntimeCurrentDirectoryA {
-            source_authority: "browser-fixture-process-bootstrap".to_owned(),
-            bytes_with_nul: b"C:\\Vine\0".to_vec(),
-            encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
-        },
-        encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_cookie,
-    })
-    .map_err(error_string)?;
-    if let Some(clock_profile) = clock_profile {
-        runtime
-            .configure_clock_profile(clock_profile)
-            .map_err(error_string)?;
-    }
-    runtime.start_initial_thread().map_err(error_string)?;
-    Ok(runtime)
+    Ok(action)
 }
 
 fn control_mapping_allocation(
-    runtime: &RuntimeState,
+    runtime: &Runtime,
     purpose: ProcessAddressAllocationPurpose,
 ) -> Result<ProcessAddressAllocationRecord, String> {
     runtime
@@ -4524,904 +2648,32 @@ fn control_mapping_allocation(
         .map_err(error_string)
 }
 
+fn cpu_resume_metadata(completion: &ApiImmediateCompletion) -> Value {
+    let mut resume = json!({
+        "instructionPointer": completion.instruction_pointer.0,
+        "stackPointer": completion.stack_pointer.0,
+        "eax": completion.eax,
+    });
+    match completion.execution_boundary {
+        vine_core::RuntimeApiBoundaryDisposition::ContinueQuantum => {}
+        vine_core::RuntimeApiBoundaryDisposition::YieldCurrentThread => {
+            resume["executionBoundary"] = json!("yield-current-thread");
+        }
+        vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread => {
+            resume["executionBoundary"] = json!("block-current-thread");
+        }
+        vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread => {
+            resume["executionBoundary"] = json!("terminate-current-thread");
+        }
+    }
+    resume
+}
+
 fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value {
     json!({
         "kind": kind,
-        "completion": completion,
+        "completion": cpu_resume_metadata(completion),
     })
-}
-
-fn latest_delivered_window_timer(
-    runtime: &RuntimeState,
-) -> Result<vine_core::RuntimeWindowTimer, String> {
-    runtime
-        .window_timers()
-        .values()
-        .filter_map(|timer| {
-            timer
-                .last_delivery
-                .map(|delivery| (delivery.delivered_at_time_100ns, timer.id, *timer))
-        })
-        .max_by_key(|(delivered_at_time_100ns, timer_id, _)| (*delivered_at_time_100ns, *timer_id))
-        .map(|(_, _, timer)| timer)
-        .ok_or_else(|| {
-            "window-timer callback completion has no delivered Rust timer state".to_owned()
-        })
-}
-
-fn should_emit_bgi_window_timer_callback_metadata(
-    window_timer_delivery_enabled: bool,
-    implementation_id: &str,
-    completion_policy: GuestCallbackCompletionPolicy,
-) -> bool {
-    window_timer_delivery_enabled
-        && implementation_id == vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION
-        && matches!(
-            completion_policy,
-            GuestCallbackCompletionPolicy::ReturnConstantU32 { .. }
-        )
-}
-
-fn bgi_completed_peek_message_id(
-    completion: &ApiImmediateCompletion,
-) -> Result<Option<u32>, String> {
-    if completion.implementation_id != vine_core::PEEK_MESSAGE_A_IMPLEMENTATION {
-        return Ok(None);
-    }
-    let RegisterUpdate::Set(result) = completion.eax else {
-        return Err("PeekMessageA completion did not set BOOL in EAX".to_owned());
-    };
-    if result == 0 {
-        if !completion.guest_writes.is_empty() {
-            return Err("empty PeekMessageA completion unexpectedly wrote guest memory".to_owned());
-        }
-        return Ok(None);
-    }
-    let output = completion.frame.argument_u32(0).ok_or_else(|| {
-        "successful PeekMessageA completion has no MSG output argument".to_owned()
-    })?;
-    let [write] = completion.guest_writes.as_slice() else {
-        return Err(
-            "successful PeekMessageA completion did not publish exactly one MSG guest write"
-                .to_owned(),
-        );
-    };
-    bgi_completed_peek_message_id_from_write(
-        output,
-        write.write.address.0,
-        &write.write.bytes,
-        write.result.bytes_written,
-    )
-    .map(Some)
-}
-
-fn bgi_completed_peek_message_id_from_write(
-    output: u32,
-    write_address: u32,
-    write_bytes: &[u8],
-    bytes_written: usize,
-) -> Result<u32, String> {
-    if write_address != output || write_bytes.len() != 28 || bytes_written != 28 {
-        return Err(
-            "successful PeekMessageA completion published a malformed MSG guest write".to_owned(),
-        );
-    }
-    Ok(u32::from_le_bytes(
-        write_bytes[4..8]
-            .try_into()
-            .expect("validated MSG message field width"),
-    ))
-}
-
-fn should_emit_bgi_window_timer_peek_metadata(
-    completed_message: Option<u32>,
-    window_timer_message: u32,
-) -> bool {
-    completed_message == Some(window_timer_message)
-}
-
-fn bgi_window_timer_completion_metadata(
-    completion: &ApiImmediateCompletion,
-    runtime: &RuntimeState,
-    policy: &User32CompatibilityPolicy,
-) -> Result<Option<vine_core::RuntimeWindowTimer>, String> {
-    if policy.window_timer_delivery.is_none() {
-        return Ok(None);
-    }
-    match completion.implementation_id.as_str() {
-        vine_core::SET_TIMER_IMPLEMENTATION => {
-            let RegisterUpdate::Set(result) = completion.eax else {
-                return Err("SetTimer completion did not set UINT_PTR in EAX".to_owned());
-            };
-            if result == 0 {
-                return Ok(None);
-            }
-            let window_handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "SetTimer completion has no HWND argument".to_owned())?;
-            let timer_id = completion
-                .frame
-                .argument_u32(1)
-                .ok_or_else(|| "SetTimer completion has no timer ID argument".to_owned())?;
-            runtime
-                .window_timers()
-                .values()
-                .filter(|timer| timer.window_handle == window_handle && timer.timer_id == timer_id)
-                .max_by_key(|timer| timer.registration_generation)
-                .copied()
-                .map(Some)
-                .ok_or_else(|| {
-                    "successful SetTimer completion has no registered Rust timer state".to_owned()
-                })
-        }
-        vine_core::PEEK_MESSAGE_A_IMPLEMENTATION => {
-            let completed_message = bgi_completed_peek_message_id(completion)?;
-            let window_timer_message = policy
-                .window_timer_delivery
-                .as_ref()
-                .expect("validated window-timer delivery policy")
-                .message;
-            if !should_emit_bgi_window_timer_peek_metadata(completed_message, window_timer_message)
-            {
-                Ok(None)
-            } else {
-                latest_delivered_window_timer(runtime).map(Some)
-            }
-        }
-        _ => Ok(None),
-    }
-}
-
-fn bgi_pointer_release_queue_metadata(
-    completion: &ApiImmediateCompletion,
-    runtime: &RuntimeState,
-    memory: &GuestMemory,
-    policy: &User32CompatibilityPolicy,
-) -> Result<Option<Vec<vine_core::RuntimeThreadMessage>>, String> {
-    let Some(pointer_profile) = policy.pointer_button_messages.as_ref() else {
-        return Ok(None);
-    };
-    if should_emit_bgi_empty_peek_queue_metadata(
-        &completion.implementation_id,
-        completion.eax,
-        completion.guest_writes.len(),
-    ) {
-        return runtime
-            .queued_thread_messages(runtime.current_thread_id())
-            .map(Some)
-            .map_err(error_string);
-    }
-    let completed_message = if completion.implementation_id
-        == vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION
-    {
-        if completion.eax != RegisterUpdate::Set(0) {
-            return Err("TranslateMessage completion did not return FALSE".to_owned());
-        }
-        if !completion.guest_writes.is_empty() {
-            return Err("TranslateMessage completion unexpectedly wrote guest memory".to_owned());
-        }
-        let message_address = completion
-            .frame
-            .argument_u32(0)
-            .ok_or_else(|| "TranslateMessage completion has no MSG input argument".to_owned())?;
-        let bytes = memory
-            .read(GuestAddress(message_address), 28)
-            .map_err(error_string)?;
-        Some(u32::from_le_bytes(
-            bytes[4..8]
-                .try_into()
-                .expect("validated TranslateMessage MSG field width"),
-        ))
-    } else {
-        bgi_completed_peek_message_id(completion)?
-    };
-    let Some(completed_message) = completed_message else {
-        return Ok(None);
-    };
-    if completed_message != pointer_profile.left_button_up_message {
-        return Ok(None);
-    }
-    runtime
-        .queued_thread_messages(runtime.current_thread_id())
-        .map(Some)
-        .map_err(error_string)
-}
-
-fn should_emit_bgi_empty_peek_queue_metadata(
-    implementation_id: &str,
-    eax: RegisterUpdate,
-    guest_write_count: usize,
-) -> bool {
-    implementation_id == vine_core::PEEK_MESSAGE_A_IMPLEMENTATION
-        && eax == RegisterUpdate::Set(0)
-        && guest_write_count == 0
-}
-
-fn bgi_imm32_completion_metadata(
-    completion: &ApiImmediateCompletion,
-    runtime: &RuntimeState,
-    imm32_policy: &Imm32CompatibilityPolicy,
-    user32_policy: &User32CompatibilityPolicy,
-) -> Result<Option<Value>, String> {
-    let eax = || match completion.eax {
-        RegisterUpdate::Set(value) => Ok(value),
-        RegisterUpdate::Preserve => {
-            Err("IMM32 completion did not set the expected EAX result".to_owned())
-        }
-    };
-    let app_association = |app_window_handle: u32| {
-        runtime
-            .ime_context_associations()
-            .values()
-            .find(|association| association.window_handle == app_window_handle)
-            .ok_or_else(|| "completed IMM32 call has no logical app-window association".to_owned())
-    };
-    let associated_context = |association: &vine_core::RuntimeImeContextAssociation| {
-        association
-            .context
-            .map(|reference| runtime.ime_context(reference.handle).map_err(error_string))
-            .transpose()
-    };
-
-    match completion.implementation_id.as_str() {
-        IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION => {
-            let app_window_handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "ImmGetDefaultIMEWnd completion has no app HWND".to_owned())?;
-            let ime_window_handle = eax()?;
-            if app_window_handle == 0 || ime_window_handle == 0 {
-                return Err(
-                    "primary ImmGetDefaultIMEWnd unexpectedly used or returned NULL".to_owned(),
-                );
-            }
-            let ime_window = runtime
-                .ime_window(ime_window_handle)
-                .map_err(error_string)?;
-            let association = app_association(app_window_handle)?;
-            let context = associated_context(association)?;
-            Ok(Some(json!({
-                "action": "default-window-resolved",
-                "policyId": imm32_policy.id,
-                "appWindowHandle": app_window_handle,
-                "imeWindow": ime_window,
-                "association": association,
-                "context": context,
-                "nativeHandleImported": false,
-                "browserResourceCreated": false,
-            })))
-        }
-        SEND_MESSAGE_A_IMPLEMENTATION
-            if completion.frame.argument_u32(1) == Some(USER32_WM_IME_CONTROL) =>
-        {
-            let ime_window_handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "WM_IME_CONTROL completion has no logical IME HWND".to_owned())?;
-            if eax()? != 0 {
-                return Err("primary WM_IME_CONTROL did not return zero".to_owned());
-            }
-            let ime_window = runtime
-                .ime_window(ime_window_handle)
-                .map_err(error_string)?;
-            Ok(Some(json!({
-                "action": "status-window-control-requested",
-                "policyId": user32_policy.id,
-                "imeWindow": ime_window,
-                "nativeMessageForwarded": false,
-                "browserResourceCreated": false,
-            })))
-        }
-        IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION => {
-            let app_window_handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "ImmAssociateContext completion has no app HWND".to_owned())?;
-            let requested_context_handle = completion
-                .frame
-                .argument_u32(1)
-                .ok_or_else(|| "ImmAssociateContext completion has no HIMC".to_owned())?;
-            let previous_context_handle = eax()?;
-            let association = app_association(app_window_handle)?;
-            let context = associated_context(association)?;
-            if association.context.map_or(0, |reference| reference.handle)
-                != requested_context_handle
-            {
-                return Err(
-                    "ImmAssociateContext argument and logical association authority disagree"
-                        .to_owned(),
-                );
-            }
-            Ok(Some(json!({
-                "action": "context-associated",
-                "policyId": imm32_policy.id,
-                "appWindowHandle": app_window_handle,
-                "requestedContextHandle": requested_context_handle,
-                "previousContextHandle": previous_context_handle,
-                "association": association,
-                "context": context,
-                "nativeHandleImported": false,
-                "browserResourceCreated": false,
-            })))
-        }
-        _ => Ok(None),
-    }
-}
-
-fn bgi_virtual_memory_completion_metadata(
-    completion: &ApiImmediateCompletion,
-    runtime: &RuntimeState,
-    memory: &GuestMemory,
-) -> Result<Option<Value>, String> {
-    if completion.implementation_id != vine_core::VIRTUAL_ALLOC_IMPLEMENTATION {
-        return Ok(None);
-    }
-    let RegisterUpdate::Set(address) = completion.eax else {
-        return Err("VirtualAlloc completion did not set EAX".to_owned());
-    };
-    if address == 0 {
-        return Err("primary VirtualAlloc reserve unexpectedly returned NULL".to_owned());
-    }
-    let allocation = runtime
-        .process_address_space_allocator()
-        .allocation_for_purpose(&ProcessAddressAllocationPurpose::VirtualMemory)
-        .map_err(error_string)?;
-    if allocation.range.base.0 != address {
-        return Err(
-            "VirtualAlloc return value does not identify its process address allocation".to_owned(),
-        );
-    }
-    let region = memory
-        .region_snapshots()
-        .into_iter()
-        .find(|region| region.address_allocation_id == Some(allocation.id.0))
-        .ok_or_else(|| {
-            "VirtualAlloc process address allocation has no guest memory reservation".to_owned()
-        })?;
-    if region.range.start() != allocation.range.base
-        || region.range.byte_length() != allocation.range.byte_length
-    {
-        return Err(
-            "VirtualAlloc process address allocation and guest memory reservation disagree"
-                .to_owned(),
-        );
-    }
-    Ok(Some(json!({
-        "allocation": allocation,
-        "region": region,
-        "preferredAddress": completion.frame.argument_u32(0),
-        "allocationType": completion.frame.argument_u32(2),
-        "protection": completion.frame.argument_u32(3),
-        "reserveOnly": true,
-        "topDown": true,
-    })))
-}
-
-fn bgi_gdiplus_completion_metadata(
-    completion: &ApiImmediateCompletion,
-    runtime: &RuntimeState,
-    policy: &GdiplusCompatibilityPolicy,
-) -> Result<Option<Value>, String> {
-    match completion.implementation_id.as_str() {
-        vine_core::GDIPLUS_STARTUP_IMPLEMENTATION => {
-            let RegisterUpdate::Set(status) = completion.eax else {
-                return Err("GdiplusStartup completion did not set EAX".to_owned());
-            };
-            if status != vine_core::GDIPLUS_STATUS_OK {
-                return Err(format!(
-                    "primary GdiplusStartup completed with status {status}"
-                ));
-            }
-            let token_output = completion.frame.argument_u32(0).ok_or_else(|| {
-                "GdiplusStartup completion has no token output argument".to_owned()
-            })?;
-            if completion.guest_writes.len() != 1 {
-                return Err(
-                    "successful GdiplusStartup must commit exactly one token write".to_owned(),
-                );
-            }
-            let write = &completion.guest_writes[0].write;
-            if write.address.0 != token_output || write.bytes.len() != 4 {
-                return Err(
-                    "GdiplusStartup token write does not match the decoded x86 output".to_owned(),
-                );
-            }
-            let token = u32::from_le_bytes(
-                write.bytes[..4]
-                    .try_into()
-                    .map_err(|_| "GdiplusStartup token is not one x86 ULONG_PTR".to_owned())?,
-            );
-            let session = runtime
-                .gdiplus_sessions()
-                .values()
-                .find(|session| session.token == token)
-                .ok_or_else(|| {
-                    "GdiplusStartup completion has no matching logical session".to_owned()
-                })?;
-            let startup = policy.startup.as_ref().ok_or_else(|| {
-                "GdiplusStartup completed with its compatibility policy disabled".to_owned()
-            })?;
-            if session.token_namespace != vine_core::RUNTIME_GDIPLUS_SESSION_TOKEN_NAMESPACE
-                || session.startup.profile_id != startup.profile_id
-            {
-                return Err(
-                    "logical GDI+ session identity does not match the active startup policy"
-                        .to_owned(),
-                );
-            }
-            Ok(Some(json!({
-                "action": "session-started",
-                "policyId": policy.id,
-                "session": session,
-                "liveSessions": runtime.gdiplus_sessions().len(),
-                "browserResourceCreated": false,
-                "nativeTokenImported": false,
-            })))
-        }
-        vine_core::GDIPLUS_SHUTDOWN_IMPLEMENTATION => {
-            if !matches!(completion.eax, RegisterUpdate::Preserve) {
-                return Err("void GdiplusShutdown completion unexpectedly changed EAX".to_owned());
-            }
-            let token = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "GdiplusShutdown completion has no logical token".to_owned())?;
-            if runtime
-                .gdiplus_sessions()
-                .values()
-                .any(|session| session.token == token)
-            {
-                return Err(
-                    "GdiplusShutdown completion did not retire its logical session".to_owned(),
-                );
-            }
-            Ok(Some(json!({
-                "action": "session-shutdown",
-                "token": token,
-                "liveSessions": runtime.gdiplus_sessions().len(),
-            })))
-        }
-        _ => Ok(None),
-    }
-}
-
-fn bgi_gdi_completion_metadata(
-    completion: &ApiImmediateCompletion,
-    runtime: &RuntimeState,
-    policy: &Gdi32CompatibilityPolicy,
-) -> Result<Option<Value>, String> {
-    match completion.implementation_id.as_str() {
-        vine_core::GET_DC_IMPLEMENTATION => {
-            let RegisterUpdate::Set(handle) = completion.eax else {
-                return Err("GetDC completion did not set EAX".to_owned());
-            };
-            let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
-            match device_context.target {
-                vine_core::RuntimeDeviceContextTarget::Window { surface_id, .. } => {
-                    let surface = runtime.gdi_surfaces().get(&surface_id).ok_or_else(|| {
-                        "window GetDC completion has no matching logical surface".to_owned()
-                    })?;
-                    Ok(Some(json!({
-                        "action": "device-context-acquired",
-                        "deviceContext": device_context,
-                        "surface": surface,
-                        "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-                    })))
-                }
-                vine_core::RuntimeDeviceContextTarget::Screen { .. } => Ok(Some(json!({
-                    "action": "screen-device-context-acquired",
-                    "deviceContext": device_context,
-                    "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-                }))),
-                vine_core::RuntimeDeviceContextTarget::Memory { .. } => {
-                    Err("USER32 GetDC completion resolved to a memory HDC".to_owned())
-                }
-                vine_core::RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
-                    Err("USER32 GetDC completion resolved to a graphics-surface HDC".to_owned())
-                }
-            }
-        }
-        vine_core::GET_STOCK_OBJECT_IMPLEMENTATION => {
-            let RegisterUpdate::Set(handle) = completion.eax else {
-                return Err("GetStockObject completion did not set EAX".to_owned());
-            };
-            let object = runtime
-                .gdi_objects()
-                .values()
-                .find(|object| object.handle == handle)
-                .ok_or_else(|| {
-                    "GetStockObject completion has no matching logical object".to_owned()
-                })?;
-            Ok(Some(json!({
-                "action": "stock-object-resolved",
-                "object": object,
-                "liveObjects": runtime.gdi_objects().len(),
-            })))
-        }
-        vine_core::FILL_RECT_IMPLEMENTATION => {
-            let handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "FillRect completion has no logical HDC argument".to_owned())?;
-            let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
-            match device_context.target {
-                vine_core::RuntimeDeviceContextTarget::Window { surface_id, .. } => {
-                    let surface = runtime.gdi_surfaces().get(&surface_id).ok_or_else(|| {
-                        "FillRect completion has no matching logical window surface".to_owned()
-                    })?;
-                    Ok(Some(json!({
-                        "action": "surface-filled",
-                        "deviceContext": device_context,
-                        "surface": surface,
-                    })))
-                }
-                vine_core::RuntimeDeviceContextTarget::GraphicsSurface { surface_id, .. } => {
-                    let surface =
-                        runtime
-                            .graphics_surfaces()
-                            .get(&surface_id)
-                            .ok_or_else(|| {
-                                "FillRect completion has no matching logical graphics surface"
-                                    .to_owned()
-                            })?;
-                    Ok(Some(json!({
-                        "action": "graphics-surface-filled",
-                        "deviceContext": device_context,
-                        "surface": surface,
-                    })))
-                }
-                vine_core::RuntimeDeviceContextTarget::Screen { .. } => {
-                    Err("screen FillRect completed outside the reached GDI support band".to_owned())
-                }
-                vine_core::RuntimeDeviceContextTarget::Memory { .. } => {
-                    Err("memory FillRect completed before a logical DIB was selected".to_owned())
-                }
-            }
-        }
-        vine_core::ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION => {
-            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
-                "EnumFontFamiliesExA completion has no logical HDC argument".to_owned()
-            })?;
-            let RegisterUpdate::Set(callback_result) = completion.eax else {
-                return Err("EnumFontFamiliesExA completion did not set EAX".to_owned());
-            };
-            let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
-            let enumeration = policy.enum_font_families_ex_a.as_ref().ok_or_else(|| {
-                "EnumFontFamiliesExA completed with its GDI32 policy disabled".to_owned()
-            })?;
-            Ok(Some(json!({
-                "action": "font-enumeration-completed",
-                "deviceContext": device_context,
-                "enumeration": enumeration,
-                "callbackResult": callback_result,
-                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-            })))
-        }
-        vine_core::CREATE_FONT_A_IMPLEMENTATION => {
-            let RegisterUpdate::Set(handle) = completion.eax else {
-                return Err("CreateFontA completion did not set EAX".to_owned());
-            };
-            let object = runtime
-                .gdi_objects()
-                .values()
-                .find(|object| object.handle == handle)
-                .ok_or_else(|| {
-                    "CreateFontA completion has no matching logical font object".to_owned()
-                })?;
-            if !matches!(
-                &object.object,
-                vine_core::RuntimeGdiObjectKind::FontA { .. }
-            ) {
-                return Err("CreateFontA completion resolved to a non-font object".to_owned());
-            }
-            Ok(Some(json!({
-                "action": "font-created",
-                "object": object,
-                "liveObjects": runtime.gdi_objects().len(),
-            })))
-        }
-        vine_core::CREATE_COMPATIBLE_DC_IMPLEMENTATION => {
-            let RegisterUpdate::Set(handle) = completion.eax else {
-                return Err("CreateCompatibleDC completion did not set EAX".to_owned());
-            };
-            let device_context = runtime.gdi_device_context(handle).map_err(error_string)?;
-            if !matches!(
-                device_context.target,
-                vine_core::RuntimeDeviceContextTarget::Memory { .. }
-            ) {
-                return Err("CreateCompatibleDC completion resolved to a non-memory HDC".to_owned());
-            }
-            let font_id = device_context.selected_font_id.ok_or_else(|| {
-                "CreateCompatibleDC completion has no selected default font".to_owned()
-            })?;
-            let bitmap_id = device_context.selected_bitmap_id.ok_or_else(|| {
-                "CreateCompatibleDC completion has no selected default bitmap".to_owned()
-            })?;
-            let initial_font = runtime.gdi_objects().get(&font_id).ok_or_else(|| {
-                "CreateCompatibleDC completion default font is not live".to_owned()
-            })?;
-            let initial_bitmap = runtime.gdi_objects().get(&bitmap_id).ok_or_else(|| {
-                "CreateCompatibleDC completion default bitmap is not live".to_owned()
-            })?;
-            Ok(Some(json!({
-                "action": "compatible-device-context-created",
-                "deviceContext": device_context,
-                "initialFont": initial_font,
-                "initialBitmap": initial_bitmap,
-                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-                "liveObjects": runtime.gdi_objects().len(),
-            })))
-        }
-        vine_core::CREATE_DIB_SECTION_IMPLEMENTATION => {
-            let RegisterUpdate::Set(handle) = completion.eax else {
-                return Err("CreateDIBSection completion did not set EAX".to_owned());
-            };
-            if handle == 0 {
-                return Ok(Some(json!({
-                    "action": "dib-section-create-rejected",
-                    "created": false,
-                    "liveObjects": runtime.gdi_objects().len(),
-                })));
-            }
-            let object = runtime
-                .gdi_objects()
-                .values()
-                .find(|object| object.handle == handle)
-                .ok_or_else(|| {
-                    "CreateDIBSection completion has no matching logical bitmap object".to_owned()
-                })?;
-            let vine_core::RuntimeGdiObjectKind::DibSection { backing, .. } = &object.object else {
-                return Err("CreateDIBSection completion resolved to a non-DIB object".to_owned());
-            };
-            let address_allocation = runtime
-                .process_address_space_allocator()
-                .allocation(backing.address_allocation_id)
-                .map_err(error_string)?;
-            Ok(Some(json!({
-                "action": "dib-section-created",
-                "object": object,
-                "addressAllocation": address_allocation,
-                "liveObjects": runtime.gdi_objects().len(),
-            })))
-        }
-        vine_core::GET_OBJECT_A_IMPLEMENTATION => {
-            let RegisterUpdate::Set(byte_length) = completion.eax else {
-                return Err("GetObjectA completion did not set EAX".to_owned());
-            };
-            let handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "GetObjectA completion has no logical object argument".to_owned())?;
-            let object = runtime
-                .gdi_objects()
-                .values()
-                .find(|object| object.handle == handle);
-            Ok(Some(json!({
-                "action": "object-bytes-read",
-                "handle": handle,
-                "byteLength": byte_length,
-                "object": object,
-                "liveObjects": runtime.gdi_objects().len(),
-            })))
-        }
-        vine_core::GET_OUTLINE_TEXT_METRICS_A_IMPLEMENTATION => {
-            let RegisterUpdate::Set(returned_byte_length) = completion.eax else {
-                return Err("GetOutlineTextMetricsA completion did not set EAX".to_owned());
-            };
-            let device_context_handle = completion.frame.argument_u32(0).ok_or_else(|| {
-                "GetOutlineTextMetricsA completion has no logical HDC argument".to_owned()
-            })?;
-            let requested_byte_length = completion.frame.argument_u32(1).ok_or_else(|| {
-                "GetOutlineTextMetricsA completion has no byte length argument".to_owned()
-            })?;
-            let output_address = completion.frame.argument_u32(2).ok_or_else(|| {
-                "GetOutlineTextMetricsA completion has no output argument".to_owned()
-            })?;
-            let device_context = runtime
-                .gdi_device_context(device_context_handle)
-                .map_err(error_string)?;
-            let font_id = device_context.selected_font_id.ok_or_else(|| {
-                "GetOutlineTextMetricsA completion has no selected font".to_owned()
-            })?;
-            let selected_font = runtime.gdi_objects().get(&font_id).ok_or_else(|| {
-                "GetOutlineTextMetricsA completion selected font is not live".to_owned()
-            })?;
-            let vine_core::RuntimeGdiObjectKind::FontA { log_font } = &selected_font.object else {
-                return Err(
-                    "GetOutlineTextMetricsA completion selected object is not a FontA".to_owned(),
-                );
-            };
-            let outline_profile = policy
-                .outline_text_metrics_profile_for_font(log_font)
-                .ok_or_else(|| {
-                    "GetOutlineTextMetricsA completion has no matching policy profile".to_owned()
-                })?;
-            let written_byte_length = completion
-                .guest_writes
-                .first()
-                .map(|receipt| receipt.write.bytes.len())
-                .unwrap_or(0);
-            Ok(Some(json!({
-                "action": "outline-text-metrics-read",
-                "deviceContext": device_context,
-                "selectedFont": selected_font,
-                "profileId": outline_profile.profile_id,
-                "requestedByteLength": requested_byte_length,
-                "returnedByteLength": returned_byte_length,
-                "outputAddress": output_address,
-                "writtenByteLength": written_byte_length,
-            })))
-        }
-        vine_core::TEXT_OUT_A_IMPLEMENTATION => {
-            let RegisterUpdate::Set(result) = completion.eax else {
-                return Err("TextOutA completion did not set EAX".to_owned());
-            };
-            if result != 1 {
-                return Err("TextOutA primary raster completion did not succeed".to_owned());
-            }
-            let device_context_handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "TextOutA completion has no logical HDC argument".to_owned())?;
-            let x = completion
-                .frame
-                .argument_u32(1)
-                .ok_or_else(|| "TextOutA completion has no x argument".to_owned())?
-                as i32;
-            let y = completion
-                .frame
-                .argument_u32(2)
-                .ok_or_else(|| "TextOutA completion has no y argument".to_owned())?
-                as i32;
-            let text_address = completion
-                .frame
-                .argument_u32(3)
-                .ok_or_else(|| "TextOutA completion has no text address argument".to_owned())?;
-            let character_count = completion
-                .frame
-                .argument_u32(4)
-                .ok_or_else(|| "TextOutA completion has no character count argument".to_owned())?;
-            let device_context = runtime
-                .gdi_device_context(device_context_handle)
-                .map_err(error_string)?;
-            let font_id = device_context
-                .selected_font_id
-                .ok_or_else(|| "TextOutA completion has no selected font".to_owned())?;
-            let bitmap_id = device_context
-                .selected_bitmap_id
-                .ok_or_else(|| "TextOutA completion has no selected bitmap".to_owned())?;
-            let selected_font = runtime
-                .gdi_objects()
-                .get(&font_id)
-                .ok_or_else(|| "TextOutA completion selected font is not live".to_owned())?;
-            if !matches!(
-                &selected_font.object,
-                vine_core::RuntimeGdiObjectKind::FontA { .. }
-            ) {
-                return Err("TextOutA completion selected object is not a FontA".to_owned());
-            }
-            let selected_dib_section = runtime
-                .gdi_objects()
-                .get(&bitmap_id)
-                .ok_or_else(|| "TextOutA completion selected bitmap is not live".to_owned())?;
-            let vine_core::RuntimeGdiObjectKind::DibSection { backing, .. } =
-                &selected_dib_section.object
-            else {
-                return Err("TextOutA completion selected object is not a DIB section".to_owned());
-            };
-            let text_policy = policy
-                .text_out_a
-                .as_ref()
-                .ok_or_else(|| "TextOutA completed with its GDI32 policy disabled".to_owned())?;
-            if completion.guest_writes.len() > 1 {
-                return Err("TextOutA completion emitted more than one raster write".to_owned());
-            }
-            let write = completion
-                .guest_writes
-                .first()
-                .map(|receipt| &receipt.write);
-            let changed_byte_count = write
-                .map(|write| {
-                    write
-                        .bytes
-                        .iter()
-                        .filter(|&&byte| byte != text_policy.initial_pixel)
-                        .count()
-                })
-                .unwrap_or(0);
-            Ok(Some(json!({
-                "action": "text-raster-written",
-                "deviceContext": device_context,
-                "selectedFont": selected_font,
-                "selectedDibSection": selected_dib_section,
-                "profileId": text_policy.profile_id,
-                "x": x,
-                "y": y,
-                "textAddress": text_address,
-                "characterCount": character_count,
-                "writeAddress": write.map(|write| write.address.0),
-                "writtenByteLength": write.map(|write| write.bytes.len()).unwrap_or(0),
-                "changedByteCount": changed_byte_count,
-                "contentGeneration": backing.content_generation,
-                "expectedOutputFnv1a32": text_policy.output_pixel_plane_fnv1a32,
-            })))
-        }
-        vine_core::SELECT_OBJECT_IMPLEMENTATION => {
-            let RegisterUpdate::Set(previous_handle) = completion.eax else {
-                return Err("SelectObject completion did not set EAX".to_owned());
-            };
-            let device_context_handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "SelectObject completion has no logical HDC argument".to_owned())?;
-            let selected_handle = completion.frame.argument_u32(1).ok_or_else(|| {
-                "SelectObject completion has no logical object argument".to_owned()
-            })?;
-            let device_context = runtime
-                .gdi_device_context(device_context_handle)
-                .map_err(error_string)?;
-            let selected_object = runtime
-                .gdi_objects()
-                .values()
-                .find(|object| object.handle == selected_handle);
-            let previous_object = runtime
-                .gdi_objects()
-                .values()
-                .find(|object| object.handle == previous_handle);
-            Ok(Some(json!({
-                "action": "object-selected",
-                "deviceContext": device_context,
-                "selectedObject": selected_object,
-                "previousObject": previous_object,
-                "succeeded": previous_handle != 0,
-                "liveObjects": runtime.gdi_objects().len(),
-            })))
-        }
-        vine_core::DELETE_OBJECT_IMPLEMENTATION => {
-            let RegisterUpdate::Set(result) = completion.eax else {
-                return Err("DeleteObject completion did not set EAX".to_owned());
-            };
-            let handle = completion.frame.argument_u32(0).ok_or_else(|| {
-                "DeleteObject completion has no logical object argument".to_owned()
-            })?;
-            Ok(Some(json!({
-                "action": "object-deleted",
-                "handle": handle,
-                "deleted": result != 0,
-                "liveObjects": runtime.gdi_objects().len(),
-            })))
-        }
-        vine_core::DELETE_DC_IMPLEMENTATION => {
-            let RegisterUpdate::Set(result) = completion.eax else {
-                return Err("DeleteDC completion did not set EAX".to_owned());
-            };
-            let handle = completion
-                .frame
-                .argument_u32(0)
-                .ok_or_else(|| "DeleteDC completion has no logical HDC argument".to_owned())?;
-            Ok(Some(json!({
-                "action": "compatible-device-context-deleted",
-                "handle": handle,
-                "deleted": result != 0,
-                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-                "liveObjects": runtime.gdi_objects().len(),
-            })))
-        }
-        vine_core::RELEASE_DC_IMPLEMENTATION => {
-            let handle = completion
-                .frame
-                .argument_u32(1)
-                .ok_or_else(|| "ReleaseDC completion has no logical HDC argument".to_owned())?;
-            Ok(Some(json!({
-                "action": "device-context-released",
-                "handle": handle,
-                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-                "liveSurfaces": runtime.gdi_surfaces().len(),
-            })))
-        }
-        _ => Ok(None),
-    }
 }
 
 fn decode_u32_payload(payload: &[u8]) -> Vec<u32> {
@@ -5431,7 +2683,7 @@ fn decode_u32_payload(payload: &[u8]) -> Vec<u32> {
         .collect()
 }
 
-fn acknowledge_thread_wakes(runtime: &mut RuntimeState) {
+fn acknowledge_thread_wakes(runtime: &mut Runtime) {
     // Rust has already committed these wakeups. The browser reads runnable state
     // from the scheduler; do not leave notifications in front of a host receipt.
     while matches!(
@@ -5443,7 +2695,7 @@ fn acknowledge_thread_wakes(runtime: &mut RuntimeState) {
 }
 
 fn restore_selected_thread(
-    runtime: &mut RuntimeState,
+    runtime: &mut Runtime,
     previous_thread_id: RuntimeThreadId,
     owner_thread_id: RuntimeThreadId,
 ) -> Result<(), String> {
@@ -5463,75 +2715,141 @@ fn restore_selected_thread(
 }
 
 fn api_fault_string(fault: ApiFault) -> String {
-    format!("{}:{}: {}", fault.stage, fault.code, fault.message)
-}
-
-fn bgi_paint_completion_metadata(
-    completion: &ApiImmediateCompletion,
-    runtime: &RuntimeState,
-) -> Result<Option<Value>, String> {
-    let window_handle = || {
-        completion
-            .frame
-            .argument_u32(0)
-            .ok_or_else(|| "paint completion has no logical HWND argument".to_owned())
-    };
-    match completion.implementation_id.as_str() {
-        vine_core::BEGIN_PAINT_IMPLEMENTATION => {
-            let RegisterUpdate::Set(returned_handle) = completion.eax else {
-                return Err("BeginPaint completion did not set EAX".to_owned());
-            };
-            let window = runtime.window(window_handle()?).map_err(error_string)?;
-            let session = runtime
-                .paint_sessions()
-                .get(&window.id)
-                .ok_or_else(|| "BeginPaint completion has no logical paint session".to_owned())?;
-            if returned_handle != session.device_context_handle {
-                return Err(
-                    "BeginPaint returned a different HDC than its logical paint session".to_owned(),
-                );
-            }
-            let device_context = runtime
-                .gdi_device_context(returned_handle)
-                .map_err(error_string)?;
-            Ok(Some(json!({
-                "action": "begun",
-                "window": window,
-                "session": session,
-                "deviceContext": device_context,
-                "livePaintSessions": runtime.paint_sessions().len(),
-                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-            })))
-        }
-        vine_core::END_PAINT_IMPLEMENTATION => {
-            let RegisterUpdate::Set(result) = completion.eax else {
-                return Err("EndPaint completion did not set EAX".to_owned());
-            };
-            if result != 1 {
-                return Err("primary EndPaint completion did not succeed".to_owned());
-            }
-            let window = runtime.window(window_handle()?).map_err(error_string)?;
-            if runtime.paint_sessions().contains_key(&window.id) {
-                return Err("EndPaint did not retire its logical paint session".to_owned());
-            }
-            let paint_struct_address = completion
-                .frame
-                .argument_u32(1)
-                .ok_or_else(|| "EndPaint completion has no PAINTSTRUCT address".to_owned())?;
-            Ok(Some(json!({
-                "action": "ended",
-                "window": window,
-                "paintStructAddress": paint_struct_address,
-                "livePaintSessions": runtime.paint_sessions().len(),
-                "liveDeviceContexts": runtime.gdi_device_contexts().len(),
-            })))
-        }
-        _ => Ok(None),
+    match fault.endpoint {
+        Some(endpoint) => format!("{endpoint}: {}", fault.message),
+        None => fault.message,
     }
 }
 
 fn error_string(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+fn media_request_metadata(pending: &ComMediaDeferred) -> Value {
+    let operation = match pending.operation {
+        ComMediaOperation::Open => "open",
+        ComMediaOperation::NextFrame => "next-frame",
+        ComMediaOperation::AudioPush => "audio-push",
+        ComMediaOperation::Run => "run",
+        ComMediaOperation::Pause => "pause",
+        ComMediaOperation::Stop => "stop",
+        ComMediaOperation::Volume => "volume",
+        ComMediaOperation::Release => "release",
+    };
+    let source = pending.source.as_ref().map(|source| match source {
+        ComMediaSource::GuestAsyncReader { byte_length, .. } => {
+            json!({ "kind": "guest-reader", "byteLength": byte_length.to_string() })
+        }
+        ComMediaSource::SourceFile {
+            source_id,
+            object_id,
+            byte_length,
+        } => json!({ "kind": "source-file", "sourceId": source_id,
+                "objectId": object_id, "byteLength": byte_length.to_string() }),
+        ComMediaSource::WritableFile { relative_path } => {
+            json!({ "kind": "writable-file", "relativePath": relative_path })
+        }
+    });
+    let audio = pending.audio.as_ref().map(|audio| {
+        json!({
+            "start100ns": audio.start_100ns, "end100ns": audio.end_100ns,
+            "channels": audio.channels, "samplesPerSecond": audio.samples_per_second,
+            "byteLength": audio.pcm_f32le.len(),
+        })
+    });
+    json!({ "kind": "media-request", "requestId": pending.request_id.to_string(),
+        "threadId": pending.thread_id.0, "operation": operation,
+        "resourceId": pending.resource_id.map(|id| id.to_string()),
+        "source": source, "volume": pending.volume,
+        "delayMilliseconds": pending.delay_milliseconds, "audio": audio })
+}
+
+fn parse_media_response(metadata: &[u8], payload: &[u8]) -> Result<ComMediaResponse, String> {
+    let value: Value = serde_json::from_slice(metadata).map_err(error_string)?;
+    let kind = value["kind"]
+        .as_str()
+        .ok_or_else(|| "media response has no kind".to_owned())?;
+    if !matches!(kind, "frame" | "audio") && !payload.is_empty() {
+        return Err("media control completion has unexpected binary bytes".to_owned());
+    }
+    let resource_id = || -> Result<u64, String> {
+        let text = value["resourceId"]
+            .as_str()
+            .ok_or_else(|| "media resource ID is not a decimal string".to_owned())?;
+        if text.is_empty()
+            || text.len() > 20
+            || text.starts_with('0')
+            || !text.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err("media resource ID is invalid".to_owned());
+        }
+        text.parse().map_err(error_string)
+    };
+    let word = |key: &str| -> Result<u32, String> {
+        value[key]
+            .as_u64()
+            .and_then(|number| u32::try_from(number).ok())
+            .ok_or_else(|| format!("media {key} is not an unsigned 32-bit integer"))
+    };
+    let timestamp = |key: &str| -> Result<i64, String> {
+        value[key]
+            .as_i64()
+            .filter(|number| number.unsigned_abs() <= 9_007_199_254_740_991)
+            .ok_or_else(|| format!("media {key} is not an exact browser integer"))
+    };
+    match kind {
+        "opened" => Ok(ComMediaResponse::Opened(ComMediaFormat {
+            resource_id: resource_id()?,
+            width: word("width")?,
+            height: word("height")?,
+            duration_100ns: if value["duration100ns"].is_null() {
+                None
+            } else {
+                Some(timestamp("duration100ns")?)
+            },
+            frame_duration_100ns: timestamp("frameDuration100ns")?,
+            audio_channels: word("audioChannels")?,
+            audio_samples_per_second: word("audioSamplesPerSecond")?,
+        })),
+        "frame" => Ok(ComMediaResponse::Frame(ComMediaFrame {
+            resource_id: resource_id()?,
+            start_100ns: timestamp("start100ns")?,
+            end_100ns: timestamp("end100ns")?,
+            bgra: payload.to_vec(),
+        })),
+        "audio" => Ok(ComMediaResponse::Audio(ComMediaAudio {
+            resource_id: resource_id()?,
+            start_100ns: timestamp("start100ns")?,
+            end_100ns: timestamp("end100ns")?,
+            channels: word("channels")?,
+            samples_per_second: word("samplesPerSecond")?,
+            pcm_f32le: payload.to_vec(),
+        })),
+        "acknowledged" => Ok(ComMediaResponse::Acknowledged),
+        "file-not-found" => Ok(ComMediaResponse::FileNotFound),
+        "ended" => Ok(ComMediaResponse::Ended {
+            resource_id: resource_id()?,
+        }),
+        "stopped" => Ok(ComMediaResponse::Stopped {
+            resource_id: resource_id()?,
+        }),
+        "unsupported" | "backend-failed" => {
+            let message = value["message"]
+                .as_str()
+                .filter(|message| !message.is_empty() && message.len() <= 512)
+                .ok_or_else(|| "media unsupported response has no bounded detail".to_owned())?;
+            if kind == "backend-failed" {
+                Ok(ComMediaResponse::BackendFailed {
+                    message: message.to_owned(),
+                })
+            } else {
+                Ok(ComMediaResponse::Unsupported {
+                    message: message.to_owned(),
+                })
+            }
+        }
+        _ => Err("media response kind is unsupported".to_owned()),
+    }
 }
 
 fn run_bridge(operation: impl FnOnce(&mut Bridge) -> Result<(), String>) -> u32 {
@@ -5546,227 +2864,6 @@ fn run_bridge(operation: impl FnOnce(&mut Bridge) -> Result<(), String>) -> u32 
             }
         }
     })
-}
-
-pub fn execution_island_forward_endpoint_owned(endpoint_address: u32) -> bool {
-    BRIDGE.with(|cell| {
-        cell.borrow()
-            .runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.routes.contains_key(&GuestAddress(endpoint_address)))
-    })
-}
-
-pub fn execution_island_forward_endpoint_iat_page(endpoint_address: u32) -> Option<u32> {
-    BRIDGE.with(|cell| {
-        cell.borrow()
-            .runtime
-            .as_ref()?
-            .routes
-            .get(&GuestAddress(endpoint_address))?
-            .endpoint
-            .iat_address
-            .map(|address| address.0 & !(GUEST_PAGE_SIZE as u32 - 1))
-    })
-}
-
-pub fn execution_island_memory_generation() -> Result<u64, String> {
-    BRIDGE.with(|cell| {
-        let bridge = cell.borrow();
-        let runtime = bridge
-            .runtime
-            .as_ref()
-            .ok_or_else(|| "runtime bridge is not prepared".to_owned())?;
-        Ok(runtime.memory.synchronization_state().generation)
-    })
-}
-
-pub fn execution_island_set_error(error: String) {
-    BRIDGE.with(|cell| cell.borrow_mut().set_error(error));
-}
-
-pub fn execution_island_reconcile_cpu_pages(
-    pages: &[(u32, &[u8])],
-) -> Result<CpuWritebackFastReceipt, String> {
-    BRIDGE.with(|cell| {
-        let mut bridge = cell.borrow_mut();
-        let runtime = bridge.runtime_mut()?;
-        let generation = runtime.memory.synchronization_state().generation;
-        runtime
-            .memory
-            .reconcile_cpu_writeback_pages_fast(generation, pages)
-            .map_err(error_string)
-    })
-}
-
-pub fn execution_island_enable_direct_memory(
-    pool_bytes: usize,
-    reserved_bytes: usize,
-) -> Result<usize, String> {
-    BRIDGE.with(|cell| {
-        let mut bridge = cell.borrow_mut();
-        let runtime = bridge.runtime_mut()?;
-        if !reserved_bytes.is_multiple_of(GUEST_PAGE_SIZE as usize)
-            || runtime
-                .memory
-                .limits()
-                .max_physical_pages
-                .checked_mul(GUEST_PAGE_SIZE as usize)
-                .and_then(|bytes| reserved_bytes.checked_add(bytes))
-                != Some(pool_bytes)
-        {
-            return Err("execution memory size disagrees with the authoritative quota".to_owned());
-        }
-        let (base, length) = runtime
-            .memory
-            .enable_execution_memory(reserved_bytes / GUEST_PAGE_SIZE as usize)
-            .map_err(error_string)?;
-        if length != pool_bytes {
-            return Err("execution memory allocation changed its preflighted length".to_owned());
-        }
-        Ok(base)
-    })
-}
-
-pub fn execution_island_page_offset(
-    address: u32,
-    owner: u32,
-    protection_bits: u32,
-) -> Result<usize, String> {
-    if protection_bits & !7 != 0 {
-        return Err("execution page protection contains unsupported bits".to_owned());
-    }
-    BRIDGE.with(|cell| {
-        let bridge = cell.borrow();
-        let runtime = bridge
-            .runtime
-            .as_ref()
-            .ok_or_else(|| "runtime bridge is not prepared".to_owned())?;
-        runtime
-            .memory
-            .execution_page_offset(
-                GuestAddress(address),
-                vine_core::MemoryOwnerId(owner),
-                PageProtection {
-                    read: protection_bits & 1 != 0,
-                    write: protection_bits & 2 != 0,
-                    execute: protection_bits & 4 != 0,
-                },
-            )
-            .map_err(error_string)
-    })
-}
-
-pub fn execution_island_run_direct_cpu<R>(
-    execute: impl FnOnce(*mut u8, usize) -> R,
-) -> Result<R, String> {
-    BRIDGE.with(|cell| {
-        // Retain this exclusive borrow until the CPU stops. JIT/clock imports must not
-        // reenter the runtime, and API semantics run only after this borrow is released.
-        cell.borrow_mut()
-            .runtime_mut()?
-            .memory
-            .with_execution_memory(execute)
-            .map_err(error_string)
-    })
-}
-
-pub fn execution_island_acknowledge_direct_writes(
-    generation: u64,
-    pages: &[(u32, usize)],
-) -> Result<u64, String> {
-    BRIDGE.with(|cell| {
-        cell.borrow_mut()
-            .runtime_mut()?
-            .memory
-            .acknowledge_execution_writes(generation, pages)
-            .map_err(error_string)
-    })
-}
-
-pub struct ExecutionHeapPage {
-    pub address: u32,
-    pub owner: u32,
-    pub allocation: u64,
-    pub physical_offset: u32,
-    pub generation: u64,
-}
-
-/// The execution adapter preflights its absent PTE before calling. Ordinary fault
-/// handling remains responsible for stack growth and rejected lazy-heap faults.
-pub fn execution_island_materialize_heap_page(
-    fault_address: u32,
-    error_code: u32,
-) -> Result<Option<ExecutionHeapPage>, String> {
-    BRIDGE.with(|cell| {
-        let mut bridge = cell.borrow_mut();
-        let runtime = bridge.runtime_mut()?;
-        materialize_execution_heap_page(
-            &mut runtime.memory,
-            &mut runtime.runtime,
-            fault_address,
-            error_code,
-        )
-    })
-}
-
-fn materialize_execution_heap_page(
-    memory: &mut GuestMemory,
-    runtime: &mut RuntimeState,
-    fault_address: u32,
-    error_code: u32,
-) -> Result<Option<ExecutionHeapPage>, String> {
-    memory
-        .with_execution_memory(|_, _| ())
-        .map_err(error_string)?;
-    let before = memory.synchronization_state();
-    let page = match runtime.materialize_private_heap_page(
-        memory,
-        GuestAddress(fault_address),
-        error_code,
-    ) {
-        Ok(page) => page,
-        Err(_) => {
-            if memory.synchronization_state() != before {
-                return Err("rejected native heap fault changed memory".to_owned());
-            }
-            return Ok(None);
-        }
-    };
-    let protection = PageProtection {
-        read: true,
-        write: true,
-        execute: false,
-    };
-    let delta = memory
-        .pending_delta_without_content_hash()
-        .map_err(error_string)?;
-    if delta.from_generation != before.generation
-        || !matches!(delta.mapping_operations.as_slice(),
-                [MappingOperation::Commit { range, owner, address_allocation_id, protection: mapped }]
-                    if *range == page.committed_page && *owner == page.memory_owner
-                        && *address_allocation_id == Some(page.address_allocation_id.0) && *mapped == protection)
-        || delta.dirty_pages.len() != 1
-        || delta.dirty_pages[0].address != page.committed_page.start()
-        || delta.dirty_pages[0].owner != page.memory_owner
-        || delta.dirty_pages[0].protection != protection
-    {
-        return Err("native heap fault produced an unexpected memory delta".to_owned());
-    }
-    let physical_offset = memory
-        .execution_page_offset(page.committed_page.start(), page.memory_owner, protection)
-        .map_err(error_string)?;
-    let physical_offset = u32::try_from(physical_offset).map_err(error_string)?;
-    memory
-        .acknowledge_delta(delta.generation)
-        .map_err(error_string)?;
-    Ok(Some(ExecutionHeapPage {
-        address: page.committed_page.start().0,
-        owner: page.memory_owner.0,
-        allocation: page.address_allocation_id.0,
-        physical_offset,
-        generation: delta.generation,
-    }))
 }
 
 #[unsafe(no_mangle)]
@@ -5796,6 +2893,24 @@ pub extern "C" fn vine_bridge_metadata_len() -> u32 {
     BRIDGE.with(|cell| cell.borrow().metadata.len() as u32)
 }
 
+/// Read-only stop-boundary diagnostics use separate output so the original
+/// fault and any unacknowledged runtime output remain available to the caller.
+#[cold]
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_stop_context(instruction_pointer: u32) -> u32 {
+    BRIDGE.with(|cell| u32::from(cell.borrow_mut().stop_context(instruction_pointer).is_err()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_stop_context_ptr() -> u32 {
+    BRIDGE.with(|cell| cell.borrow().stop_context_metadata.as_ptr() as usize as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_stop_context_len() -> u32 {
+    BRIDGE.with(|cell| cell.borrow().stop_context_metadata.len() as u32)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_control_ptr() -> u32 {
     BRIDGE.with(|cell| cell.borrow().control.as_ptr() as usize as u32)
@@ -5817,95 +2932,78 @@ pub extern "C" fn vine_bridge_payload_len() -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_prepare(input_length: u32, encoded_pointer_cookie: u32) -> u32 {
-    run_bridge(|bridge| bridge.prepare(input_length as usize, encoded_pointer_cookie))
+pub extern "C" fn vine_bridge_presentation_ptr() -> u32 {
+    BRIDGE.with(|cell| cell.borrow().presentation_bytes.as_ptr() as usize as u32)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_prepare_bgi(
+pub extern "C" fn vine_bridge_presentation_len() -> u32 {
+    BRIDGE.with(|cell| cell.borrow().presentation_bytes.len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_audio_ptr() -> u32 {
+    BRIDGE.with(|cell| cell.borrow().audio_bytes.as_ptr() as usize as u32)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_audio_len() -> u32 {
+    BRIDGE.with(|cell| cell.borrow().audio_bytes.len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_media_ptr() -> u32 {
+    BRIDGE.with(|cell| cell.borrow().media_bytes.as_ptr() as usize as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_media_len() -> u32 {
+    BRIDGE.with(|cell| cell.borrow().media_bytes.len() as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_inspect_executable(executable_length: u32, name_length: u32) -> u32 {
+    run_bridge(|bridge| bridge.inspect_executable(executable_length as usize, name_length as usize))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_register_source_dll(image_length: u32, path_length: u32) -> u32 {
+    run_bridge(|bridge| bridge.register_source_dll(image_length as usize, path_length as usize))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_prepare_executable(
     executable_length: u32,
-    policy_length: u32,
-    source_manifest_length: u32,
-    writable_profile_length: u32,
-    d3d9_clear_enabled: u32,
-    set_rect_enabled: u32,
-    d3d9_add_dirty_rect_enabled: u32,
-    d3d9_update_texture_enabled: u32,
-    d3d9_begin_scene_enabled: u32,
-    d3d9_initial_sampler_states_enabled: u32,
-    d3d9_initial_texture_stage_states_enabled: u32,
-    d3d9_set_texture_enabled: u32,
-    d3d9_set_fvf_enabled: u32,
-    d3d9_set_stream_source_enabled: u32,
-    d3d9_draw_primitive_enabled: u32,
-    d3d9_end_scene_enabled: u32,
-    d3d9_present_enabled: u32,
-    user32_async_key_state_initial_scan_enabled: u32,
-    heap_alloc_24_byte_buffer_enabled: u32,
-    post_heap_time_get_time_enabled: u32,
-    user32_window_timer_callback_delivery_enabled: u32,
-    user32_pointer_button_messages_enabled: u32,
-    user32_set_focus_same_window_enabled: u32,
-    user32_def_window_proc_a_pointer_down_enabled: u32,
-    host_monotonic_clock_enabled: u32,
+    path_length: u32,
     encoded_pointer_cookie: u32,
 ) -> u32 {
     run_bridge(|bridge| {
-        bridge.prepare_bgi(
+        bridge.prepare_executable(
             executable_length as usize,
-            policy_length as usize,
-            source_manifest_length as usize,
-            writable_profile_length as usize,
-            BgiCheckpointCapabilities {
-                d3d9_clear: d3d9_clear_enabled != 0,
-                set_rect: set_rect_enabled != 0,
-                d3d9_add_dirty_rect: d3d9_add_dirty_rect_enabled != 0,
-                d3d9_update_texture: d3d9_update_texture_enabled != 0,
-                d3d9_update_texture_partial_dirty_region: d3d9_update_texture_enabled == 2,
-                d3d9_begin_scene: d3d9_begin_scene_enabled != 0,
-                d3d9_initial_sampler_states: d3d9_initial_sampler_states_enabled != 0,
-                d3d9_initial_texture_stage_states: d3d9_initial_texture_stage_states_enabled != 0,
-                d3d9_set_texture: d3d9_set_texture_enabled != 0,
-                d3d9_set_fvf: d3d9_set_fvf_enabled != 0,
-                d3d9_set_stream_source: d3d9_set_stream_source_enabled != 0,
-                d3d9_draw_primitive: d3d9_draw_primitive_enabled != 0,
-                d3d9_end_scene: d3d9_end_scene_enabled != 0,
-                d3d9_present: d3d9_present_enabled != 0,
-                user32_async_key_state_initial_scan: user32_async_key_state_initial_scan_enabled
-                    != 0,
-                heap_alloc_24_byte_buffer: heap_alloc_24_byte_buffer_enabled != 0,
-                post_heap_time_get_time: post_heap_time_get_time_enabled != 0,
-                user32_window_timer_callback_delivery: user32_window_timer_callback_delivery_enabled
-                    != 0,
-                user32_pointer_button_messages: user32_pointer_button_messages_enabled != 0,
-                user32_set_focus_same_window: user32_set_focus_same_window_enabled != 0,
-                user32_def_window_proc_a_pointer_down: user32_def_window_proc_a_pointer_down_enabled
-                    != 0,
-                user32_def_window_proc_a_pointer_release:
-                    user32_def_window_proc_a_pointer_down_enabled == 2,
-                host_monotonic_clock: host_monotonic_clock_enabled != 0,
-            },
+            path_length as usize,
             encoded_pointer_cookie,
         )
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_set_heap_poisoning_v1(enabled: u32) -> u32 {
+pub extern "C" fn vine_bridge_complete_source_lookup(input_length: u32) -> u32 {
     run_bridge(|bridge| {
-        if enabled > 1 {
-            return Err("heap poisoning switch must be zero or one".to_owned());
+        let input = bridge
+            .input
+            .get(..input_length as usize)
+            .ok_or_else(|| "source lookup completion exceeds the input buffer".to_owned())?;
+        if input.len() > 2 * 1024 * 1024 {
+            return Err("source lookup completion is too large".to_owned());
         }
-        bridge
-            .runtime_mut()?
-            .runtime
-            .set_heap_poisoning_enabled(enabled != 0);
-        Ok(())
+        let result: Option<Value> =
+            serde_json::from_slice(input).map_err(|error| error.to_string())?;
+        let metadata = bridge.runtime_mut()?.complete_source_lookup(result)?;
+        bridge.set_output(metadata, Vec::new(), Vec::new())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_synchronize_forward_clock_v1(
+pub extern "C" fn vine_bridge_synchronize_forward_clock(
     retired_instructions_low: u32,
     retired_instructions_high: u32,
     host_elapsed_time_100ns_low: u32,
@@ -5923,23 +3021,6 @@ pub extern "C" fn vine_bridge_synchronize_forward_clock_v1(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_prepare_source_read(
-    executable_length: u32,
-    policy_length: u32,
-    source_manifest_length: u32,
-    encoded_pointer_cookie: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        bridge.prepare_source_read(
-            executable_length as usize,
-            policy_length as usize,
-            source_manifest_length as usize,
-            encoded_pointer_cookie,
-        )
-    })
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_acknowledge(generation_low: u32, generation_high: u32) -> u32 {
     run_bridge(|bridge| {
         let generation = u64::from(generation_low) | (u64::from(generation_high) << 32);
@@ -5949,35 +3030,7 @@ pub extern "C" fn vine_bridge_acknowledge(generation_low: u32, generation_high: 
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_path_abi_version() -> u32 {
-    3
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_dispatch_ptr_v3() -> u32 {
-    BRIDGE.with(|cell| {
-        cell.borrow()
-            .fast_dispatch_receipt
-            .as_ref()
-            .map_or(0, |receipt| receipt.words.as_ptr() as usize as u32)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_dispatch_len_v3() -> u32 {
-    BRIDGE.with(|cell| {
-        cell.borrow()
-            .fast_dispatch_receipt
-            .as_ref()
-            .map_or(0, |_| FAST_DISPATCH_RECORD_WORDS as u32)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_acknowledge_fast_v1(
-    generation_low: u32,
-    generation_high: u32,
-) -> u32 {
+pub extern "C" fn vine_bridge_acknowledge_fast(generation_low: u32, generation_high: u32) -> u32 {
     run_bridge(|bridge| {
         let generation = u64::from(generation_low) | (u64::from(generation_high) << 32);
         bridge.runtime_mut()?.acknowledge_fast(generation)
@@ -5992,72 +3045,20 @@ pub extern "C" fn vine_bridge_reconcile_writeback(control_length: u32, payload_l
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_reconcile_writeback_fast_v1(
-    control_length: u32,
-    payload_length: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        bridge.reconcile_writeback_input_fast(control_length as usize, payload_length as usize)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_writeback_generation_low_v1() -> u32 {
+pub extern "C" fn vine_bridge_writeback_generation_low() -> u32 {
     BRIDGE.with(|cell| {
         cell.borrow()
-            .fast_writeback_receipt
-            .map_or(0, |receipt| receipt.generation as u32)
+            .writeback_generation
+            .map_or(0, |generation| generation as u32)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_writeback_generation_high_v1() -> u32 {
+pub extern "C" fn vine_bridge_writeback_generation_high() -> u32 {
     BRIDGE.with(|cell| {
         cell.borrow()
-            .fast_writeback_receipt
-            .map_or(0, |receipt| (receipt.generation >> 32) as u32)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_writeback_touched_pages_v1() -> u32 {
-    BRIDGE.with(|cell| {
-        cell.borrow()
-            .fast_writeback_receipt
-            .map_or(0, |receipt| receipt.touched_pages as u32)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_writeback_changed_pages_v1() -> u32 {
-    BRIDGE.with(|cell| {
-        cell.borrow()
-            .fast_writeback_receipt
-            .map_or(0, |receipt| receipt.changed_pages as u32)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_advance_mapping_fixture(stage: u32) -> u32 {
-    run_bridge(|bridge| {
-        let (metadata, delta) = bridge.runtime_mut()?.advance_mapping_fixture(stage)?;
-        bridge.set_output(metadata, delta.control, delta.page_bytes)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_current_reflection() -> u32 {
-    run_bridge(|bridge| {
-        let (metadata, reflection) = bridge.runtime_mut()?.current_reflection()?;
-        bridge.set_output(metadata, reflection.control, reflection.page_bytes)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_current_memory_summary() -> u32 {
-    run_bridge(|bridge| {
-        let metadata = bridge.runtime_mut()?.current_memory_summary()?;
-        bridge.set_output(metadata, Vec::new(), Vec::new())
+            .writeback_generation
+            .map_or(0, |generation| (generation >> 32) as u32)
     })
 }
 
@@ -6104,7 +3105,7 @@ pub extern "C" fn vine_bridge_dispatch(
     run_bridge(|bridge| {
         let retired_instructions =
             u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
-        let output = bridge.runtime_mut()?.dispatch(
+        let (metadata, delta, pixels) = bridge.runtime_mut()?.dispatch(
             GuestAddress(endpoint_address),
             GuestAddress(stack_pointer),
             GuestAddress(return_address),
@@ -6127,12 +3128,20 @@ pub extern "C" fn vine_bridge_dispatch(
                 fs,
                 gs,
             },
-            false,
-            false,
         )?;
-        let BrowserApiDispatchOutput::Structured { metadata, delta } = output else {
-            return Err("legacy dispatch unexpectedly produced a fast completion".to_owned());
-        };
+        bridge.set_runtime_output(metadata, delta, pixels)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_com_audio(low: u32, high: u32, accepted: u32) -> u32 {
+    run_bridge(|bridge| {
+        if accepted > 1 {
+            return Err("invalid audio acknowledgement".to_owned());
+        }
+        let (metadata, delta) = bridge
+            .runtime_mut()?
+            .complete_com_audio(u64::from(low) | (u64::from(high) << 32), accepted == 1)?;
         let (control, payload) = delta
             .map(|buffers| (buffers.control, buffers.page_bytes))
             .unwrap_or_default();
@@ -6141,160 +3150,59 @@ pub extern "C" fn vine_bridge_dispatch(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_dispatch_fast_v3(
-    endpoint_address: u32,
-    stack_pointer: u32,
-    return_address: u32,
-    retired_instructions_low: u32,
-    retired_instructions_high: u32,
-    eax: u32,
-    ecx: u32,
-    edx: u32,
-    ebx: u32,
-    esp: u32,
-    ebp: u32,
-    esi: u32,
-    edi: u32,
-    eip: u32,
-    eflags: u32,
-    es: u32,
-    cs: u32,
-    ss: u32,
-    ds: u32,
-    fs: u32,
-    gs: u32,
-) -> u32 {
-    vine_bridge_dispatch_fast_v4(
-        endpoint_address,
-        stack_pointer,
-        return_address,
-        retired_instructions_low,
-        retired_instructions_high,
-        eax,
-        ecx,
-        edx,
-        ebx,
-        esp,
-        ebp,
-        esi,
-        edi,
-        eip,
-        eflags,
-        es,
-        cs,
-        ss,
-        ds,
-        fs,
-        gs,
-        0,
-    )
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_dispatch_fast_v4(
-    endpoint_address: u32,
-    stack_pointer: u32,
-    return_address: u32,
-    retired_instructions_low: u32,
-    retired_instructions_high: u32,
-    eax: u32,
-    ecx: u32,
-    edx: u32,
-    ebx: u32,
-    esp: u32,
-    ebp: u32,
-    esi: u32,
-    edi: u32,
-    eip: u32,
-    eflags: u32,
-    es: u32,
-    cs: u32,
-    ss: u32,
-    ds: u32,
-    fs: u32,
-    gs: u32,
-    frame_prevalidated_no_arguments: u32,
+pub extern "C" fn vine_bridge_read_com_media(
+    request_low: u32,
+    request_high: u32,
+    offset_low: u32,
+    offset_high: u32,
+    length: u32,
 ) -> u32 {
     run_bridge(|bridge| {
-        let retired_instructions =
-            u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
-        let output = bridge.runtime_mut()?.dispatch(
-            GuestAddress(endpoint_address),
-            GuestAddress(stack_pointer),
-            GuestAddress(return_address),
-            retired_instructions,
-            X86CpuContext {
-                eax,
-                ecx,
-                edx,
-                ebx,
-                esp,
-                ebp,
-                esi,
-                edi,
-                eip,
-                eflags,
-                es,
-                cs,
-                ss,
-                ds,
-                fs,
-                gs,
-            },
-            true,
-            frame_prevalidated_no_arguments != 0,
-        )?;
-        match output {
-            BrowserApiDispatchOutput::Fast { receipt, delta } => {
-                bridge.fast_dispatch_receipt = Some(receipt);
-                let (control, payload) = delta
-                    .map(|buffers| (buffers.control, buffers.page_bytes))
-                    .unwrap_or_default();
-                bridge.control = control;
-                bridge.payload = payload;
-                Ok(())
-            }
-            BrowserApiDispatchOutput::Structured { metadata, delta } => {
-                let (control, payload) = delta
-                    .map(|buffers| (buffers.control, buffers.page_bytes))
-                    .unwrap_or_default();
-                bridge.set_output(metadata, control, payload)
-            }
-        }
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        let offset = u64::from(offset_low) | (u64::from(offset_high) << 32);
+        let (metadata, delta, bytes) = bridge
+            .runtime_mut()?
+            .read_com_media(request_id, offset, length)?;
+        bridge.set_runtime_output(metadata, delta, bytes)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_resolve_com_endpoint(endpoint_address: u32) -> u32 {
+pub extern "C" fn vine_bridge_complete_com_media(
+    request_low: u32,
+    request_high: u32,
+    metadata_length: u32,
+    payload_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let metadata_length = metadata_length as usize;
+        let payload_length = payload_length as usize;
+        let total = metadata_length
+            .checked_add(payload_length)
+            .ok_or_else(|| "media input length overflow".to_owned())?;
+        if metadata_length == 0 || metadata_length > 4096 || total > MAX_INPUT_BYTES {
+            return Err("media completion exceeds its input bounds".to_owned());
+        }
+        let input = bridge
+            .input
+            .get(..total)
+            .ok_or_else(|| "media completion exceeds the bridge input buffer".to_owned())?;
+        let response = parse_media_response(&input[..metadata_length], &input[metadata_length..])?;
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        let (metadata, delta, bytes) = bridge
+            .runtime_mut()?
+            .complete_com_media(request_id, response)?;
+        bridge.set_runtime_output(metadata, delta, bytes)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_observe_audio_end(low: u32, high: u32) -> u32 {
     run_bridge(|bridge| {
         let metadata = bridge
             .runtime_mut()?
-            .resolve_com_endpoint(GuestAddress(endpoint_address))?;
+            .observe_audio_end(u64::from(low) | (u64::from(high) << 32))?;
         bridge.set_output(metadata, Vec::new(), Vec::new())
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_dispatch_com(
-    endpoint_address: u32,
-    stack_pointer: u32,
-    return_address: u32,
-    retired_instructions_low: u32,
-    retired_instructions_high: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        let retired_instructions =
-            u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
-        let (metadata, delta) = bridge.runtime_mut()?.dispatch_com(
-            GuestAddress(endpoint_address),
-            GuestAddress(stack_pointer),
-            GuestAddress(return_address),
-            retired_instructions,
-        )?;
-        let (control, payload) = delta
-            .map(|buffers| (buffers.control, buffers.page_bytes))
-            .unwrap_or_default();
-        bridge.set_output(metadata, control, payload)
     })
 }
 
@@ -6307,6 +3215,43 @@ pub extern "C" fn vine_bridge_complete_host(
     run_bridge(|bridge| {
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         let metadata = bridge.runtime_mut()?.complete_host(request_id, result)?;
+        bridge.set_output(metadata, Vec::new(), Vec::new())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_opfs_write(
+    request_low: u32,
+    request_high: u32,
+    observation: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        let (metadata, delta) = bridge
+            .runtime_mut()?
+            .complete_opfs_write(request_id, observation)?;
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        bridge.set_output(metadata, control, payload)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_opfs_open(
+    request_low: u32,
+    request_high: u32,
+    observation: u32,
+    size_low: u32,
+    size_high: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        let byte_length = u64::from(size_low) | (u64::from(size_high) << 32);
+        let metadata =
+            bridge
+                .runtime_mut()?
+                .complete_opfs_open(request_id, observation, byte_length)?;
         bridge.set_output(metadata, Vec::new(), Vec::new())
     })
 }
@@ -6337,61 +3282,31 @@ pub extern "C" fn vine_bridge_complete_gdi_text_raster(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_writable_commit_payload(request_low: u32, request_high: u32) -> u32 {
-    run_bridge(|bridge| {
-        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
-        bridge.writable_commit_payload(request_id)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_complete_writable_commit(
-    request_low: u32,
-    request_high: u32,
-    control_length: u32,
+pub extern "C" fn vine_bridge_ingest_pointer_event(
+    sequence_low: u32,
+    sequence_high: u32,
+    kind: u32,
+    button: u32,
+    x: u32,
+    y: u32,
 ) -> u32 {
     run_bridge(|bridge| {
-        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
-        bridge.complete_writable_commit(request_id, control_length as usize)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_complete_writable_delete(
-    request_low: u32,
-    request_high: u32,
-    control_length: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
-        bridge.complete_writable_delete(request_id, control_length as usize)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_complete_writable_directory_create(
-    request_low: u32,
-    request_high: u32,
-    control_length: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
-        bridge.complete_writable_directory_create(request_id, control_length as usize)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_hydrate_writable_profile_object(
-    object_id: u32,
-    generation_low: u32,
-    generation_high: u32,
-    input_length: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        bridge.hydrate_writable_profile_object(
-            object_id,
-            u64::from(generation_low) | (u64::from(generation_high) << 32),
-            input_length as usize,
+        let x = u16::try_from(x)
+            .map_err(|_| "pointer x is outside the normalized client range".to_owned())?;
+        let y = u16::try_from(y)
+            .map_err(|_| "pointer y is outside the normalized client range".to_owned())?;
+        if !(1..=3).contains(&kind)
+            || (kind == 1 && button != 0)
+            || (kind != 1 && !matches!(button, 1 | 2))
+        {
+            return Err("pointer event kind or button is outside the bridge ABI".to_owned());
+        }
+        bridge.ingest_pointer_event(
+            u64::from(sequence_low) | (u64::from(sequence_high) << 32),
+            kind,
+            button,
+            x,
+            y,
         )
     })
 }
@@ -6435,57 +3350,6 @@ pub extern "C" fn vine_bridge_ingest_keyboard_event(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_ingest_pointer_button_event(
-    sequence_low: u32,
-    sequence_high: u32,
-    kind: u32,
-    button: u32,
-    normalized_x: u32,
-    normalized_y: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        let kind = match kind {
-            1 => RuntimePointerButtonSourceEventKind::ButtonDown,
-            2 => RuntimePointerButtonSourceEventKind::ButtonUp,
-            _ => return Err("pointer button event kind is outside the bridge ABI".to_owned()),
-        };
-        let button = match button {
-            1 => RuntimePointerButton::Primary,
-            2 => RuntimePointerButton::Secondary,
-            _ => return Err("pointer button is outside the bridge ABI".to_owned()),
-        };
-        bridge.ingest_pointer_button_event(RuntimePointerButtonSourceEvent {
-            sequence: u64::from(sequence_low) | (u64::from(sequence_high) << 32),
-            kind,
-            button,
-            normalized_x: u16::try_from(normalized_x)
-                .map_err(|_| "pointer normalized x is outside the bridge ABI".to_owned())?,
-            normalized_y: u16::try_from(normalized_y)
-                .map_err(|_| "pointer normalized y is outside the bridge ABI".to_owned())?,
-        })
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_ingest_pointer_position_event(
-    sequence_low: u32,
-    sequence_high: u32,
-    normalized_x: u32,
-    normalized_y: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        bridge.ingest_pointer_position_event(RuntimePointerPositionSourceEvent {
-            sequence: u64::from(sequence_low) | (u64::from(sequence_high) << 32),
-            event_kind: RuntimePointerPositionSourceEventKind::PointerMove,
-            normalized_x: u16::try_from(normalized_x)
-                .map_err(|_| "pointer normalized x is outside the bridge ABI".to_owned())?,
-            normalized_y: u16::try_from(normalized_y)
-                .map_err(|_| "pointer normalized y is outside the bridge ABI".to_owned())?,
-        })
-    })
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_schedule_next_thread() -> u32 {
     run_bridge(|bridge| {
         let metadata = bridge.runtime_mut()?.schedule_next_thread()?;
@@ -6507,29 +3371,10 @@ pub extern "C" fn vine_bridge_finish_thread(exit_code: u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_complete_callback(sentinel: u32, result: u32) -> u32 {
     run_bridge(|bridge| {
-        let (metadata, delta) = bridge
+        let (metadata, delta, bytes) = bridge
             .runtime_mut()?
             .complete_callback(GuestAddress(sentinel), result)?;
-        let (control, payload) = delta
-            .map(|buffers| (buffers.control, buffers.page_bytes))
-            .unwrap_or_default();
-        bridge.set_output(metadata, control, payload)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_cancel() -> u32 {
-    run_bridge(|bridge| {
-        let metadata = bridge.runtime_mut()?.cancel(CANCEL_EXIT_CODE)?;
-        bridge.set_output(metadata, Vec::new(), Vec::new())
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_finish(exit_code: u32) -> u32 {
-    run_bridge(|bridge| {
-        let metadata = bridge.runtime_mut()?.finish(exit_code)?;
-        bridge.set_output(metadata, Vec::new(), Vec::new())
+        bridge.set_runtime_output(metadata, delta, bytes)
     })
 }
 
@@ -6537,96 +3382,518 @@ pub extern "C" fn vine_bridge_finish(exit_code: u32) -> u32 {
 mod tests {
     use super::*;
 
+    const SECOND_THREAD_ID: u32 = 8193;
+
+    fn running_test_runtime() -> Runtime {
+        controlled_executable_runtime_state(
+            GuestMemory::new(MemoryLimits::default()).unwrap(),
+            0xec02_5c47,
+            b"C:\\Vine\\browser-vertical.exe\0".to_vec(),
+        )
+        .unwrap()
+    }
+
     #[test]
-    fn native_heap_pages_are_zeroed_authoritative_and_rejections_are_atomic() {
-        let mut runtime = controlled_runtime_state(0xec02_5c47).unwrap();
-        runtime.set_heap_poisoning_enabled(false);
-        let mut memory = GuestMemory::new(MemoryLimits {
-            max_physical_pages: 1,
-            ..MemoryLimits::default()
-        })
+    fn stop_context_without_runtime_preserves_original_fault_and_binary_outputs() {
+        BRIDGE.with(|cell| {
+            let mut bridge = Bridge::new();
+            bridge.metadata = br#"{"kind":"error","message":"original guest fault"}"#.to_vec();
+            bridge.control = vec![1];
+            bridge.payload = vec![2];
+            bridge.presentation_bytes = vec![3];
+            bridge.audio_bytes = vec![4];
+            bridge.media_bytes = vec![5];
+            bridge.writeback_generation = Some(77);
+            *cell.borrow_mut() = bridge;
+        });
+        assert_eq!(vine_bridge_stop_context(u32::MAX), 0);
+        BRIDGE.with(|cell| {
+            let bridge = cell.borrow();
+            let context: Value = serde_json::from_slice(&bridge.stop_context_metadata).unwrap();
+            assert_eq!(
+                context,
+                json!({
+                    "kind": "stop-context", "instructionPointer": u32::MAX,
+                    "threadId": null, "lastError": null, "module": null, "symbol": null,
+                })
+            );
+            assert_eq!(
+                bridge.metadata,
+                br#"{"kind":"error","message":"original guest fault"}"#
+            );
+            assert_eq!(bridge.control, [1]);
+            assert_eq!(bridge.payload, [2]);
+            assert_eq!(bridge.presentation_bytes, [3]);
+            assert_eq!(bridge.audio_bytes, [4]);
+            assert_eq!(bridge.media_bytes, [5]);
+            assert_eq!(bridge.writeback_generation, Some(77));
+        });
+        assert!(vine_bridge_stop_context_len() > 0);
+        BRIDGE.with(|cell| *cell.borrow_mut() = Bridge::new());
+    }
+
+    #[test]
+    fn stop_context_reads_current_thread_and_exact_api_without_acknowledging_memory() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.work/toolchain-spike/message-box.exe");
+        let limits = Pe32Limits::default();
+        let snapshot =
+            ModuleSnapshot::from_bytes(std::fs::read(fixture).unwrap(), &limits).unwrap();
+        let plan = build_pe32_load_plan(&snapshot, limits).unwrap();
+        let catalog = runtime_catalog_for_load_plan(&[&plan]).unwrap();
+        let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+        let image = materialize_pe32_image(
+            &mut memory,
+            &snapshot,
+            &plan,
+            GuestAddress(plan.image.preferred_image_base),
+        )
         .unwrap();
-        let handle = runtime.allocate_private_heap(0, 0x1000, 0).unwrap().handle;
-        let length = vine_core::RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 0x3000;
-        let allocation = ExecutionSession::new(&mut memory, &mut runtime)
-            .allocate_private_heap_block(
-                handle,
-                length,
-                RuntimeHeapInitialization::DeterministicUninitialized,
+        let process = prepare_executable_runtime_process(
+            memory,
+            &plan,
+            &image,
+            &[],
+            &catalog,
+            0xec02_5c47,
+            "message-box.exe",
+            b"C:\\Vine\\message-box.exe\0".to_vec(),
+        )
+        .unwrap();
+        let named = ApiEndpointIdentity::from_runtime_guest_import(
+            process.binding.imports.iter().find(|import| {
+                matches!(&import.target, ImportTarget::Name { name, .. } if name == "MessageBoxA")
+            }).unwrap(),
+        ).unwrap();
+        let named_address = named.address.0;
+        let mut runtime = process.runtime;
+        runtime
+            .register_thread(RuntimeThreadId(SECOND_THREAD_ID), 88)
+            .unwrap();
+        runtime
+            .select_thread(RuntimeThreadId(SECOND_THREAD_ID))
+            .unwrap();
+        let mut bridge = Bridge::new();
+        bridge.runtime = Some(BrowserRuntime {
+            runtime,
+            dispatcher: ApiDispatcher::from_endpoints([named]).unwrap(),
+            callback_sentinel: GuestAddress(0x7f01_0000),
+            pending_host: BTreeMap::new(),
+            pending_com_audio: None,
+            pending_com_media: BTreeMap::new(),
+            prepared_source_trap: None,
+            pending_source_lookup: None,
+            pending_source_search: None,
+        });
+        let before = bridge.runtime.as_ref().unwrap().runtime.memory().stats();
+        assert!(
+            bridge
+                .runtime
+                .as_ref()
+                .unwrap()
+                .runtime
+                .memory()
+                .has_pending_delta()
+        );
+        for (address, module, symbol) in [
+            (named_address, Some("user32.dll"), Some("MessageBoxA")),
+            (named_address + 1, None, None),
+            (0, None, None),
+        ] {
+            bridge.stop_context(address).unwrap();
+            let context: Value = serde_json::from_slice(&bridge.stop_context_metadata).unwrap();
+            assert_eq!(
+                context,
+                json!({
+                    "kind": "stop-context", "instructionPointer": address,
+                    "threadId": SECOND_THREAD_ID, "lastError": 88,
+                    "module": module, "symbol": symbol,
+                })
+            );
+            let browser = bridge.runtime.as_ref().unwrap();
+            assert_eq!(
+                browser.runtime.current_thread_id(),
+                RuntimeThreadId(SECOND_THREAD_ID)
+            );
+            assert_eq!(browser.runtime.current_last_error().unwrap(), 88);
+            assert_eq!(browser.runtime.memory().stats(), before);
+            assert_eq!(
+                browser.runtime.scheduler_state().unwrap(),
+                SchedulerThreadState::Runnable
+            );
+            assert!(browser.pending_host.is_empty());
+            assert!(browser.pending_com_media.is_empty());
+        }
+    }
+
+    #[test]
+    fn message_box_transport_preserves_rejected_results_and_resumes_the_owner() {
+        let stack = GuestAddress(0x2000_1040);
+        let text = GuestAddress(0x2000_1200);
+        let title = GuestAddress(0x2000_1300);
+        let return_address = GuestAddress(0x0040_1000);
+        let limits = Pe32Limits::default();
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.work/toolchain-spike/message-box.exe");
+        let snapshot = ModuleSnapshot::from_bytes(
+            std::fs::read(&fixture)
+                .expect("build the MessageBox PE32 fixture with check:toolchain"),
+            &limits,
+        )
+        .unwrap();
+        let plan = build_pe32_load_plan(&snapshot, limits).unwrap();
+        let catalog = runtime_catalog_for_load_plan(&[&plan]).unwrap();
+        let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+        let image = materialize_pe32_image(
+            &mut memory,
+            &snapshot,
+            &plan,
+            GuestAddress(plan.image.preferred_image_base),
+        )
+        .unwrap();
+        let owner = memory
+            .create_owner(vine_core::MemoryOwnerKind::Runtime)
+            .unwrap();
+        let range = memory
+            .reserve_fixed(
+                owner,
+                MemoryRegionKind::Runtime,
+                GuestAddress(0x2000_0000),
+                0x2000,
             )
             .unwrap();
-        let reflection = memory.pending_reflection().unwrap();
         memory
+            .commit(
+                owner,
+                range,
+                vine_core::PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .unwrap();
+        let frame = [return_address.0, 0, text.0, title.0, 0x1010_u32]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>();
+        memory.write_initialization(owner, stack, &frame).unwrap();
+        memory
+            .write_initialization(owner, text, b"line1\r\n\x93\xfa\x96\x7b\x8c\xea\0")
+            .unwrap();
+        memory
+            .write_initialization(owner, title, b"Notice\0")
+            .unwrap();
+        memory.seal_owner(owner).unwrap();
+        let mut process = prepare_executable_runtime_process(
+            memory,
+            &plan,
+            &image,
+            &[],
+            &catalog,
+            0xec02_5c47,
+            "message-box.exe",
+            b"C:\\Vine\\message-box.exe\0".to_vec(),
+        )
+        .unwrap();
+        let reflection = process.runtime.memory_mut().pending_reflection().unwrap();
+        process
+            .runtime
+            .memory_mut()
             .acknowledge_delta(reflection.invalidation.generation)
             .unwrap();
-        memory.enable_execution_memory(1).unwrap();
-        let page =
-            materialize_execution_heap_page(&mut memory, &mut runtime, allocation.address.0 + 7, 6)
-                .unwrap()
-                .unwrap();
-        assert_eq!(page.address, allocation.address.0);
-        assert_eq!(page.physical_offset, 4096);
+        let import = process.binding.imports.iter().find(|import| {
+            matches!(&import.target, ImportTarget::Name { name, .. } if name == "MessageBoxA")
+        }).unwrap();
+        let endpoint = ApiEndpointIdentity::from_runtime_guest_import(import).unwrap();
+        let mut browser = BrowserRuntime {
+            runtime: process.runtime,
+            dispatcher: ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap(),
+            callback_sentinel: GuestAddress(0x7f01_0000),
+            pending_host: BTreeMap::new(),
+            pending_com_audio: None,
+            pending_com_media: BTreeMap::new(),
+            prepared_source_trap: None,
+            pending_source_lookup: None,
+            pending_source_search: None,
+        };
+        browser.runtime.set_current_last_error(0x1234).unwrap();
+        let context = X86CpuContext {
+            eax: 0,
+            ecx: 0,
+            edx: 0,
+            ebx: 0,
+            esp: stack.0,
+            ebp: 0,
+            esi: 0,
+            edi: 0,
+            eip: endpoint.address.0,
+            eflags: 0,
+            es: 0,
+            cs: 0,
+            ss: 0,
+            ds: 0,
+            fs: 0,
+            gs: 0,
+        };
+        let (metadata, delta, presentation) = browser
+            .dispatch(endpoint.address, stack, return_address, 0, context)
+            .unwrap();
+        assert!(delta.is_none());
+        assert!(presentation.is_empty());
+        assert_eq!(metadata["kind"], "host-request");
+        assert_eq!(metadata["service"], RUNTIME_MESSAGE_BOX_SERVICE);
+        assert_eq!(metadata["arguments"], json!([]));
         assert_eq!(
-            memory.synchronization_state().acknowledged_generation,
-            page.generation
+            metadata["messageBox"],
+            json!({
+                "title": "Notice", "text": "line1\r\n日本語",
+                "buttons": [{"id": 1, "label": "OK"}],
+                "defaultButton": 1, "cancelButton": 1, "icon": "error",
+            })
         );
-        assert!(!memory.has_pending_delta());
-        let reflected = memory.current_reflection().unwrap();
-        assert_eq!(reflected.pages.len(), 1);
-        assert!(reflected.pages[0].bytes.iter().all(|byte| *byte == 0));
-        assert_eq!(reflected.pages[0].owner.0, page.owner);
-
-        // Already committed, outside the allocation, protection, and exhausted pool.
-        for (address, error) in [
-            (page.address, 6),
-            (page.address - 1, 6),
-            (page.address + length, 4),
-            (page.address + 4096, 7),
-            (page.address + 4096, 6),
-        ] {
-            let before = runtime.clone();
-            let stats = memory.stats();
-            let bytes = memory.current_reflection().unwrap().content_sha256;
-            assert!(
-                materialize_execution_heap_page(&mut memory, &mut runtime, address, error)
-                    .unwrap()
-                    .is_none()
-            );
-            assert_eq!(runtime, before);
-            assert_eq!(memory.stats(), stats);
-            assert_eq!(memory.current_reflection().unwrap().content_sha256, bytes);
-        }
-
-        memory.write(allocation.address, &[0x5a; 16]).unwrap();
-        let delta = memory.pending_delta_without_content_hash().unwrap();
-        memory.acknowledge_delta(delta.generation).unwrap();
-        ExecutionSession::new(&mut memory, &mut runtime)
-            .free_private_heap_block(handle, allocation.address)
-            .unwrap();
-        let delta = memory.pending_delta_without_content_hash().unwrap();
-        memory.acknowledge_delta(delta.generation).unwrap();
-        let reused = ExecutionSession::new(&mut memory, &mut runtime)
-            .allocate_private_heap_block(handle, length, RuntimeHeapInitialization::Zeroed)
-            .unwrap();
-        if memory.has_pending_delta() {
-            let delta = memory.pending_delta_without_content_hash().unwrap();
-            memory.acknowledge_delta(delta.generation).unwrap();
-        }
-        let again = materialize_execution_heap_page(&mut memory, &mut runtime, reused.address.0, 4)
+        let request_id = metadata["requestId"]
+            .as_str()
             .unwrap()
+            .parse::<u64>()
             .unwrap();
-        assert_eq!(again.physical_offset, page.physical_offset);
         assert!(
-            memory.current_reflection().unwrap().pages[0]
-                .bytes
-                .iter()
-                .all(|byte| *byte == 0)
+            browser.pending_host[&request_id]
+                .call
+                .request
+                .payload
+                .is_empty()
         );
+        let dialog = browser.runtime.message_box(request_id).unwrap().clone();
+        let initial = RuntimeThreadId(THREAD_ID);
+        let second = RuntimeThreadId(SECOND_THREAD_ID);
+        browser.runtime.register_thread(second, 0).unwrap();
+        browser.runtime.select_thread(second).unwrap();
+        browser.runtime.set_current_last_error(0x5678).unwrap();
+
+        assert!(browser.complete_host(request_id + 1, 1).is_err());
+        assert!(browser.complete_host(request_id, 2).is_err());
+        assert_eq!(browser.runtime.current_thread_id(), second);
+        assert!(browser.pending_host.contains_key(&request_id));
+        assert_eq!(browser.runtime.message_box(request_id).unwrap(), &dialog);
+        assert_eq!(
+            browser.runtime.scheduler_state_for_thread(initial).unwrap(),
+            SchedulerThreadState::WaitingHost { request_id }
+        );
+        assert!(browser.runtime.scheduler().events().is_empty());
+        assert_eq!(
+            browser.runtime.thread_state(initial).unwrap().last_error,
+            0x1234
+        );
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 0x5678);
+
+        let completion = browser.complete_host(request_id, 1).unwrap();
+        assert_eq!(completion["kind"], "host-complete");
+        assert_eq!(completion["threadId"], initial.0);
+        assert_eq!(
+            completion["completion"],
+            json!({
+                "instructionPointer": return_address.0, "stackPointer": stack.0 + 20, "eax": 1,
+            })
+        );
+        assert_eq!(browser.runtime.current_thread_id(), second);
+        assert_eq!(
+            browser.runtime.scheduler_state_for_thread(initial).unwrap(),
+            SchedulerThreadState::Runnable
+        );
+        assert_eq!(
+            browser.runtime.thread_state(initial).unwrap().last_error,
+            0x1234
+        );
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 0x5678);
+        assert!(!browser.pending_host.contains_key(&request_id));
+        assert!(browser.runtime.message_box(request_id).is_err());
+        assert!(browser.complete_host(request_id, 1).is_err());
+        assert_eq!(browser.runtime.current_thread_id(), second);
+    }
+
+    #[test]
+    fn source_handoff_rejects_pending_wrong_trap_and_wrong_thread_without_consuming_retry() {
+        let initial = RuntimeThreadId(THREAD_ID);
+        let identity = (
+            initial,
+            GuestAddress(0x7f001000),
+            GuestAddress(0x20000000),
+            GuestAddress(0x401000),
+        );
+        let mut browser = BrowserRuntime {
+            runtime: running_test_runtime(),
+            dispatcher: ApiDispatcher::from_endpoints([]).unwrap(),
+            callback_sentinel: GuestAddress(0x7f010000),
+            pending_host: BTreeMap::new(),
+            pending_com_audio: None,
+            pending_com_media: BTreeMap::new(),
+            prepared_source_trap: Some(identity),
+            pending_source_lookup: Some((12, b"missing.dat".to_vec())),
+            pending_source_search: None,
+        };
+        let context = X86CpuContext {
+            eax: 0,
+            ecx: 0,
+            edx: 0,
+            ebx: 0,
+            esp: identity.2.0,
+            ebp: 0,
+            esi: 0,
+            edi: 0,
+            eip: identity.1.0,
+            eflags: 0,
+            es: 0,
+            cs: 0,
+            ss: 0,
+            ds: 0,
+            fs: 0,
+            gs: 0,
+        };
+        let before = browser.runtime.memory().stats();
+        browser.runtime.set_current_last_error(77).unwrap();
+        assert!(
+            browser
+                .dispatch(identity.1, identity.2, identity.3, 0, context)
+                .is_err()
+        );
+        assert!(browser.pending_source_lookup.is_some());
+        assert_eq!(browser.prepared_source_trap, Some(identity));
+        assert!(
+            browser
+                .complete_source_lookup(Some(json!({ "kind": "unknown" })))
+                .is_err()
+        );
+        assert_eq!(browser.pending_source_lookup.as_ref().unwrap().0, 12);
+        assert_eq!(
+            browser.pending_source_lookup.as_ref().unwrap().1,
+            b"missing.dat"
+        );
+        assert_eq!(browser.prepared_source_trap, Some(identity));
+        browser.complete_source_lookup(None).unwrap();
+        assert!(browser.pending_source_lookup.is_none());
+        for changed in [
+            (GuestAddress(identity.1.0 + 16), identity.2, identity.3),
+            (identity.1, GuestAddress(identity.2.0 + 4), identity.3),
+            (identity.1, identity.2, GuestAddress(identity.3.0 + 4)),
+        ] {
+            assert!(
+                browser
+                    .dispatch(changed.0, changed.1, changed.2, 0, context)
+                    .is_err()
+            );
+            assert_eq!(browser.prepared_source_trap, Some(identity));
+        }
+        let second = RuntimeThreadId(SECOND_THREAD_ID);
+        browser.runtime.register_thread(second, 0).unwrap();
+        browser.runtime.select_thread(second).unwrap();
+        assert!(
+            browser
+                .dispatch(identity.1, identity.2, identity.3, 0, context)
+                .is_err()
+        );
+        assert_eq!(browser.prepared_source_trap, Some(identity));
+        browser.runtime.select_thread(initial).unwrap();
+        // The matching trap resumes ordinary dispatch. This deliberately unowned
+        // endpoint then faults in COM, rather than reissuing the missing-file query.
+        assert!(
+            browser
+                .dispatch(identity.1, identity.2, identity.3, 0, context)
+                .is_err()
+        );
+        assert!(browser.prepared_source_trap.is_none());
+        assert_eq!(browser.runtime.memory().stats(), before);
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 77);
+    }
+
+    #[test]
+    fn guest_image_fallback_avoids_unmapped_runtime_arenas_and_existing_images() {
+        let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+        assert_eq!(
+            guest_image_load_base(&memory, 0x5000_0000, 0x2000).unwrap(),
+            GuestAddress(0x6000_0000)
+        );
+        let owner = memory
+            .create_owner(vine_core::MemoryOwnerKind::Runtime)
+            .unwrap();
+        memory
+            .reserve_fixed(
+                owner,
+                vine_core::MemoryRegionKind::Runtime,
+                GuestAddress(0x6000_0000),
+                0x1000,
+            )
+            .unwrap();
+        assert_eq!(
+            guest_image_load_base(&memory, 0x5000_0000, 0x2000).unwrap(),
+            GuestAddress(0x6100_0000)
+        );
+        // The guest private-heap band is reserved even before backing is committed.
+        assert_eq!(
+            guest_image_load_base(&memory, 0x3000_0000, 0x2000).unwrap(),
+            GuestAddress(0x6100_0000)
+        );
+        assert_eq!(
+            guest_image_load_base(&memory, 0x4e00_0000, 0x2000).unwrap(),
+            GuestAddress(0x4e00_0000)
+        );
+        assert_eq!(
+            guest_image_load_base(&memory, 0x7ffe_0000, 0x1000).unwrap(),
+            GuestAddress(0x7ffe_0000)
+        );
+        for preferred in [0x3200_0000, 0x7f00_0000, 0x7f03_0000, 0x7fc4_0000, 0x400001] {
+            assert_eq!(
+                guest_image_load_base(&memory, preferred, 0x2000).unwrap(),
+                GuestAddress(0x6100_0000)
+            );
+        }
+    }
+
+    #[test]
+    fn executable_virtual_path_is_windows_932_and_rejects_escapes() {
+        assert_eq!(
+            virtual_executable_path("game.exe").unwrap(),
+            b"C:\\Vine\\game.exe\0"
+        );
+        assert_eq!(
+            virtual_executable_path("日本語.exe").unwrap(),
+            [
+                b"C:\\Vine\\".as_slice(),
+                &[0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea],
+                b".exe\0"
+            ]
+            .concat(),
+        );
+        assert_eq!(
+            virtual_executable_path("data/日本語.exe").unwrap(),
+            [
+                b"C:\\Vine\\data\\".as_slice(),
+                &[0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea],
+                b".exe\0"
+            ]
+            .concat(),
+        );
+        for name in [
+            "",
+            ".",
+            "..",
+            "../outside.exe",
+            "/absolute.exe",
+            "data//game.exe",
+            "data/../game.exe",
+            "a\\\\b.exe",
+            "bad:drive.exe",
+            "trailing. ",
+            "🦀.exe",
+            "¥.exe",
+        ] {
+            assert!(virtual_executable_path(name).is_err(), "accepted {name:?}");
+        }
     }
 
     #[test]
     fn acknowledged_thread_join_wakes_do_not_consume_host_receipts() {
-        let mut runtime = controlled_runtime_state(0xec02_5c47).unwrap();
+        let mut runtime = running_test_runtime();
         let initial = RuntimeThreadId(THREAD_ID);
         let second = RuntimeThreadId(SECOND_THREAD_ID);
         let handle = runtime.register_thread(second, 0).unwrap();
@@ -6655,7 +3922,7 @@ mod tests {
 
     #[test]
     fn host_completion_selection_does_not_restore_a_blocked_previous_thread() {
-        let mut runtime = controlled_runtime_state(0xec02_5c47).expect("controlled runtime");
+        let mut runtime = running_test_runtime();
         let initial_thread = RuntimeThreadId(THREAD_ID);
         let completion_owner = RuntimeThreadId(SECOND_THREAD_ID);
         runtime
@@ -6681,177 +3948,522 @@ mod tests {
     }
 
     #[test]
-    fn window_timer_metadata_excludes_pointer_dispatch_and_peek_completions() {
-        assert!(should_emit_bgi_window_timer_callback_metadata(
-            true,
-            vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION,
-            GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 },
+    fn timer_rearm_export_keeps_waiting_identity_and_emits_only_a_retry_delay() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.work/toolchain-spike/timer-wait.exe");
+        let limits = Pe32Limits::default();
+        let snapshot =
+            ModuleSnapshot::from_bytes(std::fs::read(fixture).unwrap(), &limits).unwrap();
+        let plan = build_pe32_load_plan(&snapshot, limits).unwrap();
+        let catalog = runtime_catalog_for_load_plan(&[&plan]).unwrap();
+        let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+        let image = materialize_pe32_image(
+            &mut memory,
+            &snapshot,
+            &plan,
+            GuestAddress(plan.image.preferred_image_base),
+        )
+        .unwrap();
+        let base = GuestAddress(0x2000_0000);
+        let stack = GuestAddress(base.0 + 0x100);
+        let second_stack = GuestAddress(base.0 + 0x300);
+        let due = GuestAddress(base.0 + 0x800);
+        let owner = memory
+            .create_owner(vine_core::MemoryOwnerKind::Runtime)
+            .unwrap();
+        let range = memory
+            .reserve_fixed(owner, MemoryRegionKind::Runtime, base, 0x1000)
+            .unwrap();
+        memory
+            .commit(
+                owner,
+                range,
+                vine_core::PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .unwrap();
+        memory.seal_owner(owner).unwrap();
+        let process = prepare_executable_runtime_process(
+            memory,
+            &plan,
+            &image,
+            &[],
+            &catalog,
+            0xec02_5c47,
+            "timer-wait.exe",
+            b"C:\\Vine\\timer-wait.exe\0".to_vec(),
+        )
+        .unwrap();
+        let endpoints = process
+            .binding
+            .imports
+            .iter()
+            .filter_map(ApiEndpointIdentity::from_runtime_guest_import)
+            .collect::<Vec<_>>();
+        let endpoint = |wanted: &str| {
+            ApiEndpointIdentity::from_runtime_guest_import(
+                process.binding.imports.iter().find(|import|
+                    matches!(&import.target, ImportTarget::Name { name, .. } if name == wanted)
+                ).unwrap()
+            ).unwrap()
+        };
+        let create = endpoint("CreateWaitableTimerA");
+        let arm = endpoint("SetWaitableTimer");
+        let wait = endpoint("WaitForSingleObjectEx");
+        let mut browser = BrowserRuntime {
+            runtime: process.runtime,
+            dispatcher: ApiDispatcher::from_endpoints(endpoints).unwrap(),
+            callback_sentinel: GuestAddress(0x7f01_0000),
+            pending_host: BTreeMap::new(),
+            pending_com_audio: None,
+            pending_com_media: BTreeMap::new(),
+            prepared_source_trap: None,
+            pending_source_lookup: None,
+            pending_source_search: None,
+        };
+        let reflection = browser.runtime.memory_mut().pending_reflection().unwrap();
+        browser
+            .acknowledge_fast(reflection.invalidation.generation)
+            .unwrap();
+        let call = |browser: &mut BrowserRuntime,
+                    endpoint: &ApiEndpointIdentity,
+                    stack: GuestAddress,
+                    arguments: &[u32]| {
+            let words = std::iter::once(image.entry_point_address.0)
+                .chain(arguments.iter().copied())
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>();
+            browser.runtime.memory_mut().write(stack, &words).unwrap();
+            let generation = browser.runtime.memory().stats().generation;
+            browser.runtime.memory_mut().pending_delta_binary().unwrap();
+            browser.acknowledge_fast(generation).unwrap();
+            browser.runtime.dispatch_api_call(
+                &browser.dispatcher,
+                ApiOwnedTrap {
+                    endpoint_id: endpoint.id,
+                    endpoint_address: endpoint.address,
+                    stack_pointer: stack,
+                    return_address: image.entry_point_address,
+                },
+                browser.callback_sentinel,
+                None,
+            )
+        };
+        let creation = call(&mut browser, &create, stack, &[0, 1, 0]);
+        let DispatchOutcome::Immediate(created) = creation else {
+            panic!("timer creation must complete: {creation:?}");
+        };
+        let timer = created.eax.unwrap();
+        browser
+            .runtime
+            .memory_mut()
+            .write(due, &(-400_000_i64).to_le_bytes())
+            .unwrap();
+        assert!(matches!(
+            call(&mut browser, &arm, stack, &[timer, due.0, 0, 0, 0, 0]),
+            DispatchOutcome::Immediate(_)
         ));
-        assert!(!should_emit_bgi_window_timer_callback_metadata(
-            true,
-            vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION,
-            GuestCallbackCompletionPolicy::ReturnU32,
+        browser.runtime.set_current_last_error(11).unwrap();
+        let DispatchOutcome::Deferred(waiting) = call(&mut browser, &wait, stack, &[timer, 200, 1])
+        else {
+            panic!("armed timer wait must defer");
+        };
+        let request_id = waiting.request.request_id;
+        assert_eq!(waiting.request.payload, 40_u32.to_le_bytes());
+        let initial = browser.runtime.current_thread_id();
+        browser.pending_host.insert(
+            request_id,
+            PendingHostCall {
+                thread_id: initial,
+                call: waiting,
+            },
+        );
+        let second = RuntimeThreadId(SECOND_THREAD_ID);
+        browser.runtime.register_thread(second, 0).unwrap();
+        browser.runtime.select_thread(second).unwrap();
+        browser
+            .runtime
+            .memory_mut()
+            .write(due, &(-1_200_000_i64).to_le_bytes())
+            .unwrap();
+        assert!(matches!(
+            call(
+                &mut browser,
+                &arm,
+                second_stack,
+                &[timer, due.0, 0, 0, 0, 0]
+            ),
+            DispatchOutcome::Immediate(_)
         ));
-        assert!(should_emit_bgi_window_timer_peek_metadata(
-            Some(0x0113),
-            0x0113,
-        ));
-        assert!(!should_emit_bgi_window_timer_peek_metadata(
-            Some(0x0201),
-            0x0113,
-        ));
-        assert!(!should_emit_bgi_window_timer_peek_metadata(
-            Some(0x0202),
-            0x0113,
-        ));
-        assert!(!should_emit_bgi_window_timer_peek_metadata(None, 0x0113,));
+        browser.runtime.set_current_last_error(22).unwrap();
+        let other_request = browser
+            .runtime
+            .begin_host_request("fixture.blocked-other-timer")
+            .unwrap();
+        let memory_before = browser.runtime.memory().stats();
+        BRIDGE.with(|cell| {
+            let mut transport = Bridge::new();
+            transport.runtime = Some(browser);
+            transport.control = vec![1];
+            transport.payload = vec![2];
+            transport.audio_bytes = vec![3];
+            *cell.borrow_mut() = transport;
+        });
+        assert_eq!(
+            vine_bridge_complete_host(request_id as u32, (request_id >> 32) as u32, 1),
+            0
+        );
+        BRIDGE.with(|cell| {
+            let transport = cell.borrow();
+            let metadata: Value = serde_json::from_slice(&transport.metadata).unwrap();
+            assert_eq!(metadata, json!({
+                "kind": "host-retry", "threadId": initial.0,
+                "requestId": request_id.to_string(), "service": RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
+                "arguments": [80],
+            }));
+            assert!(transport.control.is_empty() && transport.payload.is_empty());
+            assert!(transport.audio_bytes.is_empty() && transport.presentation_bytes.is_empty() && transport.media_bytes.is_empty());
+            let browser = transport.runtime.as_ref().unwrap();
+            assert_eq!(browser.runtime.current_thread_id(), second);
+            assert_eq!(browser.runtime.current_last_error().unwrap(), 22);
+            assert_eq!(browser.runtime.thread_state(initial).unwrap().last_error, 11);
+            assert_eq!(browser.runtime.scheduler_state_for_thread(initial).unwrap(), SchedulerThreadState::WaitingHost { request_id });
+            assert_eq!(browser.runtime.scheduler_state_for_thread(second).unwrap(), SchedulerThreadState::WaitingHost { request_id: other_request.request_id });
+            assert_eq!(browser.pending_host[&request_id].call.request.payload, 80_u32.to_le_bytes());
+            assert_eq!(browser.runtime.memory().stats(), memory_before);
+            assert!(browser.runtime.scheduler().events().is_empty());
+        });
+        assert_eq!(
+            vine_bridge_complete_host(request_id as u32, (request_id >> 32) as u32, 1),
+            0
+        );
+        BRIDGE.with(|cell| {
+            let mut transport = cell.borrow_mut();
+            let metadata: Value = serde_json::from_slice(&transport.metadata).unwrap();
+            assert_eq!(metadata["kind"], "host-complete");
+            assert_eq!(metadata["threadId"], initial.0);
+            assert_eq!(
+                metadata["completion"],
+                json!({
+                    "instructionPointer": image.entry_point_address.0,
+                    "stackPointer": stack.0 + 16, "eax": 0,
+                })
+            );
+            let browser = transport.runtime.as_ref().unwrap();
+            assert!(!browser.pending_host.contains_key(&request_id));
+            assert_eq!(
+                browser.runtime.scheduler_state_for_thread(initial).unwrap(),
+                SchedulerThreadState::Runnable
+            );
+            assert_eq!(
+                browser.runtime.thread_state(initial).unwrap().last_error,
+                11
+            );
+            *transport = Bridge::new();
+        });
     }
 
     #[test]
-    fn peek_message_metadata_rejects_malformed_write_receipts() {
-        let mut message = [0_u8; 28];
-        message[4..8].copy_from_slice(&0x0202_u32.to_le_bytes());
+    fn media_ingress_rejects_inexact_identity_time_and_unexpected_bytes() {
+        let valid = json!({ "kind": "frame", "resourceId": "1",
+            "start100ns": 0, "end100ns": 400000 });
+        let bytes = [129, 129, 129, 255];
+        let ComMediaResponse::Frame(frame) =
+            parse_media_response(&serde_json::to_vec(&valid).unwrap(), &bytes).unwrap()
+        else {
+            panic!("frame");
+        };
+        assert_eq!(frame.bgra, bytes);
+        assert_eq!(frame.end_100ns, 400000);
+        for id in ["0", "01", "-1", "18446744073709551616"] {
+            let mut invalid = valid.clone();
+            invalid["resourceId"] = json!(id);
+            assert!(parse_media_response(&serde_json::to_vec(&invalid).unwrap(), &bytes).is_err());
+        }
+        for time in [json!(0.5), json!(9_007_199_254_740_992_i64)] {
+            let mut invalid = valid.clone();
+            invalid["end100ns"] = time;
+            assert!(parse_media_response(&serde_json::to_vec(&invalid).unwrap(), &bytes).is_err());
+        }
+        assert!(parse_media_response(br#"{"kind":"acknowledged"}"#, &bytes).is_err());
+        assert!(parse_media_response(br#"{"kind":"failed","hresult":0}"#, &[]).is_err());
+        assert!(parse_media_response(br#"{"kind":"failed","hresult":2147500037}"#, &[]).is_err());
+        assert!(matches!(
+            parse_media_response(
+                br#"{"kind":"backend-failed","message":"decode failed"}"#,
+                &[]
+            )
+            .unwrap(),
+            ComMediaResponse::BackendFailed { .. }
+        ));
+    }
+
+    #[test]
+    fn actual_media_token_rejects_malformed_completion_and_accepts_retry() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.work/toolchain-spike/directshow.exe");
+        let limits = Pe32Limits::default();
+        let snapshot =
+            ModuleSnapshot::from_bytes(std::fs::read(fixture).unwrap(), &limits).unwrap();
+        let plan = build_pe32_load_plan(&snapshot, limits).unwrap();
+        let catalog = runtime_catalog_for_load_plan(&[&plan]).unwrap();
+        let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+        let image = materialize_pe32_image(
+            &mut memory,
+            &snapshot,
+            &plan,
+            GuestAddress(plan.image.preferred_image_base),
+        )
+        .unwrap();
+        let base = GuestAddress(0x2000_0000);
+        let stack = GuestAddress(base.0 + 0x100);
+        let class = GuestAddress(base.0 + 0x300);
+        let iid = GuestAddress(base.0 + 0x310);
+        let output = GuestAddress(base.0 + 0x340);
+        let path = GuestAddress(base.0 + 0x400);
+        let owner = memory
+            .create_owner(vine_core::MemoryOwnerKind::Runtime)
+            .unwrap();
+        let range = memory
+            .reserve_fixed(owner, MemoryRegionKind::Runtime, base, 0x1000)
+            .unwrap();
+        memory
+            .commit(
+                owner,
+                range,
+                vine_core::PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .unwrap();
+        memory.seal_owner(owner).unwrap();
+        let process = prepare_executable_runtime_process(
+            memory,
+            &plan,
+            &image,
+            &[],
+            &catalog,
+            0xec02_5c47,
+            "directshow.exe",
+            b"C:\\Vine\\directshow.exe\0".to_vec(),
+        )
+        .unwrap();
+        let endpoints = process
+            .binding
+            .imports
+            .iter()
+            .filter_map(ApiEndpointIdentity::from_runtime_guest_import)
+            .collect::<Vec<_>>();
+        let endpoint_for = |wanted: &str| {
+            ApiEndpointIdentity::from_runtime_guest_import(
+            process.binding.imports.iter().find(|import|
+                matches!(&import.target, ImportTarget::Name { name, .. } if name == wanted)).unwrap()).unwrap()
+        };
+        let co_initialize = endpoint_for("CoInitialize");
+        let co_create = endpoint_for("CoCreateInstance");
+        let mut browser = BrowserRuntime {
+            runtime: process.runtime,
+            dispatcher: ApiDispatcher::from_endpoints(endpoints).unwrap(),
+            callback_sentinel: GuestAddress(0x7f01_0000),
+            pending_host: BTreeMap::new(),
+            pending_com_audio: None,
+            pending_com_media: BTreeMap::new(),
+            prepared_source_trap: None,
+            pending_source_lookup: None,
+            pending_source_search: None,
+        };
+        let identity = snapshot.identity();
+        browser
+            .runtime
+            .register_source_snapshot(RuntimeSourceSnapshotManifest {
+                mount: RuntimeSourceMountManifest {
+                    source_id: 1,
+                    root_path_a: b"C:\\Vine\\\0".to_vec(),
+                },
+                files: vec![RuntimeSourceFileManifest {
+                    object_id: 1,
+                    relative_path_a: b"directshow.exe".to_vec(),
+                    byte_length: identity.bytes,
+                    sha256: identity.sha256,
+                }],
+            })
+            .unwrap();
+        let acknowledge = |browser: &mut BrowserRuntime| {
+            if browser.runtime.memory().has_pending_delta() {
+                let generation = browser.runtime.memory().stats().generation;
+                browser.runtime.memory_mut().pending_delta_binary().unwrap();
+                browser
+                    .runtime
+                    .memory_mut()
+                    .acknowledge_delta(generation)
+                    .unwrap();
+            }
+        };
+        let write_words = |browser: &mut BrowserRuntime, words: &[u32]| {
+            let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+            browser.runtime.memory_mut().write(stack, &bytes).unwrap();
+            acknowledge(browser);
+        };
+        let read_word = |browser: &BrowserRuntime, address| {
+            u32::from_le_bytes(
+                browser
+                    .runtime
+                    .memory()
+                    .read(address, 4)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            )
+        };
+        let return_address = image.entry_point_address;
+        let reflection = browser.runtime.memory_mut().pending_reflection().unwrap();
+        browser
+            .runtime
+            .memory_mut()
+            .acknowledge_delta(reflection.invalidation.generation)
+            .unwrap();
+        for (endpoint, arguments) in [
+            (&co_initialize, vec![0]),
+            (&co_create, vec![class.0, 0, 1, iid.0, output.0]),
+        ] {
+            browser
+                .runtime
+                .memory_mut()
+                .write(class, &vine_core::directshow::CLSID_FILTER_GRAPH.0)
+                .unwrap();
+            browser
+                .runtime
+                .memory_mut()
+                .write(iid, &vine_core::directshow::IID_GRAPH_BUILDER.0)
+                .unwrap();
+            let mut words = vec![return_address.0];
+            words.extend(arguments);
+            write_words(&mut browser, &words);
+            let outcome = browser.runtime.dispatch_api_call(
+                &browser.dispatcher,
+                ApiOwnedTrap {
+                    endpoint_id: endpoint.id,
+                    endpoint_address: endpoint.address,
+                    stack_pointer: stack,
+                    return_address,
+                },
+                browser.callback_sentinel,
+                None,
+            );
+            let DispatchOutcome::Immediate(completion) = outcome else {
+                panic!("factory {outcome:?}");
+            };
+            assert_eq!(completion.eax, Some(0));
+            acknowledge(&mut browser);
+        }
+        let graph = read_word(&browser, output);
+        let vtable = read_word(&browser, GuestAddress(graph));
+        let render = GuestAddress(read_word(&browser, GuestAddress(vtable + 13 * 4)));
+        let path_bytes: Vec<u8> = "missing-media.mpg\0"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        browser
+            .runtime
+            .memory_mut()
+            .write(path, &path_bytes)
+            .unwrap();
+        write_words(&mut browser, &[return_address.0, graph, path.0, 0]);
+        browser.runtime.set_current_last_error(77).unwrap();
+        let (metadata, _, _) = browser
+            .dispatch_com(render, stack, return_address, 0)
+            .unwrap();
+        assert_eq!(metadata["kind"], "media-request");
+        let request_id = metadata["requestId"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let initial = browser.runtime.current_thread_id();
+        let second = RuntimeThreadId(SECOND_THREAD_ID);
+        browser.runtime.register_thread(second, 0).unwrap();
+        browser.runtime.select_thread(second).unwrap();
+        browser.runtime.set_current_last_error(88).unwrap();
+        let before = browser.runtime.memory().stats();
+        let owner_state = browser.runtime.scheduler_state_for_thread(initial).unwrap();
+        for response in [
+            ComMediaResponse::Acknowledged,
+            ComMediaResponse::Opened(ComMediaFormat {
+                resource_id: request_id,
+                width: 8193,
+                height: 16,
+                duration_100ns: Some(800000),
+                frame_duration_100ns: 400000,
+                audio_channels: 0,
+                audio_samples_per_second: 0,
+            }),
+            ComMediaResponse::Opened(ComMediaFormat {
+                resource_id: request_id + 1,
+                width: 16,
+                height: 16,
+                duration_100ns: Some(800000),
+                frame_duration_100ns: 400000,
+                audio_channels: 0,
+                audio_samples_per_second: 0,
+            }),
+        ] {
+            assert!(browser.complete_com_media(request_id, response).is_err());
+            assert!(browser.pending_com_media.contains_key(&request_id));
+            assert_eq!(browser.runtime.current_thread_id(), second);
+            assert_eq!(browser.runtime.current_last_error().unwrap(), 88);
+            assert_eq!(
+                browser.runtime.thread_state(initial).unwrap().last_error,
+                77
+            );
+            assert_eq!(
+                browser.runtime.scheduler_state_for_thread(initial).unwrap(),
+                owner_state
+            );
+            assert_eq!(browser.runtime.memory().stats(), before);
+        }
+        let (metadata, _, _) = browser
+            .complete_com_media(request_id, ComMediaResponse::FileNotFound)
+            .unwrap();
+        assert_eq!(metadata["kind"], "com-complete");
+        assert_eq!(metadata["threadId"], initial.0);
         assert_eq!(
-            bgi_completed_peek_message_id_from_write(0x1000, 0x1000, &message, 28),
-            Ok(0x0202),
+            metadata["completion"]["eax"],
+            vine_core::directshow::VFW_E_NOT_FOUND
         );
-        assert!(bgi_completed_peek_message_id_from_write(0x1000, 0x1004, &message, 28).is_err());
+        assert!(!browser.pending_com_media.contains_key(&request_id));
+        assert_eq!(browser.runtime.current_thread_id(), initial);
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 77);
+    }
+
+    #[test]
+    fn orphan_media_completion_preserves_thread_memory_and_last_error() {
+        let mut browser = BrowserRuntime {
+            runtime: running_test_runtime(),
+            dispatcher: ApiDispatcher::from_endpoints([]).unwrap(),
+            callback_sentinel: GuestAddress(0x7f010000),
+            pending_host: BTreeMap::new(),
+            pending_com_audio: None,
+            pending_com_media: BTreeMap::new(),
+            prepared_source_trap: None,
+            pending_source_lookup: None,
+            pending_source_search: None,
+        };
+        browser.runtime.set_current_last_error(77).unwrap();
+        let before = browser.runtime.memory().stats();
+        let thread = browser.runtime.current_thread_id();
+        assert!(browser.read_com_media(1, 0, 4).is_err());
         assert!(
-            bgi_completed_peek_message_id_from_write(0x1000, 0x1000, &message[..27], 27).is_err()
+            browser
+                .complete_com_media(1, ComMediaResponse::Acknowledged)
+                .is_err()
         );
-        assert!(bgi_completed_peek_message_id_from_write(0x1000, 0x1000, &message, 27).is_err());
-    }
-
-    #[test]
-    fn empty_peek_metadata_requires_false_without_guest_writes() {
-        assert!(should_emit_bgi_empty_peek_queue_metadata(
-            vine_core::PEEK_MESSAGE_A_IMPLEMENTATION,
-            RegisterUpdate::Set(0),
-            0,
-        ));
-        assert!(!should_emit_bgi_empty_peek_queue_metadata(
-            vine_core::PEEK_MESSAGE_A_IMPLEMENTATION,
-            RegisterUpdate::Set(1),
-            0,
-        ));
-        assert!(!should_emit_bgi_empty_peek_queue_metadata(
-            vine_core::PEEK_MESSAGE_A_IMPLEMENTATION,
-            RegisterUpdate::Set(0),
-            1,
-        ));
-        assert!(!should_emit_bgi_empty_peek_queue_metadata(
-            vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION,
-            RegisterUpdate::Set(0),
-            0,
-        ));
-    }
-
-    #[test]
-    fn fast_dispatch_is_bounded_to_reached_hot_leaf_shapes() {
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION),
-            Some(1),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::GET_SYSTEM_METRICS_IMPLEMENTATION),
-            Some(2),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::IS_ICONIC_IMPLEMENTATION),
-            Some(3),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION),
-            Some(4),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION),
-            Some(5),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code("kernel32.heap-alloc.v2"),
-            Some(6)
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::TIME_GET_TIME_IMPLEMENTATION),
-            Some(8),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::PEEK_MESSAGE_A_IMPLEMENTATION),
-            Some(11),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::GET_LAST_ERROR_IMPLEMENTATION),
-            Some(14),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::SET_LAST_ERROR_IMPLEMENTATION),
-            Some(15),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::TLS_GET_VALUE_IMPLEMENTATION),
-            Some(16),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::FLS_GET_VALUE_IMPLEMENTATION),
-            Some(17),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::GET_CURSOR_INFO_IMPLEMENTATION),
-            Some(18),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION),
-            Some(19),
-        );
-        assert_eq!(
-            fast_dispatch_implementation_code(vine_core::GET_TICK_COUNT_IMPLEMENTATION),
-            Some(20),
-        );
-        assert!(fast_dispatch_write_shape_supported(
-            vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION,
-            0,
-            None,
-        ));
-        assert!(fast_dispatch_write_shape_supported(
-            vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION,
-            1,
-            Some(24),
-        ));
-        assert!(fast_dispatch_write_shape_supported(
-            vine_core::GET_CURSOR_INFO_IMPLEMENTATION,
-            1,
-            Some(20),
-        ));
-        assert!(fast_dispatch_write_shape_supported(
-            vine_core::GET_CURSOR_POS_IMPLEMENTATION,
-            1,
-            Some(8),
-        ));
-        assert!(fast_dispatch_write_shape_supported(
-            vine_core::GET_WINDOW_RECT_IMPLEMENTATION,
-            1,
-            Some(16),
-        ));
-        assert!(fast_dispatch_write_shape_supported(
-            vine_core::PEEK_MESSAGE_A_IMPLEMENTATION,
-            1,
-            Some(FAST_DISPATCH_INLINE_WRITE_BYTES),
-        ));
-        assert!(!fast_dispatch_write_shape_supported(
-            vine_core::GET_SYSTEM_METRICS_IMPLEMENTATION,
-            1,
-            Some(24),
-        ));
-        assert!(!fast_dispatch_write_shape_supported(
-            vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION,
-            1,
-            Some(20),
-        ));
-        assert!(!fast_dispatch_write_shape_supported(
-            vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION,
-            2,
-            Some(24),
-        ));
+        assert_eq!(browser.runtime.current_thread_id(), thread);
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 77);
+        assert_eq!(browser.runtime.memory().stats(), before);
     }
 }

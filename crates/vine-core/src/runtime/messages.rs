@@ -1,28 +1,18 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use serde::Serialize;
-
 use super::{RuntimeStateError, RuntimeThreadId};
 
 const MAX_RUNTIME_THREAD_MESSAGES: usize = 4096;
+pub(crate) const RUNTIME_QUEUE_STATUS_VALID_FLAGS: u32 = 0x1dff;
+const QS_KEY: u16 = 0x0001;
+const QS_MOUSEMOVE: u16 = 0x0002;
+const QS_MOUSEBUTTON: u16 = 0x0004;
+const QS_POSTMESSAGE: u16 = 0x0008;
+const QS_TIMER: u16 = 0x0010;
+const QS_ALLPOSTMESSAGE: u16 = 0x0100;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(transparent)]
-pub struct RuntimeMessageId(pub u64);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum RuntimeMessageSource {
-    Thread { thread_id: RuntimeThreadId },
-    PointerInput { event_sequence: u64 },
-    WindowTimer,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeThreadMessage {
-    pub id: RuntimeMessageId,
-    pub source: RuntimeMessageSource,
     pub target_thread_id: RuntimeThreadId,
     pub hwnd: u32,
     pub message: u32,
@@ -34,116 +24,96 @@ pub struct RuntimeThreadMessage {
 }
 
 impl RuntimeThreadMessage {
-    pub fn to_x86_msg_bytes(self) -> Vec<u8> {
-        [
-            self.hwnd.to_le_bytes(),
-            self.message.to_le_bytes(),
-            self.w_param.to_le_bytes(),
-            self.l_param.to_le_bytes(),
-            self.time.to_le_bytes(),
-            self.point_x.to_le_bytes(),
-            self.point_y.to_le_bytes(),
-        ]
-        .concat()
+    pub fn to_x86_msg_bytes(self) -> [u8; 28] {
+        let words = [
+            self.hwnd,
+            self.message,
+            self.w_param,
+            self.l_param,
+            self.time,
+            self.point_x as u32,
+            self.point_y as u32,
+        ];
+        let mut bytes = [0; 28];
+        for (word, output) in words.into_iter().zip(bytes.chunks_exact_mut(4)) {
+            output.copy_from_slice(&word.to_le_bytes());
+        }
+        bytes
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeMessageWake {
-    pub thread_id: RuntimeThreadId,
-    pub message_id: RuntimeMessageId,
-    pub queue_depth: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "kebab-case")]
-pub enum RuntimeMessageReceiveDisposition {
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeMessageReceiveDisposition {
     Message { message: RuntimeThreadMessage },
     Blocked,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "outcome", rename_all = "kebab-case")]
-pub enum RuntimeMessagePeekDisposition {
-    Empty,
-    Message {
-        message: RuntimeThreadMessage,
-        removed: bool,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub(super) struct RuntimeMessages {
-    queues: BTreeMap<RuntimeThreadId, VecDeque<RuntimeThreadMessage>>,
-    next_message_id: u64,
+    queues: BTreeMap<RuntimeThreadId, RuntimeMessageQueue>,
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+struct RuntimeMessageQueue {
+    messages: VecDeque<QueuedMessage>,
+    new_status: u16,
+    // GetAsyncKeyState follows host transitions; translation follows the
+    // keys this thread has actually removed from its Windows message queue.
+    keyboard: [u8; 256],
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct RuntimeMessagePostPlan {
-    pub(super) message: RuntimeThreadMessage,
-    pub(super) next_message_id: u64,
-    pub(super) queue_depth: usize,
-    pub(super) wake_target: bool,
+#[cfg_attr(test, derive(PartialEq, Eq))]
+struct QueuedMessage {
+    message: RuntimeThreadMessage,
+    status: u16,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) enum RuntimeMessageReceivePlan {
-    Message { message: RuntimeThreadMessage },
-    Blocked,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) enum RuntimeMessagePeekPlan {
-    Empty {
-        thread_id: RuntimeThreadId,
-    },
-    Message {
-        message: RuntimeThreadMessage,
-        remove: bool,
-    },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct RuntimeMessageClearPlan {
-    pub(super) thread_id: RuntimeThreadId,
-    pub(super) message_count: usize,
+impl Default for RuntimeMessageQueue {
+    fn default() -> Self {
+        Self {
+            messages: VecDeque::new(),
+            new_status: 0,
+            keyboard: [0; 256],
+        }
+    }
 }
 
 impl RuntimeMessages {
     pub(super) fn new(initial_thread_id: RuntimeThreadId) -> Self {
         Self {
-            queues: BTreeMap::from([(initial_thread_id, VecDeque::new())]),
-            next_message_id: 1,
+            queues: BTreeMap::from([(initial_thread_id, RuntimeMessageQueue::default())]),
         }
     }
 
-    pub(super) fn preflight_register_thread(
+    pub(super) fn validate_registration(
         &self,
         thread_id: RuntimeThreadId,
     ) -> Result<(), RuntimeStateError> {
         if self.queues.contains_key(&thread_id) {
-            return Err(RuntimeStateError::conflict(
-                "runtime-message",
-                "message-thread-queue-duplicate",
+            return Err(RuntimeStateError::new(
                 "message subsystem already owns a queue for the thread",
             ));
         }
         Ok(())
     }
 
-    pub(super) fn commit_register_thread(&mut self, thread_id: RuntimeThreadId) {
-        let previous = self.queues.insert(thread_id, VecDeque::new());
-        debug_assert!(
+    pub(super) fn register(&mut self, thread_id: RuntimeThreadId) {
+        let previous = self
+            .queues
+            .insert(thread_id, RuntimeMessageQueue::default());
+        assert!(
             previous.is_none(),
-            "message queue registration was not preflighted"
+            "message queue registration must be validated before insertion"
         );
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn plan_post(
+    pub(super) fn checked_post(
         &self,
-        source: RuntimeMessageSource,
         target_thread_id: RuntimeThreadId,
         hwnd: u32,
         message: u32,
@@ -153,318 +123,252 @@ impl RuntimeMessages {
         point_x: i32,
         point_y: i32,
         wake_target: bool,
-    ) -> Result<RuntimeMessagePostPlan, RuntimeStateError> {
+    ) -> Result<RuntimeThreadMessage, RuntimeStateError> {
         let queue = self.queue(target_thread_id)?;
-        if queue.len() >= MAX_RUNTIME_THREAD_MESSAGES {
-            return Err(RuntimeStateError::resource_limit(
-                "runtime-message",
-                "message-queue-capacity-exceeded",
+        if queue.messages.len() >= MAX_RUNTIME_THREAD_MESSAGES {
+            return Err(RuntimeStateError::new(
                 "runtime thread message queue reached its controlled capacity",
             ));
         }
-        if wake_target && !queue.is_empty() {
-            return Err(RuntimeStateError::runtime_defect(
-                "runtime-message",
-                "waiting-message-thread-queue-nonempty",
+        if wake_target && !queue.messages.is_empty() {
+            return Err(RuntimeStateError::new(
                 "message-waiting thread must have an empty queue",
             ));
         }
-        let id = RuntimeMessageId(self.next_message_id);
-        let next_message_id = self.next_message_id.checked_add(1).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-message",
-                "message-id-overflow",
-                "runtime message ID space is exhausted",
-            )
-        })?;
-        Ok(RuntimeMessagePostPlan {
-            message: RuntimeThreadMessage {
-                id,
-                source,
-                target_thread_id,
-                hwnd,
-                message,
-                w_param,
-                l_param,
-                time,
-                point_x,
-                point_y,
-            },
-            next_message_id,
-            queue_depth: queue.len() + 1,
-            wake_target,
+        Ok(RuntimeThreadMessage {
+            target_thread_id,
+            hwnd,
+            message,
+            w_param,
+            l_param,
+            time,
+            point_x,
+            point_y,
         })
     }
 
-    pub(super) fn commit_post(&mut self, plan: RuntimeMessagePostPlan) {
-        debug_assert!(self.preflight_post(&plan).is_ok());
+    pub(super) fn push(&mut self, message: RuntimeThreadMessage) {
+        self.push_with_status(message, QS_POSTMESSAGE | QS_ALLPOSTMESSAGE, false);
+    }
+
+    pub(super) fn push_input(&mut self, message: RuntimeThreadMessage) {
+        let status = match message.message {
+            0x0100 | 0x0101 | 0x0104 | 0x0105 => QS_KEY,
+            0x0200 => QS_MOUSEMOVE,
+            0x0201..=0x0206 => QS_MOUSEBUTTON,
+            _ => unreachable!("input queue message was checked before publication"),
+        };
+        self.push_with_status(message, status, false);
+    }
+
+    pub(super) fn push_window_timer(&mut self, message: RuntimeThreadMessage) {
+        self.push_with_status(message, QS_TIMER, false);
+    }
+
+    fn push_with_status(&mut self, message: RuntimeThreadMessage, status: u16, front: bool) {
         let queue = self
             .queues
-            .get_mut(&plan.message.target_thread_id)
-            .expect("message post target was preflighted");
-        debug_assert_eq!(queue.len() + 1, plan.queue_depth);
-        debug_assert_eq!(self.next_message_id + 1, plan.next_message_id);
-        queue.push_back(plan.message);
-        self.next_message_id = plan.next_message_id;
-    }
-
-    pub(super) fn preflight_post(
-        &self,
-        plan: &RuntimeMessagePostPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let queue = self.queue(plan.message.target_thread_id)?;
-        if queue.len().checked_add(1) != Some(plan.queue_depth)
-            || self.next_message_id != plan.message.id.0
-            || self.next_message_id.checked_add(1) != Some(plan.next_message_id)
-            || (plan.wake_target && !queue.is_empty())
-        {
-            return Err(RuntimeStateError::conflict(
-                "runtime-message",
-                "message-post-plan-stale",
-                "runtime message queue changed after post planning",
-            ));
+            .get_mut(&message.target_thread_id)
+            .expect("message post target was checked");
+        let entry = QueuedMessage { message, status };
+        if front {
+            queue.messages.push_front(entry);
+        } else {
+            queue.messages.push_back(entry);
         }
-        Ok(())
+        queue.new_status |= status;
     }
 
-    pub(super) fn plan_receive(
-        &self,
-        thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeMessageReceivePlan, RuntimeStateError> {
-        Ok(match self.queue(thread_id)?.front().copied() {
-            Some(message) => RuntimeMessageReceivePlan::Message { message },
-            None => RuntimeMessageReceivePlan::Blocked,
-        })
-    }
-
-    pub(super) fn commit_receive(
+    pub(super) fn get_queue_status(
         &mut self,
         thread_id: RuntimeThreadId,
-        expected: RuntimeMessageId,
-    ) {
+        flags: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        if flags & !RUNTIME_QUEUE_STATUS_VALID_FLAGS != 0 {
+            return Err(RuntimeStateError::new("invalid message queue status flags"));
+        }
+        let queue = self.queues.get_mut(&thread_id).ok_or_else(|| {
+            RuntimeStateError::new("live runtime thread has no message subsystem queue")
+        })?;
+        let current = queue
+            .messages
+            .iter()
+            .fold(0_u16, |bits, entry| bits | entry.status);
+        let selected = flags as u16;
+        let result = (u32::from(current & selected) << 16)
+            | u32::from(queue.new_status & current & selected);
+        queue.new_status &= !selected;
+        Ok(result)
+    }
+
+    pub(super) fn observe_unfiltered(&mut self, thread_id: RuntimeThreadId) {
+        self.queues
+            .get_mut(&thread_id)
+            .expect("message receive owner was checked")
+            .new_status = 0;
+    }
+
+    pub(super) fn front(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<Option<RuntimeThreadMessage>, RuntimeStateError> {
+        Ok(self
+            .queue(thread_id)?
+            .messages
+            .front()
+            .map(|entry| entry.message))
+    }
+
+    pub(super) fn pop(&mut self, thread_id: RuntimeThreadId) {
         let queue = self
             .queues
             .get_mut(&thread_id)
-            .expect("message receive owner was preflighted");
-        debug_assert_eq!(queue.front().map(|message| message.id), Some(expected));
-        queue.pop_front();
-    }
-
-    pub(super) fn plan_peek(
-        &self,
-        thread_id: RuntimeThreadId,
-        remove: bool,
-    ) -> Result<RuntimeMessagePeekPlan, RuntimeStateError> {
-        Ok(match self.queue(thread_id)?.front().copied() {
-            Some(message) => RuntimeMessagePeekPlan::Message { message, remove },
-            None => RuntimeMessagePeekPlan::Empty { thread_id },
-        })
-    }
-
-    pub(super) fn preflight_peek(
-        &self,
-        plan: &RuntimeMessagePeekPlan,
-    ) -> Result<(), RuntimeStateError> {
-        let (thread_id, expected) = match plan {
-            RuntimeMessagePeekPlan::Empty { thread_id } => (*thread_id, None),
-            RuntimeMessagePeekPlan::Message { message, .. } => {
-                (message.target_thread_id, Some(message.id))
+            .expect("message receive owner was checked");
+        let message = queue
+            .messages
+            .pop_front()
+            .expect("message was checked before receive")
+            .message;
+        if matches!(message.message, 0x0100 | 0x0101 | 0x0104 | 0x0105) && message.w_param <= 0xff {
+            let down = matches!(message.message, 0x0100 | 0x0104);
+            let key = message.w_param as usize;
+            let side = match key {
+                0x10 => {
+                    if message.l_param >> 16 & 0xff == 0x36 {
+                        0xa1
+                    } else {
+                        0xa0
+                    }
+                }
+                0x11 => {
+                    if message.l_param & 0x0100_0000 != 0 {
+                        0xa3
+                    } else {
+                        0xa2
+                    }
+                }
+                0x12 => {
+                    if message.l_param & 0x0100_0000 != 0 {
+                        0xa5
+                    } else {
+                        0xa4
+                    }
+                }
+                _ => key,
+            };
+            if down && message.l_param & 0x4000_0000 == 0 && matches!(key, 0x14 | 0x90 | 0x91) {
+                queue.keyboard[key] ^= 1;
             }
-        };
-        if self.queue(thread_id)?.front().map(|message| message.id) != expected {
-            return Err(RuntimeStateError::conflict(
-                "runtime-message",
-                "message-peek-plan-stale",
-                "message queue head changed after PeekMessage was planned",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(super) fn commit_preflighted_peek(
-        &mut self,
-        plan: RuntimeMessagePeekPlan,
-    ) -> RuntimeMessagePeekDisposition {
-        match plan {
-            RuntimeMessagePeekPlan::Empty { .. } => RuntimeMessagePeekDisposition::Empty,
-            RuntimeMessagePeekPlan::Message { message, remove } => {
-                if remove {
-                    self.queues
-                        .get_mut(&message.target_thread_id)
-                        .expect("message peek owner was preflighted")
-                        .pop_front();
-                }
-                RuntimeMessagePeekDisposition::Message {
-                    message,
-                    removed: remove,
-                }
+            queue.keyboard[side] = queue.keyboard[side] & 1 | if down { 0x80 } else { 0 };
+            if matches!(key, 0x10..=0x12) {
+                let left = 0xa0 + (key - 0x10) * 2;
+                queue.keyboard[key] = (queue.keyboard[left] | queue.keyboard[left + 1]) & 0x80;
             }
         }
     }
 
-    pub(super) fn plan_clear(
-        &self,
-        thread_id: RuntimeThreadId,
-    ) -> Result<RuntimeMessageClearPlan, RuntimeStateError> {
-        Ok(RuntimeMessageClearPlan {
-            thread_id,
-            message_count: self.queue(thread_id)?.len(),
-        })
-    }
-
-    pub(super) fn commit_clear(&mut self, plan: RuntimeMessageClearPlan) {
+    pub(super) fn clear(&mut self, thread_id: RuntimeThreadId) {
         let queue = self
             .queues
-            .get_mut(&plan.thread_id)
-            .expect("message clear owner was preflighted");
-        debug_assert_eq!(queue.len(), plan.message_count);
-        queue.clear();
+            .get_mut(&thread_id)
+            .expect("message queue owner was checked before thread exit");
+        queue.messages.clear();
+        queue.new_status = 0;
     }
 
+    pub(super) fn release_keyboard_source(&mut self) {
+        // Source focus loss releases held keys without consuming posted messages
+        // or resetting the thread's lock-key toggles.
+        for queue in self.queues.values_mut() {
+            for key in &mut queue.keyboard {
+                *key &= 1;
+            }
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn snapshot(
         &self,
         thread_id: RuntimeThreadId,
     ) -> Result<Vec<RuntimeThreadMessage>, RuntimeStateError> {
-        Ok(self.queue(thread_id)?.iter().copied().collect())
+        Ok(self
+            .queue(thread_id)?
+            .messages
+            .iter()
+            .map(|entry| entry.message)
+            .collect())
     }
 
     pub(super) fn is_empty(&self, thread_id: RuntimeThreadId) -> Result<bool, RuntimeStateError> {
-        Ok(self.queue(thread_id)?.is_empty())
+        Ok(self.queue(thread_id)?.messages.is_empty())
     }
 
-    fn queue(
+    pub(super) fn keyboard_character(
         &self,
         thread_id: RuntimeThreadId,
-    ) -> Result<&VecDeque<RuntimeThreadMessage>, RuntimeStateError> {
+        key: u32,
+    ) -> Result<Option<u8>, RuntimeStateError> {
+        let keyboard = &self.queue(thread_id)?.keyboard;
+        let control = keyboard[0x11] & 0x80 != 0;
+        let shift = keyboard[0x10] & 0x80 != 0;
+        let character = match key {
+            0x08 => {
+                if control {
+                    0x7f
+                } else {
+                    0x08
+                }
+            }
+            0x09 => 0x09,
+            0x0d => {
+                if control {
+                    0x0a
+                } else {
+                    0x0d
+                }
+            }
+            0x1b => 0x1b,
+            0x20 => {
+                if control {
+                    0
+                } else {
+                    0x20
+                }
+            }
+            0x41..=0x5a if control => (key - 0x40) as u8,
+            0x41..=0x5a => {
+                if shift ^ (keyboard[0x14] & 1 != 0) {
+                    key as u8
+                } else {
+                    (key + 0x20) as u8
+                }
+            }
+            0x30..=0x39 if !shift && !control => key as u8,
+            0x10..=0x14
+            | 0x21..=0x28
+            | 0x2c..=0x2e
+            | 0x5b..=0x5d
+            | 0x70..=0x87
+            | 0x90..=0x91
+            | 0xa0..=0xa5 => return Ok(None),
+            _ => {
+                return Err(RuntimeStateError::new(
+                    "keyboard character translation is outside the implemented ASCII and control keys",
+                ));
+            }
+        };
+        Ok(Some(character))
+    }
+
+    pub(super) fn push_character(&mut self, message: RuntimeThreadMessage) {
+        // TranslateMessage's synthesized character is read on the next message
+        // loop iteration. Ordinary message posts continue to use FIFO push().
+        self.push_with_status(message, QS_POSTMESSAGE | QS_ALLPOSTMESSAGE, true);
+    }
+
+    fn queue(&self, thread_id: RuntimeThreadId) -> Result<&RuntimeMessageQueue, RuntimeStateError> {
         self.queues.get(&thread_id).ok_or_else(|| {
-            RuntimeStateError::runtime_defect(
-                "runtime-message",
-                "message-thread-queue-missing",
-                "live runtime thread has no message subsystem queue",
-            )
+            RuntimeStateError::new("live runtime thread has no message subsystem queue")
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const OWNER: RuntimeThreadId = RuntimeThreadId(1);
-    const SOURCE: RuntimeThreadId = RuntimeThreadId(2);
-
-    #[test]
-    fn queue_plans_do_not_mutate_and_commits_preserve_fifo_identity() {
-        let mut messages = RuntimeMessages::new(OWNER);
-        messages.preflight_register_thread(SOURCE).unwrap();
-        messages.commit_register_thread(SOURCE);
-
-        let before_plan = messages.clone();
-        let first = messages
-            .plan_post(
-                RuntimeMessageSource::Thread { thread_id: SOURCE },
-                OWNER,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                true,
-            )
-            .unwrap();
-        assert_eq!(messages, before_plan);
-        assert_eq!(first.message.id, RuntimeMessageId(1));
-        assert_eq!(first.queue_depth, 1);
-        messages.commit_post(first);
-
-        let second = messages
-            .plan_post(
-                RuntimeMessageSource::Thread { thread_id: SOURCE },
-                OWNER,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16,
-                false,
-            )
-            .unwrap();
-        messages.commit_post(second);
-        assert_eq!(
-            messages.snapshot(OWNER).unwrap(),
-            vec![first.message, second.message]
-        );
-
-        let stale_peek = messages.plan_peek(OWNER, true).unwrap();
-        let receive = messages.plan_receive(OWNER).unwrap();
-        assert!(matches!(
-            receive,
-            RuntimeMessageReceivePlan::Message { message, .. } if message == first.message
-        ));
-        messages.commit_receive(OWNER, first.message.id);
-        assert_eq!(messages.snapshot(OWNER).unwrap(), vec![second.message]);
-        assert_eq!(
-            messages.preflight_peek(&stale_peek).unwrap_err().code,
-            "message-peek-plan-stale"
-        );
-        assert_eq!(messages.snapshot(OWNER).unwrap(), vec![second.message]);
-
-        let no_remove = messages.plan_peek(OWNER, false).unwrap();
-        messages.preflight_peek(&no_remove).unwrap();
-        assert_eq!(
-            messages.commit_preflighted_peek(no_remove),
-            RuntimeMessagePeekDisposition::Message {
-                message: second.message,
-                removed: false,
-            }
-        );
-        assert_eq!(messages.snapshot(OWNER).unwrap(), vec![second.message]);
-
-        let remove = messages.plan_peek(OWNER, true).unwrap();
-        messages.preflight_peek(&remove).unwrap();
-        assert_eq!(
-            messages.commit_preflighted_peek(remove),
-            RuntimeMessagePeekDisposition::Message {
-                message: second.message,
-                removed: true,
-            }
-        );
-        assert!(messages.snapshot(OWNER).unwrap().is_empty());
-
-        let empty = messages.plan_peek(OWNER, true).unwrap();
-        messages.preflight_peek(&empty).unwrap();
-        assert_eq!(
-            messages.commit_preflighted_peek(empty),
-            RuntimeMessagePeekDisposition::Empty
-        );
-    }
-
-    #[test]
-    fn rejected_plan_preserves_queue_and_allocator_state() {
-        let messages = RuntimeMessages::new(OWNER);
-        let before = messages.clone();
-        assert_eq!(
-            messages
-                .plan_post(
-                    RuntimeMessageSource::Thread { thread_id: SOURCE },
-                    RuntimeThreadId(99),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    false,
-                )
-                .unwrap_err()
-                .code,
-            "message-thread-queue-missing"
-        );
-        assert_eq!(messages, before);
     }
 }

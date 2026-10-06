@@ -1,0 +1,4 @@
+LIBRARY gdiplus.dll
+EXPORTS
+    GdiplusStartup@12
+    GdiplusShutdown@4

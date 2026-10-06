@@ -1,0 +1,6 @@
+LIBRARY user32.dll
+EXPORTS
+    GetCursorPos@4
+    SetCursorPos@8
+    GetCursorInfo@4
+    ShowCursor@4

@@ -1,0 +1,6 @@
+LIBRARY ole32.dll
+EXPORTS
+CoInitialize@4
+CoCreateInstance@20
+CoTaskMemAlloc@4
+CoTaskMemFree@4
