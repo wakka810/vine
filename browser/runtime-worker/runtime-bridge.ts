@@ -420,13 +420,16 @@ export class RuntimeBridge {
     this.#check(operation());
     const completion = apiDispatch ? this.#exports.vine_bridge_api_completion_ptr() : 0;
     const metadata = completion === 0 ? this.#readJson<T>() : this.#readApiCompletion<T>(completion);
-    // The Worker consumes plain dispatch deltas synchronously before ACK or any
-    // other core call. Deferred, media and presentation outputs remain owned.
+    const receipt = metadata as { kind?: unknown; presentation?: unknown; createdThread?: unknown } | null;
+    const borrowPresentation = apiDispatch && completion === 0 && receipt?.kind === "com-complete" &&
+      receipt.presentation !== undefined && receipt.createdThread === undefined;
+    // The Worker consumes plain deltas and initial COM presentation synchronously
+    // before ACK or another core call. Deferred and created-thread outputs stay owned.
     return {
       metadata,
       control: this.#outputBytes(this.#exports.vine_bridge_control_ptr(), this.#exports.vine_bridge_control_len(), completion !== 0),
       payload: this.#outputBytes(this.#exports.vine_bridge_payload_ptr(), this.#exports.vine_bridge_payload_len(), completion !== 0),
-      presentation: this.#copyPresentation(),
+      presentation: this.#copyPresentation(borrowPresentation),
       audio: this.#copyAudio(),
       mediaBytes: this.#copyMedia(),
     };
@@ -456,11 +459,11 @@ export class RuntimeBridge {
     return JSON.parse(this.#decoder.decode(this.#view(this.#exports.vine_bridge_metadata_ptr(), length))) as T;
   }
 
-  #copyPresentation(): Uint8Array {
+  #copyPresentation(borrowed = false): Uint8Array {
     const length = this.#exports.vine_bridge_presentation_len();
     invariant(Number.isInteger(length) && length >= 0 && length <= inputLimit,
       "Presentation exceeds the bounded buffer");
-    return this.#copyOutput(this.#exports.vine_bridge_presentation_ptr(), length);
+    return this.#outputBytes(this.#exports.vine_bridge_presentation_ptr(), length, borrowed);
   }
 
   #copyAudio(): Uint8Array {

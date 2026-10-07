@@ -311,16 +311,21 @@ async function launch(request: LaunchRequest): Promise<void> {
     requestId: bigint; threadId: number; service: string; acknowledgement: number;
     done: boolean; promise: Promise<void>;
   }> = [];
-  const applyDelta = (output: { control: Uint8Array; payload: Uint8Array }, label: string) => {
+  const applyDelta = (output: { control: Uint8Array; payload: Uint8Array }, label: string,
+    deferAcknowledgement = false): bigint | null => {
     if (output.control.length > 0) {
       const delta = decodeHostDelta(output.control, output.payload);
       if (delta.fromGeneration !== generation) throw new Error(`Memory generation mismatch after ${label}`);
       engine.applyMemoryDelta(delta);
-      bridge.acknowledgeFast(delta.generation);
-      generation = delta.generation;
+      if (!deferAcknowledgement) {
+        bridge.acknowledgeFast(delta.generation);
+        generation = delta.generation;
+      }
+      return delta.generation;
     } else if (output.payload.length !== 0) {
       throw new Error(`Unpaired memory payload after ${label}`);
     }
+    return null;
   };
   const switchThread = (threadId: number, saveCurrent = true) => {
     if (threadId === currentThreadId) return;
@@ -537,7 +542,7 @@ async function launch(request: LaunchRequest): Promise<void> {
   };
   // A native operation may suspend while FFmpeg requests encoded bytes. Only
   // Rust can turn that demand into an original guest IAsyncReader callback.
-  const handleMediaOutput = (output: BridgeOutput<GameDispatch>): boolean => {
+  const handleMediaOutput = (output: BridgeOutput<GameDispatch>, initialDispatch = false): boolean => {
     const native = output.metadata;
     recordRecentEvent("completion", "threadId" in native ? native.threadId ?? currentThreadId : currentThreadId,
       null, native.kind,
@@ -547,7 +552,9 @@ async function launch(request: LaunchRequest): Promise<void> {
       throw new Error("Media returned an unsupported guest continuation");
     }
     if (native.threadId !== undefined) switchThread(native.threadId, !cpuRetired);
-    applyDelta(output, "media continuation");
+    const deferAcknowledgement = initialDispatch && native.kind === "com-complete" &&
+      native.presentation !== undefined && native.createdThread === undefined;
+    const deltaGeneration = applyDelta(output, "media continuation", deferAcknowledgement);
     if (native.kind === "guest-callback") {
       if (native.returnSentinel !== prepared.metadata.callbackSentinel) throw new Error("Media callback used an unknown sentinel");
       engine.enterGuestCallback(native.target, native.stackPointer);
@@ -557,6 +564,10 @@ async function launch(request: LaunchRequest): Promise<void> {
     if (native.kind === "com-complete") {
       installCreatedThread(native.createdThread);
       if (native.presentation !== undefined) surface.present(native.presentation, output.presentation);
+      if (deferAcknowledgement && deltaGeneration !== null) {
+        bridge.acknowledgeFast(deltaGeneration);
+        generation = deltaGeneration;
+      }
       engine.applyCpuResume(native.completion);
       cpuRetired = false;
       return true;
@@ -887,7 +898,7 @@ async function launch(request: LaunchRequest): Promise<void> {
           continue;
         }
         if (output.metadata.kind === "com-complete") {
-          handleMediaOutput(output);
+          handleMediaOutput(output, true);
           continue;
         }
         if (output.metadata.kind === "media-request" || output.metadata.kind === "media-data") {

@@ -330,3 +330,91 @@ assert.throws(() => stopBridge.stopContext(0), /diagnostics are unavailable/);
   assert.equal(completionReads, beforeFailure, "failed dispatch reads its error before a stale fast header");
 }
 console.log("runtime bridge: bounded input/output, owned async receipts, synchronous borrowed completion, mixed-page memory growth, and stop diagnostics passed");
+
+{
+  const core = new WebAssembly.Memory({ initial: 1 });
+  const frame = { width: 1, height: 1, colorArgb: null, draws: [] };
+  let json = { kind: 'com-complete', threadId: 8192,
+    completion: { instructionPointer: 0x401000, stackPointer: 0x801000, eax: 0 }, presentation: frame };
+  let pointer = 2048, length = 8, growNext = false;
+  const bytes = [1, 2, 3, 4, 5, 6, 7, 8];
+  const refresh = () => new Uint8Array(core.buffer, 2048, 8).set(bytes);
+  refresh();
+  const encoded = () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(json));
+    new Uint8Array(core.buffer, 128, bytes.length).set(bytes);
+    return bytes.length;
+  };
+  const exports = {
+    memory: core,
+    vine_bridge_dispatch() { if (growNext) { core.grow(1); refresh(); } return 0; },
+    vine_bridge_api_completion_ptr: () => 0,
+    vine_bridge_metadata_ptr: () => 128, vine_bridge_metadata_len: encoded,
+    vine_bridge_control_ptr: () => 2048, vine_bridge_control_len: () => 2,
+    vine_bridge_payload_ptr: () => 2048, vine_bridge_payload_len: () => 2,
+    vine_bridge_presentation_ptr: () => pointer, vine_bridge_presentation_len: () => length,
+    vine_bridge_audio_ptr: () => 2048, vine_bridge_audio_len: () => 2,
+    vine_bridge_media_ptr: () => 2048, vine_bridge_media_len: () => 2,
+    vine_bridge_input_resize: () => 0, vine_bridge_input_ptr: () => 4096,
+    vine_bridge_complete_callback: () => 0,
+    vine_bridge_complete_com_audio: () => 0,
+    vine_bridge_complete_com_media: () => 0,
+    vine_bridge_schedule_next_thread: () => 0,
+  };
+  const bridge = RuntimeBridge.fromExports(exports);
+  const registers = Object.fromEntries(['eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi',
+    'instructionPointer', 'eflags', 'es', 'cs', 'ss', 'ds', 'fs', 'gs'].map(name => [name, 0]));
+  const dispatch = () => bridge.dispatch(0x70000000, 0x801000, 0x401000, 0, registers);
+  const borrowed = dispatch();
+  assert.equal(borrowed.presentation.buffer, core.buffer, 'only initial synchronous COM presentation is borrowed');
+  assert.deepEqual([...borrowed.presentation], bytes);
+  for (const channel of ['control', 'payload', 'audio', 'mediaBytes'])
+    assert.notEqual(borrowed[channel].buffer, core.buffer, channel + ' retains its existing ownership');
+  new Uint8Array(core.buffer, 2048, 8).fill(99);
+  assert.deepEqual([...borrowed.presentation], Array(8).fill(99), 'view lifetime ends at the next Runtime mutation');
+  assert.deepEqual([...borrowed.control], [1, 2]);
+  assert.equal(borrowed.metadata.completion.instructionPointer, 0x401000, 'parsed metadata remains owned');
+  refresh();
+  growNext = true;
+  const grown = dispatch();
+  growNext = false;
+  assert.equal(grown.presentation.buffer, core.buffer, 'borrow uses the buffer after dispatch-time growth');
+  assert.deepEqual([...grown.presentation], bytes);
+  for (const operation of [
+    () => bridge.completeCallback(0x70000001, 0),
+    () => bridge.completeComAudio(1n, true),
+    () => bridge.completeComMedia(1n, { kind: 'acknowledged' }),
+    () => bridge.scheduleNextThread(),
+  ]) {
+    refresh(); const output = operation();
+    assert.notEqual(output.presentation.buffer, core.buffer, 'same COM metadata in deferred operation remains owned');
+    new Uint8Array(core.buffer, 2048, 8).fill(77);
+    assert.deepEqual([...output.presentation], bytes);
+  }
+  refresh();
+  json.createdThread = { threadId: 8193 };
+  const created = dispatch();
+  assert.notEqual(created.presentation.buffer, core.buffer, 'created-thread COM retains owned output');
+  new Uint8Array(core.buffer, 2048, 8).fill(66);
+  assert.deepEqual([...created.presentation], bytes);
+  delete json.createdThread;
+  delete json.presentation;
+  refresh();
+  const plain = dispatch();
+  assert.notEqual(plain.presentation.buffer, core.buffer, 'COM without a presentation retains owned resource output');
+  json.presentation = frame;
+  for (const invalid of [-1, 1.5, NaN, core.buffer.byteLength - 7]) {
+    pointer = invalid;
+    assert.throws(dispatch, /outside Wasm memory/);
+  }
+  pointer = 2048;
+  for (const invalid of [-1, 1.5, NaN, 16 * 1024 * 1024 + 1]) {
+    length = invalid;
+    assert.throws(dispatch, /bounded buffer/);
+  }
+  length = 0; pointer = core.buffer.byteLength + 1;
+  const emptyBorrow = dispatch(), emptyOwned = bridge.scheduleNextThread();
+  assert.equal(emptyBorrow.presentation.byteLength, 0);
+  assert.equal(emptyBorrow.presentation, emptyOwned.presentation, 'zero-length path preserves the shared empty object');
+  console.log('presentation bridge: initial provenance, bounds/growth, owned deferred/created fallbacks passed');
+}
