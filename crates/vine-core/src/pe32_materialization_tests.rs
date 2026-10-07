@@ -1,10 +1,11 @@
 use crate as vine_core;
+use crate::memory::GuestMemoryErrorClass;
 use std::fs;
 use std::path::PathBuf;
 
 use vine_core::{
-    GuestAddress, GuestMemory, GuestMemoryErrorClass, MemoryLimits, ModuleSnapshot, Pe32Limits,
-    build_pe32_load_plan, materialize_pe32_image,
+    GuestAddress, GuestMemory, MemoryLimits, ModuleSnapshot, Pe32Limits, build_pe32_load_plan,
+    materialize_pe32_image,
 };
 
 const PREFERRED_BASE: u32 = 0x0040_0000;

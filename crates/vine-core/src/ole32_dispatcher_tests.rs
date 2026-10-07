@@ -1,10 +1,12 @@
 use crate as vine_core;
+use crate::api::ApiSymbol;
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
 use crate::ole32::{dispatch_ole32_api, ole32_argument_words};
+use crate::runtime::RuntimeComApartmentModel;
 use vine_core::{
-    ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, ApiSymbol, DispatchOutcome, GuestAddress,
-    GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, MemoryLimits,
-    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection, Runtime, RuntimeBootstrap,
-    RuntimeClockState, RuntimeComApartmentModel, RuntimeCurrentDirectoryA, RuntimeProcessId,
+    ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, DispatchOutcome, GuestAddress, GuestMemory,
+    ImportTarget, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId,
     RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeThreadId,
 };
 
@@ -169,7 +171,7 @@ fn co_initialize_reports_changed_mode_without_mutation() {
         .runtime
         .initialize_current_com_apartment(RuntimeComApartmentModel::MultiThreaded)
         .expect("initialize MTA model");
-    assert_eq!(initialized, vine_core::COM_S_OK);
+    assert_eq!(initialized, crate::com::COM_S_OK);
     let apartment_before = fixture.runtime.current_com_apartment().unwrap().copied();
     let memory_before = fixture.runtime.memory.stats();
 

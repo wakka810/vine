@@ -34,56 +34,23 @@ pub use api::{
     ApiImmediate, ApiImmediateCompletion, ApiOwnedTrap, ApiSourceLookup, DispatchOutcome,
     GuestCallbackReturn, HostCompletion, X86CpuContext,
 };
-#[cfg(test)]
-pub(crate) use api::{ApiEndpointBinding, ApiSymbol};
 pub use bootstrap::install_initial_thread_stack;
-#[cfg(test)]
-pub(crate) use callbacks::CALLBACK_RETURN_ARENA_BASE;
 pub use callbacks::install_runtime_return_sentinels;
-#[cfg(test)]
-pub(crate) use com::{COM_E_NOINTERFACE, COM_E_POINTER, COM_S_OK, ComCallCompletion, ComFault};
 pub use com::{ComAudioDeferred, ComCallTrap, ComDispatchOutcome};
 pub use dynamic_exports::DynamicExportThunk;
-#[cfg(test)]
-pub(crate) use environment::CONTROLLED_COMMAND_LINE_BASE;
 pub use gdi32::{
     Gdi32TextRasterHostResponse, RUNTIME_GDI_TEXT_RASTER_SERVICE, complete_gdi32_text_raster,
 };
-#[cfg(test)]
-pub(crate) use imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
 pub use imports::{RuntimeExport, RuntimeExportCatalog};
 pub use materialize::{ImageMaterialization, materialize_pe32_image};
-#[cfg(test)]
-pub(crate) use memory::{
-    CacheEffects, GuestMemoryError, MappingOperation, MemoryAccess, MemoryDelta, MemoryFaultReason,
-    MemoryReflection,
-};
 pub use memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange, MemoryDeltaBuffers, MemoryLimits,
     MemoryOwnerId, MemoryOwnerKind, MemoryReflectionBuffers, MemoryRegionKind, PageProtection,
 };
-#[cfg(test)]
-pub(crate) use module_graph::{
-    RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleReferenceOwner, RuntimeModuleRegistration,
-};
 pub use module_graph::{RuntimeModuleId, RuntimeModuleLoadState};
 pub(crate) use pe32::MappingProtection;
-#[cfg(test)]
-pub(crate) use pe32::{ExportLookup, ExportTarget, ResourceIdentifier};
 pub use pe32::{ImageKind, ImportTarget, Pe32Limits, Pe32LoadPlan, Rva, build_pe32_load_plan};
 pub(crate) use runtime::RuntimePathResolution;
-#[cfg(test)]
-pub(crate) use runtime::{
-    ProcessAddressAllocationClassification, ProcessAddressAllocationReleasePolicy,
-    ProcessAddressSpaceAllocator, RUNTIME_API_BOUNDARY_QUANTUM, RUNTIME_COM_IUNKNOWN_IID,
-    RUNTIME_GDIPLUS_SESSION_LIMIT, RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RuntimeCallbackFrameId,
-    RuntimeComApartmentModel, RuntimeComIid, RuntimeDynamicEndpoint, RuntimeGdiObjectKind,
-    RuntimeGuestImportResolution, RuntimeHandle, RuntimeMutexId, RuntimeMutexNameA,
-    RuntimeObjectKey, RuntimeObjectKind, RuntimeProcessLifecycleState, RuntimeThreadPriority,
-    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
-    RuntimeWaitRegistrationId, RuntimeWaitState, RuntimeWaitableTimerArm,
-    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, X86_STARTUP_INFO_W_BYTE_LENGTH,
-};
 pub use runtime::{
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
     RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_GUEST_THREAD_STACK_ARENA_BASE,
@@ -133,9 +100,6 @@ mod source_file_gateway_tests;
 mod process_environment_transaction_tests;
 
 #[cfg(test)]
-use environment::controlled_process_environment_allocation_request;
-
-#[cfg(test)]
 mod com_iunknown_foundation_tests;
 #[cfg(test)]
 mod dinput8_dispatcher_tests;
@@ -170,11 +134,6 @@ mod user32_dispatcher_tests;
 mod winmm_dispatcher_tests;
 
 #[cfg(test)]
-pub(crate) use runtime::{RuntimeComClass, RuntimeComInterfaceRecord};
-
-#[cfg(test)]
-pub(crate) use runtime::RuntimeMessageReceiveDisposition;
-#[cfg(test)]
 mod runtime_message_queue_tests;
 
 #[cfg(test)]
@@ -188,9 +147,6 @@ mod memory_delta_tests;
 
 #[cfg(test)]
 mod pe32_materialization_tests;
-
-#[cfg(test)]
-pub(crate) use memory::GuestMemoryErrorClass;
 
 #[cfg(test)]
 mod runtime_initial_thread_stack_tests;

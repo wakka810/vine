@@ -1,12 +1,12 @@
 use crate as vine_core;
-use crate::win32::dispatch_kernel32_api;
-use crate::win32::{MEM_COMMIT, MEM_DECOMMIT, MEM_RESERVE, MEM_TOP_DOWN};
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::win32::{MEM_COMMIT, MEM_DECOMMIT, MEM_RESERVE, MEM_TOP_DOWN, dispatch_kernel32_api};
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, DispatchOutcome, GuestAddress, GuestMemory,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, MemoryLimits, MemoryOwnerId,
-    MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressAllocationPurpose, Runtime,
-    RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeThreadId,
+    ImportTarget, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    ProcessAddressAllocationPurpose, Runtime, RuntimeBootstrap, RuntimeClockState,
+    RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo,
+    RuntimeThreadId,
 };
 
 const DATA: GuestAddress = GuestAddress(0x2000_0000);

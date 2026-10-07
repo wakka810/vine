@@ -1,10 +1,12 @@
 use crate as vine_core;
-use crate::gdiplus::dispatch_gdiplus_api;
-use crate::gdiplus::{GDIPLUS_STATUS_OK, GDIPLUS_STATUS_UNSUPPORTED_GDIPLUS_VERSION};
+use crate::gdiplus::{
+    GDIPLUS_STATUS_OK, GDIPLUS_STATUS_UNSUPPORTED_GDIPLUS_VERSION, dispatch_gdiplus_api,
+};
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::runtime::RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX;
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, DispatchOutcome, GuestAddress, GuestMemory,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, MemoryLimits, MemoryOwnerId,
-    MemoryOwnerKind, MemoryRegionKind, PageProtection, RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX,
+    ImportTarget, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
     Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId,
     RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeThreadId,
 };
@@ -199,7 +201,7 @@ fn unsupported_version_returns_status_without_writing_or_allocating() {
 #[test]
 fn capacity_failure_returns_status_without_publishing_a_token() {
     let mut fixture = Fixture::new();
-    for _ in 0..vine_core::RUNTIME_GDIPLUS_SESSION_LIMIT {
+    for _ in 0..crate::runtime::RUNTIME_GDIPLUS_SESSION_LIMIT {
         fixture.prepare_startup(STACK, TOKEN_OUTPUT.0, [1, 0, 0, 0], 0);
         assert_eq!(
             immediate(fixture.dispatch_startup(STACK)).eax,
@@ -240,7 +242,7 @@ fn capacity_failure_returns_status_without_publishing_a_token() {
     assert_eq!(
         read_u32(&fixture.runtime.memory, TOKEN_OUTPUT),
         RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX
-            | (vine_core::RUNTIME_GDIPLUS_SESSION_LIMIT as u32 + 1)
+            | (crate::runtime::RUNTIME_GDIPLUS_SESSION_LIMIT as u32 + 1)
     );
 }
 

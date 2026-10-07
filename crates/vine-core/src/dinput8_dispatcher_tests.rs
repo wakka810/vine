@@ -1,16 +1,18 @@
+use crate::com::COM_E_NOINTERFACE;
 use crate::dinput8::{
     DINPUT8_CLASS_E_NOAGGREGATION, DINPUT8_DI8DEVCLASS_GAMECTRL, DINPUT8_DIEDFL_ATTACHEDONLY,
     DINPUT8_DIERR_BETADIRECTINPUTVERSION, DINPUT8_DIERR_OLDDIRECTINPUTVERSION,
-    DINPUT8_E_INVALIDARG, DINPUT8_IDIRECTINPUT8A_IID, DINPUT8_VERSION,
+    DINPUT8_E_INVALIDARG, DINPUT8_IDIRECTINPUT8A_IID, DINPUT8_VERSION, dinput8_argument_words,
+    dispatch_dinput8_api,
 };
-use crate::dinput8::{dinput8_argument_words, dispatch_dinput8_api};
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::runtime::{RUNTIME_COM_IUNKNOWN_IID, RuntimeComClass, X86_STARTUP_INFO_W_BYTE_LENGTH};
 use crate::{
-    ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, COM_E_NOINTERFACE, ComCallTrap,
-    ComDispatchOutcome, DispatchOutcome, GuestAddress, GuestMemory, ImportTarget, ImportThunk,
-    ImportThunkDisposition, ImportThunkId, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
-    MemoryRegionKind, PageProtection, RUNTIME_COM_IUNKNOWN_IID, Runtime, RuntimeBootstrap,
-    RuntimeClockState, RuntimeComClass, RuntimeCurrentDirectoryA, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeThreadId, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, ComCallTrap, ComDispatchOutcome,
+    DispatchOutcome, GuestAddress, GuestMemory, ImportTarget, MemoryLimits, MemoryOwnerId,
+    MemoryOwnerKind, MemoryRegionKind, PageProtection, Runtime, RuntimeBootstrap,
+    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA,
+    RuntimeStartupInfo, RuntimeThreadId,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -428,7 +430,10 @@ fn factory_catalog_matches_only_named_direct_input_exports() {
     assert!(dinput8_argument_words(&other).is_none());
 }
 
-fn assert_live_direct_input(fixture: &Fixture, interface: &crate::RuntimeComInterfaceRecord) {
+fn assert_live_direct_input(
+    fixture: &Fixture,
+    interface: &crate::runtime::RuntimeComInterfaceRecord,
+) {
     let live = fixture
         .runtime
         .com_interface_for_pointer(interface.guest_pointer)
@@ -557,7 +562,7 @@ impl Fixture {
 
     fn dispatch_com(
         &mut self,
-        interface: &crate::RuntimeComInterfaceRecord,
+        interface: &crate::runtime::RuntimeComInterfaceRecord,
         slot: u16,
         stack_pointer: GuestAddress,
     ) -> ComDispatchOutcome {
@@ -571,7 +576,7 @@ impl Fixture {
 
     fn dispatch_dinput_com(
         &mut self,
-        interface: &crate::RuntimeComInterfaceRecord,
+        interface: &crate::runtime::RuntimeComInterfaceRecord,
         slot: u16,
         stack_pointer: GuestAddress,
     ) -> ComDispatchOutcome {
@@ -613,7 +618,7 @@ fn immediate(outcome: DispatchOutcome) -> crate::ApiImmediateCompletion {
     }
 }
 
-fn faulted(outcome: ComDispatchOutcome) -> crate::ComFault {
+fn faulted(outcome: ComDispatchOutcome) -> crate::com::ComFault {
     match outcome {
         ComDispatchOutcome::Fault(fault) => fault,
         other => panic!("COM call did not fault: {other:?}"),

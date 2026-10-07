@@ -12028,7 +12028,7 @@ mod system_module_load_tests {
                 .object_for_handle(RuntimeHandle(first), RuntimeObjectKind::Module)
                 .unwrap()
                 .key,
-            crate::RuntimeObjectKey::Module { handle: first }
+            crate::runtime::RuntimeObjectKey::Module { handle: first }
         );
         let node = runtime
             .module_graph()

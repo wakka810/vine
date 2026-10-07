@@ -1,7 +1,8 @@
+use crate::pe32::ResourceIdentifier;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::{ModuleSnapshot, Pe32Limits, ResourceIdentifier, Rva, build_pe32_load_plan};
+use crate::{ModuleSnapshot, Pe32Limits, Rva, build_pe32_load_plan};
 
 #[test]
 fn plans_bounded_integer_icon_and_cursor_resources_from_the_immutable_pe() {

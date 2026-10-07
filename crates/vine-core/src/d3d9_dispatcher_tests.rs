@@ -1,19 +1,19 @@
 use crate as vine_core;
-use crate::d3d9::dispatch_d3d9_api;
+use crate::com::ComCallCompletion;
 use crate::d3d9::{
     D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DDEVTYPE_HAL,
     D3D9_D3DERR_INVALIDCALL, D3D9_D3DFMT_UNKNOWN, D3D9_D3DFMT_X8R8G8B8, D3D9_D3DMULTISAMPLE_NONE,
     D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH, D3D9_D3DSWAPEFFECT_DISCARD, D3D9_IDIRECT3D9_IID,
-    D3D9_SDK_VERSION,
+    D3D9_SDK_VERSION, dispatch_d3d9_api,
 };
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::runtime::{RuntimeComClass, X86_STARTUP_INFO_W_BYTE_LENGTH};
 use vine_core::{
-    ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, ComCallCompletion, ComCallTrap,
-    ComDispatchOutcome, DispatchOutcome, GuestAddress, GuestMemory, ImportTarget, ImportThunk,
-    ImportThunkDisposition, ImportThunkId, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
-    MemoryRegionKind, PageProtection, Runtime, RuntimeBootstrap, RuntimeClockState,
-    RuntimeComClass, RuntimeCurrentDirectoryA, RuntimeDisplayProfile, RuntimeProcessId,
+    ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, ComCallTrap, ComDispatchOutcome,
+    DispatchOutcome, GuestAddress, GuestMemory, ImportTarget, MemoryLimits, MemoryOwnerId,
+    MemoryOwnerKind, MemoryRegionKind, PageProtection, Runtime, RuntimeBootstrap,
+    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeDisplayProfile, RuntimeProcessId,
     RuntimeProcessImagePathA, RuntimeRect, RuntimeStartupInfo, RuntimeThreadId,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -586,7 +586,7 @@ impl Fixture {
 
     fn dispatch_com(
         &mut self,
-        interface: &vine_core::RuntimeComInterfaceRecord,
+        interface: &crate::runtime::RuntimeComInterfaceRecord,
         slot: u16,
         stack_pointer: GuestAddress,
     ) -> ComDispatchOutcome {
@@ -650,7 +650,7 @@ fn completed(outcome: ComDispatchOutcome) -> ComCallCompletion {
     }
 }
 
-fn faulted(outcome: ComDispatchOutcome) -> vine_core::ComFault {
+fn faulted(outcome: ComDispatchOutcome) -> crate::com::ComFault {
     match outcome {
         ComDispatchOutcome::AudioPending(pending) => {
             panic!("unexpected browser audio pending: {pending:?}")

@@ -1,7 +1,7 @@
-use crate::{
-    RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleId, RuntimeModuleLoadState,
-    RuntimeModuleReferenceOwner, RuntimeModuleRegistration,
+use crate::module_graph::{
+    RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleReferenceOwner, RuntimeModuleRegistration,
 };
+use crate::{RuntimeModuleId, RuntimeModuleLoadState};
 
 #[test]
 fn module_graph_orders_dependencies_and_owns_reference_lifecycle() {

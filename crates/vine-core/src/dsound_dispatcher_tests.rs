@@ -2,16 +2,17 @@ use crate as vine_core;
 use crate::dsound::{
     DSOUND_CLASS_E_NOAGGREGATION, DSOUND_DIRECT_SOUND_CREATE_8_ORDINAL,
     DSOUND_DSBCAPS_PRIMARYBUFFER, DSOUND_DSBUFFERDESC_BYTES, DSOUND_DSSCL_NORMAL,
-    DSOUND_DSSCL_PRIORITY, DSOUND_E_INVALIDARG, DSOUND_IDIRECTSOUND8_IID,
+    DSOUND_DSSCL_PRIORITY, DSOUND_E_INVALIDARG, DSOUND_IDIRECTSOUND8_IID, dispatch_dsound_api,
+    dsound_argument_words,
 };
-use crate::dsound::{dispatch_dsound_api, dsound_argument_words};
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::runtime::{RuntimeComClass, X86_STARTUP_INFO_W_BYTE_LENGTH};
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, ComCallTrap, ComDispatchOutcome,
-    DispatchOutcome, GuestAddress, GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition,
-    ImportThunkId, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
-    Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeComClass, RuntimeCurrentDirectoryA,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeThreadId,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    DispatchOutcome, GuestAddress, GuestMemory, ImportTarget, MemoryLimits, MemoryOwnerId,
+    MemoryOwnerKind, MemoryRegionKind, PageProtection, Runtime, RuntimeBootstrap,
+    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA,
+    RuntimeStartupInfo, RuntimeThreadId,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -365,16 +366,19 @@ fn factory_catalog_matches_only_the_direct_sound_ordinal() {
     assert!(dsound_argument_words(&fixture.endpoint).is_some());
 
     let mut named = fixture.endpoint.clone();
-    named.symbol = vine_core::ApiSymbol::Name {
+    named.symbol = crate::api::ApiSymbol::Name {
         name: "DirectSoundCreate8".to_owned(),
     };
     assert!(dsound_argument_words(&named).is_none());
     let mut other_ordinal = fixture.endpoint;
-    other_ordinal.symbol = vine_core::ApiSymbol::Ordinal { ordinal: 12 };
+    other_ordinal.symbol = crate::api::ApiSymbol::Ordinal { ordinal: 12 };
     assert!(dsound_argument_words(&other_ordinal).is_none());
 }
 
-fn assert_live_direct_sound(fixture: &Fixture, interface: &vine_core::RuntimeComInterfaceRecord) {
+fn assert_live_direct_sound(
+    fixture: &Fixture,
+    interface: &crate::runtime::RuntimeComInterfaceRecord,
+) {
     let live = fixture
         .runtime
         .com_interface_for_pointer(interface.guest_pointer)
@@ -508,7 +512,7 @@ impl Fixture {
 
     fn dispatch_com(
         &mut self,
-        interface: &vine_core::RuntimeComInterfaceRecord,
+        interface: &crate::runtime::RuntimeComInterfaceRecord,
         slot: u16,
     ) -> ComDispatchOutcome {
         self.runtime.dispatch_com_call(ComCallTrap {
@@ -521,7 +525,7 @@ impl Fixture {
 
     fn dispatch_frontend(
         &mut self,
-        interface: &vine_core::RuntimeComInterfaceRecord,
+        interface: &crate::runtime::RuntimeComInterfaceRecord,
         slot: u16,
     ) -> ComDispatchOutcome {
         self.runtime.dispatch_com_call(ComCallTrap {

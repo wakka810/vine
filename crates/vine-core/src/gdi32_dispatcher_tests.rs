@@ -1461,7 +1461,7 @@ fn create_font_a_accepts_arbitrary_bounded_sizes_and_preserves_state_on_bad_inpu
         .values()
         .find(|object| object.handle == handle)
         .unwrap();
-    let vine_core::RuntimeGdiObjectKind::FontA { log_font } = &object.object else {
+    let crate::runtime::RuntimeGdiObjectKind::FontA { log_font } = &object.object else {
         panic!("expected font")
     };
     assert_eq!((log_font.height, log_font.width), (37, 19));
@@ -1954,7 +1954,7 @@ fn gdi_creation_capacity_returns_null_without_publishing_partial_defaults() {
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x1234);
 
     let mut endpoint = fixture.create_compatible_dc_endpoint.clone();
-    endpoint.symbol = crate::ApiSymbol::Name {
+    endpoint.symbol = crate::api::ApiSymbol::Name {
         name: "GetStockObject".to_owned(),
     };
     let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();

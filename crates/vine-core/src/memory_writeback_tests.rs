@@ -1,9 +1,11 @@
 use crate as vine_core;
-use crate::memory::{CpuWritebackBatch, CpuWritebackPage};
+use crate::memory::{
+    CacheEffects, CpuWritebackBatch, CpuWritebackPage, GuestMemoryErrorClass, MappingOperation,
+    MemoryDelta, MemoryReflection,
+};
 use vine_core::{
-    CacheEffects, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryErrorClass, GuestRange,
-    MappingOperation, MemoryDelta, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryReflection,
-    MemoryRegionKind, PageProtection,
+    GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange, MemoryLimits, MemoryOwnerId,
+    MemoryOwnerKind, MemoryRegionKind, PageProtection,
 };
 
 const STACK_BASE: GuestAddress = GuestAddress(0x2000_0000);

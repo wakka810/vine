@@ -1,12 +1,11 @@
 use crate as vine_core;
-use crate::winmm::TIMERR_NOCANDO;
-use crate::winmm::{dispatch_winmm_api, winmm_argument_words};
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::winmm::{TIMERR_NOCANDO, dispatch_winmm_api, winmm_argument_words};
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, DispatchOutcome, GuestAddress, GuestMemory,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, MemoryLimits,
-    MemoryOwnerKind, MemoryRegionKind, PageProtection, Runtime, RuntimeBootstrap,
-    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA,
-    RuntimeStartupInfo, RuntimeThreadId,
+    ImportTarget, MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection, Runtime,
+    RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId,
+    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeThreadId,
 };
 
 const BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -177,13 +176,13 @@ fn catalog_routes_only_named_winmm_exports() {
     let mut other_module = endpoint.clone();
     other_module.module = "kernel32.dll".to_owned();
     let mut ordinal = endpoint.clone();
-    ordinal.symbol = vine_core::ApiSymbol::Ordinal { ordinal: 1 };
+    ordinal.symbol = crate::api::ApiSymbol::Ordinal { ordinal: 1 };
     let mut unknown = endpoint.clone();
-    unknown.symbol = vine_core::ApiSymbol::Name {
+    unknown.symbol = crate::api::ApiSymbol::Name {
         name: "unknown".to_owned(),
     };
     let mut wrong_case = endpoint;
-    wrong_case.symbol = vine_core::ApiSymbol::Name {
+    wrong_case.symbol = crate::api::ApiSymbol::Name {
         name: "TimeGetDevCaps".to_owned(),
     };
     for unsupported in [other_module, ordinal, unknown, wrong_case] {

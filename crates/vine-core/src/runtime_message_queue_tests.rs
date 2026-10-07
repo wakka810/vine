@@ -1,7 +1,8 @@
+use crate::runtime::{RuntimeMessageReceiveDisposition, X86_STARTUP_INFO_W_BYTE_LENGTH};
 use crate::{
     Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeCursorPositionProfile,
-    RuntimeInputProfile, RuntimeMessageReceiveDisposition, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeThreadId, SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeInputProfile, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo,
+    RuntimeThreadId, SchedulerThreadState,
 };
 
 const PROCESS_ID: u32 = 4096;

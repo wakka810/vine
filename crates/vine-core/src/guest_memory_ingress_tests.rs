@@ -1,10 +1,10 @@
+use crate::memory::{GuestMemoryError, GuestMemoryErrorClass, MemoryAccess, MemoryFaultReason};
 use std::fs;
 use std::path::PathBuf;
 
 use crate::{
-    GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestRange, MemoryAccess,
-    MemoryFaultReason, MemoryLimits, MemoryOwnerKind, MemoryRegionKind, ModuleSnapshot,
-    PageProtection, Pe32Limits, build_pe32_load_plan,
+    GuestAddress, GuestMemory, GuestRange, MemoryLimits, MemoryOwnerKind, MemoryRegionKind,
+    ModuleSnapshot, PageProtection, Pe32Limits, build_pe32_load_plan,
 };
 
 const IMAGE_BASE: u32 = 0xf100_0000;

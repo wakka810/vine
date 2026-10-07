@@ -1,6 +1,7 @@
+use crate::runtime::X86_STARTUP_INFO_W_BYTE_LENGTH;
 use crate::{
     GuestAddress, Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeProcessId,
-    RuntimeStartupInfo, RuntimeThreadId, SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeStartupInfo, RuntimeThreadId, SchedulerThreadState,
 };
 
 const PROCESS_ID: RuntimeProcessId = RuntimeProcessId(4096);

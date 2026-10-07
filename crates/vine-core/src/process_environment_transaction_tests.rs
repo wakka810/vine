@@ -1,8 +1,12 @@
-use crate::environment::install_process_environment;
+use crate::environment::{
+    CONTROLLED_COMMAND_LINE_BASE, controlled_process_environment_allocation_request,
+    install_process_environment,
+};
+use crate::memory::GuestMemoryErrorClass;
+use crate::runtime::ProcessAddressSpaceAllocator;
 use crate::{
-    CONTROLLED_COMMAND_LINE_BASE, GUEST_PAGE_SIZE, GuestMemory, GuestMemoryErrorClass,
-    MemoryLimits, MemoryOwnerKind, MemoryRegionKind, ProcessAddressAllocationRecord,
-    ProcessAddressSpaceAllocator, controlled_process_environment_allocation_request,
+    GUEST_PAGE_SIZE, GuestMemory, MemoryLimits, MemoryOwnerKind, MemoryRegionKind,
+    ProcessAddressAllocationRecord,
 };
 
 #[test]

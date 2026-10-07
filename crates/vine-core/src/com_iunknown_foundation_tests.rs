@@ -1,11 +1,14 @@
-use crate::com::{ComInterfaceSpec, ComMethodSpec, ComObjectSpec};
+use crate::com::{
+    COM_E_NOINTERFACE, COM_E_POINTER, COM_S_OK, ComCallCompletion, ComInterfaceSpec, ComMethodSpec,
+    ComObjectSpec,
+};
+use crate::memory::{MappingOperation, MemoryAccess};
+use crate::runtime::{RUNTIME_COM_IUNKNOWN_IID, RuntimeComIid, X86_STARTUP_INFO_W_BYTE_LENGTH};
 use crate::{
-    COM_E_NOINTERFACE, COM_E_POINTER, COM_S_OK, ComCallCompletion, ComCallTrap, ComDispatchOutcome,
-    GuestAddress, GuestMemory, MappingOperation, MemoryAccess, MemoryLimits, MemoryOwnerKind,
-    MemoryRegionKind, PageProtection, ProcessAddressAllocationPurpose, RUNTIME_COM_IUNKNOWN_IID,
-    Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeComIid, RuntimeCurrentDirectoryA,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeThreadId,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    ComCallTrap, ComDispatchOutcome, GuestAddress, GuestMemory, MemoryLimits, MemoryOwnerKind,
+    MemoryRegionKind, PageProtection, ProcessAddressAllocationPurpose, Runtime, RuntimeBootstrap,
+    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA,
+    RuntimeStartupInfo, RuntimeThreadId,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -554,7 +557,7 @@ fn failed_installation_rolls_back_memory_identity_and_address_allocation() {
     );
     runtime
         .install_com_object(ComObjectSpec {
-            class: crate::RuntimeComClass::D3d9,
+            class: crate::runtime::RuntimeComClass::D3d9,
             interfaces: vec![ComInterfaceSpec::iunknown(), ComInterfaceSpec::iunknown()],
         })
         .unwrap_err();
@@ -589,7 +592,7 @@ fn failed_final_release_preserves_rust_identity_and_address_allocation() {
     let mut runtime = controlled_runtime(memory);
     let installed = runtime
         .install_com_object(ComObjectSpec {
-            class: crate::RuntimeComClass::D3d9,
+            class: crate::runtime::RuntimeComClass::D3d9,
             interfaces: vec![ComInterfaceSpec::iunknown()],
         })
         .expect("install synthetic COM object");
@@ -702,7 +705,7 @@ fn failed_final_release_preserves_rust_identity_and_address_allocation() {
 
 fn dispatch(
     runtime: &mut Runtime,
-    interface: &crate::RuntimeComInterfaceRecord,
+    interface: &crate::runtime::RuntimeComInterfaceRecord,
     slot: u16,
     stack_pointer: GuestAddress,
     call_site: GuestAddress,
@@ -728,7 +731,7 @@ fn completed(outcome: ComDispatchOutcome) -> ComCallCompletion {
     }
 }
 
-fn faulted(outcome: ComDispatchOutcome) -> crate::ComFault {
+fn faulted(outcome: ComDispatchOutcome) -> crate::com::ComFault {
     match outcome {
         ComDispatchOutcome::AudioPending(pending) => {
             panic!("unexpected browser audio pending: {pending:?}")
@@ -745,8 +748,8 @@ fn faulted(outcome: ComDispatchOutcome) -> crate::ComFault {
 
 fn prepare_calls(
     memory: &mut GuestMemory,
-    synthetic: &crate::RuntimeComInterfaceRecord,
-    iunknown: &crate::RuntimeComInterfaceRecord,
+    synthetic: &crate::runtime::RuntimeComInterfaceRecord,
+    iunknown: &crate::runtime::RuntimeComInterfaceRecord,
 ) {
     memory
         .write(
@@ -857,7 +860,7 @@ fn install_scratch_page(memory: &mut GuestMemory) {
 
 fn synthetic_object_spec() -> ComObjectSpec {
     ComObjectSpec {
-        class: crate::RuntimeComClass::D3d9,
+        class: crate::runtime::RuntimeComClass::D3d9,
         interfaces: vec![
             ComInterfaceSpec::iunknown(),
             ComInterfaceSpec {

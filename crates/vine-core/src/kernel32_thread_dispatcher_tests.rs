@@ -1,13 +1,15 @@
 use crate as vine_core;
+use crate::api::ApiSymbol;
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::runtime::{RuntimeObjectKind, RuntimeThreadPriority, X86_STARTUP_INFO_W_BYTE_LENGTH};
 use crate::win32::dispatch_kernel32_api;
 use vine_core::{
-    ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, ApiSymbol, DispatchOutcome, GUEST_PAGE_SIZE,
-    GuestAddress, GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId,
-    MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
-    ProcessAddressAllocationPurpose, Runtime, RuntimeBootstrap, RuntimeClockState,
-    RuntimeCurrentDirectoryA, RuntimeObjectKind, RuntimeProcessId, RuntimeProcessImagePathA,
-    RuntimeStartupInfo, RuntimeThreadId, RuntimeThreadPriority, SchedulerThreadState,
-    X86_STARTUP_INFO_W_BYTE_LENGTH, install_initial_thread_stack, install_runtime_return_sentinels,
+    ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, DispatchOutcome, GUEST_PAGE_SIZE,
+    GuestAddress, GuestMemory, ImportTarget, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
+    MemoryRegionKind, PageProtection, ProcessAddressAllocationPurpose, Runtime, RuntimeBootstrap,
+    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA,
+    RuntimeStartupInfo, RuntimeThreadId, SchedulerThreadState, install_initial_thread_stack,
+    install_runtime_return_sentinels,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -376,7 +378,10 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
     assert_eq!(runtime.current_last_error().unwrap(), 0x5a5a);
     assert!(
         runtime
-            .object_for_handle(vine_core::RuntimeHandle(handle), RuntimeObjectKind::Thread)
+            .object_for_handle(
+                crate::runtime::RuntimeHandle(handle),
+                RuntimeObjectKind::Thread
+            )
             .is_err()
     );
 

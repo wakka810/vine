@@ -1,8 +1,10 @@
 use crate as vine_core;
-use crate::memory::{CpuWritebackBatch, CpuWritebackPage};
+use crate::memory::{
+    CacheEffects, CpuWritebackBatch, CpuWritebackPage, GuestMemoryErrorClass, MappingOperation,
+};
 use vine_core::{
-    CacheEffects, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryErrorClass,
-    MappingOperation, MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    GUEST_PAGE_SIZE, GuestAddress, GuestMemory, MemoryLimits, MemoryOwnerKind, MemoryRegionKind,
+    PageProtection,
 };
 
 const DATA_BASE: GuestAddress = GuestAddress(0x2000_0000);
