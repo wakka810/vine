@@ -1,3 +1,4 @@
+import { isDevSource, type SourceDirectory } from "../storage/dev-source-directory.js";
 import { gameStorageFingerprint } from "../storage/source-directory.js";
 import { instantiateExecutionEngine } from "./execution-engine.js";
 import { rasterizeGdiText } from "./gdi-text-raster.js";
@@ -43,7 +44,7 @@ type GameDispatch =
 
 interface LaunchRequest {
   type: "launch-executable";
-  root: FileSystemDirectoryHandle;
+  root: SourceDirectory;
   segments: string[];
   name: string;
   sha256: string;
@@ -197,15 +198,16 @@ worker.addEventListener("message", (event: MessageEvent<LaunchRequest |
 
 async function launch(request: LaunchRequest): Promise<void> {
   if (!(request.canvas instanceof OffscreenCanvas)) throw new Error("No game surface was transferred");
-  const surface = new GameSurface(request.canvas);
   if (request.root?.kind !== "directory" || !Array.isArray(request.segments) ||
       !/^[0-9a-f]{64}$/u.test(request.sha256)) throw new Error("Invalid game selection");
+  const surface = new GameSurface(request.canvas, { allowSoftware: isDevSource(request.root) });
   const file = await openSourceExecutable(request.root, request.segments, request.name);
   if (file.size > 16 * 1024 * 1024) throw new Error("Executable exceeds the bridge input limit");
   const executable = new Uint8Array(await file.arrayBuffer());
   const after = await openSourceExecutable(request.root, request.segments, request.name);
   if (executable.length !== file.size || after.size !== file.size ||
-      after.lastModified !== file.lastModified) throw new Error("Executable changed while reading");
+      after.lastModified !== file.lastModified ||
+      after.sourceVersion !== file.sourceVersion) throw new Error("Executable changed while reading");
   const bridge = await RuntimeBridge.instantiate(new URL("./runtime-core.wasm", import.meta.url));
   const path = [...request.segments, request.name].join("/");
   const inspected = bridge.inspectExecutable(executable, path);
@@ -218,7 +220,7 @@ async function launch(request: LaunchRequest): Promise<void> {
   sourceFiles.set(1, {
     kind: "file",
     pathSegments: [...request.segments, request.name],
-    byteLength: file.size, lastModified: file.lastModified, sha256: inspected.sha256,
+    byteLength: file.size, lastModified: file.lastModified, sha256: inspected.sha256, sourceVersion: file.sourceVersion,
   });
   const pending = [...inspected.guestImports];
   const libraries = new Set<string>();
@@ -244,7 +246,8 @@ async function launch(request: LaunchRequest): Promise<void> {
     if (dll.size > 16 * 1024 * 1024) throw new Error(`Imported source DLL ${imported} exceeds the bridge input limit`);
     const bytes = new Uint8Array(await dll.arrayBuffer());
     const after = await openSourceDll(request.root, selected.segments, selected.name);
-    if (bytes.length !== dll.size || after.size !== dll.size || after.lastModified !== dll.lastModified) {
+    if (bytes.length !== dll.size || after.size !== dll.size || after.lastModified !== dll.lastModified ||
+        after.sourceVersion !== dll.sourceVersion) {
       throw new Error(`Imported source DLL ${imported} changed while reading`);
     }
     const relativePath = [...selected.segments, selected.name].join("/");
@@ -255,7 +258,7 @@ async function launch(request: LaunchRequest): Promise<void> {
     }
     sourceFiles.set(registered.sourceId, {
       kind: "file", pathSegments: [...selected.segments, selected.name],
-      byteLength: dll.size, lastModified: dll.lastModified, sha256: registered.sha256,
+      byteLength: dll.size, lastModified: dll.lastModified, sha256: registered.sha256, sourceVersion: dll.sourceVersion,
     });
     libraries.add(key);
     pending.push(...registered.guestImports);
@@ -277,7 +280,9 @@ async function launch(request: LaunchRequest): Promise<void> {
       symbol: instructionPointer === null ? null : diagnosticText(native?.symbol) };
   };
   readStopContext = () => readRuntimeStopContext(null, null);
-  worker.postMessage({ type: "game-status", detail: "Running guest instructions (unsupported imports stop explicitly)" });
+  worker.postMessage({ type: "game-status", detail: surface.backend === "software"
+    ? "Running guest instructions (development software rendering; unsupported imports stop explicitly)"
+    : "Running guest instructions (unsupported imports stop explicitly)" });
   const engine = await instantiateExecutionEngine(new URL(import.meta.url), {
     maximumPhysicalPages: prepared.metadata.maximumPhysicalPages,
   });
@@ -365,7 +370,8 @@ async function launch(request: LaunchRequest): Promise<void> {
         throw new Error("Decoder source lost its verified browser capability");
       }
       try {
-        return await readSourceRange(request.root, verified.pathSegments, verified.byteLength, verified.lastModified, offset, length);
+        return await readSourceRange(request.root, verified.pathSegments, verified.byteLength,
+          verified.lastModified, offset, length, verified.sourceVersion);
       } catch (error) {
         // A missing browser file is a native observation. Broken capabilities,
         // changed immutable source bytes and invalid ranges are boundary faults.
@@ -1184,7 +1190,7 @@ async function launch(request: LaunchRequest): Promise<void> {
               throw new Error("Invalid Rust source read request");
             }
             bytes = await readSourceRange(request.root, source.pathSegments,
-              source.byteLength, source.lastModified, Number(offset), requested!);
+              source.byteLength, source.lastModified, Number(offset), requested!, source.sourceVersion);
           }
           const control = new Uint8Array(28);
           const view = new DataView(control.buffer);

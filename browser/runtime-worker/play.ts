@@ -1,3 +1,4 @@
+import { discoverDevSource, type SourceDirectory } from "../storage/dev-source-directory.js";
 import { chooseSourceDirectory, ensureSourceReadPermission } from "../storage/source-directory.js";
 import { BrowserAudio } from "./browser-audio.js";
 import { BrowserMessageBox } from "./browser-message-box.js";
@@ -13,7 +14,7 @@ const listing = document.querySelector<HTMLUListElement>("#listing")!;
 const locationLabel = document.querySelector<HTMLOutputElement>("#location")!;
 const status = document.querySelector<HTMLOutputElement>("#status")!;
 const worker = new Worker(new URL("./inspect-worker.js", import.meta.url), { type: "module" });
-let root: FileSystemDirectoryHandle | null = null;
+let root: SourceDirectory | null = null;
 let segments: string[] = [];
 let navigation = 0;
 let inspection = 0;
@@ -43,7 +44,7 @@ for (const kind of ["key-down", "key-up"] as const) {
     event.preventDefault();
   });
 }
-type Selection = { root: FileSystemDirectoryHandle; segments: string[]; name: string; sha256: string; storageFingerprint: string };
+type Selection = { root: SourceDirectory; segments: string[]; name: string; sha256: string; storageFingerprint: string };
 let pending: Selection | null = null;
 let selected: Selection | null = null;
 
@@ -61,6 +62,26 @@ worker.addEventListener("message", (event: MessageEvent<InspectedExecutableMessa
       : `PE32 validated. Ready to launch ${selected.name}.`;
 });
 worker.addEventListener("error", (event) => showError(new Error(event.message)));
+
+// Only the explicitly configured development server exposes this capability.
+// Normal directory selection remains available and never requests write access.
+if (document.querySelector('meta[name="vine-dev-source"][content="enabled"]')) void discoverDevSource().then(source => {
+  if (source === null) return;
+  const button = document.createElement("button");
+  button.id = "choose-dev-source";
+  button.textContent = `Use server directory: ${source.name} (development)`;
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    choose.disabled = true;
+    try {
+      root = source;
+      segments = [];
+      await render();
+    } catch (error) { showError(error); }
+    finally { button.disabled = false; choose.disabled = false; }
+  });
+  choose.after(button);
+}).catch(showError);
 
 choose.addEventListener("click", async () => {
   const previousStatus = status.textContent;
@@ -276,6 +297,8 @@ async function render(): Promise<void> {
   selected = null;
   pending = null;
   launchButton.disabled = true;
+  back.disabled = true;
+  listing.replaceChildren();
   const current = root;
   const path = [...segments];
   const entries = await browseSourceDirectory(current, path);
@@ -292,6 +315,7 @@ async function render(): Promise<void> {
     button.textContent = `${entry.kind === "directory" ? "📁" : entry.kind === "file" ? "📄" : "▶"} ${entry.name}`;
     button.disabled = entry.kind === "file";
     button.addEventListener("click", async () => {
+      if (request !== navigation) return;
       if (entry.kind === "directory") {
         segments.push(entry.name);
         await render().catch(showError);

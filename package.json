@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "check": "npm run check:fast",
-    "check:fast": "cargo fmt --all --check && cargo test -p vine-core --lib --locked && npm run typecheck:runtime:browser-worker && node tools/test-runtime-bridge.mjs && node tools/test-generic-bootstrap.mjs --worker-diagnostics && node tools/test-pcm-worklet.mjs && node tools/test-browser-audio.mjs && node tools/test-source-explorer.mjs && node tools/test-writable-tree.mjs && npm run check:js",
+    "check:fast": "cargo fmt --all --check && cargo test -p vine-core --lib --locked && npm run typecheck:runtime:browser-worker && node tools/test-runtime-bridge.mjs && node tools/test-generic-bootstrap.mjs --worker-diagnostics && node tools/test-pcm-worklet.mjs && node tools/test-browser-audio.mjs && node tools/test-software-game-surface.mjs && node tools/test-source-explorer.mjs && node tools/test-dev-source-directory.mjs && node tools/test-dev-source-server.mjs && node tools/test-writable-tree.mjs && npm run check:js",
     "check:rust": "cargo fmt --all --check && cargo test --workspace --locked && cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "check:js": "node tools/check-js-syntax.mjs",
     "check:milestone": "npm run check:rust && npm run check:runtime:browser-worker",
