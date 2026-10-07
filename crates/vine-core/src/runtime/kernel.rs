@@ -154,12 +154,11 @@ use super::thread::RuntimeComApartmentState;
 #[cfg(test)]
 use super::timers::{RuntimeWindowTimer, RuntimeWindowTimerId};
 #[cfg(test)]
-use super::user32::{RuntimeImeWindow, RuntimeSystemMenu};
+use super::user32::RuntimeImeWindow;
 
 #[cfg(test)]
 use super::user32::{
-    RuntimeCursorId, RuntimeIconId, RuntimeImeWindowId, RuntimeMenuId, RuntimePaintSession,
-    RuntimeWindowClassId,
+    RuntimeCursorId, RuntimeIconId, RuntimeImeWindowId, RuntimePaintSession, RuntimeWindowClassId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5558,11 +5557,6 @@ impl Runtime {
         self.user32.load_shared_icon(resource)
     }
 
-    #[cfg(test)]
-    pub(crate) fn icon(&self, handle: u32) -> Result<&RuntimeIcon, RuntimeStateError> {
-        self.user32.icon(handle)
-    }
-
     pub(crate) fn icon_option(
         &self,
         handle: u32,
@@ -5642,11 +5636,6 @@ impl Runtime {
             }
         }
         self.user32.load_shared_cursor(source)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn cursor(&self, handle: u32) -> Result<&RuntimeCursor, RuntimeStateError> {
-        self.user32.cursor(handle)
     }
 
     pub(crate) fn cursor_option(
@@ -5823,16 +5812,6 @@ impl Runtime {
         self.require_user32_operation_state()?;
         self.user32
             .enable_system_menu_close_item(menu_handle, close_item_command)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn system_menu(&self, handle: u32) -> Result<&RuntimeSystemMenu, RuntimeStateError> {
-        self.user32.system_menu(handle)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn system_menus(&self) -> &BTreeMap<RuntimeMenuId, RuntimeSystemMenu> {
-        self.user32.system_menus()
     }
 
     pub(crate) fn get_default_ime_window(

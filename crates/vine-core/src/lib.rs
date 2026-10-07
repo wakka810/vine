@@ -35,7 +35,7 @@ pub use api::{
     GuestCallbackReturn, HostCompletion, X86CpuContext,
 };
 #[cfg(test)]
-pub(crate) use api::{ApiEndpointBinding, ApiSymbol, HostRequest, PreparedGuestCallback};
+pub(crate) use api::{ApiEndpointBinding, ApiSymbol, HostRequest};
 pub use bootstrap::install_initial_thread_stack;
 pub use callbacks::install_runtime_return_sentinels;
 #[cfg(test)]
@@ -79,25 +79,18 @@ pub(crate) use runtime::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationReleasePolicy,
     ProcessAddressSpaceAllocator, RUNTIME_API_BOUNDARY_QUANTUM, RUNTIME_COM_IUNKNOWN_IID,
     RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_GDIPLUS_SESSION_LIMIT,
-    RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RUNTIME_MENU_HANDLE_BASE, RUNTIME_PRIMARY_MONITOR_HANDLE,
-    RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_STANDARD_ERROR_HANDLE,
-    RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
+    RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
+    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
+    RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeCallbackFrameId, RuntimeComApartmentModel,
-    RuntimeComIid, RuntimeCursorSource, RuntimeDeviceContextTarget, RuntimeDynamicEndpoint,
-    RuntimeGdiObjectKind, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocationId,
-    RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeImeStatusWindowRequest,
-    RuntimeMutexId, RuntimeMutexNameA, RuntimeObjectKey, RuntimeObjectKind,
-    RuntimeProcessLifecycleState, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
-    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosOperation,
-    RuntimeSetWindowPosVariant, RuntimeSystemCursorKind, RuntimeThreadPriority,
+    RuntimeComIid, RuntimeDeviceContextTarget, RuntimeDynamicEndpoint, RuntimeGdiObjectKind,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocationId,
+    RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeMutexId, RuntimeMutexNameA,
+    RuntimeObjectKey, RuntimeObjectKind, RuntimeProcessLifecycleState, RuntimeThreadPriority,
     RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitRegistrationId, RuntimeWaitState, RuntimeWaitableTimerArm,
-    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 pub use runtime::{
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,

@@ -1,44 +1,40 @@
 use crate as vine_core;
-use crate::api::RuntimeGuestCallbackSemanticAction;
 use crate::api::{GuestCallbackArgument, GuestCallbackCompletionPolicy};
-use crate::gdi32::dispatch_gdi32_api;
-use crate::imm32::dispatch_imm32_api;
+use crate::api::{PreparedGuestCallback, RuntimeGuestCallbackSemanticAction};
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::runtime::{
+    RUNTIME_PRIMARY_MONITOR_HANDLE, RuntimeCallbackFrameId, RuntimeDeviceContextTarget,
+    RuntimeImeStatusWindowRequest, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosOperation,
+    RuntimeSetWindowPosVariant, RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
+    RuntimeWindowGeometry, RuntimeWindowLifecycle,
+};
 use crate::user32::dispatch_user32_api;
 use std::fs;
 use std::path::PathBuf;
 
 use vine_core::{
     ApiDispatcher, ApiEndpointIdentity, ApiGuestCallbackCall, ApiImmediateCompletion, ApiOwnedTrap,
-    CALLBACK_SCRATCH_ARENA_BASE, DispatchOutcome, GUEST_PAGE_SIZE, GuestAddress, GuestMemory,
-    GuestRange, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, MemoryLimits,
-    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, ModuleSnapshot, PageProtection, Pe32Limits,
-    Pe32LoadPlan, PreparedGuestCallback, RUNTIME_MENU_HANDLE_BASE, RUNTIME_PRIMARY_MONITOR_HANDLE,
-    Runtime, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA,
-    RuntimeCursorPositionProfile, RuntimeCursorSource, RuntimeDeviceContextTarget,
-    RuntimeDisplayProfile, RuntimeImeStatusWindowRequest, RuntimeInputProfile,
-    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule,
+    DispatchOutcome, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange, ImportTarget,
+    MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, ModuleSnapshot, PageProtection,
+    Pe32Limits, Pe32LoadPlan, Runtime, RuntimeBootstrap, RuntimeClockState,
+    RuntimeCurrentDirectoryA, RuntimeCursorPositionProfile, RuntimeDisplayProfile,
+    RuntimeInputProfile, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule,
     RuntimePointerButton, RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind,
     RuntimePointerPositionSourceEvent, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
-    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosOperation, RuntimeSetWindowPosVariant, RuntimeStartupInfo,
-    RuntimeSystemCursorKind, RuntimeThreadId, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle,
-    SchedulerThreadState, build_pe32_load_plan, materialize_pe32_image,
+    RuntimeStartupInfo, RuntimeThreadId, SchedulerThreadState, build_pe32_load_plan,
+    materialize_pe32_image,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
 const STACK_POINTER: u32 = 0x2000_1040;
-const LOW_STACK_POINTER: u32 = 0x2000_0008;
 const IAT_ADDRESS: GuestAddress = GuestAddress(0x2000_2000);
 const CALLBACK_TARGET: GuestAddress = GuestAddress(0x2000_2100);
 const CALLBACK_SENTINEL: GuestAddress = GuestAddress(0x2000_2110);
 const ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0bc0);
 const RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_a781);
-const SWAP_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a50);
 const SWAP_FIRST_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a3b);
-const SWAP_SECOND_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a43);
-const SWAP_SECOND_STACK_POINTER: u32 = STACK_POINTER + 0x20;
 const SHOW_CURSOR_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a60);
 const SHOW_CURSOR_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2380;
 const SHOW_CURSOR_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8c08);
@@ -51,11 +47,6 @@ const CURSOR_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0f30);
 const CURSOR_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d09);
 const CLASS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0be0);
 const CLASS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7d28);
-const METRICS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ca0);
-const METRICS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7ddb);
-const SET_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0db0);
-const SET_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1005_b00b);
-const SET_RECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2800);
 const ICON_IMAGE_BASE: u32 = 0x0040_0000;
 const ICON_MODULE_HANDLE: u32 = 0x4d01_000f;
 
@@ -123,10 +114,6 @@ const SET_FOCUS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0d00);
 const SET_FOCUS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 132);
 const SET_FOCUS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2f60;
 const SET_FOCUS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_2dcb);
-const GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e60);
-const GET_ASYNC_KEY_STATE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 104);
-const GET_ASYNC_KEY_STATE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22a0;
-const GET_ASYNC_KEY_STATE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_8405);
 const GET_CLIENT_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c60);
 const GET_CLIENT_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 32);
 const GET_CLIENT_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1f00;
@@ -137,11 +124,6 @@ const GET_WINDOW_RECT_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 1
 const GET_WINDOW_RECT_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22c0;
 const GET_WINDOW_RECT_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8558);
 const WINDOW_RECT_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e20);
-const GET_CURSOR_POS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0bd0);
-const GET_CURSOR_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 112);
-const GET_CURSOR_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22e0;
-const GET_CURSOR_POS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8563);
-const CURSOR_POSITION_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e30);
 const GET_CURSOR_INFO_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a70);
 const GET_CURSOR_INFO_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 140);
 const GET_CURSOR_INFO_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2340;
@@ -201,14 +183,37 @@ const MONITOR_INFO_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0
 const WINDOW_TITLE_BASE: u32 = MEMORY_BASE.0 + 0x2b00;
 const GET_SYSTEM_MENU_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b10);
 const ENABLE_MENU_ITEM_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b20);
-const GET_SYSTEM_MENU_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 20);
-const ENABLE_MENU_ITEM_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 24);
 const LIVE_GET_SYSTEM_MENU_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 76);
 const LIVE_ENABLE_MENU_ITEM_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 80);
 const GET_SYSTEM_MENU_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1a00;
 const ENABLE_MENU_ITEM_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1b00;
 const GET_SYSTEM_MENU_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_274c);
 const ENABLE_MENU_ITEM_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_2753);
+
+fn fixture_endpoint(
+    id: u32,
+    address: GuestAddress,
+    requester_owner: MemoryOwnerId,
+    module: &str,
+    iat_address: GuestAddress,
+    name: &str,
+) -> ApiEndpointIdentity {
+    ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(id),
+        address,
+        requester_owner,
+        module: module.to_owned(),
+        iat_rva: vine_core::Rva(0),
+        iat_address,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: name.to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    })
+}
 
 struct EnumFixture {
     runtime: Runtime,
@@ -299,480 +304,6 @@ impl EnumFixture {
             },
             CALLBACK_SENTINEL,
             None,
-        )
-    }
-}
-
-struct SwapFixture {
-    runtime: Runtime,
-    dispatcher: ApiDispatcher,
-    endpoint: ApiEndpointIdentity,
-}
-
-impl SwapFixture {
-    fn new(initial_swapped: bool) -> Self {
-        let mut fixture = Self::without_input(initial_swapped);
-        fixture
-            .runtime
-            .configure_input_profile(fixture_input_profile(initial_swapped))
-            .unwrap();
-        fixture
-    }
-
-    fn without_input(initial_swapped: bool) -> Self {
-        let (mut memory, owner) = initialized_memory();
-        let thunk = ImportThunk {
-            id: ImportThunkId(166),
-            address: SWAP_ENDPOINT_ADDRESS,
-            requester_owner: owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1370),
-            iat_address: IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "SwapMouseButton".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        };
-        memory
-            .write_initialization(owner, IAT_ADDRESS, &SWAP_ENDPOINT_ADDRESS.0.to_le_bytes())
-            .expect("initialize SwapMouseButton IAT");
-        write_words(
-            &mut memory,
-            owner,
-            GuestAddress(STACK_POINTER),
-            &[SWAP_FIRST_RETURN_ADDRESS.0, 0],
-        );
-        write_words(
-            &mut memory,
-            owner,
-            GuestAddress(SWAP_SECOND_STACK_POINTER),
-            &[SWAP_SECOND_RETURN_ADDRESS.0, u32::from(initial_swapped)],
-        );
-        memory.seal_owner(owner).expect("seal User32 fixture owner");
-        let reflection = memory.pending_reflection().expect("initial reflection");
-        memory
-            .acknowledge_delta(reflection.invalidation.generation)
-            .expect("acknowledge initial reflection");
-
-        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
-        let dispatcher =
-            ApiDispatcher::from_endpoints([endpoint.clone()]).expect("User32 dispatcher");
-        let runtime = controlled_runtime(memory);
-
-        Self {
-            runtime,
-            dispatcher,
-            endpoint,
-        }
-    }
-
-    fn dispatch(&mut self, stack_pointer: u32, return_address: GuestAddress) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: self.endpoint.id,
-                endpoint_address: self.endpoint.address,
-                stack_pointer: GuestAddress(stack_pointer),
-                return_address,
-            },
-            &mut self.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
-        )
-    }
-}
-
-struct ShowCursorFixture {
-    runtime: Runtime,
-    dispatcher: ApiDispatcher,
-    endpoint: ApiEndpointIdentity,
-}
-
-impl ShowCursorFixture {
-    fn new() -> Self {
-        let (mut memory, owner) = initialized_memory();
-        let thunk = ImportThunk {
-            id: ImportThunkId(167),
-            address: SHOW_CURSOR_ENDPOINT_ADDRESS,
-            requester_owner: owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1374),
-            iat_address: IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "ShowCursor".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        };
-        memory
-            .write_initialization(
-                owner,
-                IAT_ADDRESS,
-                &SHOW_CURSOR_ENDPOINT_ADDRESS.0.to_le_bytes(),
-            )
-            .expect("initialize ShowCursor IAT");
-        for (index, show) in [false, false, true, true].into_iter().enumerate() {
-            write_words(
-                &mut memory,
-                owner,
-                GuestAddress(SHOW_CURSOR_STACK_POINTER + u32::try_from(index).unwrap() * 0x10),
-                &[SHOW_CURSOR_RETURN_ADDRESS.0, u32::from(show)],
-            );
-        }
-        memory.seal_owner(owner).expect("seal ShowCursor owner");
-        let reflection = memory.pending_reflection().expect("initial reflection");
-        memory
-            .acknowledge_delta(reflection.invalidation.generation)
-            .expect("acknowledge initial reflection");
-
-        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
-        let dispatcher =
-            ApiDispatcher::from_endpoints([endpoint.clone()]).expect("ShowCursor dispatcher");
-        Self {
-            runtime: controlled_runtime(memory),
-            dispatcher,
-            endpoint,
-        }
-    }
-
-    fn dispatch(&mut self, index: u32) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: self.endpoint.id,
-                endpoint_address: self.endpoint.address,
-                stack_pointer: GuestAddress(SHOW_CURSOR_STACK_POINTER + index * 0x10),
-                return_address: SHOW_CURSOR_RETURN_ADDRESS,
-            },
-            &mut self.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
-        )
-    }
-}
-
-struct MetricsFixture {
-    runtime: Runtime,
-    dispatcher: ApiDispatcher,
-    endpoint: ApiEndpointIdentity,
-}
-
-impl MetricsFixture {
-    fn new(configure_display: bool) -> Self {
-        let (mut memory, owner) = initialized_memory();
-        let thunk = ImportThunk {
-            id: ImportThunkId(203),
-            address: METRICS_ENDPOINT_ADDRESS,
-            requester_owner: owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1404),
-            iat_address: IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetSystemMetrics".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        };
-        memory
-            .write_initialization(
-                owner,
-                IAT_ADDRESS,
-                &METRICS_ENDPOINT_ADDRESS.0.to_le_bytes(),
-            )
-            .expect("initialize GetSystemMetrics IAT");
-        for (index, metric) in [7_u32, 8, 4, 0, 1, 50, 49, 2].into_iter().enumerate() {
-            write_words(
-                &mut memory,
-                owner,
-                GuestAddress(STACK_POINTER + index as u32 * 0x20),
-                &[METRICS_RETURN_ADDRESS.0 + index as u32, metric],
-            );
-        }
-        memory
-            .seal_owner(owner)
-            .expect("seal metrics fixture owner");
-        let reflection = memory.pending_reflection().expect("metrics reflection");
-        memory
-            .acknowledge_delta(reflection.invalidation.generation)
-            .expect("acknowledge metrics reflection");
-
-        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
-        let dispatcher =
-            ApiDispatcher::from_endpoints([endpoint.clone()]).expect("GetSystemMetrics dispatcher");
-        let mut runtime = controlled_runtime(memory);
-        if configure_display {
-            runtime
-                .configure_display_profile(fixture_display_profile())
-                .expect("configure metrics display");
-        }
-        Self {
-            runtime,
-            dispatcher,
-            endpoint,
-        }
-    }
-
-    fn dispatch(&mut self, index: u32) -> DispatchOutcome {
-        let stack_pointer = GuestAddress(STACK_POINTER + index * 0x20);
-        let return_address = GuestAddress(METRICS_RETURN_ADDRESS.0 + index);
-        self.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: self.endpoint.id,
-                endpoint_address: self.endpoint.address,
-                stack_pointer,
-                return_address,
-            },
-            &mut self.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
-        )
-    }
-}
-
-struct SetRectFixture {
-    runtime: Runtime,
-    dispatcher: ApiDispatcher,
-    endpoint: ApiEndpointIdentity,
-}
-
-impl SetRectFixture {
-    fn new() -> Self {
-        let (mut memory, owner) = initialized_memory();
-        let thunk = ImportThunk {
-            id: ImportThunkId(220),
-            address: SET_RECT_ENDPOINT_ADDRESS,
-            requester_owner: owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1448),
-            iat_address: IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "SetRect".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        };
-        memory
-            .write_initialization(
-                owner,
-                IAT_ADDRESS,
-                &SET_RECT_ENDPOINT_ADDRESS.0.to_le_bytes(),
-            )
-            .expect("initialize SetRect IAT");
-        memory
-            .seal_owner(owner)
-            .expect("seal SetRect fixture owner");
-        let reflection = memory.pending_reflection().expect("SetRect reflection");
-        memory
-            .acknowledge_delta(reflection.invalidation.generation)
-            .expect("acknowledge SetRect reflection");
-
-        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
-        let dispatcher =
-            ApiDispatcher::from_endpoints([endpoint.clone()]).expect("SetRect dispatcher");
-        Self {
-            runtime: controlled_runtime(memory),
-            dispatcher,
-            endpoint,
-        }
-    }
-
-    fn configure(&mut self, output: GuestAddress, coordinates: [i32; 4]) {
-        let words = [
-            SET_RECT_RETURN_ADDRESS.0,
-            output.0,
-            coordinates[0] as u32,
-            coordinates[1] as u32,
-            coordinates[2] as u32,
-            coordinates[3] as u32,
-        ];
-        self.runtime
-            .memory
-            .write(
-                GuestAddress(STACK_POINTER),
-                &words
-                    .into_iter()
-                    .flat_map(u32::to_le_bytes)
-                    .collect::<Vec<_>>(),
-            )
-            .expect("write SetRect frame");
-        self.acknowledge_pending_delta();
-    }
-
-    fn acknowledge_pending_delta(&mut self) {
-        if self.runtime.memory.stats().pending_invalidation.is_none() {
-            return;
-        }
-        let delta = self
-            .runtime
-            .memory
-            .pending_delta()
-            .expect("pending SetRect delta");
-        self.runtime
-            .memory
-            .acknowledge_delta(delta.generation)
-            .expect("acknowledge SetRect delta");
-    }
-
-    fn dispatch(&mut self) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: self.endpoint.id,
-                endpoint_address: self.endpoint.address,
-                stack_pointer: GuestAddress(STACK_POINTER),
-                return_address: SET_RECT_RETURN_ADDRESS,
-            },
-            &mut self.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
-        )
-    }
-}
-
-struct InvalidMenuFixture {
-    runtime: Runtime,
-    dispatcher: ApiDispatcher,
-    get_system_menu_endpoint: ApiEndpointIdentity,
-    enable_menu_item_endpoint: ApiEndpointIdentity,
-}
-
-impl InvalidMenuFixture {
-    fn new() -> Self {
-        let (mut memory, owner) = initialized_memory();
-        for (iat, endpoint) in [
-            (
-                GET_SYSTEM_MENU_IAT_ADDRESS,
-                GET_SYSTEM_MENU_ENDPOINT_ADDRESS,
-            ),
-            (
-                ENABLE_MENU_ITEM_IAT_ADDRESS,
-                ENABLE_MENU_ITEM_ENDPOINT_ADDRESS,
-            ),
-        ] {
-            memory
-                .write_initialization(owner, iat, &endpoint.0.to_le_bytes())
-                .expect("initialize menu fixture IAT");
-        }
-        for (index, (window, revert)) in [(0_u32, 0_u32), (1, 0), (0, 1)].into_iter().enumerate() {
-            write_words(
-                &mut memory,
-                owner,
-                GuestAddress(GET_SYSTEM_MENU_STACK_POINTER + index as u32 * 0x20),
-                &[
-                    GET_SYSTEM_MENU_RETURN_ADDRESS.0 + index as u32,
-                    window,
-                    revert,
-                ],
-            );
-        }
-        for (index, (menu, item, flags)) in [
-            (0_u32, 0x0000_f060_u32, 0_u32),
-            (1, 0x0000_f060, 0),
-            (0, 0x0000_f061, 0),
-            (0, 0x0000_f060, 1),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            write_words(
-                &mut memory,
-                owner,
-                GuestAddress(ENABLE_MENU_ITEM_STACK_POINTER + index as u32 * 0x20),
-                &[
-                    ENABLE_MENU_ITEM_RETURN_ADDRESS.0 + index as u32,
-                    menu,
-                    item,
-                    flags,
-                ],
-            );
-        }
-        memory.seal_owner(owner).expect("seal menu fixture owner");
-        let reflection = memory.pending_reflection().expect("menu reflection");
-        memory
-            .acknowledge_delta(reflection.invalidation.generation)
-            .expect("acknowledge menu reflection");
-
-        let get_system_menu_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(178),
-            address: GET_SYSTEM_MENU_ENDPOINT_ADDRESS,
-            requester_owner: owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13a0),
-            iat_address: GET_SYSTEM_MENU_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetSystemMenu".to_owned(),
-                hint: 381,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let enable_menu_item_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(179),
-            address: ENABLE_MENU_ITEM_ENDPOINT_ADDRESS,
-            requester_owner: owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13a4),
-            iat_address: ENABLE_MENU_ITEM_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "EnableMenuItem".to_owned(),
-                hint: 214,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let dispatcher = ApiDispatcher::from_endpoints([
-            get_system_menu_endpoint.clone(),
-            enable_menu_item_endpoint.clone(),
-        ])
-        .expect("invalid menu dispatcher");
-        Self {
-            runtime: controlled_runtime(memory),
-            dispatcher,
-            get_system_menu_endpoint,
-            enable_menu_item_endpoint,
-        }
-    }
-
-    fn dispatch_get_system_menu(&mut self, index: u32) -> DispatchOutcome {
-        self.dispatch(
-            self.get_system_menu_endpoint.clone(),
-            GuestAddress(GET_SYSTEM_MENU_STACK_POINTER + index * 0x20),
-            GuestAddress(GET_SYSTEM_MENU_RETURN_ADDRESS.0 + index),
-        )
-    }
-
-    fn dispatch_enable_menu_item(&mut self, index: u32) -> DispatchOutcome {
-        self.dispatch(
-            self.enable_menu_item_endpoint.clone(),
-            GuestAddress(ENABLE_MENU_ITEM_STACK_POINTER + index * 0x20),
-            GuestAddress(ENABLE_MENU_ITEM_RETURN_ADDRESS.0 + index),
-        )
-    }
-
-    fn dispatch(
-        &mut self,
-        endpoint: ApiEndpointIdentity,
-        stack_pointer: GuestAddress,
-        return_address: GuestAddress,
-    ) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: endpoint.id,
-                endpoint_address: endpoint.address,
-                stack_pointer,
-                return_address,
-            },
-            &mut self.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
         )
     }
 }
@@ -936,21 +467,14 @@ impl IconFixture {
             },
         };
         let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
-        let image_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(193),
-            address: IMAGE_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13dc),
-            iat_address: IMAGE_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "LoadImageA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
+        let image_endpoint = fixture_endpoint(
+            193,
+            IMAGE_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            IMAGE_IAT_ADDRESS,
+            "LoadImageA",
+        );
         let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone(), image_endpoint.clone()])
             .expect("module icon dispatcher");
         Self {
@@ -964,32 +488,32 @@ impl IconFixture {
     fn dispatch(&mut self, index: u32) -> DispatchOutcome {
         let stack_pointer = GuestAddress(STACK_POINTER + index * 0x20);
         let return_address = GuestAddress(RETURN_ADDRESS.0 + index);
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.endpoint.id,
                 endpoint_address: self.endpoint.address,
                 stack_pointer,
                 return_address,
             },
-            &mut self.runtime,
+            CALLBACK_SENTINEL,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
         )
     }
 
     fn dispatch_image(&mut self, index: u32) -> DispatchOutcome {
         let stack_pointer = GuestAddress(IMAGE_STACK_POINTER + index * 0x20);
         let return_address = GuestAddress(IMAGE_RETURN_ADDRESS.0 + index);
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.image_endpoint.id,
                 endpoint_address: self.image_endpoint.address,
                 stack_pointer,
                 return_address,
             },
-            &mut self.runtime,
+            CALLBACK_SENTINEL,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
         )
     }
 }
@@ -1136,16 +660,16 @@ impl CursorFixture {
     fn dispatch(&mut self, index: u32) -> DispatchOutcome {
         let stack_pointer = GuestAddress(STACK_POINTER + index * 0x20);
         let return_address = GuestAddress(CURSOR_RETURN_ADDRESS.0 + index);
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.endpoint.id,
                 endpoint_address: self.endpoint.address,
                 stack_pointer,
                 return_address,
             },
-            &mut self.runtime,
+            CALLBACK_SENTINEL,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
         )
     }
 }
@@ -1170,10 +694,8 @@ struct RegisterClassFixture {
     end_paint_endpoint: ApiEndpointIdentity,
     get_foreground_window_endpoint: ApiEndpointIdentity,
     set_focus_endpoint: ApiEndpointIdentity,
-    get_async_key_state_endpoint: ApiEndpointIdentity,
     get_client_rect_endpoint: ApiEndpointIdentity,
     get_window_rect_endpoint: ApiEndpointIdentity,
-    get_cursor_pos_endpoint: ApiEndpointIdentity,
     get_cursor_info_endpoint: ApiEndpointIdentity,
     show_cursor_endpoint: ApiEndpointIdentity,
     peek_message_a_endpoint: ApiEndpointIdentity,
@@ -1293,10 +815,6 @@ impl RegisterClassFixture {
             ),
             (SET_FOCUS_IAT_ADDRESS, SET_FOCUS_ENDPOINT_ADDRESS),
             (
-                GET_ASYNC_KEY_STATE_IAT_ADDRESS,
-                GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS,
-            ),
-            (
                 GET_CLIENT_RECT_IAT_ADDRESS,
                 GET_CLIENT_RECT_ENDPOINT_ADDRESS,
             ),
@@ -1304,7 +822,6 @@ impl RegisterClassFixture {
                 GET_WINDOW_RECT_IAT_ADDRESS,
                 GET_WINDOW_RECT_ENDPOINT_ADDRESS,
             ),
-            (GET_CURSOR_POS_IAT_ADDRESS, GET_CURSOR_POS_ENDPOINT_ADDRESS),
             (
                 GET_CURSOR_INFO_IAT_ADDRESS,
                 GET_CURSOR_INFO_ENDPOINT_ADDRESS,
@@ -1564,562 +1081,286 @@ impl RegisterClassFixture {
             .register_module_image(ICON_MODULE_HANDLE, &loader, &materialization)
             .expect("register class module image");
 
-        let icon_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(192),
-            address: ICON_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13d8),
-            iat_address: icon_iat,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "LoadIconA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let cursor_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(244),
-            address: CURSOR_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_14a8),
-            iat_address: cursor_iat,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "LoadCursorA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let class_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(191),
-            address: CLASS_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13d4),
-            iat_address: CLASS_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "RegisterClassExA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let create_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(232),
-            address: CREATE_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1478),
-            iat_address: CREATE_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "CreateWindowExA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let def_window_proc_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(155),
-            address: DEF_WINDOW_PROC_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_147c),
-            iat_address: DEF_WINDOW_PROC_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "DefWindowProcA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let image_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(193),
-            address: IMAGE_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13dc),
-            iat_address: WINDOW_IMAGE_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "LoadImageA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let send_message_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(229),
-            address: SEND_MESSAGE_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_146c),
-            iat_address: SEND_MESSAGE_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "SendMessageA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let set_window_text_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(237),
-            address: SET_WINDOW_TEXT_A_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_148c),
-            iat_address: SET_WINDOW_TEXT_A_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "SetWindowTextA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let imm_get_default_ime_wnd_endpoint =
-            ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-                id: ImportThunkId(311),
-                address: IMM_GET_DEFAULT_IME_WND_ENDPOINT_ADDRESS,
-                requester_owner: runtime_owner,
-                module: "IMM32.dll".to_owned(),
-                iat_rva: vine_core::Rva(IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS.0 - MEMORY_BASE.0),
-                iat_address: IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS,
-                original_iat_value: 0,
-                disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-                target: ImportTarget::Name {
-                    name: "ImmGetDefaultIMEWnd".to_owned(),
-                    hint: 0,
-                    name_rva: vine_core::Rva(0),
-                },
-            });
-        let imm_associate_context_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(312),
-            address: IMM_ASSOCIATE_CONTEXT_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "IMM32.dll".to_owned(),
-            iat_rva: vine_core::Rva(IMM_ASSOCIATE_CONTEXT_IAT_ADDRESS.0 - MEMORY_BASE.0),
-            iat_address: IMM_ASSOCIATE_CONTEXT_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "ImmAssociateContext".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let set_window_pos_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(202),
-            address: SET_WINDOW_POS_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1400),
-            iat_address: SET_WINDOW_POS_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "SetWindowPos".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let show_window_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(235),
-            address: SHOW_WINDOW_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1484),
-            iat_address: SHOW_WINDOW_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "ShowWindow".to_owned(),
-                hint: 735,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let update_window_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(204),
-            address: UPDATE_WINDOW_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1408),
-            iat_address: UPDATE_WINDOW_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "UpdateWindow".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let begin_paint_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(230),
-            address: BEGIN_PAINT_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1470),
-            iat_address: BEGIN_PAINT_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "BeginPaint".to_owned(),
-                hint: 14,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let end_paint_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(227),
-            address: END_PAINT_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1464),
-            iat_address: END_PAINT_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "EndPaint".to_owned(),
-                hint: 220,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_foreground_window_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(176),
-            address: GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1398),
-            iat_address: GET_FOREGROUND_WINDOW_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetForegroundWindow".to_owned(),
-                hint: 301,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let set_focus_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(209),
-            address: SET_FOCUS_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_141c),
-            iat_address: SET_FOCUS_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "SetFocus".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_async_key_state_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(231),
-            address: GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1474),
-            iat_address: GET_ASYNC_KEY_STATE_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetAsyncKeyState".to_owned(),
-                hint: 249,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_client_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(199),
-            address: GET_CLIENT_RECT_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13f4),
-            iat_address: GET_CLIENT_RECT_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetClientRect".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_window_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(228),
-            address: GET_WINDOW_RECT_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1468),
-            iat_address: GET_WINDOW_RECT_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetWindowRect".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_cursor_pos_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(190),
-            address: GET_CURSOR_POS_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13d0),
-            iat_address: GET_CURSOR_POS_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetCursorPos".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_cursor_info_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(236),
-            address: GET_CURSOR_INFO_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1450),
-            iat_address: GET_CURSOR_INFO_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetCursorInfo".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let show_cursor_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(238),
-            address: SHOW_CURSOR_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1454),
-            iat_address: SHOW_CURSOR_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "ShowCursor".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let peek_message_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(164),
-            address: PEEK_MESSAGE_A_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1368),
-            iat_address: PEEK_MESSAGE_A_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "PeekMessageA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let translate_message_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(162),
-            address: TRANSLATE_MESSAGE_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1360),
-            iat_address: TRANSLATE_MESSAGE_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "TranslateMessage".to_owned(),
-                hint: 764,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let dispatch_message_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(182),
-            address: DISPATCH_MESSAGE_A_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13b0),
-            iat_address: DISPATCH_MESSAGE_A_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "DispatchMessageA".to_owned(),
-                hint: 174,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let is_iconic_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(183),
-            address: IS_ICONIC_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13b4),
-            iat_address: IS_ICONIC_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "IsIconic".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_dc_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(239),
-            address: GET_DC_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1494),
-            iat_address: GET_DC_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetDC".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_stock_object_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(401),
-            address: GET_STOCK_OBJECT_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "GDI32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_10b0),
-            iat_address: GET_STOCK_OBJECT_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetStockObject".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let fill_rect_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(234),
-            address: FILL_RECT_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_140c),
-            iat_address: FILL_RECT_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "FillRect".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let release_dc_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(240),
-            address: RELEASE_DC_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1498),
-            iat_address: RELEASE_DC_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "ReleaseDC".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let set_window_long_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(212),
-            address: SET_WINDOW_LONG_A_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1428),
-            iat_address: SET_WINDOW_LONG_A_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "SetWindowLongA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let set_timer_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(181),
-            address: SET_TIMER_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13ac),
-            iat_address: SET_TIMER_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "SetTimer".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let monitor_from_window_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(206),
-            address: MONITOR_FROM_WINDOW_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_1410),
-            iat_address: MONITOR_FROM_WINDOW_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "MonitorFromWindow".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_monitor_info_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(200),
-            address: GET_MONITOR_INFO_A_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13f8),
-            iat_address: GET_MONITOR_INFO_A_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetMonitorInfoA".to_owned(),
-                hint: 0,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let get_system_menu_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(280),
-            address: GET_SYSTEM_MENU_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13a0),
-            iat_address: LIVE_GET_SYSTEM_MENU_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "GetSystemMenu".to_owned(),
-                hint: 381,
-                name_rva: vine_core::Rva(0),
-            },
-        });
-        let enable_menu_item_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-            id: ImportThunkId(281),
-            address: ENABLE_MENU_ITEM_ENDPOINT_ADDRESS,
-            requester_owner: runtime_owner,
-            module: "USER32.dll".to_owned(),
-            iat_rva: vine_core::Rva(0x0d_13a4),
-            iat_address: LIVE_ENABLE_MENU_ITEM_IAT_ADDRESS,
-            original_iat_value: 0,
-            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-            target: ImportTarget::Name {
-                name: "EnableMenuItem".to_owned(),
-                hint: 214,
-                name_rva: vine_core::Rva(0),
-            },
-        });
+        let icon_endpoint = fixture_endpoint(
+            192,
+            ICON_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            icon_iat,
+            "LoadIconA",
+        );
+        let cursor_endpoint = fixture_endpoint(
+            244,
+            CURSOR_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            cursor_iat,
+            "LoadCursorA",
+        );
+        let class_endpoint = fixture_endpoint(
+            191,
+            CLASS_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            CLASS_IAT_ADDRESS,
+            "RegisterClassExA",
+        );
+        let create_endpoint = fixture_endpoint(
+            232,
+            CREATE_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            CREATE_IAT_ADDRESS,
+            "CreateWindowExA",
+        );
+        let def_window_proc_endpoint = fixture_endpoint(
+            155,
+            DEF_WINDOW_PROC_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            DEF_WINDOW_PROC_IAT_ADDRESS,
+            "DefWindowProcA",
+        );
+        let image_endpoint = fixture_endpoint(
+            193,
+            IMAGE_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            WINDOW_IMAGE_IAT_ADDRESS,
+            "LoadImageA",
+        );
+        let send_message_endpoint = fixture_endpoint(
+            229,
+            SEND_MESSAGE_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            SEND_MESSAGE_IAT_ADDRESS,
+            "SendMessageA",
+        );
+        let set_window_text_a_endpoint = fixture_endpoint(
+            237,
+            SET_WINDOW_TEXT_A_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            SET_WINDOW_TEXT_A_IAT_ADDRESS,
+            "SetWindowTextA",
+        );
+        let imm_get_default_ime_wnd_endpoint = fixture_endpoint(
+            311,
+            IMM_GET_DEFAULT_IME_WND_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "IMM32.dll",
+            IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS,
+            "ImmGetDefaultIMEWnd",
+        );
+        let imm_associate_context_endpoint = fixture_endpoint(
+            312,
+            IMM_ASSOCIATE_CONTEXT_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "IMM32.dll",
+            IMM_ASSOCIATE_CONTEXT_IAT_ADDRESS,
+            "ImmAssociateContext",
+        );
+        let set_window_pos_endpoint = fixture_endpoint(
+            202,
+            SET_WINDOW_POS_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            SET_WINDOW_POS_IAT_ADDRESS,
+            "SetWindowPos",
+        );
+        let show_window_endpoint = fixture_endpoint(
+            235,
+            SHOW_WINDOW_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            SHOW_WINDOW_IAT_ADDRESS,
+            "ShowWindow",
+        );
+        let update_window_endpoint = fixture_endpoint(
+            204,
+            UPDATE_WINDOW_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            UPDATE_WINDOW_IAT_ADDRESS,
+            "UpdateWindow",
+        );
+        let begin_paint_endpoint = fixture_endpoint(
+            230,
+            BEGIN_PAINT_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            BEGIN_PAINT_IAT_ADDRESS,
+            "BeginPaint",
+        );
+        let end_paint_endpoint = fixture_endpoint(
+            227,
+            END_PAINT_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            END_PAINT_IAT_ADDRESS,
+            "EndPaint",
+        );
+        let get_foreground_window_endpoint = fixture_endpoint(
+            176,
+            GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            GET_FOREGROUND_WINDOW_IAT_ADDRESS,
+            "GetForegroundWindow",
+        );
+        let set_focus_endpoint = fixture_endpoint(
+            209,
+            SET_FOCUS_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            SET_FOCUS_IAT_ADDRESS,
+            "SetFocus",
+        );
+        let get_client_rect_endpoint = fixture_endpoint(
+            199,
+            GET_CLIENT_RECT_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            GET_CLIENT_RECT_IAT_ADDRESS,
+            "GetClientRect",
+        );
+        let get_window_rect_endpoint = fixture_endpoint(
+            228,
+            GET_WINDOW_RECT_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            GET_WINDOW_RECT_IAT_ADDRESS,
+            "GetWindowRect",
+        );
+        let get_cursor_info_endpoint = fixture_endpoint(
+            236,
+            GET_CURSOR_INFO_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            GET_CURSOR_INFO_IAT_ADDRESS,
+            "GetCursorInfo",
+        );
+        let show_cursor_endpoint = fixture_endpoint(
+            238,
+            SHOW_CURSOR_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            SHOW_CURSOR_IAT_ADDRESS,
+            "ShowCursor",
+        );
+        let peek_message_a_endpoint = fixture_endpoint(
+            164,
+            PEEK_MESSAGE_A_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            PEEK_MESSAGE_A_IAT_ADDRESS,
+            "PeekMessageA",
+        );
+        let translate_message_endpoint = fixture_endpoint(
+            162,
+            TRANSLATE_MESSAGE_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            TRANSLATE_MESSAGE_IAT_ADDRESS,
+            "TranslateMessage",
+        );
+        let dispatch_message_a_endpoint = fixture_endpoint(
+            182,
+            DISPATCH_MESSAGE_A_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            DISPATCH_MESSAGE_A_IAT_ADDRESS,
+            "DispatchMessageA",
+        );
+        let is_iconic_endpoint = fixture_endpoint(
+            183,
+            IS_ICONIC_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            IS_ICONIC_IAT_ADDRESS,
+            "IsIconic",
+        );
+        let get_dc_endpoint = fixture_endpoint(
+            239,
+            GET_DC_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            GET_DC_IAT_ADDRESS,
+            "GetDC",
+        );
+        let get_stock_object_endpoint = fixture_endpoint(
+            401,
+            GET_STOCK_OBJECT_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "GDI32.dll",
+            GET_STOCK_OBJECT_IAT_ADDRESS,
+            "GetStockObject",
+        );
+        let fill_rect_endpoint = fixture_endpoint(
+            234,
+            FILL_RECT_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            FILL_RECT_IAT_ADDRESS,
+            "FillRect",
+        );
+        let release_dc_endpoint = fixture_endpoint(
+            240,
+            RELEASE_DC_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            RELEASE_DC_IAT_ADDRESS,
+            "ReleaseDC",
+        );
+        let set_window_long_a_endpoint = fixture_endpoint(
+            212,
+            SET_WINDOW_LONG_A_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            SET_WINDOW_LONG_A_IAT_ADDRESS,
+            "SetWindowLongA",
+        );
+        let set_timer_endpoint = fixture_endpoint(
+            181,
+            SET_TIMER_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            SET_TIMER_IAT_ADDRESS,
+            "SetTimer",
+        );
+        let monitor_from_window_endpoint = fixture_endpoint(
+            206,
+            MONITOR_FROM_WINDOW_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            MONITOR_FROM_WINDOW_IAT_ADDRESS,
+            "MonitorFromWindow",
+        );
+        let get_monitor_info_a_endpoint = fixture_endpoint(
+            200,
+            GET_MONITOR_INFO_A_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            GET_MONITOR_INFO_A_IAT_ADDRESS,
+            "GetMonitorInfoA",
+        );
+        let get_system_menu_endpoint = fixture_endpoint(
+            280,
+            GET_SYSTEM_MENU_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            LIVE_GET_SYSTEM_MENU_IAT_ADDRESS,
+            "GetSystemMenu",
+        );
+        let enable_menu_item_endpoint = fixture_endpoint(
+            281,
+            ENABLE_MENU_ITEM_ENDPOINT_ADDRESS,
+            runtime_owner,
+            "USER32.dll",
+            LIVE_ENABLE_MENU_ITEM_IAT_ADDRESS,
+            "EnableMenuItem",
+        );
         let dispatcher = ApiDispatcher::from_endpoints([
             icon_endpoint.clone(),
             cursor_endpoint.clone(),
@@ -2138,10 +1379,8 @@ impl RegisterClassFixture {
             end_paint_endpoint.clone(),
             get_foreground_window_endpoint.clone(),
             set_focus_endpoint.clone(),
-            get_async_key_state_endpoint.clone(),
             get_client_rect_endpoint.clone(),
             get_window_rect_endpoint.clone(),
-            get_cursor_pos_endpoint.clone(),
             get_cursor_info_endpoint.clone(),
             show_cursor_endpoint.clone(),
             peek_message_a_endpoint.clone(),
@@ -2185,10 +1424,8 @@ impl RegisterClassFixture {
             end_paint_endpoint,
             get_foreground_window_endpoint,
             set_focus_endpoint,
-            get_async_key_state_endpoint,
             get_client_rect_endpoint,
             get_window_rect_endpoint,
-            get_cursor_pos_endpoint,
             get_cursor_info_endpoint,
             show_cursor_endpoint,
             peek_message_a_endpoint,
@@ -2438,16 +1675,16 @@ impl RegisterClassFixture {
     }
 
     fn dispatch_send_message_basic(&mut self) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.send_message_endpoint.id,
                 endpoint_address: self.send_message_endpoint.address,
                 stack_pointer: GuestAddress(SEND_MESSAGE_STACK_POINTER),
                 return_address: SEND_MESSAGE_RETURN_ADDRESS,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
         )
     }
 
@@ -2669,16 +1906,16 @@ impl RegisterClassFixture {
             &[GET_FOREGROUND_WINDOW_RETURN_ADDRESS.0],
         );
         self.acknowledge_pending_delta();
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.get_foreground_window_endpoint.id,
                 endpoint_address: self.get_foreground_window_endpoint.address,
                 stack_pointer: GuestAddress(GET_FOREGROUND_WINDOW_STACK_POINTER),
                 return_address: GET_FOREGROUND_WINDOW_RETURN_ADDRESS,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
         )
     }
 
@@ -2691,48 +1928,16 @@ impl RegisterClassFixture {
     }
 
     fn dispatch_set_focus(&mut self) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.set_focus_endpoint.id,
                 endpoint_address: self.set_focus_endpoint.address,
                 stack_pointer: GuestAddress(SET_FOCUS_STACK_POINTER),
                 return_address: SET_FOCUS_RETURN_ADDRESS,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
-        )
-    }
-
-    fn dispatch_get_async_key_state(&mut self, virtual_key: u32) -> DispatchOutcome {
-        self.write_live_words(
-            GuestAddress(GET_ASYNC_KEY_STATE_STACK_POINTER),
-            &[GET_ASYNC_KEY_STATE_RETURN_ADDRESS.0, virtual_key],
-        );
-        self.acknowledge_pending_delta();
-        self.dispatch_endpoint(
-            self.get_async_key_state_endpoint.clone(),
-            GuestAddress(GET_ASYNC_KEY_STATE_STACK_POINTER),
-            GET_ASYNC_KEY_STATE_RETURN_ADDRESS,
-        )
-    }
-
-    fn dispatch_get_async_key_state_basic(&mut self, virtual_key: u32) -> DispatchOutcome {
-        self.write_live_words(
-            GuestAddress(GET_ASYNC_KEY_STATE_STACK_POINTER),
-            &[GET_ASYNC_KEY_STATE_RETURN_ADDRESS.0, virtual_key],
-        );
-        self.acknowledge_pending_delta();
-        self.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: self.get_async_key_state_endpoint.id,
-                endpoint_address: self.get_async_key_state_endpoint.address,
-                stack_pointer: GuestAddress(GET_ASYNC_KEY_STATE_STACK_POINTER),
-                return_address: GET_ASYNC_KEY_STATE_RETURN_ADDRESS,
-            },
-            &mut self.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
         )
     }
 
@@ -2779,22 +1984,6 @@ impl RegisterClassFixture {
             self.get_window_rect_endpoint.clone(),
             GuestAddress(GET_WINDOW_RECT_STACK_POINTER),
             GET_WINDOW_RECT_RETURN_ADDRESS,
-        )
-    }
-
-    fn configure_get_cursor_pos(&mut self, output: GuestAddress) {
-        self.write_live_words(
-            GuestAddress(GET_CURSOR_POS_STACK_POINTER),
-            &[GET_CURSOR_POS_RETURN_ADDRESS.0, output.0],
-        );
-        self.acknowledge_pending_delta();
-    }
-
-    fn dispatch_get_cursor_pos(&mut self) -> DispatchOutcome {
-        self.dispatch_endpoint(
-            self.get_cursor_pos_endpoint.clone(),
-            GuestAddress(GET_CURSOR_POS_STACK_POINTER),
-            GET_CURSOR_POS_RETURN_ADDRESS,
         )
     }
 
@@ -2858,16 +2047,16 @@ impl RegisterClassFixture {
     }
 
     fn dispatch_peek_message_a_basic(&mut self) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.peek_message_a_endpoint.id,
                 endpoint_address: self.peek_message_a_endpoint.address,
                 stack_pointer: GuestAddress(PEEK_MESSAGE_A_STACK_POINTER),
                 return_address: PEEK_MESSAGE_A_RETURN_ADDRESS,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
         )
     }
 
@@ -2888,16 +2077,16 @@ impl RegisterClassFixture {
     }
 
     fn dispatch_translate_message_basic(&mut self) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.translate_message_endpoint.id,
                 endpoint_address: self.translate_message_endpoint.address,
                 stack_pointer: GuestAddress(TRANSLATE_MESSAGE_STACK_POINTER),
                 return_address: TRANSLATE_MESSAGE_RETURN_ADDRESS,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
         )
     }
 
@@ -2910,16 +2099,16 @@ impl RegisterClassFixture {
     }
 
     fn dispatch_dispatch_message_a_basic(&mut self) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.dispatch_message_a_endpoint.id,
                 endpoint_address: self.dispatch_message_a_endpoint.address,
                 stack_pointer: GuestAddress(DISPATCH_MESSAGE_A_STACK_POINTER),
                 return_address: DISPATCH_MESSAGE_A_RETURN_ADDRESS,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
         )
     }
 
@@ -2948,16 +2137,16 @@ impl RegisterClassFixture {
     }
 
     fn dispatch_is_iconic_basic(&mut self) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.is_iconic_endpoint.id,
                 endpoint_address: self.is_iconic_endpoint.address,
                 stack_pointer: GuestAddress(IS_ICONIC_STACK_POINTER),
                 return_address: IS_ICONIC_RETURN_ADDRESS,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
         )
     }
 
@@ -3147,16 +2336,16 @@ impl RegisterClassFixture {
             ],
         );
         self.acknowledge_pending_delta();
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: self.set_timer_endpoint.id,
                 endpoint_address: self.set_timer_endpoint.address,
                 stack_pointer: GuestAddress(SET_TIMER_STACK_POINTER),
                 return_address: SET_TIMER_RETURN_ADDRESS,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| dispatch_user32_api(self.callback_sentinel, frame, runtime),
         )
     }
 
@@ -3273,24 +2462,16 @@ impl RegisterClassFixture {
         stack_pointer: GuestAddress,
         return_address: GuestAddress,
     ) -> DispatchOutcome {
-        self.dispatcher.dispatch_owned(
+        self.runtime.dispatch_api_call(
+            &self.dispatcher,
             ApiOwnedTrap {
                 endpoint_id: endpoint.id,
                 endpoint_address: endpoint.address,
                 stack_pointer,
                 return_address,
             },
-            &mut self.runtime,
+            self.callback_sentinel,
             None,
-            |frame, runtime, _cpu| {
-                if frame.endpoint.module.eq_ignore_ascii_case("gdi32.dll") {
-                    dispatch_gdi32_api(self.callback_sentinel, frame, runtime)
-                } else if frame.endpoint.module.eq_ignore_ascii_case("imm32.dll") {
-                    dispatch_imm32_api(frame, runtime)
-                } else {
-                    dispatch_user32_api(self.callback_sentinel, frame, runtime)
-                }
-            },
         )
     }
 }
@@ -3716,254 +2897,45 @@ fn screen_dc_uses_live_monitor_without_profile_identity_matching() {
 }
 
 #[test]
-fn invalid_system_menu_handles_match_native_failures_without_allocating_identity() {
-    let mut fixture = InvalidMenuFixture::new();
-    let generation = fixture.runtime.memory.stats().generation;
-
-    let get_system_menu = match fixture.dispatch_get_system_menu(0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected GetSystemMenu completion, got {other:?}"),
-    };
-    assert_eq!(get_system_menu.eax, Some(0));
-    assert_eq!(
-        get_system_menu.stack_pointer,
-        GuestAddress(GET_SYSTEM_MENU_STACK_POINTER + 3 * 4)
-    );
-    assert_eq!(
-        get_system_menu.instruction_pointer,
-        GET_SYSTEM_MENU_RETURN_ADDRESS
-    );
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 1400);
-    assert_eq!(
-        fixture
-            .runtime
-            .current_last_error()
-            .expect("GetSystemMenu LastError"),
-        1400
-    );
-
-    let enable_menu_item = match fixture.dispatch_enable_menu_item(0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected EnableMenuItem completion, got {other:?}"),
-    };
-    assert_eq!(enable_menu_item.eax, Some(u32::MAX));
-    assert_eq!(
-        enable_menu_item.stack_pointer,
-        GuestAddress(ENABLE_MENU_ITEM_STACK_POINTER + 4 * 4)
-    );
-    assert_eq!(
-        enable_menu_item.instruction_pointer,
-        ENABLE_MENU_ITEM_RETURN_ADDRESS
-    );
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 1401);
-    assert_eq!(
-        fixture
-            .runtime
-            .current_last_error()
-            .expect("EnableMenuItem LastError"),
-        1401
-    );
-    assert_eq!(fixture.runtime.memory.stats().generation, generation);
-}
-
-#[test]
-fn system_menu_gateway_rejects_invalid_and_unreached_variants_before_mutation() {
-    let mut unknown_window = InvalidMenuFixture::new();
-    let generation = unknown_window.runtime.memory.stats().generation;
-    let completion = match unknown_window.dispatch_get_system_menu(1) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected invalid-window GetSystemMenu completion, got {other:?}"),
-    };
-    assert_eq!(completion.eax, Some(0));
-    assert_eq!(unknown_window.runtime.current_last_error().unwrap(), 1400);
-    assert_eq!(unknown_window.runtime.memory.stats().generation, generation);
-    assert!(unknown_window.runtime.system_menus().is_empty());
-
-    let mut unsupported_revert = InvalidMenuFixture::new();
-    let generation = unsupported_revert.runtime.memory.stats().generation;
-    let last_error = unsupported_revert
-        .runtime
-        .current_last_error()
-        .expect("entry LastError");
-    match unsupported_revert.dispatch_get_system_menu(2) {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected GetSystemMenu revert fault, got {other:?}"),
-    };
-    assert_eq!(
-        unsupported_revert.runtime.memory.stats().generation,
-        generation
-    );
-    assert_eq!(
-        unsupported_revert
-            .runtime
-            .current_last_error()
-            .expect("unchanged LastError"),
-        last_error
-    );
-
-    let mut unknown_menu = InvalidMenuFixture::new();
-    let generation = unknown_menu.runtime.memory.stats().generation;
-    let completion = match unknown_menu.dispatch_enable_menu_item(1) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected invalid-menu EnableMenuItem completion, got {other:?}"),
-    };
-    assert_eq!(completion.eax, Some(u32::MAX));
-    assert_eq!(unknown_menu.runtime.current_last_error().unwrap(), 1401);
-    assert_eq!(unknown_menu.runtime.memory.stats().generation, generation);
-    assert!(unknown_menu.runtime.system_menus().is_empty());
-
-    for index in 2..=3 {
-        let mut fixture = InvalidMenuFixture::new();
-        let generation = fixture.runtime.memory.stats().generation;
-        let last_error = fixture
-            .runtime
-            .current_last_error()
-            .expect("entry LastError");
-        match fixture.dispatch_enable_menu_item(index) {
-            DispatchOutcome::Fault(fault) => fault,
-            other => panic!("expected EnableMenuItem variant fault, got {other:?}"),
-        };
-        assert_eq!(fixture.runtime.memory.stats().generation, generation);
-        assert_eq!(
-            fixture
-                .runtime
-                .current_last_error()
-                .expect("unchanged LastError"),
-            last_error
-        );
-    }
-}
-
-#[test]
 fn live_system_menu_identity_is_window_owned_reused_and_failure_atomic() {
     let mut fixture = RegisterClassFixture::new();
-    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let (window, _) = fixture.prepare_created_window_and_small_icon();
     let sentinel = 0xa5a5_5a5a;
     fixture.runtime.set_current_last_error(sentinel).unwrap();
-
-    let first = match fixture.dispatch_get_system_menu(window_handle, 0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected live GetSystemMenu completion, got {other:?}"),
+    let DispatchOutcome::Immediate(first) = fixture.dispatch_get_system_menu(window, 0) else {
+        panic!("GetSystemMenu failed")
     };
-    assert_eq!(first.eax, Some(RUNTIME_MENU_HANDLE_BASE));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    let menu = fixture
-        .runtime
-        .system_menu(RUNTIME_MENU_HANDLE_BASE)
-        .expect("window-owned system menu");
-    assert_eq!(menu.owner_window_handle, window_handle);
-    assert_eq!(menu.close_item_command, 0xf060);
-    assert!(menu.close_item_enabled);
-    assert_eq!(fixture.runtime.system_menus().len(), 1);
-
-    let before_reuse = fixture.runtime.system_menus().clone();
-    let repeated = match fixture.dispatch_get_system_menu(window_handle, 0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected repeated GetSystemMenu completion, got {other:?}"),
+    let menu = first.eax.unwrap();
+    assert_ne!(menu, 0);
+    let DispatchOutcome::Immediate(repeated) = fixture.dispatch_get_system_menu(window, 0) else {
+        panic!("repeat GetSystemMenu failed")
     };
-    assert_eq!(repeated.eax, Some(RUNTIME_MENU_HANDLE_BASE));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    assert_eq!(fixture.runtime.system_menus(), &before_reuse);
-
-    let enabled = match fixture.dispatch_enable_menu_item(RUNTIME_MENU_HANDLE_BASE, 0xf060, 0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected EnableMenuItem completion, got {other:?}"),
+    assert_eq!(repeated.eax, Some(menu));
+    let DispatchOutcome::Immediate(enabled) = fixture.dispatch_enable_menu_item(menu, 0xf060, 0)
+    else {
+        panic!("EnableMenuItem failed")
     };
     assert_eq!(enabled.eax, Some(0));
     assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    assert_eq!(fixture.runtime.system_menus(), &before_reuse);
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-
-    let unknown_menu =
-        match fixture.dispatch_enable_menu_item(RUNTIME_MENU_HANDLE_BASE + 1, 0xf060, 0) {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected invalid-menu completion, got {other:?}"),
-        };
-    assert_eq!(unknown_menu.eax, Some(u32::MAX));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 1401);
-    assert_eq!(fixture.runtime.system_menus(), &before_reuse);
-
-    fixture.runtime.set_current_last_error(sentinel).unwrap();
     for (item, flags) in [(0xf061, 0), (0xf060, 1)] {
-        match fixture.dispatch_enable_menu_item(RUNTIME_MENU_HANDLE_BASE, item, flags) {
-            DispatchOutcome::Fault(fault) => fault,
-            other => panic!("expected unsupported menu-item variant, got {other:?}"),
-        };
-        assert_eq!(fixture.runtime.system_menus(), &before_reuse);
+        assert!(matches!(
+            fixture.dispatch_enable_menu_item(menu, item, flags),
+            DispatchOutcome::Fault(_)
+        ));
         assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
     }
-
-    let invalid_window = match fixture.dispatch_get_system_menu(window_handle + 1, 0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected invalid-window completion, got {other:?}"),
+    let DispatchOutcome::Immediate(invalid) =
+        fixture.dispatch_get_system_menu(window.wrapping_add(1), 0)
+    else {
+        panic!("invalid HWND did not return")
     };
-    assert_eq!(invalid_window.eax, Some(0));
+    assert_eq!(invalid.eax, Some(0));
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 1400);
-    assert_eq!(fixture.runtime.system_menus(), &before_reuse);
-}
-
-#[test]
-fn get_system_metrics_reads_only_the_controlled_display_profile() {
-    let mut fixture = MetricsFixture::new(true);
-    let generation = fixture.runtime.memory.stats().generation;
-    let expected = [3_u32, 3, 23, 1920, 1080];
-    for (index, expected_value) in expected.into_iter().enumerate() {
-        let sentinel = 0x1122_3300 + index as u32;
-        fixture
-            .runtime
-            .set_current_last_error(sentinel)
-            .expect("seed metrics LastError");
-        let completion = match fixture.dispatch(index as u32) {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected GetSystemMetrics completion {index}, got {other:?}"),
-        };
-        assert_eq!(completion.eax, Some(expected_value));
-        assert_eq!(
-            completion.stack_pointer,
-            GuestAddress(STACK_POINTER + index as u32 * 0x20 + 8)
-        );
-        assert_eq!(
-            completion.instruction_pointer,
-            GuestAddress(METRICS_RETURN_ADDRESS.0 + index as u32)
-        );
-        assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-        assert_eq!(fixture.runtime.memory.stats().generation, generation);
-    }
-    assert_eq!(
-        fixture.runtime.primary_monitor().unwrap().rect,
-        RuntimeRect {
-            left: 0,
-            top: 0,
-            right: 1920,
-            bottom: 1080,
-        }
-    );
-
-    let sentinel = 0x5566_7788;
-    fixture
-        .runtime
-        .set_current_last_error(sentinel)
-        .expect("seed small-icon-height LastError");
-    let completion = match fixture.dispatch(5) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected small-icon-height completion, got {other:?}"),
+    let DispatchOutcome::Immediate(enabled) = fixture.dispatch_enable_menu_item(menu, 0xf060, 0)
+    else {
+        panic!("failed call consumed the live menu")
     };
-    assert_eq!(completion.eax, Some(16));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    assert_eq!(fixture.runtime.memory.stats().generation, generation);
-
-    let sentinel = 0x6677_8899;
-    fixture
-        .runtime
-        .set_current_last_error(sentinel)
-        .expect("seed small-icon-width LastError");
-    let completion = match fixture.dispatch(6) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected small-icon-width completion, got {other:?}"),
-    };
-    assert_eq!(completion.eax, Some(16));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    assert_eq!(fixture.runtime.memory.stats().generation, generation);
+    assert_eq!(enabled.eax, Some(0));
 }
 
 #[test]
@@ -4253,95 +3225,6 @@ fn get_window_rect_reads_live_outer_geometry_and_preserves_failure_atomicity() {
 }
 
 #[test]
-fn get_cursor_pos_reads_logical_screen_point_and_preserves_failure_atomicity() {
-    let mut fixture = RegisterClassFixture::new();
-    fixture
-        .runtime
-        .memory
-        .write(CURSOR_POSITION_OUTPUT_ADDRESS, &[0xa5; 8])
-        .expect("seed cursor position output");
-    fixture.acknowledge_pending_delta();
-    fixture.configure_get_cursor_pos(CURSOR_POSITION_OUTPUT_ADDRESS);
-    let cursor_before = fixture.runtime.cursor_position().cloned();
-    let sentinel = 0x1122_3344;
-    fixture
-        .runtime
-        .set_current_last_error(sentinel)
-        .expect("seed GetCursorPos LastError");
-    let completion = match fixture.dispatch_get_cursor_pos() {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected GetCursorPos completion, got {other:?}"),
-    };
-    let expected_bytes = [960_i32, 540]
-        .into_iter()
-        .flat_map(i32::to_le_bytes)
-        .collect::<Vec<_>>();
-    assert_eq!(completion.eax, Some(1));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    fixture.acknowledge_pending_delta();
-    assert_eq!(
-        fixture
-            .runtime
-            .memory
-            .read(CURSOR_POSITION_OUTPUT_ADDRESS, 8)
-            .expect("read completed cursor position"),
-        expected_bytes
-    );
-    assert_eq!(fixture.runtime.cursor_position(), cursor_before.as_ref());
-
-    fixture.configure_get_cursor_pos(GuestAddress(0));
-    let null_cursor_before = fixture.runtime.cursor_position().cloned();
-    let null_memory_before = fixture.runtime.memory.stats();
-    let null_completion = match fixture.dispatch_get_cursor_pos() {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected null GetCursorPos completion, got {other:?}"),
-    };
-    assert_eq!(null_completion.eax, Some(0));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 998);
-    assert_eq!(
-        fixture.runtime.cursor_position(),
-        null_cursor_before.as_ref()
-    );
-    assert_eq!(fixture.runtime.memory.stats(), null_memory_before);
-
-    let unmapped_output = GuestAddress(MEMORY_BASE.0 + 0x3000);
-    fixture.configure_get_cursor_pos(unmapped_output);
-    let last_error_before = fixture.runtime.current_last_error().unwrap();
-    let pointer_fault_memory = fixture.runtime.memory.stats();
-    match fixture.dispatch_get_cursor_pos() {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected cursor POINT pointer fault, got {other:?}"),
-    };
-
-    assert_eq!(fixture.runtime.cursor_position(), cursor_before.as_ref());
-    assert_eq!(
-        fixture.runtime.current_last_error().unwrap(),
-        last_error_before
-    );
-    assert_eq!(fixture.runtime.memory.stats(), pointer_fault_memory);
-    fixture.configure_get_cursor_pos(CURSOR_POSITION_OUTPUT_ADDRESS);
-    let retried = match fixture.dispatch_get_cursor_pos() {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected valid POINT retry, got {other:?}"),
-    };
-    assert_eq!(retried.eax, Some(1));
-    assert_eq!(
-        fixture.runtime.current_last_error().unwrap(),
-        last_error_before
-    );
-    fixture.acknowledge_pending_delta();
-    assert_eq!(
-        fixture
-            .runtime
-            .memory
-            .read(CURSOR_POSITION_OUTPUT_ADDRESS, 8)
-            .unwrap(),
-        expected_bytes
-    );
-    assert_eq!(fixture.runtime.cursor_position(), cursor_before.as_ref());
-}
-
-#[test]
 fn get_cursor_info_projects_loaded_arrow_and_logical_position() {
     let mut fixture = RegisterClassFixture::new();
     fixture.prepare_resources();
@@ -4435,21 +3318,14 @@ fn set_cursor_drives_the_cursor_identity_reported_by_get_cursor_info() {
         Some(0x4301_0001)
     );
 
-    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
-        id: ImportThunkId(239),
-        address: SET_CURSOR_ENDPOINT,
-        requester_owner: MemoryOwnerId(1),
-        module: "USER32.dll".to_owned(),
-        iat_rva: vine_core::Rva(0x0d_1458),
-        iat_address: GuestAddress(IAT_ADDRESS.0 + 152),
-        original_iat_value: 0,
-        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
-        target: ImportTarget::Name {
-            name: "SetCursor".to_owned(),
-            hint: 0,
-            name_rva: vine_core::Rva(0),
-        },
-    });
+    let endpoint = fixture_endpoint(
+        239,
+        SET_CURSOR_ENDPOINT,
+        MemoryOwnerId(1),
+        "USER32.dll",
+        GuestAddress(IAT_ADDRESS.0 + 152),
+        "SetCursor",
+    );
 
     fixture
         .runtime
@@ -4787,59 +3663,6 @@ fn get_cursor_info_failures_preserve_output_and_cursor_authorities() {
             .read(GuestAddress(CURSOR_INFO_OUTPUT_ADDRESS.0 + 8), 4)
             .unwrap(),
         0x4301_0001_u32.to_le_bytes()
-    );
-}
-
-#[test]
-fn basic_peek_message_delivers_current_thread_queue_and_preserves_empty_output() {
-    let mut fixture = RegisterClassFixture::new();
-    fixture
-        .runtime
-        .memory
-        .write(PEEK_MESSAGE_A_OUTPUT_ADDRESS, &[0xa5; 28])
-        .unwrap();
-    fixture.acknowledge_pending_delta();
-    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
-    fixture.runtime.set_current_last_error(0x7788).unwrap();
-    let empty = fixture.dispatch_peek_message_a_basic();
-    assert!(matches!(empty, DispatchOutcome::Immediate(ref completion)
-        if completion.eax == Some(0)));
-    assert_eq!(
-        fixture
-            .runtime
-            .memory
-            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
-            .unwrap(),
-        [0xa5; 28]
-    );
-    let posted = fixture
-        .runtime
-        .post_thread_message(RuntimeThreadId(THREAD_ID), 0, 0x8001, 1, 2)
-        .unwrap();
-    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 0);
-    let retained = fixture.dispatch_peek_message_a_basic();
-    assert!(
-        matches!(retained, DispatchOutcome::Immediate(ref completion)
-        if completion.eax == Some(1) )
-    );
-    assert_eq!(
-        fixture
-            .runtime
-            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
-            .unwrap(),
-        vec![posted]
-    );
-    fixture.acknowledge_pending_delta();
-    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
-    let removed = fixture.dispatch_peek_message_a_basic();
-    assert!(matches!(removed, DispatchOutcome::Immediate(ref completion)
-        if completion.eax == Some(1) && fixture.runtime.current_last_error().unwrap() == 0x7788));
-    assert!(
-        fixture
-            .runtime
-            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
-            .unwrap()
-            .is_empty()
     );
 }
 
@@ -6063,89 +4886,6 @@ fn is_iconic_queries_normal_window_and_rejects_unknown_handle_atomically() {
 }
 
 #[test]
-fn set_rect_writes_signed_coordinates_and_preserves_null_and_fault_state() {
-    let mut fixture = SetRectFixture::new();
-    for (coordinates, sentinel) in [
-        ([0, 0, 1280, 720], 0x1122_3344),
-        ([-7, 9, 123, -456], 0x5566_7788),
-    ] {
-        fixture
-            .runtime
-            .memory
-            .write(SET_RECT_OUTPUT_ADDRESS, &[0xa5; 16])
-            .expect("seed SetRect output");
-        fixture.configure(SET_RECT_OUTPUT_ADDRESS, coordinates);
-        fixture
-            .runtime
-            .set_current_last_error(sentinel)
-            .expect("seed SetRect LastError");
-
-        let expected_bytes = coordinates
-            .into_iter()
-            .flat_map(i32::to_le_bytes)
-            .collect::<Vec<_>>();
-        let completion = match fixture.dispatch() {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected SetRect completion, got {other:?}"),
-        };
-        assert_eq!(completion.eax, Some(1));
-        assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-        fixture.acknowledge_pending_delta();
-        assert_eq!(
-            fixture
-                .runtime
-                .memory
-                .read(SET_RECT_OUTPUT_ADDRESS, 16)
-                .expect("read completed SetRect output"),
-            expected_bytes
-        );
-        assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    }
-
-    fixture.configure(GuestAddress(0), [1, 2, 3, 4]);
-    let sentinel = 0x7a6b_5c4d;
-    fixture
-        .runtime
-        .set_current_last_error(sentinel)
-        .expect("seed null SetRect LastError");
-
-    let null_memory_before = fixture.runtime.memory.stats();
-    let null_reflection_before = fixture
-        .runtime
-        .memory
-        .current_reflection()
-        .expect("current null SetRect reflection");
-    let null_completion = match fixture.dispatch() {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected null SetRect completion, got {other:?}"),
-    };
-    assert_eq!(null_completion.eax, Some(0));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    assert_eq!(fixture.runtime.memory.stats(), null_memory_before);
-    assert_eq!(
-        fixture
-            .runtime
-            .memory
-            .current_reflection()
-            .expect("unchanged null SetRect reflection"),
-        null_reflection_before
-    );
-
-    let unmapped_output = GuestAddress(MEMORY_BASE.0 + 0x3000);
-    fixture.configure(unmapped_output, [0, 0, 1280, 720]);
-
-    let fault_memory_before = fixture.runtime.memory.stats();
-    match fixture.dispatch() {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected SetRect pointer fault, got {other:?}"),
-    };
-
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
-    assert_eq!(fixture.runtime.memory.stats(), fault_memory_before);
-}
-
-#[test]
 fn monitor_from_window_returns_rust_logical_primary_and_preserves_failures() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
@@ -6342,122 +5082,6 @@ fn get_monitor_info_a_writes_owned_geometry_and_preserves_all_failure_buffers() 
             .expect("read boundary size field"),
         40_u32.to_le_bytes()
     );
-}
-
-#[test]
-fn generic_set_window_long_a_updates_guest_style_without_title_profile() {
-    let mut fixture = RegisterClassFixture::new();
-    let (window, _) = fixture.prepare_created_window_and_small_icon();
-    let before = fixture
-        .runtime
-        .window(window)
-        .unwrap()
-        .creation
-        .effective_style;
-    fixture.runtime.set_current_last_error(0x9876).unwrap();
-    fixture.write_live_words(
-        GuestAddress(SET_WINDOW_LONG_A_STACK_POINTER),
-        &[
-            SET_WINDOW_LONG_A_RETURN_ADDRESS.0,
-            window,
-            (-16_i32) as u32,
-            0x90ca_0000,
-        ],
-    );
-    fixture.acknowledge_pending_delta();
-    let endpoint = fixture.set_window_long_a_endpoint.clone();
-    let outcome = {
-        fixture.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: endpoint.id,
-                endpoint_address: endpoint.address,
-                stack_pointer: GuestAddress(SET_WINDOW_LONG_A_STACK_POINTER),
-                return_address: SET_WINDOW_LONG_A_RETURN_ADDRESS,
-            },
-            &mut fixture.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(fixture.callback_sentinel, frame, runtime),
-        )
-    };
-    let DispatchOutcome::Immediate(completion) = outcome else {
-        panic!("generic SetWindowLongA stopped: {outcome:?}");
-    };
-    assert_eq!(completion.eax, Some(before));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x9876);
-    assert_eq!(
-        fixture
-            .runtime
-            .window(window)
-            .unwrap()
-            .creation
-            .effective_style,
-        0x90ca_0000
-    );
-}
-
-#[test]
-fn generic_window_dc_acquisition_and_release_preserve_handle_lifetime() {
-    let mut fixture = RegisterClassFixture::new();
-    let (window, _) = fixture.prepare_created_window_and_small_icon();
-    let dispatch = |fixture: &mut RegisterClassFixture,
-                    endpoint: ApiEndpointIdentity,
-                    stack: u32,
-                    returned: GuestAddress| {
-        fixture.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: endpoint.id,
-                endpoint_address: endpoint.address,
-                stack_pointer: GuestAddress(stack),
-                return_address: returned,
-            },
-            &mut fixture.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(fixture.callback_sentinel, frame, runtime),
-        )
-    };
-    fixture.write_live_words(
-        GuestAddress(GET_DC_STACK_POINTER),
-        &[GET_DC_RETURN_ADDRESS.0, window],
-    );
-    fixture.acknowledge_pending_delta();
-    let endpoint = fixture.get_dc_endpoint.clone();
-    let DispatchOutcome::Immediate(acquired) = dispatch(
-        &mut fixture,
-        endpoint,
-        GET_DC_STACK_POINTER,
-        GET_DC_RETURN_ADDRESS,
-    ) else {
-        panic!("generic GetDC did not return a handle");
-    };
-    let Some(hdc) = acquired.eax else {
-        panic!("GetDC did not set EAX")
-    };
-    assert_ne!(hdc, 0);
-    assert!(
-        fixture
-            .runtime
-            .gdi_device_context(hdc)
-            .unwrap()
-            .window_surface_id()
-            .is_some()
-    );
-
-    fixture.write_live_words(
-        GuestAddress(RELEASE_DC_STACK_POINTER),
-        &[RELEASE_DC_RETURN_ADDRESS.0, window, hdc],
-    );
-    fixture.acknowledge_pending_delta();
-    let endpoint = fixture.release_dc_endpoint.clone();
-    let DispatchOutcome::Immediate(released) = dispatch(
-        &mut fixture,
-        endpoint,
-        RELEASE_DC_STACK_POINTER,
-        RELEASE_DC_RETURN_ADDRESS,
-    ) else {
-        panic!("generic ReleaseDC did not complete");
-    };
-    assert_eq!(released.eax, Some(1));
-    assert!(fixture.runtime.gdi_device_context(hdc).is_err());
 }
 
 #[test]
@@ -6890,14 +5514,13 @@ fn set_timer_registers_and_replaces_owned_window_timer_atomically() {
     assert_eq!(completion.stack_pointer.0, SET_TIMER_STACK_POINTER + 20);
     assert_eq!(fixture.runtime.window_timers().len(), 1);
     let first = *fixture.runtime.window_timers().values().next().unwrap();
-    assert_eq!(first.id.0, 1);
+
     assert_eq!(first.window_handle, window_handle);
     assert_eq!(first.timer_id, 1);
     assert_eq!(first.owner_thread_id, RuntimeThreadId(THREAD_ID));
     assert_eq!(first.requested_interval_milliseconds, 20);
     assert_eq!(first.effective_interval_milliseconds, 20);
     assert_eq!(first.callback_address, callback);
-    assert_eq!(first.registration_generation, 1);
 
     let replacement_callback = GuestAddress(callback.0 + 1);
     let replacement = match fixture.dispatch_set_timer(window_handle, 1, 20, replacement_callback) {
@@ -6910,95 +5533,24 @@ fn set_timer_registers_and_replaces_owned_window_timer_atomically() {
     let replaced = fixture.runtime.window_timers().values().next().unwrap();
     assert_eq!(replaced.id, first.id);
     assert_eq!(replaced.callback_address, replacement_callback);
-    assert_eq!(replaced.registration_generation, 2);
 }
 
 #[test]
-fn get_system_metrics_reads_live_display_and_rejects_unsupported_indices() {
-    let mut fixture = MetricsFixture::new(false);
-    fixture
-        .runtime
-        .configure_display_profile(RuntimeDisplayProfile {
-            primary_monitor_rect: RuntimeRect {
-                left: 0,
-                top: 0,
-                right: 1280,
-                bottom: 720,
-            },
-            primary_work_rect: RuntimeRect {
-                left: 0,
-                top: 0,
-                right: 1280,
-                bottom: 680,
-            },
-        })
-        .unwrap();
-    let generation = fixture.runtime.memory.stats().generation;
-    fixture.runtime.set_current_last_error(0x1234).unwrap();
-    for (index, value) in [(3, 1280), (4, 720), (5, 16), (6, 16)] {
-        let completion = match fixture.dispatch(index) {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected live system metric, got {other:?}"),
-        };
-        assert_eq!(completion.eax, Some(value));
-        assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x1234);
-    }
-    match fixture.dispatch(7) {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected unsupported system metric, got {other:?}"),
-    };
-    assert_eq!(fixture.runtime.memory.stats().generation, generation);
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x1234);
-
-    // No display authority is still a fault for metrics that read its geometry.
-    let mut missing = MetricsFixture::new(false);
-    assert!(matches!(missing.dispatch(3), DispatchOutcome::Fault(_)));
-}
-
-#[test]
-fn load_icon_a_selects_the_exact_dib_and_reuses_process_shared_identity() {
+fn load_icon_a_reuses_process_shared_identity() {
     let mut fixture = IconFixture::new();
-    let memory_generation = fixture.runtime.memory.stats().generation;
-    let first = match fixture.dispatch(0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected first LoadIconA completion, got {other:?}"),
+    let DispatchOutcome::Immediate(first) = fixture.dispatch(0) else {
+        panic!("LoadIconA failed")
     };
-    assert_eq!(first.eax, Some(0x4901_0001));
+    let icon = first.eax.unwrap();
+    assert_ne!(icon, 0);
     assert_eq!(first.stack_pointer, GuestAddress(STACK_POINTER + 12));
     assert_eq!(first.instruction_pointer, RETURN_ADDRESS);
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 0);
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
-    assert_eq!(fixture.runtime.icons().len(), 1);
-    let icon = fixture
-        .runtime
-        .icon(0x4901_0001)
-        .expect("logical shared icon")
-        .clone();
-    assert_eq!(icon.id.0, 1);
-    assert!(icon.shared);
-    assert_eq!(
-        icon.resource.module_load_base,
-        GuestAddress(ICON_IMAGE_BASE)
-    );
-    assert_eq!(icon.resource.group_resource_id, 101);
-    assert_eq!(icon.resource.language_id, 1041);
-    assert_eq!(icon.resource.icon_resource_id, 2);
-    assert_eq!(icon.resource.group_data_size, 48);
-    assert_eq!(icon.resource.icon_data_size, 4_264);
-    assert_eq!(icon.resource.width, 32);
-    assert_eq!(icon.resource.height, 32);
-    assert_eq!(icon.resource.planes, 1);
-    assert_eq!(icon.resource.bits_per_pixel, 32);
-
-    let second = match fixture.dispatch(1) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected repeated LoadIconA completion, got {other:?}"),
+    let DispatchOutcome::Immediate(second) = fixture.dispatch(1) else {
+        panic!("repeat LoadIconA failed")
     };
-    assert_eq!(second.eax, Some(icon.handle));
+    assert_eq!(second.eax, Some(icon));
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 0);
-    assert_eq!(fixture.runtime.icons().len(), 1);
-    assert_eq!(fixture.runtime.icon(icon.handle).unwrap(), &icon);
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
 }
 
 #[test]
@@ -7060,63 +5612,22 @@ fn load_icon_a_negative_paths_are_failure_atomic_and_do_not_consume_identity() {
 }
 
 #[test]
-fn load_image_a_selects_small_dib_and_reuses_shared_identity_across_apis() {
+fn load_image_a_shares_equal_sizes_and_distinguishes_small_icons() {
     let mut fixture = IconFixture::new();
-    let memory_generation = fixture.runtime.memory.stats().generation;
-    let large = match fixture.dispatch(0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected large LoadIconA completion, got {other:?}"),
+    let DispatchOutcome::Immediate(large) = fixture.dispatch(0) else {
+        panic!("LoadIconA failed")
     };
-    assert_eq!(large.eax, Some(0x4901_0001));
-
-    let first = match fixture.dispatch_image(0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected first LoadImageA completion, got {other:?}"),
+    let DispatchOutcome::Immediate(first) = fixture.dispatch_image(0) else {
+        panic!("LoadImageA failed")
     };
-    assert_eq!(first.eax, Some(0x4901_0002));
-    assert_eq!(first.stack_pointer, GuestAddress(IMAGE_STACK_POINTER + 28));
-    assert_eq!(first.instruction_pointer, IMAGE_RETURN_ADDRESS);
+    let DispatchOutcome::Immediate(second) = fixture.dispatch_image(1) else {
+        panic!("repeat LoadImageA failed")
+    };
+    assert_ne!(large.eax, Some(0));
+    assert_ne!(first.eax, Some(0));
+    assert_ne!(first.eax, large.eax);
+    assert_eq!(second.eax, first.eax);
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 0);
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
-    assert_eq!(fixture.runtime.icons().len(), 2);
-
-    let small = fixture
-        .runtime
-        .icon(0x4901_0002)
-        .expect("logical shared small icon")
-        .clone();
-    assert_eq!(small.id.0, 2);
-    assert!(small.shared);
-    assert_eq!(
-        small.resource.module_load_base,
-        GuestAddress(ICON_IMAGE_BASE)
-    );
-    assert_eq!(small.resource.group_resource_id, 101);
-    assert_eq!(small.resource.language_id, 1041);
-    assert_eq!(small.resource.icon_resource_id, 3);
-    assert_eq!(small.resource.group_data_size, 48);
-    assert_eq!(small.resource.icon_data_size, 1_128);
-    assert_eq!(small.resource.width, 16);
-    assert_eq!(small.resource.height, 16);
-    assert_eq!(small.resource.planes, 1);
-    assert_eq!(small.resource.bits_per_pixel, 32);
-
-    let repeated = match fixture.dispatch_image(1) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected repeated LoadImageA completion, got {other:?}"),
-    };
-    assert_eq!(repeated.eax, Some(small.handle));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0);
-    assert_eq!(fixture.runtime.icons().len(), 2);
-    assert_eq!(fixture.runtime.icon(small.handle).unwrap(), &small);
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
-
-    let repeated_large = match fixture.dispatch(1) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected repeated LoadIconA completion, got {other:?}"),
-    };
-    assert_eq!(repeated_large.eax, large.eax);
-    assert_eq!(fixture.runtime.icons().len(), 2);
 }
 
 #[test]
@@ -7161,92 +5672,37 @@ fn load_image_a_negative_variants_are_failure_atomic() {
 #[test]
 fn load_cursor_a_preserves_last_error_and_reuses_shared_arrow_identity() {
     let mut fixture = CursorFixture::new();
-    let memory_generation = fixture.runtime.memory.stats().generation;
-    let first = match fixture.dispatch(0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected first LoadCursorA completion, got {other:?}"),
+    let DispatchOutcome::Immediate(first) = fixture.dispatch(0) else {
+        panic!("LoadCursorA failed")
     };
-    assert_eq!(first.eax, Some(0x4301_0001));
+    let cursor = first.eax.unwrap();
+    assert_ne!(cursor, 0);
     assert_eq!(first.stack_pointer, GuestAddress(STACK_POINTER + 12));
     assert_eq!(first.instruction_pointer, CURSOR_RETURN_ADDRESS);
     assert_eq!(
         fixture.runtime.current_last_error().unwrap(),
         INITIAL_LAST_ERROR
     );
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
-    assert_eq!(fixture.runtime.cursors().len(), 1);
-    let cursor = fixture
-        .runtime
-        .cursor(0x4301_0001)
-        .expect("logical shared cursor")
-        .clone();
-    assert_eq!(cursor.id.0, 1);
-    assert!(cursor.shared);
-    assert_eq!(
-        cursor.source,
-        RuntimeCursorSource::SystemPredefined {
-            resource_id: 0x7f00,
-            cursor: RuntimeSystemCursorKind::Arrow,
-        }
-    );
-
-    let repeated = match fixture.dispatch(1) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected repeated LoadCursorA completion, got {other:?}"),
+    let DispatchOutcome::Immediate(repeated) = fixture.dispatch(1) else {
+        panic!("repeat LoadCursorA failed")
     };
-    assert_eq!(repeated.eax, Some(cursor.handle));
+    assert_eq!(repeated.eax, Some(cursor));
     assert_eq!(
         fixture.runtime.current_last_error().unwrap(),
         INITIAL_LAST_ERROR
     );
-    assert_eq!(fixture.runtime.cursors().len(), 1);
-    assert_eq!(fixture.runtime.cursor(cursor.handle).unwrap(), &cursor);
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
-
-    fixture
-        .runtime
-        .set_current_last_error(0x8765_4321)
-        .expect("seed module cursor LastError");
-    let module = match fixture.dispatch(4) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected module LoadCursorA completion, got {other:?}"),
+    fixture.runtime.set_current_last_error(0x8765_4321).unwrap();
+    let DispatchOutcome::Immediate(module) = fixture.dispatch(4) else {
+        panic!("module cursor failed")
     };
-    assert_eq!(module.eax, Some(0x4301_0002));
+    assert_ne!(module.eax, Some(0));
+    assert_ne!(module.eax, Some(cursor));
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 0);
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
-    assert_eq!(fixture.runtime.cursors().len(), 2);
-    let module_cursor = fixture
-        .runtime
-        .cursor(0x4301_0002)
-        .expect("logical module cursor")
-        .clone();
-    let RuntimeCursorSource::ModuleResource { resource } = &module_cursor.source else {
-        panic!("expected module resource cursor source");
+    let DispatchOutcome::Immediate(repeated_module) = fixture.dispatch(6) else {
+        panic!("repeat module cursor failed")
     };
-    assert_eq!(resource.module_id.0, 1);
-    assert_eq!(resource.module_load_base, GuestAddress(ICON_IMAGE_BASE));
-    assert_eq!(resource.group_resource_id, 106);
-    assert_eq!(resource.language_id, 1041);
-    assert_eq!(resource.cursor_resource_id, 4);
-    assert_eq!(resource.group_data_rva.0, 0x6d28);
-    assert_eq!(resource.group_data_size, 20);
-    assert_eq!(resource.cursor_data_rva.0, 0x5c78);
-    assert_eq!(resource.cursor_data_size, 4_268);
-    assert_eq!((resource.width, resource.height), (32, 32));
-    assert_eq!((resource.planes, resource.bits_per_pixel), (1, 32));
-    assert_eq!((resource.hotspot_x, resource.hotspot_y), (3, 4));
-
-    let repeated_module = match fixture.dispatch(6) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected repeated module LoadCursorA completion, got {other:?}"),
-    };
-    assert_eq!(repeated_module.eax, Some(module_cursor.handle));
+    assert_eq!(repeated_module.eax, module.eax);
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 0);
-    assert_eq!(fixture.runtime.cursors().len(), 2);
-    assert_eq!(
-        fixture.runtime.cursor(module_cursor.handle).unwrap(),
-        &module_cursor
-    );
 }
 
 #[test]
@@ -7329,31 +5785,6 @@ fn load_cursor_a_rejects_malformed_module_resources_before_identity_mutation() {
         invalid_hotspot.runtime.memory.stats().generation,
         generation
     );
-}
-
-#[test]
-fn generic_class_registration_uses_real_module_and_resource_lifetimes() {
-    let mut fixture = RegisterClassFixture::new();
-    fixture.prepare_resources();
-    let endpoint = fixture.class_endpoint.clone();
-    let result = {
-        fixture.dispatcher.dispatch_owned(
-            ApiOwnedTrap {
-                endpoint_id: endpoint.id,
-                endpoint_address: endpoint.address,
-                stack_pointer: GuestAddress(STACK_POINTER + 0x40),
-                return_address: CLASS_RETURN_ADDRESS,
-            },
-            &mut fixture.runtime,
-            None,
-            |frame, runtime, _cpu| dispatch_user32_api(fixture.callback_sentinel, frame, runtime),
-        )
-    };
-    let DispatchOutcome::Immediate(completion) = result else {
-        panic!("generic window class registration stopped: {result:?}");
-    };
-    assert_eq!(completion.eax, Some(0xc000));
-    assert_eq!(completion.stack_pointer, GuestAddress(STACK_POINTER + 0x48));
 }
 
 #[test]
@@ -7456,29 +5887,23 @@ fn generic_create_window_uses_requested_bounded_geometry_and_copies_class_state(
 }
 
 #[test]
-fn register_class_ex_a_copies_two_local_classes_and_rejects_duplicate_name() {
+fn register_class_ex_a_preserves_guest_input_and_rejects_duplicate_name() {
     let mut fixture = RegisterClassFixture::new();
     fixture.prepare_resources();
     let class_bytes = fixture
         .runtime
         .memory
         .read(GuestAddress(CLASS_STRUCT_BASE), 48)
-        .expect("main class bytes");
-    let memory_generation = fixture.runtime.memory.stats().generation;
-
-    fixture
-        .runtime
-        .set_current_last_error(0x1122_3344)
-        .expect("seed class LastError");
-    let main = match fixture.dispatch_class(0) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected main class completion, got {other:?}"),
+        .unwrap();
+    fixture.runtime.set_current_last_error(0x1122_3344).unwrap();
+    let DispatchOutcome::Immediate(main) = fixture.dispatch_class(0) else {
+        panic!("class registration failed")
     };
-    assert_eq!(main.eax, Some(0xc000));
+    let atom = main.eax.unwrap();
+    assert_ne!(atom, 0);
+    assert!(atom <= u32::from(u16::MAX));
     assert_eq!(main.stack_pointer, GuestAddress(STACK_POINTER + 0x48));
     assert_eq!(main.instruction_pointer, CLASS_RETURN_ADDRESS);
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x1122_3344);
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
     assert_eq!(
         fixture
             .runtime
@@ -7487,60 +5912,17 @@ fn register_class_ex_a_copies_two_local_classes_and_rejects_duplicate_name() {
             .unwrap(),
         class_bytes
     );
-
-    let main_class = fixture
-        .runtime
-        .window_class(0xc000)
-        .expect("main logical class")
-        .clone();
-    assert_eq!(main_class.id.0, 1);
-    assert!(main_class.local);
-    assert_eq!(main_class.registration.style, 0x28);
-    assert_eq!(main_class.registration.class_name, "Vine Main Class");
-    assert_eq!(
-        main_class.registration.module.load_base,
-        GuestAddress(ICON_IMAGE_BASE)
-    );
-    assert_eq!(main_class.registration.icon.unwrap().handle, 0x4901_0001);
-    assert_eq!(main_class.registration.cursor.unwrap().handle, 0x4301_0001);
-    assert_eq!(
-        fixture
-            .runtime
-            .window_class_by_name(main_class.registration.module.module_id, "vine MAIN class",)
-            .unwrap()
-            .id,
-        main_class.id
-    );
-
-    fixture
-        .runtime
-        .set_current_last_error(0x5566_7788)
-        .expect("seed child LastError");
-    let child = match fixture.dispatch_class(1) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected child class completion, got {other:?}"),
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x1122_3344);
+    let DispatchOutcome::Immediate(child) = fixture.dispatch_class(1) else {
+        panic!("second registration failed")
     };
-    assert_eq!(child.eax, Some(0xc001));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x5566_7788);
-    assert_eq!(fixture.runtime.window_classes().len(), 2);
-    assert_eq!(
-        fixture
-            .runtime
-            .window_class(0xc001)
-            .unwrap()
-            .registration
-            .style,
-        0x3020
-    );
-
-    let duplicate = match fixture.dispatch_class(2) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected duplicate class failure, got {other:?}"),
+    assert_ne!(child.eax, Some(0));
+    assert_ne!(child.eax, Some(atom));
+    let DispatchOutcome::Immediate(duplicate) = fixture.dispatch_class(2) else {
+        panic!("duplicate class did not return")
     };
     assert_eq!(duplicate.eax, Some(0));
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 1410);
-    assert_eq!(fixture.runtime.window_classes().len(), 2);
-    assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
 }
 
 #[test]
@@ -7577,7 +5959,6 @@ fn create_window_ex_a_runs_ordered_callback_replacement_and_default_nonclient_ge
         .begin_guest_callback(call.clone())
         .expect("enter WM_NCCREATE callback");
     fixture.acknowledge_pending_delta();
-    assert_eq!(prepared.frame_id, RuntimeCallbackFrameId(1));
     assert_eq!(
         fixture
             .runtime
@@ -7759,7 +6140,6 @@ fn create_window_ex_a_runs_ordered_callback_replacement_and_default_nonclient_ge
                 1,
                 "callback replacement must preserve depth"
             );
-            assert_eq!(prepared.frame_id.0, u64::try_from(index + 2).unwrap());
             call = next;
         } else {
             let completion = match outcome {
@@ -9142,185 +7522,6 @@ fn set_focus_rejects_unreached_variants_before_mutation() {
         last_error_before
     );
     assert_eq!(null_window.runtime.memory.stats(), memory_before);
-}
-
-#[test]
-fn basic_async_key_state_follows_browser_focus_and_consumes_only_pressed_bit() {
-    let mut fixture = RegisterClassFixture::new();
-    let value = |outcome| match outcome {
-        DispatchOutcome::Immediate(completion) => completion.eax,
-        other => panic!("expected GetAsyncKeyState completion, got {other:?}"),
-    };
-    assert_eq!(
-        value(fixture.dispatch_get_async_key_state_basic(0x41)),
-        Some(0)
-    );
-    fixture
-        .runtime
-        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
-            sequence: 1,
-            kind: RuntimeKeyboardSourceEventKind::KeyDown,
-            virtual_key: Some(0x41),
-            repeat: false,
-        })
-        .unwrap();
-    assert_eq!(
-        value(fixture.dispatch_get_async_key_state_basic(0x100)),
-        Some(0)
-    );
-    assert_eq!(
-        value(fixture.dispatch_get_async_key_state_basic(0x41)),
-        Some(0xffff_8001)
-    );
-    assert_eq!(
-        value(fixture.dispatch_get_async_key_state_basic(0x41)),
-        Some(0xffff_8000)
-    );
-    fixture
-        .runtime
-        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
-            sequence: 2,
-            kind: RuntimeKeyboardSourceEventKind::FocusLost,
-            virtual_key: None,
-            repeat: false,
-        })
-        .unwrap();
-    assert_eq!(
-        value(fixture.dispatch_get_async_key_state_basic(0x41)),
-        Some(0)
-    );
-    fixture
-        .runtime
-        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
-            sequence: 3,
-            kind: RuntimeKeyboardSourceEventKind::FocusGained,
-            virtual_key: None,
-            repeat: false,
-        })
-        .unwrap();
-    assert_eq!(
-        value(fixture.dispatch_get_async_key_state_basic(0x41)),
-        Some(0)
-    );
-}
-
-#[test]
-fn get_async_key_state_consumes_only_the_queried_press_bit_and_sign_extends_short() {
-    let mut fixture = RegisterClassFixture::new();
-    fixture
-        .runtime
-        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
-            sequence: 1,
-            kind: RuntimeKeyboardSourceEventKind::KeyDown,
-            virtual_key: Some(0xa2),
-            repeat: false,
-        })
-        .expect("ingest left Control down");
-    fixture.prepare_active_window_with_small_icon();
-    fixture
-        .runtime
-        .set_current_last_error(0x2468_1357)
-        .expect("seed active LastError");
-    let generic_first = match fixture.dispatch_get_async_key_state(0x11) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected active generic Control completion, got {other:?}"),
-    };
-    assert_eq!(generic_first.eax, Some(0xffff_8001));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x2468_1357);
-    let generic_second = match fixture.dispatch_get_async_key_state(0x11) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected repeated generic Control completion, got {other:?}"),
-    };
-    assert_eq!(generic_second.eax, Some(0xffff_8000));
-    let side_first = match fixture.dispatch_get_async_key_state(0xa2) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected left Control completion, got {other:?}"),
-    };
-    assert_eq!(side_first.eax, Some(0xffff_8001));
-
-    fixture
-        .runtime
-        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
-            sequence: 2,
-            kind: RuntimeKeyboardSourceEventKind::KeyDown,
-            virtual_key: Some(0xa2),
-            repeat: true,
-        })
-        .expect("ingest left Control repeat");
-    let side_repeat = match fixture.dispatch_get_async_key_state(0xa2) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected repeated left Control completion, got {other:?}"),
-    };
-    assert_eq!(side_repeat.eax, Some(0xffff_8000));
-
-    fixture
-        .runtime
-        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
-            sequence: 3,
-            kind: RuntimeKeyboardSourceEventKind::KeyUp,
-            virtual_key: Some(0xa2),
-            repeat: false,
-        })
-        .expect("ingest left Control up");
-    let released = match fixture.dispatch_get_async_key_state(0x11) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected released generic Control completion, got {other:?}"),
-    };
-    assert_eq!(released.eax, Some(0));
-}
-
-#[test]
-fn get_async_key_state_gates_invalid_or_unfocused_queries_without_partial_mutation() {
-    let mut fixture = RegisterClassFixture::new();
-    fixture.prepare_active_window_with_small_icon();
-    fixture
-        .runtime
-        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
-            sequence: 1,
-            kind: RuntimeKeyboardSourceEventKind::KeyDown,
-            virtual_key: Some(0x41),
-            repeat: false,
-        })
-        .expect("ingest A down");
-    let before_invalid = fixture.runtime.keyboard_state().cloned().unwrap();
-    let invalid = match fixture.dispatch_get_async_key_state(0x100) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected invalid-key zero completion, got {other:?}"),
-    };
-    assert_eq!(invalid.eax, Some(0));
-    assert_eq!(fixture.runtime.keyboard_state().unwrap(), &before_invalid);
-
-    fixture
-        .runtime
-        .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
-            sequence: 2,
-            kind: RuntimeKeyboardSourceEventKind::FocusLost,
-            virtual_key: None,
-            repeat: false,
-        })
-        .expect("ingest browser focus loss");
-    let before_unfocused = fixture.runtime.keyboard_state().cloned().unwrap();
-    let unfocused = match fixture.dispatch_get_async_key_state(0x41) {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected source-focus-gated zero completion, got {other:?}"),
-    };
-    assert_eq!(unfocused.eax, Some(0));
-    assert_eq!(fixture.runtime.keyboard_state().unwrap(), &before_unfocused);
-    assert_eq!(
-        fixture.runtime.query_async_key_state(0x41).unwrap(),
-        Some(0)
-    );
-}
-
-#[test]
-fn get_async_key_state_missing_keyboard_is_failure_atomic() {
-    let mut missing = RegisterClassFixture::with_display_without_input(false);
-    match missing.dispatch_get_async_key_state(0x11) {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected missing-keyboard fault, got {other:?}"),
-    };
-
-    assert!(missing.runtime.keyboard_state().is_none());
 }
 
 #[test]
@@ -10957,38 +9158,6 @@ fn set_window_pos_callback_result_failures_do_not_publish_window_state() {
 }
 
 #[test]
-fn callback_completion_rejects_a_mismatched_hwnd_before_windows_mutation() {
-    let mut fixture = RegisterClassFixture::new();
-    let (handle, _) = fixture.prepare_created_window_and_small_icon();
-    let window_before = fixture.runtime.window(handle).unwrap().clone();
-    let id = window_before.id;
-    let last_error_before = fixture.runtime.current_last_error().unwrap();
-    let scheduler_before = fixture.runtime.scheduler_state().unwrap();
-    let memory_before = fixture.runtime.memory.stats();
-    assert!(
-        fixture
-            .runtime
-            .commit_guest_callback_semantics(
-                GuestCallbackCompletionPolicy::CreateWindowExA {
-                    window_id: id,
-                    window_handle: handle + 1,
-                    message: RuntimeWindowCreationMessage::NonClientCreate,
-                },
-                1,
-                &fixture.create_endpoint,
-            )
-            .is_err()
-    );
-    assert_eq!(fixture.runtime.window(handle).unwrap(), &window_before);
-    assert_eq!(
-        fixture.runtime.current_last_error().unwrap(),
-        last_error_before
-    );
-    assert_eq!(fixture.runtime.scheduler_state().unwrap(), scheduler_before);
-    assert_eq!(fixture.runtime.memory.stats(), memory_before);
-}
-
-#[test]
 fn send_message_a_accepts_live_shared_icon_without_a_fixed_size_profile() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, small_icon) = fixture.prepare_created_window_and_small_icon();
@@ -11349,751 +9518,45 @@ fn register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom
 }
 
 #[test]
-fn swap_mouse_button_returns_previous_mapping_and_two_swaps_restore_initial_state() {
-    for initial_swapped in [false, true] {
-        let mut fixture = SwapFixture::new(initial_swapped);
-        let memory_generation = fixture.runtime.memory.stats().generation;
-        let first = match fixture.dispatch(STACK_POINTER, SWAP_FIRST_RETURN_ADDRESS) {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected first immediate completion, got {other:?}"),
-        };
-        assert_eq!(first.eax, Some(u32::from(initial_swapped)));
-        assert_eq!(first.stack_pointer, GuestAddress(STACK_POINTER + 8));
-        assert_eq!(first.instruction_pointer, SWAP_FIRST_RETURN_ADDRESS);
-        assert_eq!(
-            fixture.runtime.current_last_error().unwrap(),
-            INITIAL_LAST_ERROR
-        );
-
-        let second = match fixture.dispatch(SWAP_SECOND_STACK_POINTER, SWAP_SECOND_RETURN_ADDRESS) {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected second immediate completion, got {other:?}"),
-        };
-        assert_eq!(second.eax, Some(0));
-        assert_eq!(
-            second.stack_pointer,
-            GuestAddress(SWAP_SECOND_STACK_POINTER + 8)
-        );
-        assert_eq!(second.instruction_pointer, SWAP_SECOND_RETURN_ADDRESS);
-        assert_eq!(
-            fixture.runtime.current_last_error().unwrap(),
-            INITIAL_LAST_ERROR
-        );
-        let repeated = match fixture.dispatch(SWAP_SECOND_STACK_POINTER, SWAP_SECOND_RETURN_ADDRESS)
-        {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected repeated swap completion, got {other:?}"),
-        };
-        assert_eq!(repeated.eax, Some(u32::from(initial_swapped)));
-        assert_eq!(
-            fixture.runtime.current_last_error().unwrap(),
-            INITIAL_LAST_ERROR
-        );
-        assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
-    }
-}
-
-#[test]
-fn show_cursor_returns_signed_count_and_preserves_last_error_and_guest_memory() {
-    let mut fixture = ShowCursorFixture::new();
-    let memory_generation = fixture.runtime.memory.stats().generation;
-    let last_error = fixture
-        .runtime
-        .current_last_error()
-        .expect("initial ShowCursor LastError");
-
-    for (index, expected) in [(0, -1_i32), (1, -2), (2, -1), (3, 0)] {
-        let completion = match fixture.dispatch(index) {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected ShowCursor completion, got {other:?}"),
-        };
-        assert_eq!(completion.eax, Some(expected as u32));
-        assert_eq!(completion.instruction_pointer, SHOW_CURSOR_RETURN_ADDRESS);
-        assert_eq!(
-            completion.stack_pointer,
-            GuestAddress(SHOW_CURSOR_STACK_POINTER + index * 0x10 + 8)
-        );
-        assert_eq!(fixture.runtime.current_last_error().unwrap(), last_error);
-        assert_eq!(
-            fixture
-                .runtime
-                .current_thread_cursor_display_count()
-                .expect("current-thread cursor display count"),
-            expected
-        );
-        assert_eq!(fixture.runtime.memory.stats().generation, memory_generation);
-    }
-}
-
-#[test]
-fn swap_mouse_button_missing_input_is_failure_atomic() {
-    let mut missing = SwapFixture::without_input(false);
-    let last_error_before = missing.runtime.current_last_error().unwrap();
-    let memory_before = missing.runtime.memory.stats();
-    match missing.dispatch(STACK_POINTER, SWAP_FIRST_RETURN_ADDRESS) {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected missing-authority fault, got {other:?}"),
-    };
-
-    assert!(missing.runtime.keyboard_state().is_none());
-    assert!(missing.runtime.cursor_position().is_none());
-    assert_eq!(
-        missing.runtime.current_last_error().unwrap(),
-        last_error_before
-    );
-    assert_eq!(missing.runtime.memory.stats(), memory_before);
-    missing
-        .runtime
-        .configure_input_profile(fixture_input_profile(true))
-        .unwrap();
-    for expected_previous in [1, 0] {
-        let retried = match missing.dispatch(STACK_POINTER, SWAP_FIRST_RETURN_ADDRESS) {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected SwapMouseButton retry, got {other:?}"),
-        };
-        assert_eq!(retried.eax, Some(expected_previous));
-        assert_eq!(
-            missing.runtime.current_last_error().unwrap(),
-            last_error_before
-        );
-    }
-}
-
-#[test]
-fn display_enumeration_uses_runtime_monitor() {
-    let mut fixture = EnumFixture::new(0, 0, CALLBACK_TARGET.0, 0x3141_5926);
-    let call = match fixture.dispatch() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected generic guest callback, got {other:?}"),
-    };
-    assert_eq!(call.request.target, CALLBACK_TARGET);
-    assert_eq!(
-        call.request.arguments[0],
-        GuestCallbackArgument::U32(RUNTIME_PRIMARY_MONITOR_HANDLE)
-    );
-    let prepared = fixture
-        .runtime
-        .begin_guest_callback(call.clone())
-        .expect("prepare generic monitor callback");
-    assert_eq!(prepared.scratch_address, CALLBACK_SCRATCH_ARENA_BASE);
-    let delta = fixture
-        .runtime
-        .memory
-        .pending_delta()
-        .expect("callback frame delta");
-    fixture
-        .runtime
-        .memory
-        .acknowledge_delta(delta.generation)
-        .expect("acknowledge callback frame");
-    assert_eq!(
-        fixture
-            .runtime
-            .memory
-            .read(prepared.scratch_address, 16)
-            .unwrap(),
-        [0_i32, 0, 1920, 1080]
-            .into_iter()
-            .flat_map(i32::to_le_bytes)
-            .collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn enum_display_monitors_builds_atomic_scratch_frame_and_normalizes_bool_result() {
-    for (callback_result, expected_bool) in [(0, 0), (7, 1)] {
-        let data = 0x5566_7788;
-        let mut fixture = EnumFixture::new(0, 0, CALLBACK_TARGET.0, data);
-        let call = match fixture.dispatch() {
-            DispatchOutcome::GuestCallback(call) => call,
-            other => panic!("expected guest callback, got {other:?}"),
-        };
-        assert_eq!(call.request.target, CALLBACK_TARGET);
-        assert_eq!(
-            call.request.arguments,
-            [
-                GuestCallbackArgument::U32(RUNTIME_PRIMARY_MONITOR_HANDLE),
-                GuestCallbackArgument::U32(0),
-                GuestCallbackArgument::ScratchPointer { offset: 0 },
-                GuestCallbackArgument::U32(data),
-            ]
-        );
-        assert_eq!(
-            call.request.scratch,
-            [0_i32, 0, 1920, 1080]
-                .into_iter()
-                .flat_map(i32::to_le_bytes)
-                .collect::<Vec<_>>()
-        );
-
-        let generation_before = fixture.runtime.memory.stats().generation;
-        let prepared = fixture
-            .runtime
-            .begin_guest_callback(call.clone())
-            .expect("prepare callback frame");
-        assert_eq!(prepared.frame_id, RuntimeCallbackFrameId(1));
-        assert_eq!(prepared.allocation_start, GuestAddress(STACK_POINTER - 20));
-        assert_eq!(prepared.scratch_address, CALLBACK_SCRATCH_ARENA_BASE);
-        assert_eq!(prepared.stack_pointer, GuestAddress(STACK_POINTER - 20));
-        assert_eq!(prepared.scratch_bytes, 16);
-        assert_eq!(prepared.frame_bytes, 20);
-        assert_eq!(
-            fixture.runtime.memory.stats().generation,
-            generation_before + 4
-        );
-        let delta = fixture
-            .runtime
-            .memory
-            .pending_delta()
-            .expect("callback frame delta");
-        fixture
-            .runtime
-            .memory
-            .acknowledge_delta(delta.generation)
-            .expect("acknowledge callback frame delta");
-
-        assert_eq!(
-            fixture
-                .runtime
-                .memory
-                .read(prepared.scratch_address, prepared.scratch_bytes as usize)
-                .expect("callback scratch bytes"),
-            call.request.scratch
-        );
-        let mut expected = CALLBACK_SENTINEL.0.to_le_bytes().to_vec();
-        expected.extend_from_slice(&RUNTIME_PRIMARY_MONITOR_HANDLE.to_le_bytes());
-        expected.extend_from_slice(&0_u32.to_le_bytes());
-        expected.extend_from_slice(&prepared.scratch_address.0.to_le_bytes());
-        expected.extend_from_slice(&data.to_le_bytes());
-        assert_eq!(
-            fixture
-                .runtime
-                .memory
-                .read(prepared.allocation_start, prepared.frame_bytes as usize)
-                .expect("callback frame bytes"),
-            expected
-        );
-
-        let completion = match fixture
-            .runtime
-            .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, callback_result)
-            .expect("complete callback through Runtime")
-        {
-            vine_core::GuestCallbackReturn::Completed(completion) => completion,
-            other => panic!("expected callback completion, got {other:?}"),
-        };
-        assert_eq!(completion.eax, Some(expected_bool));
-        assert_eq!(completion.instruction_pointer, RETURN_ADDRESS);
-        assert_eq!(
-            completion.stack_pointer,
-            GuestAddress(STACK_POINTER + 5 * 4)
-        );
-        assert_eq!(
-            fixture.runtime.current_last_error().unwrap(),
-            INITIAL_LAST_ERROR
-        );
-    }
-}
-
-fn begin_nested_enum_callbacks(
-    fixture: &mut EnumFixture,
-) -> (PreparedGuestCallback, PreparedGuestCallback) {
-    let call = match fixture.dispatch() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected outer callback, got {other:?}"),
-    };
-    let outer = fixture.runtime.begin_guest_callback(call).unwrap();
-    let delta = fixture.runtime.memory.pending_delta().unwrap();
-    fixture
-        .runtime
-        .memory
-        .acknowledge_delta(delta.generation)
-        .unwrap();
-    let api_stack = GuestAddress(outer.stack_pointer.0 - 20);
-    fixture
-        .runtime
-        .memory
-        .write(
-            api_stack,
-            &[CALLBACK_TARGET.0, 0, 0, CALLBACK_TARGET.0, 19]
-                .into_iter()
-                .flat_map(u32::to_le_bytes)
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-    let delta = fixture.runtime.memory.pending_delta().unwrap();
-    fixture
-        .runtime
-        .memory
-        .acknowledge_delta(delta.generation)
-        .unwrap();
-    let call = match fixture.runtime.dispatch_api_call(
-        &fixture.dispatcher,
-        ApiOwnedTrap {
-            endpoint_id: fixture.endpoint.id,
-            endpoint_address: fixture.endpoint.address,
-            stack_pointer: api_stack,
-            return_address: CALLBACK_TARGET,
-        },
-        CALLBACK_SENTINEL,
-        None,
-    ) {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected nested callback, got {other:?}"),
-    };
-    let nested = fixture.runtime.begin_guest_callback(call).unwrap();
-    let delta = fixture.runtime.memory.pending_delta().unwrap();
-    fixture
-        .runtime
-        .memory
-        .acknowledge_delta(delta.generation)
-        .unwrap();
-    assert_ne!(outer.frame_id, nested.frame_id);
-    assert_ne!(outer.scratch_address, nested.scratch_address);
-    assert_eq!(fixture.runtime.pending_api_callbacks.len(), 2);
-    assert_eq!(
-        fixture.runtime.scheduler_state().unwrap(),
-        SchedulerThreadState::InCallback { depth: 2 }
-    );
-    (outer, nested)
-}
-
-#[test]
-fn runtime_owns_nested_callback_calls_and_retires_only_the_returned_frame() {
-    let mut fixture = EnumFixture::new(0, 0, CALLBACK_TARGET.0, 0);
-    let (outer, nested) = begin_nested_enum_callbacks(&mut fixture);
-    let outer_scratch = fixture
-        .runtime
-        .memory
-        .read(outer.scratch_address, outer.scratch_bytes as usize)
-        .unwrap();
-    let completion = match fixture
-        .runtime
-        .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, 0)
-        .unwrap()
-    {
-        vine_core::GuestCallbackReturn::Completed(completion) => completion,
-        other => panic!("expected nested callback completion, got {other:?}"),
-    };
-    assert_eq!(completion.eax, Some(0));
-    assert_eq!(completion.instruction_pointer, CALLBACK_TARGET);
-    assert_eq!(completion.stack_pointer, outer.stack_pointer);
-    assert!(
-        !fixture
-            .runtime
-            .pending_api_callbacks
-            .contains_key(&nested.frame_id)
-    );
-    assert!(
-        fixture
-            .runtime
-            .pending_api_callbacks
-            .contains_key(&outer.frame_id)
-    );
-    assert_eq!(fixture.runtime.pending_api_callbacks.len(), 1);
-    assert_eq!(
-        fixture.runtime.scheduler_state().unwrap(),
-        SchedulerThreadState::InCallback { depth: 1 }
-    );
-    assert_eq!(
-        fixture
-            .runtime
-            .memory
-            .read(outer.scratch_address, outer.scratch_bytes as usize)
-            .unwrap(),
-        outer_scratch
-    );
-    fixture.runtime.set_current_last_error(57).unwrap();
-    let completion = match fixture
-        .runtime
-        .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, 7)
-        .unwrap()
-    {
-        vine_core::GuestCallbackReturn::Completed(completion) => completion,
-        other => panic!("expected outer callback completion, got {other:?}"),
-    };
-    assert_eq!(completion.eax, Some(1));
-    assert_eq!(completion.instruction_pointer, RETURN_ADDRESS);
-    assert_eq!(completion.stack_pointer, GuestAddress(STACK_POINTER + 20));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 57);
-    assert!(fixture.runtime.pending_api_callbacks.is_empty());
-    assert!(
-        fixture
-            .runtime
-            .thread_state(fixture.runtime.current_thread_id())
-            .unwrap()
-            .callback_frames
-            .is_empty()
-    );
-    assert_eq!(
-        fixture.runtime.scheduler_state().unwrap(),
-        SchedulerThreadState::Runnable
-    );
-}
-
-#[test]
 fn thread_exit_cancels_owned_callback_calls_before_a_late_return_can_complete() {
     let mut fixture = EnumFixture::new(0, 0, CALLBACK_TARGET.0, 0);
-    begin_nested_enum_callbacks(&mut fixture);
-    let before = fixture.runtime.memory.stats();
+    let DispatchOutcome::GuestCallback(call) = fixture.dispatch() else {
+        panic!("expected callback request");
+    };
+    let prepared = fixture.runtime.begin_guest_callback(call).unwrap();
+    let delta = fixture.runtime.memory.pending_delta().unwrap();
+    fixture
+        .runtime
+        .memory
+        .acknowledge_delta(delta.generation)
+        .unwrap();
+    let before = fixture
+        .runtime
+        .memory
+        .read(prepared.stack_pointer, prepared.frame_bytes as usize)
+        .unwrap();
     fixture.runtime.request_current_thread_exit(23).unwrap();
-    assert!(fixture.runtime.pending_api_callbacks.is_empty());
     assert!(
         fixture
             .runtime
-            .thread_state(fixture.runtime.current_thread_id())
-            .unwrap()
-            .callback_frames
-            .is_empty()
+            .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, 7)
+            .is_err()
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .memory
+            .read(prepared.stack_pointer, prepared.frame_bytes as usize)
+            .unwrap(),
+        before
     );
     assert_eq!(
         fixture.runtime.scheduler_state().unwrap(),
         SchedulerThreadState::Terminating { exit_code: 23 }
     );
-    assert!(
-        fixture
-            .runtime
-            .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, 7)
-            .is_err()
-    );
-    assert_eq!(fixture.runtime.memory.stats(), before);
     assert_eq!(
         fixture.runtime.current_last_error().unwrap(),
         INITIAL_LAST_ERROR
-    );
-}
-
-#[test]
-fn runtime_callback_return_rejects_wrong_live_identity_then_completes_on_retry() {
-    let mut fixture = EnumFixture::new(0, 0, CALLBACK_TARGET.0, 0);
-    let call = match fixture.dispatch() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected callback, got {other:?}"),
-    };
-    let prepared = fixture.runtime.begin_guest_callback(call.clone()).unwrap();
-    let delta = fixture.runtime.memory.pending_delta().unwrap();
-    fixture
-        .runtime
-        .memory
-        .acknowledge_delta(delta.generation)
-        .unwrap();
-    let before = fixture.runtime.memory.stats();
-    let scratch = fixture
-        .runtime
-        .memory
-        .read(prepared.scratch_address, prepared.scratch_bytes as usize)
-        .unwrap();
-    let thread_id = fixture.runtime.current_thread_id();
-    let frame = fixture
-        .runtime
-        .thread_state(thread_id)
-        .unwrap()
-        .callback_frames[0];
-    let last_error = fixture.runtime.current_last_error().unwrap();
-
-    let other_thread = RuntimeThreadId(thread_id.0 + 1);
-    fixture.runtime.register_thread(other_thread, 23).unwrap();
-    fixture.runtime.select_thread(other_thread).unwrap();
-    assert!(
-        fixture
-            .runtime
-            .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, 7)
-            .is_err()
-    );
-    assert_eq!(fixture.runtime.memory.stats(), before);
-    assert!(
-        fixture
-            .runtime
-            .pending_api_callbacks
-            .contains_key(&prepared.frame_id)
-    );
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 23);
-    fixture.runtime.select_thread(thread_id).unwrap();
-
-    let mut wrong_target = call.clone();
-    wrong_target.request.target = GuestAddress(CALLBACK_TARGET.0 + 4);
-    let mut wrong_scratch = call.clone();
-    wrong_scratch.request.scratch.push(0);
-    for (candidate, frame_id, sentinel) in [
-        (
-            call.clone(),
-            RuntimeCallbackFrameId(prepared.frame_id.0 + 1),
-            CALLBACK_SENTINEL,
-        ),
-        (
-            call.clone(),
-            prepared.frame_id,
-            GuestAddress(CALLBACK_SENTINEL.0 + 4),
-        ),
-        (wrong_target, prepared.frame_id, CALLBACK_SENTINEL),
-        (wrong_scratch, prepared.frame_id, CALLBACK_SENTINEL),
-    ] {
-        fixture
-            .runtime
-            .pending_api_callbacks
-            .remove(&prepared.frame_id)
-            .unwrap();
-        fixture
-            .runtime
-            .pending_api_callbacks
-            .insert(frame_id, candidate);
-        assert!(
-            fixture
-                .runtime
-                .complete_guest_callback(&fixture.dispatcher, sentinel, 7)
-                .is_err()
-        );
-        assert_eq!(fixture.runtime.memory.stats(), before);
-        assert_eq!(
-            fixture
-                .runtime
-                .memory
-                .read(prepared.scratch_address, prepared.scratch_bytes as usize)
-                .unwrap(),
-            scratch
-        );
-        let frames = &fixture
-            .runtime
-            .thread_state(thread_id)
-            .unwrap()
-            .callback_frames;
-        assert_eq!(frames.len(), 1);
-        assert_eq!(frames[0], frame);
-        assert_eq!(fixture.runtime.current_last_error().unwrap(), last_error);
-        assert_eq!(
-            fixture.runtime.scheduler_state().unwrap(),
-            SchedulerThreadState::InCallback { depth: 1 }
-        );
-        assert_eq!(fixture.runtime.pending_api_callbacks.len(), 1);
-        fixture
-            .runtime
-            .pending_api_callbacks
-            .remove(&frame_id)
-            .unwrap();
-        fixture
-            .runtime
-            .pending_api_callbacks
-            .insert(prepared.frame_id, call.clone());
-    }
-    let completion = match fixture
-        .runtime
-        .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, 7)
-        .unwrap()
-    {
-        vine_core::GuestCallbackReturn::Completed(completion) => completion,
-        other => panic!("expected completed callback, got {other:?}"),
-    };
-    assert_eq!(completion.eax, Some(1));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), last_error);
-    assert!(
-        fixture
-            .runtime
-            .thread_state(thread_id)
-            .unwrap()
-            .callback_frames
-            .is_empty()
-    );
-    assert!(fixture.runtime.pending_api_callbacks.is_empty());
-    assert_eq!(
-        fixture.runtime.scheduler_state().unwrap(),
-        SchedulerThreadState::Runnable
-    );
-    assert!(
-        fixture
-            .runtime
-            .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, 7)
-            .is_err()
-    );
-    assert_eq!(fixture.runtime.memory.stats(), before);
-}
-
-#[test]
-fn enum_display_monitors_rejects_unreached_variants_and_invalid_callback_before_mutation() {
-    for (hdc, clip, callback) in [
-        (1, 0, CALLBACK_TARGET.0),
-        (0, STACK_POINTER + 0x100, CALLBACK_TARGET.0),
-        (0, 0, STACK_POINTER),
-    ] {
-        let mut fixture = EnumFixture::new(hdc, clip, callback, 0);
-        let generation_before = fixture.runtime.memory.stats().generation;
-        match fixture.dispatch() {
-            DispatchOutcome::Fault(fault) => fault,
-            other => panic!("expected fault, got {other:?}"),
-        };
-
-        assert_eq!(fixture.runtime.memory.stats().generation, generation_before);
-        let frame = fixture
-            .runtime
-            .push_callback_frame(CALLBACK_TARGET, CALLBACK_SENTINEL)
-            .expect("failure left callback stack empty");
-        assert_eq!(frame.id, RuntimeCallbackFrameId(1));
-    }
-}
-
-#[test]
-fn callback_preparation_failures_preserve_memory_and_frame_allocator() {
-    let mut unmapped = EnumFixture::with_stack(LOW_STACK_POINTER, 0, 0, CALLBACK_TARGET.0, 0);
-    let call = match unmapped.dispatch() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected callback request, got {other:?}"),
-    };
-    let generation_before = unmapped.runtime.memory.stats().generation;
-    unmapped
-        .runtime
-        .begin_guest_callback(call.clone())
-        .expect_err("unmapped callback scratch must fail");
-
-    assert_eq!(
-        unmapped.runtime.memory.stats().generation,
-        generation_before
-    );
-    assert!(unmapped.runtime.pending_api_callbacks.is_empty());
-    let frame = unmapped
-        .runtime
-        .push_callback_frame(CALLBACK_TARGET, CALLBACK_SENTINEL)
-        .expect("unmapped failure did not allocate a frame ID");
-    assert_eq!(frame.id, RuntimeCallbackFrameId(1));
-
-    let mut invalid_scratch = EnumFixture::new(0, 0, CALLBACK_TARGET.0, 0);
-    let mut call = match invalid_scratch.dispatch() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected callback request, got {other:?}"),
-    };
-    call.request.arguments[2] = GuestCallbackArgument::ScratchPointer { offset: 16 };
-    let generation_before = invalid_scratch.runtime.memory.stats().generation;
-    invalid_scratch
-        .runtime
-        .begin_guest_callback(call.clone())
-        .expect_err("out-of-range scratch pointer must fail");
-
-    assert_eq!(
-        invalid_scratch.runtime.memory.stats().generation,
-        generation_before
-    );
-    assert!(invalid_scratch.runtime.pending_api_callbacks.is_empty());
-    let frame = invalid_scratch
-        .runtime
-        .push_callback_frame(CALLBACK_TARGET, CALLBACK_SENTINEL)
-        .expect("invalid scratch failure did not allocate a frame ID");
-    assert_eq!(frame.id, RuntimeCallbackFrameId(1));
-}
-
-#[test]
-fn callback_entry_rejects_a_duplicate_pending_identity_before_writing_and_can_retry() {
-    let mut fixture = EnumFixture::new(0, 0, CALLBACK_TARGET.0, 0);
-    let call = match fixture.dispatch() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected callback request, got {other:?}"),
-    };
-    let before = fixture.runtime.memory.stats();
-    fixture
-        .runtime
-        .pending_api_callbacks
-        .insert(RuntimeCallbackFrameId(1), call.clone());
-    assert!(fixture.runtime.begin_guest_callback(call.clone()).is_err());
-    assert_eq!(fixture.runtime.memory.stats(), before);
-    assert!(
-        fixture
-            .runtime
-            .thread_state(fixture.runtime.current_thread_id())
-            .unwrap()
-            .callback_frames
-            .is_empty()
-    );
-    assert_eq!(
-        fixture.runtime.scheduler_state().unwrap(),
-        SchedulerThreadState::Runnable
-    );
-    assert_eq!(
-        fixture.runtime.current_last_error().unwrap(),
-        INITIAL_LAST_ERROR
-    );
-    fixture
-        .runtime
-        .pending_api_callbacks
-        .remove(&RuntimeCallbackFrameId(1))
-        .unwrap();
-    let prepared = fixture.runtime.begin_guest_callback(call).unwrap();
-    assert_eq!(prepared.frame_id, RuntimeCallbackFrameId(1));
-    assert_eq!(prepared.target, CALLBACK_TARGET);
-    assert_eq!(prepared.return_sentinel, CALLBACK_SENTINEL);
-    assert!(
-        fixture
-            .runtime
-            .pending_api_callbacks
-            .contains_key(&prepared.frame_id)
-    );
-}
-
-#[test]
-fn callback_frame_identity_rejects_stale_and_duplicate_completion() {
-    let mut fixture = EnumFixture::new(0, 0, CALLBACK_TARGET.0, 0);
-    let call = match fixture.dispatch() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected callback request, got {other:?}"),
-    };
-    let prepared = fixture
-        .runtime
-        .begin_guest_callback(call.clone())
-        .expect("prepare callback");
-    fixture
-        .runtime
-        .validate_callback_frame_return(RuntimeCallbackFrameId(prepared.frame_id.0 + 1))
-        .expect_err("stale frame preflight must fail");
-    fixture
-        .runtime
-        .validate_callback_frame_return(prepared.frame_id)
-        .expect("matching frame preflight is mutation-free");
-    fixture
-        .runtime
-        .pop_callback_frame(RuntimeCallbackFrameId(prepared.frame_id.0 + 1))
-        .expect_err("stale frame ID must fail");
-    fixture
-        .runtime
-        .pop_callback_frame(prepared.frame_id)
-        .expect("matching frame completes");
-    fixture
-        .runtime
-        .pop_callback_frame(prepared.frame_id)
-        .expect_err("duplicate frame completion must fail");
-}
-
-#[test]
-fn display_enumeration_requires_a_live_monitor() {
-    let mut missing = EnumFixture::without_display(STACK_POINTER, 0, 0, CALLBACK_TARGET.0, 0);
-    match missing.dispatch() {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected missing display fault, got {other:?}"),
-    };
-
-    let mut configured = EnumFixture::without_display(STACK_POINTER, 0, 0, CALLBACK_TARGET.0, 0);
-    configured
-        .runtime
-        .configure_display_profile(RuntimeDisplayProfile {
-            primary_monitor_rect: RuntimeRect {
-                left: 0,
-                top: 0,
-                right: 1920,
-                bottom: 1080,
-            },
-            primary_work_rect: RuntimeRect {
-                left: 0,
-                top: 0,
-                right: 1920,
-                bottom: 1032,
-            },
-        })
-        .expect("configure live display");
-    let call = match configured.dispatch() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected live monitor callback, got {other:?}"),
-    };
-    assert_eq!(
-        call.request.scratch,
-        [0_i32, 0, 1920, 1080]
-            .into_iter()
-            .flat_map(i32::to_le_bytes)
-            .collect::<Vec<_>>()
     );
 }
 

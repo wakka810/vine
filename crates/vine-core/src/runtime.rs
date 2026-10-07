@@ -147,8 +147,6 @@ pub use timers::RuntimeWaitableTimer;
 pub(crate) use timers::{
     RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
 };
-#[cfg(test)]
-pub(crate) use user32::RUNTIME_MENU_HANDLE_BASE;
 pub use user32::{
     RUNTIME_MESSAGE_BOX_SERVICE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
     RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_LIMIT, RUNTIME_WINDOW_STYLE_VISIBLE,
