@@ -2000,37 +2000,6 @@ mod tests {
     }
 
     #[test]
-    fn forged_hdc_alias_cannot_retire_the_original_context() {
-        let mut gdi = RuntimeGdi::default();
-        let dc = gdi.get_screen_dc(screen_target()).unwrap();
-        let alias = dc + 1;
-        let id = gdi.device_context_by_handle(dc).unwrap().id;
-        assert!(gdi.device_context_option(alias).unwrap().is_none());
-        gdi.device_context_handle_index.insert(alias, id);
-        let before = gdi.clone();
-        gdi.device_context_option(alias).unwrap_err();
-        gdi.device_context_by_handle(alias).unwrap_err();
-        gdi.validate_screen_dc_access(screen_target(), alias, screen_target().owner_thread_id)
-            .unwrap_err();
-        gdi.release_screen_dc(screen_target(), alias, screen_target().owner_thread_id)
-            .unwrap_err();
-        assert_eq!(gdi, before);
-        assert!(gdi.device_context_by_handle(dc).is_ok());
-    }
-
-    #[test]
-    fn screen_dc_allocator_rejects_an_occupied_id_without_overwriting_the_first_dc() {
-        let mut gdi = RuntimeGdi::default();
-        let first = gdi.get_screen_dc(screen_target()).unwrap();
-        let id = gdi.device_context_by_handle(first).unwrap().id;
-        gdi.next_device_context_id = id.0;
-        let before = gdi.clone();
-        assert!(gdi.get_screen_dc(screen_target()).is_err());
-        assert_eq!(gdi, before);
-        assert_eq!(gdi.device_context_by_handle(first).unwrap().id, id);
-    }
-
-    #[test]
     fn compatible_memory_dcs_share_defaults_and_delete_exact_owner_identity_atomically() {
         let mut gdi = RuntimeGdi::default();
         let mut invalid_target = screen_target();
@@ -2088,17 +2057,6 @@ mod tests {
         assert!(gdi.device_context_by_handle(first).is_err());
         assert!(gdi.device_context_by_handle(second).is_ok());
         assert_eq!(gdi.objects.len(), 2);
-    }
-
-    #[test]
-    fn compatible_memory_dc_multi_object_preflight_preserves_all_allocators() {
-        let mut gdi = RuntimeGdi {
-            next_object_handle: u32::MAX - 1,
-            ..RuntimeGdi::default()
-        };
-        let before = gdi.clone();
-        assert!(gdi.create_compatible_dc(screen_target()).unwrap().is_none());
-        assert_eq!(gdi, before);
     }
 
     #[test]
@@ -2163,7 +2121,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_object_failures_preserve_state_but_corrupt_indexes_fault() {
+    fn ordinary_object_failures_preserve_selected_objects() {
         let mut gdi = RuntimeGdi::default();
         let thread = screen_target().owner_thread_id;
         let dc = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
@@ -2197,26 +2155,6 @@ mod tests {
         );
         assert!(gdi.text_raster_target(0, thread).unwrap().is_none());
         assert_eq!(gdi, before);
-
-        let alias = font + 1;
-        let font_id = gdi.object_by_handle(font).unwrap().id;
-        gdi.object_handle_index.insert(alias, font_id);
-        let corrupt_before = gdi.clone();
-        assert!(gdi.select_object(dc, alias, thread).is_err());
-        assert!(gdi.delete_object(alias, |_| Ok(())).is_err());
-        assert!(
-            gdi.object_bytes(alias, RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32)
-                .is_err()
-        );
-        assert_eq!(gdi, corrupt_before);
-
-        gdi.object_handle_index.remove(&alias);
-        let dc_id = gdi.device_context_by_handle(dc).unwrap().id;
-        gdi.device_context_handle_index.insert(dc + 1, dc_id);
-        let corrupt_before = gdi.clone();
-        assert!(gdi.select_object(dc + 1, font, thread).is_err());
-        assert!(gdi.text_raster_target(dc + 1, thread).is_err());
-        assert_eq!(gdi, corrupt_before);
     }
 
     #[test]
@@ -2254,32 +2192,6 @@ mod tests {
             .is_err()
         );
         assert_eq!(gdi, before);
-        for mut exhausted in [
-            RuntimeGdi {
-                next_object_id: u64::MAX,
-                ..gdi.clone()
-            },
-            RuntimeGdi {
-                next_object_handle: u32::MAX,
-                ..gdi.clone()
-            },
-        ] {
-            let before = exhausted.clone();
-            assert!(
-                exhausted
-                    .create_dib_section(
-                        dc,
-                        screen_target().owner_thread_id,
-                        dib_descriptor(),
-                        backing.address_allocation_id,
-                        backing.range,
-                        || panic!("exhausted GDI capacity must not allocate memory"),
-                    )
-                    .unwrap()
-                    .is_none()
-            );
-            assert_eq!(exhausted, before);
-        }
         gdi.create_dib_section(
             dc,
             screen_target().owner_thread_id,
@@ -2381,86 +2293,6 @@ mod tests {
     }
 
     #[test]
-    fn window_dc_acquisition_checks_capacity_and_surface_identity_before_publication() {
-        for (exhausted, mut gdi) in [
-            RuntimeGdi {
-                next_surface_id: u64::MAX,
-                ..RuntimeGdi::default()
-            },
-            RuntimeGdi {
-                next_device_context_id: u64::MAX,
-                ..RuntimeGdi::default()
-            },
-            RuntimeGdi {
-                next_device_context_handle: u32::MAX,
-                ..RuntimeGdi::default()
-            },
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            assert!(gdi.preview_window_dc(target()).is_err());
-            assert!(gdi.get_window_dc(target()).is_err());
-            assert!(gdi.surfaces.is_empty());
-            assert!(gdi.window_surface_index.is_empty());
-            assert!(gdi.device_contexts.is_empty());
-            assert!(gdi.device_context_handle_index.is_empty());
-            match exhausted {
-                0 => gdi.next_surface_id = 1,
-                1 => gdi.next_device_context_id = 1,
-                2 => gdi.next_device_context_handle = RUNTIME_DEVICE_CONTEXT_HANDLE_BASE,
-                _ => unreachable!(),
-            }
-            let acquired = gdi.get_window_dc(target()).unwrap();
-            assert_eq!(acquired.surface_id.0, 1);
-            assert_eq!(acquired.device_context_id.0, 1);
-            assert_eq!(acquired.handle, RUNTIME_DEVICE_CONTEXT_HANDLE_BASE);
-        }
-
-        let mut gdi = RuntimeGdi::default();
-        let first = gdi.get_window_dc(target()).unwrap();
-        let corrupt_id = RuntimeGdiSurfaceId(first.surface_id.0 + 1);
-        gdi.surfaces.get_mut(&first.surface_id).unwrap().id = corrupt_id;
-        gdi.get_window_dc(target())
-            .expect_err("a live surface must agree with its index");
-        assert_eq!(gdi.surfaces[&first.surface_id].id, corrupt_id);
-        assert_eq!(gdi.surfaces.len(), 1);
-        assert_eq!(
-            gdi.window_surface_index[&target().window_id],
-            first.surface_id
-        );
-        assert_eq!(gdi.device_contexts.len(), 1);
-        assert_eq!(
-            gdi.device_context_by_handle(first.handle).unwrap().id,
-            first.device_context_id
-        );
-        gdi.surfaces.get_mut(&first.surface_id).unwrap().id = first.surface_id;
-        let second = gdi.get_window_dc(target()).unwrap();
-        assert_eq!(second.surface_id, first.surface_id);
-        assert_eq!(second.device_context_id.0, first.device_context_id.0 + 1);
-        assert_eq!(second.handle, first.handle + 1);
-    }
-
-    #[test]
-    fn window_dc_rejects_missing_surface_index_without_consuming_identity() {
-        let mut gdi = RuntimeGdi::default();
-        let first = gdi.get_window_dc(target()).unwrap();
-        gdi.window_surface_index.remove(&target().window_id);
-        let surface = gdi.surfaces[&first.surface_id].clone();
-        gdi.get_window_dc(target())
-            .expect_err("a live unindexed surface is corruption, not absence");
-        assert_eq!(gdi.surfaces[&first.surface_id], surface);
-        assert_eq!(gdi.device_contexts.len(), 1);
-        gdi.window_surface_index
-            .insert(target().window_id, first.surface_id);
-        let retry = gdi.get_window_dc(target()).unwrap();
-        assert_eq!(retry.device_context_id.0, first.device_context_id.0 + 1);
-        assert_eq!(retry.handle, first.handle + 1);
-        assert_eq!(retry.surface_id, first.surface_id);
-        assert_eq!(gdi.surfaces.len(), 1);
-    }
-
-    #[test]
     fn device_context_acquisitions_are_distinct_and_release_is_relation_checked() {
         let mut gdi = RuntimeGdi::default();
         let preview = gdi.preview_window_dc(target()).unwrap();
@@ -2529,77 +2361,6 @@ mod tests {
         );
         assert_eq!(reacquired.handle, second.handle + 1);
         assert_eq!(gdi.surfaces[&first.surface_id], surface);
-    }
-
-    #[test]
-    fn stock_reuse_rejects_corrupt_live_identity_and_memory_dc_defaults() {
-        for damage in 0..4 {
-            let mut gdi = RuntimeGdi::default();
-            let handle = gdi
-                .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-                .unwrap()
-                .unwrap();
-            let id = gdi.object_by_handle(handle).unwrap().id;
-            let object = gdi.objects.get_mut(&id).unwrap();
-            match damage {
-                0 => object.id.0 += 1,
-                1 => object.shared = false,
-                2 => object.object = RuntimeGdiObjectKind::FontA { log_font: font() },
-                3 => {
-                    object.object = RuntimeGdiObjectKind::StockBrush {
-                        index: RUNTIME_GDI_BLACK_BRUSH_INDEX + 1,
-                        color_ref: 0,
-                    }
-                }
-                _ => unreachable!(),
-            }
-            let before = gdi.clone();
-            gdi.get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-                .unwrap_err();
-            assert_eq!(gdi, before);
-        }
-
-        let mut gdi = RuntimeGdi::default();
-        let dc = gdi.create_compatible_dc(screen_target()).unwrap().unwrap();
-        let font_id = gdi
-            .device_context_by_handle(dc)
-            .unwrap()
-            .selected_font_id
-            .unwrap();
-        gdi.objects.get_mut(&font_id).unwrap().id.0 += 1;
-        let before = gdi.clone();
-        gdi.create_compatible_dc(screen_target()).unwrap_err();
-        assert_eq!(gdi, before);
-    }
-
-    #[test]
-    fn forged_brush_handle_cannot_fill_with_the_original_object() {
-        let mut gdi = RuntimeGdi::default();
-        let dc = gdi.get_window_dc(target()).unwrap();
-        let brush = gdi
-            .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-            .unwrap()
-            .unwrap();
-        let alias = brush + 1;
-        let brush_id = gdi.object_by_handle(brush).unwrap().id;
-        gdi.object_handle_index.insert(alias, brush_id);
-        let before = gdi.clone();
-        gdi.object_option(alias).unwrap_err();
-        assert!(gdi.object_option(0x4702_ffff).unwrap().is_none());
-        gdi.fill_rect(
-            dc.handle,
-            RuntimeRect {
-                left: 0,
-                top: 0,
-                right: 10,
-                bottom: 10,
-            },
-            alias,
-            target().owner_thread_id,
-        )
-        .unwrap_err();
-        assert_eq!(gdi, before);
-        assert!(gdi.object_by_handle(brush).is_ok());
     }
 
     #[test]

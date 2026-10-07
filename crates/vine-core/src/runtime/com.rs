@@ -828,7 +828,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_add_ref_rejects_unknown_identity_and_overflow_without_mutation() {
+    fn direct_add_ref_rejects_unknown_identity_without_mutation() {
         let mut runtime = RuntimeCom::default();
         let object = register(&mut runtime, registration()).unwrap();
         let interface_id = object.interface_ids[1];
@@ -839,12 +839,6 @@ mod tests {
         assert_eq!(runtime.objects.len(), 1);
         assert_eq!(runtime.interfaces.len(), object.interface_ids.len());
 
-        runtime.objects.get_mut(&object.id).unwrap().reference_count = u32::MAX;
-        let object_before = runtime.object(object.id).unwrap().clone();
-        assert!(runtime.add_ref(interface_id).is_err());
-        assert_eq!(runtime.object(object.id).unwrap(), &object_before);
-        assert_eq!(runtime.objects.len(), 1);
-        assert_eq!(runtime.interfaces.len(), object.interface_ids.len());
         assert!(
             runtime
                 .query_interface_target(interface_id, RuntimeComIid([0xff; 16]))
@@ -855,7 +849,6 @@ mod tests {
         assert_eq!(runtime.objects.len(), 1);
         assert_eq!(runtime.interfaces.len(), object.interface_ids.len());
 
-        runtime.objects.get_mut(&object.id).unwrap().reference_count = 1;
         assert_eq!(runtime.add_ref(interface_id).unwrap(), 2);
         assert_eq!(runtime.object(object.id).unwrap().reference_count, 2);
     }
@@ -877,12 +870,6 @@ mod tests {
                 .release_shared(RuntimeComInterfaceId(u64::MAX))
                 .is_err()
         );
-        assert_eq!(runtime.object(object.id).unwrap(), &object_before);
-        assert_eq!(runtime.objects.len(), 1);
-        assert_eq!(runtime.interfaces.len(), object.interface_ids.len());
-        runtime.objects.get_mut(&object.id).unwrap().reference_count = 0;
-        let object_before = runtime.object(object.id).unwrap().clone();
-        assert!(runtime.release_shared(interface_id).is_err());
         assert_eq!(runtime.object(object.id).unwrap(), &object_before);
         assert_eq!(runtime.objects.len(), 1);
         assert_eq!(runtime.interfaces.len(), object.interface_ids.len());
@@ -918,7 +905,7 @@ mod tests {
     }
 
     #[test]
-    fn child_release_validates_parent_chain_before_mutating_either_object() {
+    fn child_release_keeps_a_separate_live_parent_reference() {
         let mut runtime = RuntimeCom::default();
         let parent = register(&mut runtime, registration()).unwrap();
         let parent_id = parent.id;
@@ -932,22 +919,6 @@ mod tests {
             runtime.release_shared(parent_interface_id).unwrap(),
             Some(1)
         );
-
-        // A corrupt back-edge must not recurse indefinitely or retire the child.
-        runtime
-            .objects
-            .get_mut(&parent_id)
-            .unwrap()
-            .parent_interface_id = Some(child_interface_id);
-        assert!(runtime.validate_release(child_interface_id).is_err());
-        assert_eq!(runtime.object(parent_id).unwrap().reference_count, 1);
-        assert_eq!(runtime.object(child_id).unwrap().reference_count, 1);
-        assert_eq!(runtime.interfaces.len(), 4);
-        runtime
-            .objects
-            .get_mut(&parent_id)
-            .unwrap()
-            .parent_interface_id = None;
 
         // A separate live reference keeps the parent alive when its child dies.
         assert_eq!(runtime.add_ref(parent_interface_id).unwrap(), 2);

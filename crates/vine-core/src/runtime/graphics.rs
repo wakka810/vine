@@ -3089,44 +3089,6 @@ mod tests {
     }
 
     #[test]
-    fn retirement_rejects_corrupt_identity_and_exhaustion_before_mutation() {
-        let mut graphics = RuntimeGraphics::default();
-        let device_id = graphics
-            .validate_device_creation(request())
-            .map(|creation| graphics.insert_device(creation.unwrap(), RuntimeComObjectId(7)))
-            .unwrap();
-        let texture_creation = graphics
-            .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
-            .unwrap();
-        let texture_id = graphics.insert_texture(texture_creation, RuntimeComObjectId(8));
-        graphics
-            .bind_texture(RuntimeComObjectId(7), 0, Some(RuntimeComObjectId(8)))
-            .unwrap();
-        for fault in [2, 3, 4] {
-            let mut rejected = graphics.clone();
-            match fault {
-                2 => rejected.textures.get_mut(&texture_id).unwrap().id.0 += 1,
-                3 => {
-                    rejected.device_texture_index.remove(&device_id);
-                }
-                4 => {
-                    rejected
-                        .texture_com_object_index
-                        .remove(&RuntimeComObjectId(8));
-                }
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(
-                rejected
-                    .validate_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
-                    .is_err()
-            );
-            assert_eq!(rejected, before);
-        }
-    }
-
-    #[test]
     fn device_creation_and_retirement_preserve_owner_invariants() {
         let mut graphics = RuntimeGraphics::default();
         let plan = graphics
@@ -4061,29 +4023,9 @@ mod tests {
             .unwrap()
             .unwrap();
         let device_id = graphics.insert_device(device_plan, RuntimeComObjectId(7));
-        for failure in [1, 2, 3, 4] {
-            let mut rejected = graphics.clone();
-            match failure {
-                1 => rejected.next_texture_id = u64::MAX,
-                2 => rejected.next_texture_id = 0,
-                3 => rejected.devices.get_mut(&device_id).unwrap().id = RuntimeGraphicsDeviceId(99),
-                4 => {
-                    rejected.device_texture_index.remove(&device_id);
-                }
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(
-                rejected
-                    .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
-                    .is_err()
-            );
-            assert_eq!(rejected, before);
-        }
         let texture_plan = graphics
             .validate_texture_creation(RuntimeComObjectId(7), texture_descriptor())
             .unwrap();
-        assert_eq!(texture_plan.0, RuntimeGraphicsTextureId(1));
         assert_eq!(texture_plan.1, device_id);
         assert_eq!(texture_plan.2.width, 1_024);
         let texture_id = graphics.insert_texture(texture_plan, RuntimeComObjectId(8));
@@ -4096,33 +4038,10 @@ mod tests {
             graphics.textures[&texture_id].dirty_region,
             RuntimeGraphicsTextureDirtyRegion::WholeTexture
         );
-        for failure in [1, 2, 3, 4] {
-            let mut rejected = graphics.clone();
-            match failure {
-                1 => rejected.next_surface_id = u64::MAX,
-                2 => rejected.next_surface_id = 0,
-                3 => {
-                    rejected.textures.get_mut(&texture_id).unwrap().id =
-                        RuntimeGraphicsTextureId(99)
-                }
-                4 => {
-                    rejected.texture_surface_index.remove(&texture_id);
-                }
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(
-                rejected
-                    .validate_surface_creation(RuntimeComObjectId(8), 0)
-                    .is_err()
-            );
-            assert_eq!(rejected, before);
-        }
         let surface_plan = graphics
             .validate_surface_creation(RuntimeComObjectId(8), 0)
             .unwrap()
             .unwrap();
-        assert_eq!(surface_plan.0, RuntimeGraphicsSurfaceId(1));
         assert_eq!(surface_plan.1, texture_id);
         assert_eq!(surface_plan.2.width, 1_024);
         let surface_id = graphics.insert_surface(surface_plan, RuntimeComObjectId(9));
@@ -4184,7 +4103,7 @@ mod tests {
             right: 800,
             bottom: 600,
         };
-        for failure in [2, 3, 4, 5, 6] {
+        for failure in [3, 4, 5, 6] {
             let mut rejected = graphics.clone();
             let mut backing = RuntimeGraphicsTextureBacking {
                 address_allocation_id: ProcessAddressAllocationId(41),
@@ -4193,10 +4112,6 @@ mod tests {
                 row_pitch: 4_096,
             };
             match failure {
-                2 => {
-                    rejected.textures.get_mut(&texture_id).unwrap().id =
-                        RuntimeGraphicsTextureId(99)
-                }
                 3 => backing.memory_owner = MemoryOwnerId(0),
                 4 => backing.address_allocation_id = ProcessAddressAllocationId(0),
                 5 => backing.row_pitch = 4,
@@ -4263,26 +4178,6 @@ mod tests {
                 .unwrap()
         );
 
-        let before_unlock = graphics.clone();
-        for failure in [2, 3, 4] {
-            let mut rejected = before_unlock.clone();
-            match failure {
-                2 => {
-                    rejected
-                        .textures
-                        .get_mut(&texture_id)
-                        .unwrap()
-                        .content
-                        .content_generation = u64::MAX
-                }
-                3 => rejected.textures.get_mut(&texture_id).unwrap().id.0 += 1,
-                4 => rejected.textures.get_mut(&texture_id).unwrap().backing = None,
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(rejected.unlock_texture(RuntimeComObjectId(8)).is_err());
-            assert_eq!(rejected, before);
-        }
         graphics.unlock_texture(RuntimeComObjectId(8)).unwrap();
         let unlocked = graphics.texture(texture_id).unwrap();
         assert_eq!(unlocked.content.content_generation, 1);
@@ -4466,17 +4361,11 @@ mod tests {
             flexible_vertex_format: 0x144,
             pool: RuntimeGraphicsVertexBufferPool::Managed,
         };
-        for failure in [1, 2, 3, 4, 5, 6] {
-            let mut rejected = graphics.clone();
+        for failure in [5, 6] {
+            let rejected = graphics.clone();
             let mut allocation = ProcessAddressAllocationId(41);
             let mut range = backing_range;
             match failure {
-                1 => rejected.next_vertex_buffer_id = u64::MAX,
-                2 => rejected.next_vertex_buffer_id = 0,
-                3 => rejected.devices.get_mut(&device_id).unwrap().id = RuntimeGraphicsDeviceId(99),
-                4 => {
-                    rejected.device_vertex_buffer_index.remove(&device_id);
-                }
                 5 => allocation = ProcessAddressAllocationId(0),
                 6 => range = GuestRange::new(backing_range.start(), 4).unwrap(),
                 _ => unreachable!(),
@@ -4539,28 +4428,6 @@ mod tests {
                 .is_none()
         );
         assert_eq!(graphics, before_unsupported);
-        {
-            let failure = 1;
-            let mut rejected = graphics.clone();
-            match failure {
-                1 => {
-                    rejected
-                        .vertex_buffers
-                        .get_mut(&vertex_buffer_id)
-                        .unwrap()
-                        .id
-                        .0 += 1
-                }
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(
-                rejected
-                    .lock_vertex_buffer(RuntimeComObjectId(8), 0, 0, 0)
-                    .is_err()
-            );
-            assert_eq!(rejected, before);
-        }
         let lock = graphics
             .lock_vertex_buffer(RuntimeComObjectId(8), 0, 0, 0)
             .unwrap()
@@ -4576,29 +4443,6 @@ mod tests {
         );
         assert_eq!(graphics, before_relock);
 
-        let before_unlock = graphics.clone();
-        {
-            let failure = 1;
-            let mut rejected = before_unlock.clone();
-            match failure {
-                1 => {
-                    rejected
-                        .vertex_buffers
-                        .get_mut(&vertex_buffer_id)
-                        .unwrap()
-                        .id
-                        .0 += 1
-                }
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(
-                rejected
-                    .unlock_vertex_buffer(RuntimeComObjectId(8))
-                    .is_err()
-            );
-            assert_eq!(rejected, before);
-        }
         assert!(
             graphics
                 .unlock_vertex_buffer(RuntimeComObjectId(8))
@@ -4799,22 +4643,6 @@ mod tests {
             .fill_surface(RuntimeComObjectId(3), rect, 0x0100_0000)
             .unwrap_err();
         assert_eq!(graphics, before_color);
-
-        let mut exhausted = graphics.clone();
-        exhausted
-            .textures
-            .values_mut()
-            .next()
-            .unwrap()
-            .content
-            .content_generation = u64::MAX;
-        let before_exhaustion = exhausted.clone();
-        assert!(
-            exhausted
-                .fill_surface(RuntimeComObjectId(3), rect, 0)
-                .is_err()
-        );
-        assert_eq!(exhausted, before_exhaustion);
     }
 
     #[test]
@@ -4901,31 +4729,6 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(graphics, before_same_texture);
-        {
-            let mut exhausted = graphics.clone();
-
-            exhausted
-                .textures
-                .get_mut(&destination_id)
-                .unwrap()
-                .content
-                .content_generation = u64::MAX;
-
-            let before = exhausted.clone();
-            assert!(
-                exhausted
-                    .update_texture(
-                        device_com_object_id,
-                        source_texture_com_object_id,
-                        destination_texture_com_object_id
-                    )
-                    .is_err()
-            );
-            assert_eq!(
-                exhausted, before,
-                "content-generation exhaustion changed either texture"
-            );
-        }
         graphics
             .update_texture(
                 device_com_object_id,

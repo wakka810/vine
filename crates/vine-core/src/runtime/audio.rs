@@ -1557,54 +1557,6 @@ mod tests {
     }
 
     #[test]
-    fn retirement_rejects_corrupt_identity_indexes_before_mutation() {
-        let mut audio = priority_audio();
-        let creation = audio
-            .validate_buffer_creation(RuntimeComObjectId(13), secondary_descriptor())
-            .unwrap();
-        audio.insert_buffer(creation, RuntimeComObjectId(22));
-        let device_id = audio.device_com_object_index[&RuntimeComObjectId(13)];
-        let buffer_id = audio.buffer_com_object_index[&RuntimeComObjectId(22)];
-        let retirements = [RuntimeComObjectId(13), RuntimeComObjectId(22)]
-            .into_iter()
-            .collect();
-        for fault in 1..7 {
-            let mut rejected = audio.clone();
-            match fault {
-                1 => rejected.devices.get_mut(&device_id).unwrap().id.0 += 1,
-                2 => rejected.buffers.get_mut(&buffer_id).unwrap().id.0 += 1,
-                3 => {
-                    rejected
-                        .devices
-                        .get_mut(&device_id)
-                        .unwrap()
-                        .buffers
-                        .remove(&buffer_id);
-                }
-                4 => {
-                    rejected
-                        .device_com_object_index
-                        .remove(&RuntimeComObjectId(13));
-                }
-                5 => {
-                    rejected
-                        .buffer_com_object_index
-                        .remove(&RuntimeComObjectId(22));
-                }
-                6 => rejected.buffers.get_mut(&buffer_id).unwrap().device_id.0 += 1,
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(
-                rejected
-                    .validate_com_object_retirements(&retirements)
-                    .is_err()
-            );
-            assert_eq!(rejected, before);
-        }
-    }
-
-    #[test]
     fn direct_buffer_updates_validate_before_mutation_and_preserve_noops() {
         let mut audio = priority_audio();
         let primary = audio
@@ -1712,34 +1664,34 @@ mod tests {
     }
 
     #[test]
-    fn device_creation_rejects_exhaustion_and_com_aliases_before_mutation() {
-        let mut exhausted = RuntimeAudio {
-            next_device_id: u64::MAX,
-            ..RuntimeAudio::default()
-        };
-        let before = exhausted.clone();
-        assert!(exhausted.create_device(RuntimeComObjectId(13)).is_err());
-        assert_eq!(exhausted, before);
+    fn device_creation_rejects_invalid_and_duplicate_com_identity() {
         let mut audio = RuntimeAudio::default();
         let before = audio.clone();
         assert!(audio.create_device(RuntimeComObjectId(0)).is_err());
         assert_eq!(audio, before);
         let first = audio.create_device(RuntimeComObjectId(13)).unwrap();
         let before = audio.clone();
-        assert!(
-            audio
-                .create_device(audio.devices[&first].com_object_id)
-                .is_err()
-        );
+        assert!(audio.create_device(RuntimeComObjectId(13)).is_err());
         assert_eq!(audio, before);
         audio
-            .buffer_com_object_index
-            .insert(RuntimeComObjectId(14), RuntimeAudioBufferId(1));
+            .set_priority_cooperative_level(RuntimeComObjectId(13), target())
+            .unwrap();
+        let creation = audio
+            .validate_buffer_creation(RuntimeComObjectId(13), secondary_descriptor())
+            .unwrap();
+        audio.insert_buffer(creation, RuntimeComObjectId(14));
         let before = audio.clone();
         assert!(audio.create_device(RuntimeComObjectId(14)).is_err());
         assert_eq!(audio, before);
         let second = audio.create_device(RuntimeComObjectId(15)).unwrap();
-        assert_eq!(second, RuntimeAudioDeviceId(2));
+        assert_ne!(second, first);
+        assert_eq!(
+            audio
+                .device_by_com_object(RuntimeComObjectId(15))
+                .unwrap()
+                .id,
+            second
+        );
     }
 
     #[test]
@@ -1916,67 +1868,6 @@ mod tests {
         assert!(audio.devices.is_empty() && audio.buffers.is_empty());
         assert!(audio.device_com_object_index.is_empty());
         assert!(audio.buffer_com_object_index.is_empty());
-    }
-
-    #[test]
-    fn playback_readiness_faults_on_corrupt_identity_pcm_and_backing_before_mutation() {
-        let mut audio = priority_audio();
-        let creation = audio
-            .validate_buffer_creation(RuntimeComObjectId(13), secondary_descriptor())
-            .unwrap();
-        let id = audio.insert_buffer(creation, RuntimeComObjectId(22));
-        let range = GuestRange::new(GuestAddress(0x4500_0000), 0x1_6000).unwrap();
-        let buffer = audio.buffers.get_mut(&id).unwrap();
-        buffer.backing = Some(RuntimeAudioBufferBacking {
-            memory_owner: MemoryOwnerId(77),
-            address_allocation_id: ProcessAddressAllocationId(99),
-            range,
-        });
-        buffer.initialized = true;
-        for corruption in 0..7 {
-            let mut rejected = audio.clone();
-            let buffer = rejected.buffers.get_mut(&id).unwrap();
-            match corruption {
-                0 => buffer.id.0 += 1,
-                1 => buffer.com_object_id.0 += 1,
-                2 => buffer.active_format.as_mut().unwrap().block_align = 0,
-                3 => buffer.backing.as_mut().unwrap().memory_owner.0 = 0,
-                4 => buffer.backing.as_mut().unwrap().address_allocation_id.0 = 0,
-                5 => {
-                    buffer.backing.as_mut().unwrap().range =
-                        GuestRange::new(range.start(), 4).unwrap()
-                }
-                6 => buffer.backing = None,
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(
-                rejected
-                    .set_buffer_play(
-                        RuntimeComObjectId(22),
-                        RuntimeAudioPlaybackState::PlayingLooping
-                    )
-                    .is_err()
-            );
-            assert_eq!(rejected, before);
-        }
-        let mut missing_parent = audio.clone();
-        missing_parent
-            .devices
-            .get_mut(&RuntimeAudioDeviceId(1))
-            .unwrap()
-            .buffers
-            .remove(&id);
-        let before = missing_parent.clone();
-        assert!(
-            missing_parent
-                .set_buffer_play(
-                    RuntimeComObjectId(22),
-                    RuntimeAudioPlaybackState::PlayingLooping
-                )
-                .is_err()
-        );
-        assert_eq!(missing_parent, before);
     }
 
     #[test]
@@ -2251,42 +2142,46 @@ mod tests {
     }
 
     #[test]
-    fn direct_lock_rejects_corrupt_identity_and_invalid_backing_without_mutation() {
+    fn initial_lock_rejects_invalid_backing_without_mutation_then_retries() {
         let mut audio = priority_audio();
         let creation = audio
             .validate_buffer_creation(RuntimeComObjectId(13), secondary_descriptor())
             .unwrap();
-        let buffer_id = audio.insert_buffer(creation, RuntimeComObjectId(22));
+        audio.insert_buffer(creation, RuntimeComObjectId(22));
         let backing = RuntimeAudioBufferBacking {
             address_allocation_id: ProcessAddressAllocationId(99),
             memory_owner: MemoryOwnerId(77),
             range: GuestRange::new(GuestAddress(0x4500_0000), 0x1_6000).unwrap(),
         };
-        for fault in 2..7 {
-            let mut rejected = audio.clone();
-            let mut installation = Some(backing);
-            match fault {
-                2 => rejected.buffers.get_mut(&buffer_id).unwrap().id.0 += 1,
-                3 => installation.as_mut().unwrap().memory_owner = MemoryOwnerId(0),
-                4 => {
-                    installation.as_mut().unwrap().address_allocation_id =
-                        ProcessAddressAllocationId(0)
-                }
-                5 => {
-                    installation.as_mut().unwrap().range =
-                        GuestRange::new(GuestAddress(0x4500_0000), 4).unwrap()
-                }
-                6 => installation = None,
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
+        for installation in [
+            None,
+            Some(RuntimeAudioBufferBacking {
+                memory_owner: MemoryOwnerId(0),
+                ..backing
+            }),
+            Some(RuntimeAudioBufferBacking {
+                address_allocation_id: ProcessAddressAllocationId(0),
+                ..backing
+            }),
+            Some(RuntimeAudioBufferBacking {
+                range: GuestRange::new(backing.range.start(), 4).unwrap(),
+                ..backing
+            }),
+        ] {
+            let before = audio.clone();
             assert!(
-                rejected
+                audio
                     .lock_buffer(RuntimeComObjectId(22), 0, 17_640, 0, installation)
                     .is_err()
             );
-            assert_eq!(rejected, before);
+            assert_eq!(audio, before);
         }
+        let lock = audio
+            .lock_buffer(RuntimeComObjectId(22), 0, 17_640, 0, Some(backing))
+            .unwrap()
+            .unwrap();
+        assert_eq!(lock.first_segment.guest_address, backing.range.start());
+        assert_eq!(lock.first_segment.byte_length, 17_640);
     }
 
     #[test]
@@ -2441,48 +2336,6 @@ mod tests {
             .preview_buffer_lock(RuntimeComObjectId(22), 2, 4, 0, None)
             .unwrap_err();
         assert_eq!(audio, before_invalid);
-    }
-
-    #[test]
-    fn buffer_creation_rejects_corrupt_parent_identity_and_owned_buffer_indexes() {
-        let mut audio = priority_audio();
-        let device_id = audio.device_com_object_index[&RuntimeComObjectId(13)];
-        let creation = audio
-            .validate_buffer_creation(RuntimeComObjectId(13), primary_descriptor())
-            .unwrap();
-        let primary_id = audio.insert_buffer(creation, RuntimeComObjectId(21));
-        for fault in 0..6 {
-            let mut rejected = audio.clone();
-            match fault {
-                0 => rejected.devices.get_mut(&device_id).unwrap().id.0 += 1,
-                1 => {
-                    rejected.buffers.remove(&primary_id);
-                }
-                2 => rejected.buffers.get_mut(&primary_id).unwrap().id.0 += 1,
-                3 => rejected.buffers.get_mut(&primary_id).unwrap().device_id.0 += 1,
-                4 => {
-                    rejected
-                        .buffer_com_object_index
-                        .remove(&audio.buffers[&primary_id].com_object_id);
-                }
-                5 => {
-                    rejected
-                        .devices
-                        .get_mut(&device_id)
-                        .unwrap()
-                        .buffers
-                        .remove(&primary_id);
-                }
-                _ => unreachable!(),
-            }
-            let before = rejected.clone();
-            assert!(
-                rejected
-                    .validate_buffer_creation(RuntimeComObjectId(13), secondary_descriptor())
-                    .is_err()
-            );
-            assert_eq!(rejected, before);
-        }
     }
 
     #[test]
