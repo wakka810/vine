@@ -94,6 +94,50 @@ fn reconciles_binary_multi_page_cpu_writeback_into_rust_authority() {
 }
 
 #[test]
+fn binary_cpu_writeback_compares_every_byte_of_unaligned_payloads() {
+    let (mut memory, reflection, owners) = reflected_fixture();
+    let page_size = GUEST_PAGE_SIZE as usize;
+    let mut generation = reflection.invalidation.generation;
+    let mut expected = vec![0; page_size];
+    let mut payload = vec![0; page_size + 7];
+    let mut buffers = CpuWritebackBatch {
+        base_generation: generation,
+        pages: vec![CpuWritebackPage {
+            address: STACK_BASE,
+            owner: owners.stack,
+            bytes: expected.clone(),
+        }],
+    }
+    .encode_binary()
+    .unwrap();
+
+    for (byte, offset) in (0..page_size)
+        .map(|byte| (byte, byte % 8))
+        .chain((0..8).map(|offset| (page_size - 1, offset)))
+    {
+        expected[byte] ^= 0x80;
+        payload[offset..offset + page_size].copy_from_slice(&expected);
+        let input = &payload[offset..offset + page_size];
+        buffers.control[12..20].copy_from_slice(&generation.to_le_bytes());
+        let receipt = memory
+            .reconcile_cpu_writeback_binary(&buffers.control, input)
+            .unwrap();
+        assert_eq!(receipt, generation + 1, "byte {byte}, offset {offset}");
+        generation = receipt;
+        assert_eq!(memory.read(STACK_BASE, page_size).unwrap(), expected);
+
+        buffers.control[12..20].copy_from_slice(&generation.to_le_bytes());
+        assert_eq!(
+            memory
+                .reconcile_cpu_writeback_binary(&buffers.control, input)
+                .unwrap(),
+            generation,
+            "identical byte {byte}, offset {offset}"
+        );
+    }
+}
+
+#[test]
 fn reconciles_large_binary_page_batch_without_losing_atomicity() {
     const BASE: GuestAddress = GuestAddress(0x6000_0000);
     const PAGE_COUNT: usize = 32;

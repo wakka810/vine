@@ -471,6 +471,17 @@ struct CpuWritebackBatchView<'a> {
     pages: Vec<CpuWritebackPageView<'a>>,
 }
 
+fn cpu_writeback_pages_equal(
+    left: &[u8; GUEST_PAGE_SIZE_USIZE],
+    right: &[u8; GUEST_PAGE_SIZE_USIZE],
+) -> bool {
+    left.as_chunks::<8>()
+        .0
+        .iter()
+        .zip(right.as_chunks::<8>().0)
+        .all(|(left, right)| u64::from_ne_bytes(*left) == u64::from_ne_bytes(*right))
+}
+
 #[cfg(test)]
 impl CpuWritebackBatch {
     pub fn encode_binary(&self) -> Result<CpuWritebackBuffers, GuestMemoryError> {
@@ -2456,11 +2467,11 @@ impl GuestMemory {
                     "CPU writeback page address must be guest-page aligned",
                 ));
             }
-            if writeback.bytes.len() != GUEST_PAGE_SIZE_USIZE {
-                return Err(GuestMemoryError::invalid_request(
+            let bytes: &[u8; GUEST_PAGE_SIZE_USIZE] = writeback.bytes.try_into().map_err(|_| {
+                GuestMemoryError::invalid_request(
                     "CPU writeback must provide exactly one page per dirty-page descriptor",
-                ));
-            }
+                )
+            })?;
             let page = self.preflight_cpu_writeback_page(writeback.address)?;
             if page.owner != writeback.owner {
                 return Err(GuestMemoryError::conflict(
@@ -2472,7 +2483,7 @@ impl GuestMemory {
                     "a synchronized CPU writeback page retained host dirty state",
                 ));
             }
-            if self.frames.bytes(page.frame)?.as_slice() != writeback.bytes {
+            if !cpu_writeback_pages_equal(self.frames.bytes(page.frame)?, bytes) {
                 if let Some(changed) = &mut heap_changed {
                     changed.push((index, page.frame));
                 } else {
