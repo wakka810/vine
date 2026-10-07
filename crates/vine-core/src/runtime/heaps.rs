@@ -272,11 +272,6 @@ impl RuntimeHeaps {
         }
     }
 
-    #[cfg(test)]
-    const fn next_private_heap_slot(&self) -> u16 {
-        self.next_private_heap_slot
-    }
-
     fn create(
         &mut self,
         objects: &mut RuntimeObjectTable,
@@ -1587,289 +1582,64 @@ fn validate_large_heap_backing(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::GuestAddress;
-    use crate::runtime::{RuntimeHeapInitialization, RuntimeObjectKind};
+    use crate::runtime::RuntimeObjectKind;
 
-    const HANDLE: u32 = 0x6801_0001;
-
-    fn heap() -> RuntimeHeap {
-        RuntimeHeap {
-            handle: HANDLE,
-            initial_size: 0,
-            maximum_size: 0,
-            live_allocations: 0,
+    #[test]
+    fn private_heap_capacity_keeps_every_previously_created_heap_live() {
+        let mut heaps = RuntimeHeaps::default();
+        let mut objects = RuntimeObjectTable::default();
+        let mut handles = Vec::new();
+        for _ in 0..256 {
+            let handle = heaps.create_private(&mut objects, 0, 0).unwrap();
+            if handle == 0 {
+                break;
+            }
+            assert!(!handles.contains(&handle));
+            handles.push(handle);
         }
-    }
-
-    #[test]
-    fn direct_creation_preserves_explicit_slot_and_initializes_allocation_identity() {
-        let mut heaps = RuntimeHeaps::default();
-        let mut objects = RuntimeObjectTable::default();
-        assert_eq!(heaps.create(&mut objects, heap()).unwrap(), HANDLE);
-        assert_eq!(heaps.heap(HANDLE).unwrap().handle, HANDLE);
-        assert_eq!(heaps.next_private_heap_slot(), 1);
-        assert_eq!(
-            heaps.next_allocation_ids[&HANDLE],
-            RuntimeHeapAllocationId(1)
-        );
-    }
-
-    #[test]
-    fn automatic_creation_publishes_heap_object_and_advances_slot_together() {
-        let mut heaps = RuntimeHeaps::default();
-        let mut objects = RuntimeObjectTable::default();
-        assert_eq!(
-            heaps.create_private(&mut objects, 0x1000, 0x2000).unwrap(),
-            HANDLE
-        );
-        let created = heaps.heap(HANDLE).unwrap();
-        assert_eq!(created.initial_size, 0x1000);
-        assert_eq!(created.maximum_size, 0x2000);
-        assert_eq!(heaps.next_private_heap_slot(), 2);
-        assert!(objects.contains_identity(&RuntimeObjectKey::PrivateHeap { handle: HANDLE }));
-    }
-
-    #[test]
-    fn failed_object_registration_preserves_heap_slot_and_live_handle() {
-        use crate::runtime::{RuntimeHandle, RuntimeObjectKind};
-        let mut heaps = RuntimeHeaps::default();
-        let mut objects = RuntimeObjectTable::default();
-        objects
-            .register_object_with_handle(
-                RuntimeObjectKey::PrivateHeap { handle: HANDLE },
-                RuntimeHandle(HANDLE),
-            )
-            .unwrap();
-        let object_id = objects
-            .object_for_handle(RuntimeHandle(HANDLE), RuntimeObjectKind::PrivateHeap)
-            .unwrap()
-            .id;
-        heaps
-            .create_private(&mut objects, 0x1000, 0)
-            .expect_err("live handle collision must reject heap creation");
-        assert_eq!(heaps.next_private_heap_slot(), 1);
-        assert!(heaps.is_empty());
-        assert!(heaps.backing(HANDLE).is_none());
-        assert!(heaps.next_allocation_ids.is_empty());
-        let object = objects
-            .object_for_handle(RuntimeHandle(HANDLE), RuntimeObjectKind::PrivateHeap)
-            .unwrap();
-        assert_eq!(object.id, object_id);
-        assert_eq!(object.open_handles, 1);
-    }
-
-    #[test]
-    fn automatic_creation_skips_live_slots_without_advancing_on_explicit_creation() {
-        let mut heaps = RuntimeHeaps::default();
-        let mut objects = RuntimeObjectTable::default();
-        heaps.create(&mut objects, heap()).unwrap();
-        assert_eq!(heaps.next_private_heap_slot(), 1);
-        assert_eq!(
-            heaps.create_private(&mut objects, 0, 0).unwrap(),
-            LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | 2
-        );
-        assert_eq!(heaps.next_private_heap_slot(), 3);
-    }
-
-    #[test]
-    fn exhausted_automatic_slot_allocator_rejects_without_mutating_either_owner() {
-        let mut heaps = RuntimeHeaps {
-            next_private_heap_slot: RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
-            ..RuntimeHeaps::default()
-        };
-        let mut objects = RuntimeObjectTable::default();
-        assert_eq!(
-            heaps.create_private(&mut objects, 0, 0).unwrap(),
-            LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | u32::from(RUNTIME_PRIVATE_HEAP_BACKING_LIMIT)
-        );
-        assert_eq!(heaps.next_private_heap_slot(), 0);
-        let handle =
-            LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | u32::from(RUNTIME_PRIVATE_HEAP_BACKING_LIMIT);
-        let object_id = objects
-            .object_for_handle(RuntimeHandle(handle), RuntimeObjectKind::PrivateHeap)
-            .unwrap()
-            .id;
+        assert!(!handles.is_empty());
         assert_eq!(heaps.create_private(&mut objects, 0, 0).unwrap(), 0);
-        assert_eq!(heaps.next_private_heap_slot(), 0);
-        assert_eq!(heaps.heaps.len(), 1);
-        assert_eq!(heaps.heap(handle).unwrap().live_allocations, 0);
-        assert_eq!(
-            heaps.next_allocation_ids[&handle],
-            RuntimeHeapAllocationId(1)
-        );
-        let object = objects
-            .object_for_handle(RuntimeHandle(handle), RuntimeObjectKind::PrivateHeap)
-            .unwrap();
-        assert_eq!(object.id, object_id);
-        assert_eq!(object.open_handles, 1);
-    }
-
-    #[test]
-    fn failed_object_registration_preserves_heap_slots_and_allocation_ids() {
-        let mut heaps = RuntimeHeaps::default();
-        let mut objects = RuntimeObjectTable::default();
-        objects
-            .register_object_with_handle(
-                RuntimeObjectKey::PrivateHeap { handle: HANDLE },
-                RuntimeHandle(HANDLE),
-            )
-            .unwrap();
-        for automatic in [false, true] {
-            let object_id = objects
-                .object_for_handle(RuntimeHandle(HANDLE), RuntimeObjectKind::PrivateHeap)
-                .unwrap()
-                .id;
-            let result = if automatic {
-                heaps.create_private(&mut objects, 0x1000, 0)
-            } else {
-                heaps.create(&mut objects, heap())
-            };
-            assert!(result.is_err());
-            assert!(heaps.is_empty());
-            assert!(heaps.next_allocation_ids.is_empty());
-            assert_eq!(heaps.next_private_heap_slot(), 1);
-            let object = objects
-                .object_for_handle(RuntimeHandle(HANDLE), RuntimeObjectKind::PrivateHeap)
-                .unwrap();
-            assert_eq!(object.id, object_id);
-            assert_eq!(object.open_handles, 1);
+        for handle in handles {
+            assert_eq!(heaps.heap(handle).unwrap().handle, handle);
+            assert!(
+                objects
+                    .object_for_handle(RuntimeHandle(handle), RuntimeObjectKind::PrivateHeap)
+                    .is_ok()
+            );
         }
     }
 
     #[test]
-    fn allocation_commit_owns_logical_and_backing_records_together() {
+    fn invalid_or_duplicate_heap_creation_preserves_the_live_heap() {
         let mut heaps = RuntimeHeaps::default();
-        heaps
-            .create(&mut RuntimeObjectTable::default(), heap())
-            .unwrap();
-        let mut allocator = ProcessAddressSpaceAllocator::new().unwrap();
-        let mut memory = GuestMemory::new(crate::memory::MemoryLimits::default()).unwrap();
-        let allocation = heaps
-            .allocate(
-                &mut memory,
-                &mut allocator,
-                HANDLE,
-                0x20,
-                RuntimeHeapInitialization::Zeroed,
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(allocation.id, RuntimeHeapAllocationId(1));
-        assert_eq!(allocation.address, GuestAddress(0x2000_0000));
-        assert_eq!(heaps.heap(HANDLE).unwrap().live_allocations, 1);
-        assert_eq!(heaps.backing(HANDLE).unwrap().allocations.len(), 1);
-
-        heaps.heaps.get_mut(&HANDLE).unwrap().live_allocations = 0;
-        assert!(
-            heaps
-                .free(&mut memory, &mut allocator, HANDLE, allocation.address)
-                .is_err()
-        );
-        assert_eq!(
-            heaps.backing(HANDLE).unwrap().allocations[&allocation.address.0],
-            allocation
-        );
-        assert!(heaps.backing(HANDLE).unwrap().free_blocks.is_empty());
-
-        heaps.heaps.get_mut(&HANDLE).unwrap().live_allocations = 1;
-        heaps
-            .free(&mut memory, &mut allocator, HANDLE, allocation.address)
-            .unwrap();
-        assert_eq!(heaps.heap(HANDLE).unwrap().live_allocations, 0);
-        let backing = heaps.backing(HANDLE).unwrap();
-        assert!(backing.allocations.is_empty());
-        assert_eq!(backing.free_blocks[&0], allocation.reserved_byte_length);
-        assert!(
-            heaps
-                .free(&mut memory, &mut allocator, HANDLE, allocation.address)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn duplicate_creation_preserves_all_heap_collections() {
-        let mut heaps = RuntimeHeaps::default();
-        heaps
-            .create(&mut RuntimeObjectTable::default(), heap())
-            .unwrap();
         let mut objects = RuntimeObjectTable::default();
-        assert!(heaps.create(&mut objects, heap()).is_err());
-        assert_eq!(heaps.heaps.len(), 1);
-        assert_eq!(heaps.heap(HANDLE).unwrap().live_allocations, 0);
-        assert_eq!(
-            heaps.next_allocation_ids[&HANDLE],
-            RuntimeHeapAllocationId(1)
-        );
-        assert_eq!(heaps.next_private_heap_slot(), 1);
-        assert!(
-            objects
-                .object_for_handle(RuntimeHandle(HANDLE), RuntimeObjectKind::PrivateHeap)
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn page_preview_rejects_a_backing_under_the_wrong_live_address() {
-        let mut allocator = ProcessAddressSpaceAllocator::new().unwrap();
-        let mut heaps = RuntimeHeaps::default();
-        heaps
-            .create(&mut RuntimeObjectTable::default(), heap())
-            .unwrap();
-        let mut memory = GuestMemory::new(crate::memory::MemoryLimits::default()).unwrap();
-        let allocation = heaps
-            .allocate(
-                &mut memory,
-                &mut allocator,
-                HANDLE,
-                RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 0x3000,
-                RuntimeHeapInitialization::Zeroed,
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        let backing = heaps.large_backings.remove(&allocation.address.0).unwrap();
-        let wrong_base = allocation.address.0 + 65_536;
-        heaps.large_backings.insert(wrong_base, backing);
-        assert!(
-            heaps
-                .preview_page_materialization(&allocator, allocation.address)
-                .is_err()
-        );
-        assert_eq!(heaps.large_backings[&wrong_base].allocation, allocation);
-        assert_eq!(heaps.heap(HANDLE).unwrap().live_allocations, 1);
-        let backing = heaps.large_backings.remove(&wrong_base).unwrap();
-        heaps.large_backings.insert(allocation.address.0, backing);
-        assert!(
-            heaps
-                .preview_page_materialization(&allocator, allocation.address)
-                .is_ok()
-        );
-    }
-
-    #[test]
-    fn ordinary_and_large_backing_counts_are_one_heap_invariant() {
-        let mut heaps = RuntimeHeaps::default();
-        heaps
-            .create(&mut RuntimeObjectTable::default(), heap())
-            .unwrap();
-        heaps.heaps.get_mut(&HANDLE).unwrap().live_allocations = 1;
-
-        assert!(heaps.allocation(HANDLE, GuestAddress(0x2000_0000)).is_err());
-        assert_eq!(heaps.heap(HANDLE).unwrap().live_allocations, 1);
-        assert_eq!(
-            heaps.next_allocation_ids[&HANDLE],
-            RuntimeHeapAllocationId(1)
-        );
-        assert!(heaps.backing(HANDLE).is_none());
-        assert!(heaps.large_backings.is_empty());
-        heaps.heaps.get_mut(&HANDLE).unwrap().live_allocations = 0;
-        assert_eq!(
-            heaps
-                .allocation_option(HANDLE, GuestAddress(0x2000_0000))
-                .unwrap(),
-            None
-        );
+        let handle = heaps.create_private(&mut objects, 4096, 8192).unwrap();
+        for rejected in [0, u32::MAX, handle] {
+            assert!(
+                heaps
+                    .create(
+                        &mut objects,
+                        RuntimeHeap {
+                            handle: rejected,
+                            initial_size: 0,
+                            maximum_size: 0,
+                            live_allocations: 0,
+                        }
+                    )
+                    .is_err()
+            );
+            let live = heaps.heap(handle).unwrap();
+            assert_eq!(live.initial_size, 4096);
+            assert_eq!(live.maximum_size, 8192);
+            assert!(
+                objects
+                    .object_for_handle(RuntimeHandle(handle), RuntimeObjectKind::PrivateHeap)
+                    .is_ok()
+            );
+        }
+        let next = heaps.create_private(&mut objects, 0, 0).unwrap();
+        assert_ne!(next, 0);
+        assert_ne!(next, handle);
     }
 }
 

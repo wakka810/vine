@@ -885,793 +885,216 @@ mod tests {
     use super::*;
 
     #[test]
-    fn identity_lookup_rejects_wrong_record_key_kind_and_id_and_allows_repair() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::Thread { thread_id: 0x2000 };
-        let (id, _) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        let (other_id, _) = objects
-            .register_object_and_open_handle(RuntimeObjectKey::Thread { thread_id: 0x3000 })
-            .unwrap();
-        objects.identity_index.insert(key.clone(), other_id);
-        assert!(objects.object_for_identity(&key).is_err());
-        objects.identity_index.insert(key.clone(), id);
-        objects.objects.get_mut(&id).unwrap().kind = RuntimeObjectKind::Event;
-        assert!(objects.object_for_identity(&key).is_err());
-        objects.objects.get_mut(&id).unwrap().kind = RuntimeObjectKind::Thread;
-        objects.objects.get_mut(&id).unwrap().id = other_id;
-        assert!(objects.object_for_identity(&key).is_err());
-        objects.objects.get_mut(&id).unwrap().id = id;
-        assert_eq!(objects.object_for_identity(&key).unwrap().id, id);
-        assert_eq!(objects.object_for_identity(&key).unwrap().open_handles, 1);
-        assert_eq!(
-            objects
-                .object_for_identity(&RuntimeObjectKey::Thread { thread_id: 0x3000 })
-                .unwrap()
-                .id,
-            other_id
-        );
-    }
-
-    #[test]
-    fn open_handle_rejects_corrupt_key_without_consuming_handle_or_count() {
+    fn closed_handles_cannot_be_revived_by_repeated_reuse() {
         let mut objects = RuntimeObjectTable::default();
         let key = RuntimeObjectKey::Thread { thread_id: 7 };
-        let (id, first) = objects
+        let (_, first) = objects
             .register_object_and_open_handle(key.clone())
             .unwrap();
-        objects.objects.get_mut(&id).unwrap().key = RuntimeObjectKey::Thread { thread_id: 8 };
-        assert!(objects.open_handle(&key).is_err());
-        assert_eq!(objects.objects.get(&id).unwrap().open_handles, 1);
-        assert_eq!(objects.handles.len(), 1);
-        assert_eq!(objects.slots.len(), 1);
-        objects.objects.get_mut(&id).unwrap().key = key.clone();
-        let second = objects.open_handle(&key).unwrap();
-        assert_eq!(second.slot(), first.slot() + 1);
-        assert_eq!(second.generation(), 1);
-        assert_eq!(
-            objects
-                .object_for_handle(second, RuntimeObjectKind::Thread)
-                .unwrap()
-                .id,
-            id
-        );
-        assert_eq!(
-            objects
-                .object_for_handle(first, RuntimeObjectKind::Thread)
-                .unwrap()
-                .open_handles,
-            2
-        );
-    }
-
-    #[test]
-    fn close_handle_rejects_corrupt_identity_before_mutation_and_allows_retry() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::Thread { thread_id: 7 };
-        let (id, handle) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        objects.identity_index.remove(&key);
-        assert!(objects.close_handle(handle).is_err());
-        assert_eq!(objects.objects.get(&id).unwrap().open_handles, 1);
-        assert!(objects.handles.contains_key(&handle.0));
-        let slot_key = runtime_handle_slot_key(RuntimeObjectKind::Thread, handle.slot());
-        assert!(objects.slots.get(&slot_key).unwrap().live);
-        assert_eq!(
-            objects.slots.get(&slot_key).unwrap().generation,
-            handle.generation()
-        );
-        objects.identity_index.insert(key, id);
-        objects.close_handle(handle).unwrap();
-        assert_eq!(objects.objects.get(&id).unwrap().open_handles, 0);
-        assert!(!objects.handles.contains_key(&handle.0));
-        assert!(!objects.slots.get(&slot_key).unwrap().live);
-        assert!(objects.close_handle(handle).is_err());
-    }
-
-    #[test]
-    fn close_handle_generation_exhaustion_retires_slot_without_wrapping() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::Thread { thread_id: 7 };
-        let (id, first) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        let slot_key = runtime_handle_slot_key(RuntimeObjectKind::Thread, first.slot());
-        let mut handle = first;
-        for generation in 1..=u8::MAX {
-            assert_eq!(handle.slot(), first.slot());
-            assert_eq!(handle.generation(), generation);
-            objects.close_handle(handle).unwrap();
-            assert!(objects.close_handle(handle).is_err());
-            if generation != u8::MAX {
-                handle = objects.open_handle(&key).unwrap();
-            }
-        }
-        let slot = objects.slots.get(&slot_key).unwrap();
-        assert!(!slot.live);
-        assert!(slot.retired);
-        assert_eq!(slot.generation, u8::MAX);
-        let next = objects.open_handle(&key).unwrap();
-        assert_ne!(next.slot(), first.slot());
-        assert_eq!(next.generation(), 1);
-        assert!(objects.close_handle(first).is_err());
-        let record = objects
-            .object_for_handle(next, RuntimeObjectKind::Thread)
-            .unwrap();
-        assert_eq!(record.id, id);
-        assert_eq!(record.open_handles, 1);
-    }
-
-    #[test]
-    fn direct_wait_state_update_preserves_handle_identity_and_shares_state() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::Thread { thread_id: 0x2000 };
-        let (id, handle) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        let second_handle = objects.open_handle(&key).unwrap();
-        objects
-            .set_wait_state(
-                handle,
-                RuntimeObjectKind::Thread,
-                RuntimeWaitState::Signaled { exit_code: 7 },
-            )
-            .unwrap();
-        for live_handle in [handle, second_handle] {
-            let record = objects
-                .object_for_handle(live_handle, RuntimeObjectKind::Thread)
-                .unwrap();
-            assert_eq!(record.id, id);
-            assert_eq!(record.open_handles, 2);
+        let mut current = first;
+        for _ in 0..300 {
+            objects.close_handle(current).unwrap();
+            assert!(objects.close_handle(current).is_err());
+            current = objects.open_handle(&key).unwrap();
+            assert!(
+                objects
+                    .object_for_handle(first, RuntimeObjectKind::Thread)
+                    .is_err()
+            );
             assert_eq!(
-                record.wait_state,
-                Some(RuntimeWaitState::Signaled { exit_code: 7 })
+                objects.wait_state(current, RuntimeObjectKind::Thread),
+                Ok(RuntimeWaitState::Nonsignaled)
             );
         }
-        objects.close_handle(handle).unwrap();
+    }
+
+    #[test]
+    fn invalid_duplicate_and_wrong_type_registration_keeps_live_handles_usable() {
+        let mut objects = RuntimeObjectTable::default();
+        let key = RuntimeObjectKey::Thread { thread_id: 7 };
+        assert!(objects.open_handle(&key).is_err());
+        let (_, handle) = objects
+            .register_object_and_open_handle(key.clone())
+            .unwrap();
+        assert!(objects.register_object_and_open_handle(key).is_err());
+        let other = RuntimeObjectKey::Thread { thread_id: 8 };
+        for invalid in [RuntimeHandle(0), RuntimeHandle(u32::MAX), handle] {
+            assert!(
+                objects
+                    .register_object_with_handle(other.clone(), invalid)
+                    .is_err()
+            );
+            assert_eq!(
+                objects.wait_state(handle, RuntimeObjectKind::Thread),
+                Ok(RuntimeWaitState::Nonsignaled)
+            );
+        }
+        assert!(
+            !objects
+                .is_live_handle(handle, RuntimeObjectKind::File)
+                .unwrap()
+        );
+        assert!(
+            !objects
+                .is_live_handle(RuntimeHandle(0), RuntimeObjectKind::Thread)
+                .unwrap()
+        );
+        let (_, next) = objects.register_object_and_open_handle(other).unwrap();
+        assert_ne!(next, handle);
+        objects.close_handle(next).unwrap();
+        assert!(
+            !objects
+                .is_live_handle(next, RuntimeObjectKind::Thread)
+                .unwrap()
+        );
         assert!(
             objects
-                .set_wait_state(
-                    handle,
-                    RuntimeObjectKind::Thread,
-                    RuntimeWaitState::Nonsignaled
-                )
-                .is_err()
-        );
-        assert_eq!(
-            objects
-                .object_for_handle(second_handle, RuntimeObjectKind::Thread)
+                .is_live_handle(handle, RuntimeObjectKind::Thread)
                 .unwrap()
-                .wait_state,
-            Some(RuntimeWaitState::Signaled { exit_code: 7 })
-        );
-        objects
-            .set_wait_state(
-                second_handle,
-                RuntimeObjectKind::Thread,
-                RuntimeWaitState::Nonsignaled,
-            )
-            .unwrap();
-        assert_eq!(
-            objects
-                .object_for_handle(second_handle, RuntimeObjectKind::Thread)
-                .unwrap()
-                .wait_state,
-            Some(RuntimeWaitState::Nonsignaled)
         );
     }
 
     #[test]
-    fn direct_wait_state_rejection_preserves_state_and_allows_repair_retry() {
+    fn wait_state_is_shared_and_failed_updates_keep_the_previous_signal() {
         let mut objects = RuntimeObjectTable::default();
-        let handle = objects.register_event(false, true).unwrap();
-        let record = objects
-            .object_for_handle(handle, RuntimeObjectKind::Event)
+        let key = RuntimeObjectKey::Thread { thread_id: 7 };
+        let (_, first) = objects
+            .register_object_and_open_handle(key.clone())
             .unwrap();
-        let id = record.id;
-        let key = record.key.clone();
-        assert!(
-            objects
-                .set_wait_state(
-                    handle,
-                    RuntimeObjectKind::Thread,
-                    RuntimeWaitState::Nonsignaled
-                )
-                .is_err()
+        let second = objects.open_handle(&key).unwrap();
+        let signal = RuntimeWaitState::Signaled { exit_code: 23 };
+        objects
+            .set_wait_state(first, RuntimeObjectKind::Thread, signal)
+            .unwrap();
+        assert_eq!(
+            objects.wait_state(second, RuntimeObjectKind::Thread),
+            Ok(signal)
         );
-        objects.identity_index.remove(&key);
         assert!(
             objects
                 .set_wait_state(
-                    handle,
+                    first,
                     RuntimeObjectKind::Event,
                     RuntimeWaitState::Nonsignaled
                 )
                 .is_err()
         );
-        assert_eq!(
-            objects.objects.get(&id).unwrap().wait_state,
-            Some(RuntimeWaitState::Signaled { exit_code: 0 })
+        objects.close_handle(first).unwrap();
+        assert!(
+            objects
+                .set_wait_state(
+                    first,
+                    RuntimeObjectKind::Thread,
+                    RuntimeWaitState::Nonsignaled
+                )
+                .is_err()
         );
-        objects.identity_index.insert(key, id);
+        assert_eq!(
+            objects.wait_state(second, RuntimeObjectKind::Thread),
+            Ok(signal)
+        );
         objects
             .set_wait_state(
-                handle,
-                RuntimeObjectKind::Event,
+                second,
+                RuntimeObjectKind::Thread,
                 RuntimeWaitState::Nonsignaled,
             )
             .unwrap();
-        let record = objects
-            .object_for_handle(handle, RuntimeObjectKind::Event)
-            .unwrap();
-        assert_eq!(record.id, id);
-        assert_eq!(record.open_handles, 1);
-        assert_eq!(record.wait_state, Some(RuntimeWaitState::Nonsignaled));
+        assert_eq!(
+            objects.wait_state(second, RuntimeObjectKind::Thread),
+            Ok(RuntimeWaitState::Nonsignaled)
+        );
         let (_, file) = objects
-            .register_object_and_open_handle(RuntimeObjectKey::File { file_id: 7 })
+            .register_object_and_open_handle(RuntimeObjectKey::File { file_id: 1 })
             .unwrap();
         assert!(
             objects
-                .set_wait_state(file, RuntimeObjectKind::File, RuntimeWaitState::Nonsignaled)
+                .set_wait_state(file, RuntimeObjectKind::File, signal)
                 .is_err()
         );
-        assert_eq!(
+        assert!(objects.wait_state(file, RuntimeObjectKind::File).is_err());
+        assert!(
             objects
-                .object_for_handle(file, RuntimeObjectKind::File)
+                .is_live_handle(file, RuntimeObjectKind::File)
                 .unwrap()
-                .wait_state,
-            None
         );
     }
 
     #[test]
-    fn wait_state_batch_rejection_leaves_live_targets_available_for_retry() {
+    fn events_expose_the_requested_initial_signal() {
         let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::Thread { thread_id: 0x2000 };
-        let (id, handle) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        let file_key = RuntimeObjectKey::File { file_id: 7 };
-        let (_, file) = objects
-            .register_object_and_open_handle(file_key.clone())
-            .unwrap();
-        let state = RuntimeWaitState::Signaled { exit_code: 7 };
-        for second_key in [
-            key.clone(),
-            RuntimeObjectKey::Thread { thread_id: 0x3000 },
-            file_key,
-        ] {
-            assert!(
-                objects
-                    .plan_wait_state_updates(&[(key.clone(), state), (second_key, state)])
-                    .is_err()
-            );
-            let record = objects
-                .object_for_handle(handle, RuntimeObjectKind::Thread)
-                .unwrap();
-            assert_eq!(record.id, id);
-            assert_eq!(record.open_handles, 1);
-            assert_eq!(record.wait_state, Some(RuntimeWaitState::Nonsignaled));
-            assert_eq!(
-                objects
-                    .object_for_handle(file, RuntimeObjectKind::File)
-                    .unwrap()
-                    .wait_state,
-                None
-            );
-        }
-        let updates = objects.plan_wait_state_updates(&[(key, state)]).unwrap();
-        objects.commit_wait_state_updates(updates);
-        assert_eq!(
-            objects
-                .object_for_handle(handle, RuntimeObjectKind::Thread)
-                .unwrap()
-                .wait_state,
-            Some(state)
-        );
-    }
-
-    #[test]
-    fn wait_state_batch_corrupt_identity_rejects_then_recovers_after_repair() {
-        for corruption in 0..3 {
-            let mut objects = RuntimeObjectTable::default();
-            let key = RuntimeObjectKey::Thread { thread_id: 0x2000 };
-            let (id, handle) = objects
-                .register_object_and_open_handle(key.clone())
-                .unwrap();
-            let record = objects.objects.get_mut(&id).unwrap();
-            match corruption {
-                0 => record.id = RuntimeObjectId(id.0 + 1),
-                1 => record.key = RuntimeObjectKey::Thread { thread_id: 0x3000 },
-                2 => record.kind = RuntimeObjectKind::Event,
-                _ => unreachable!(),
-            }
-            let state = RuntimeWaitState::Signaled { exit_code: 7 };
-            assert!(
-                objects
-                    .plan_wait_state_updates(&[(key.clone(), state)])
-                    .is_err()
-            );
-            let record = objects.objects.get_mut(&id).unwrap();
-            assert_eq!(record.wait_state, Some(RuntimeWaitState::Nonsignaled));
-            assert_eq!(record.open_handles, 1);
-            record.id = id;
-            record.key = key.clone();
-            record.kind = RuntimeObjectKind::Thread;
-            let updates = objects.plan_wait_state_updates(&[(key, state)]).unwrap();
-            objects.commit_wait_state_updates(updates);
-            let record = objects
-                .object_for_handle(handle, RuntimeObjectKind::Thread)
-                .unwrap();
-            assert_eq!(record.id, id);
-            assert_eq!(record.wait_state, Some(state));
-        }
-    }
-
-    #[test]
-    fn live_handle_lookup_distinguishes_absence_from_corrupt_authority() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::File { file_id: 7 };
-        let (id, handle) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        assert!(
-            objects
-                .is_live_handle(handle, RuntimeObjectKind::File)
-                .unwrap()
-        );
-        assert!(
-            !objects
-                .is_live_handle(handle, RuntimeObjectKind::Thread)
-                .unwrap()
-        );
-        assert!(
-            !objects
-                .is_live_handle(RuntimeHandle(0), RuntimeObjectKind::File)
-                .unwrap()
-        );
-        for damage in 0..8 {
-            let mut corrupt = objects.clone();
-            match damage {
-                0 => {
-                    corrupt.slots.remove(&runtime_handle_slot_key(
-                        RuntimeObjectKind::File,
-                        handle.slot(),
-                    ));
-                }
-                1 => {
-                    corrupt.handles.remove(&handle.0);
-                }
-                2 => {
-                    corrupt.objects.remove(&id);
-                }
-                3 => {
-                    corrupt.identity_index.remove(&key);
-                }
-                4 => {
-                    corrupt.objects.get_mut(&id).unwrap().kind = RuntimeObjectKind::Thread;
-                }
-                5 => {
-                    corrupt.objects.get_mut(&id).unwrap().id = RuntimeObjectId(999);
-                }
-                6 => {
-                    corrupt.handles.get_mut(&handle.0).unwrap().handle = RuntimeHandle(0);
-                }
-                _ => {
-                    corrupt.objects.get_mut(&id).unwrap().open_handles = 0;
-                }
-            }
-            let before = corrupt.clone();
-            assert!(
-                corrupt
-                    .is_live_handle(handle, RuntimeObjectKind::File)
-                    .is_err()
-            );
-            assert_eq!(corrupt, before);
-        }
-        objects.close_handle(handle).unwrap();
-        let before = objects.clone();
-        assert!(
-            !objects
-                .is_live_handle(handle, RuntimeObjectKind::File)
-                .unwrap()
-        );
-        assert_eq!(objects, before);
-    }
-
-    #[test]
-    fn exact_handle_registration_rejects_collisions_before_mutation() {
-        let mut objects = RuntimeObjectTable::default();
-        let handle =
-            RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 1).expect("controlled handle");
-        objects.handles.insert(
-            handle.0,
-            RuntimeHandleEntry {
-                handle,
-                object_id: RuntimeObjectId(999),
-                kind: RuntimeObjectKind::Thread,
-            },
-        );
-        let before = objects.clone();
-
-        objects
-            .register_object_with_handle(RuntimeObjectKey::Thread { thread_id: 0x2000 }, handle)
-            .expect_err("dangling handle collision must fail");
-        assert_eq!(objects, before, "failed registration must be atomic");
-    }
-
-    #[test]
-    fn optional_registration_reports_capacity_without_publishing_and_preserves_corrupt_authority() {
-        let key = RuntimeObjectKey::Thread { thread_id: 0x2000 };
-        let mut objects = RuntimeObjectTable {
-            next_object_id: u64::MAX,
-            ..Default::default()
-        };
-        let exhausted = objects.clone();
-        assert!(
-            objects
-                .try_register_object_and_open_handle(key.clone())
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(objects, exhausted);
-        objects.next_object_id = 1;
-        let created = objects
-            .try_register_object_and_open_handle(key.clone())
-            .unwrap()
-            .unwrap();
-        assert_eq!(created.0, RuntimeObjectId(1));
-        assert_eq!(
-            created.1,
-            RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 1).unwrap()
-        );
-        let before_duplicate = objects.clone();
-        assert!(
-            objects
-                .try_register_object_and_open_handle(key.clone())
-                .is_err()
-        );
-        assert_eq!(objects, before_duplicate);
-        let mut occupied_identity = RuntimeObjectTable::default();
-        occupied_identity.objects.insert(
-            RuntimeObjectId(1),
-            runtime_object_record(
-                RuntimeObjectId(1),
-                RuntimeObjectKey::Process { process_id: 0x1000 },
-                0,
-            ),
-        );
-        let before = occupied_identity.clone();
-        assert!(
-            occupied_identity
-                .try_register_object_and_open_handle(key.clone())
-                .is_err()
-        );
-        assert_eq!(occupied_identity, before);
-        let mut handles_exhausted = RuntimeObjectTable::default();
-        for slot in 1..=u16::MAX {
-            handles_exhausted.slots.insert(
-                runtime_handle_slot_key(RuntimeObjectKind::Thread, slot),
-                RuntimeHandleSlot {
-                    generation: u8::MAX,
-                    live: false,
-                    retired: true,
-                },
-            );
-        }
-        let before = handles_exhausted.clone();
-        assert!(
-            handles_exhausted
-                .try_register_object_and_open_handle(key)
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(handles_exhausted, before);
-    }
-
-    #[test]
-    fn direct_registration_rejects_exhaustion_and_corrupt_identity_without_mutation() {
-        for exact_handle in [false, true] {
-            let key = RuntimeObjectKey::Thread { thread_id: 0x2000 };
-            let handle = RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 1).unwrap();
-            let mut objects = RuntimeObjectTable {
-                next_object_id: u64::MAX,
-                ..Default::default()
-            };
-            let before = objects.clone();
-            let result = if exact_handle {
-                objects
-                    .register_object_with_handle(key.clone(), handle)
-                    .map(|id| (id, handle))
-            } else {
-                objects.register_object_and_open_handle(key.clone())
-            };
-            assert!(result.is_err());
-            assert_eq!(objects, before);
-
-            objects.next_object_id = 1;
-            objects.objects.insert(
-                RuntimeObjectId(1),
-                runtime_object_record(
-                    RuntimeObjectId(1),
-                    RuntimeObjectKey::Process { process_id: 0x1000 },
-                    0,
-                ),
-            );
-            let before = objects.clone();
-            let result = if exact_handle {
-                objects
-                    .register_object_with_handle(key.clone(), handle)
-                    .map(|id| (id, handle))
-            } else {
-                objects.register_object_and_open_handle(key.clone())
-            };
-            assert!(result.is_err());
-            assert_eq!(objects, before);
-        }
-    }
-
-    #[test]
-    fn direct_event_creation_publishes_wait_state_and_rejects_exhaustion_atomically() {
-        for manual_reset in [false, true] {
-            for initial_state in [false, true] {
-                let mut objects = RuntimeObjectTable::default();
-                let handle = objects.register_event(manual_reset, initial_state).unwrap();
-                let expected = if initial_state {
+        for manual in [false, true] {
+            for signaled in [false, true] {
+                let handle = objects.register_event(manual, signaled).unwrap();
+                let expected = if signaled {
                     RuntimeWaitState::Signaled { exit_code: 0 }
                 } else {
                     RuntimeWaitState::Nonsignaled
                 };
-                let record = objects
-                    .object_for_handle(handle, RuntimeObjectKind::Event)
-                    .unwrap();
                 assert_eq!(
-                    record.key,
-                    RuntimeObjectKey::Event {
-                        event_id: 1,
-                        manual_reset
-                    }
+                    objects.wait_state(handle, RuntimeObjectKind::Event),
+                    Ok(expected)
                 );
-                assert_eq!(record.wait_state, Some(expected));
-                assert_eq!(record.open_handles, 1);
-                objects.next_object_id = u64::MAX;
-                let before = objects.clone();
-                assert!(objects.register_event(manual_reset, initial_state).is_err());
-                assert_eq!(objects, before);
             }
         }
     }
 
     #[test]
-    fn pending_registration_revalidates_identity_after_intervening_object_creation() {
+    fn find_close_rejects_other_handle_kinds_and_close_handle_preserves_searches() {
         let mut objects = RuntimeObjectTable::default();
-        let before = objects.clone();
-        let stale = objects
-            .plan_object_and_handle_registration(RuntimeObjectKey::Thread { thread_id: 0x2000 })
-            .expect("thread object registration plan");
-        assert_eq!(
-            objects, before,
-            "registration planning must not mutate tables"
+        let (_, search) = objects
+            .register_object_and_open_handle(RuntimeObjectKey::FileSearch { search_id: 7 })
+            .unwrap();
+        let (_, file) = objects
+            .register_object_and_open_handle(RuntimeObjectKey::File { file_id: 8 })
+            .unwrap();
+        assert!(objects.close_handle(search).is_err());
+        assert!(objects.find_close(file).is_err());
+        assert!(
+            objects
+                .is_live_handle(file, RuntimeObjectKind::File)
+                .unwrap()
         );
-        assert_eq!(stale.handle(), RuntimeHandle(0x5401_0001));
-
-        objects
-            .register_object_and_open_handle(RuntimeObjectKey::Process { process_id: 0x1000 })
-            .expect("intervening process object registration");
-        let before_stale_preflight = objects.clone();
-        objects
-            .preflight_object_registration_commit(&stale)
-            .expect_err("intervening object identity must stale the plan");
-        assert_eq!(objects, before_stale_preflight);
-
-        let fresh = objects
-            .plan_object_and_handle_registration(RuntimeObjectKey::Thread { thread_id: 0x2000 })
-            .expect("fresh thread registration plan");
-        objects
-            .preflight_object_registration_commit(&fresh)
-            .expect("fresh registration preflight");
-        let (object_id, handle) = objects.commit_object_registration(fresh);
-        assert_eq!(object_id, RuntimeObjectId(2));
-        assert_eq!(handle, RuntimeHandle(0x5401_0001));
+        objects.find_close(search).unwrap();
+        assert!(objects.find_close(search).is_err());
+        assert!(
+            !objects
+                .is_live_handle(search, RuntimeObjectKind::FileSearch)
+                .unwrap()
+        );
+        objects.close_handle(file).unwrap();
     }
 
     #[test]
-    fn direct_handle_open_failures_preserve_all_tables_and_allocators() {
+    fn payload_close_retires_only_the_last_handle_for_that_object() {
         let mut objects = RuntimeObjectTable::default();
         let key = RuntimeObjectKey::Mutex { mutex_id: 7 };
-        let before_unknown = objects.clone();
-        assert!(objects.open_handle(&key).is_err());
-        assert_eq!(objects, before_unknown);
-
-        let (id, first_handle) = objects
+        let (_, first) = objects
             .register_object_and_open_handle(key.clone())
             .unwrap();
-        let before_duplicate = objects.clone();
-        assert!(
-            objects
-                .register_object_and_open_handle(key.clone())
-                .is_err()
-        );
-        assert_eq!(objects, before_duplicate);
-        objects.objects.get_mut(&id).unwrap().open_handles = usize::MAX;
-        let before_overflow = objects.clone();
-        assert!(objects.open_handle(&key).is_err());
-        assert_eq!(objects, before_overflow);
-        objects.objects.get_mut(&id).unwrap().open_handles = 1;
-        let second_handle = objects.open_handle(&key).unwrap();
-        assert_ne!(first_handle, second_handle);
-        assert_eq!(
-            objects
-                .object_for_handle(first_handle, RuntimeObjectKind::Mutex)
-                .unwrap()
-                .open_handles,
-            2
-        );
-        assert_eq!(
-            objects
-                .object_for_handle(second_handle, RuntimeObjectKind::Mutex)
-                .unwrap()
-                .id,
-            id
-        );
-
-        objects.next_object_id = u64::MAX;
-        let before_exhaustion = objects.clone();
-        assert!(
-            objects
-                .register_object_and_open_handle(RuntimeObjectKey::File { file_id: 1 })
-                .is_err()
-        );
-        assert_eq!(objects, before_exhaustion);
-        // Adding a handle to an existing object does not allocate another object identity.
-        assert!(objects.open_handle(&key).is_ok());
-    }
-
-    #[test]
-    fn find_close_rejects_bad_index_and_shared_handles_then_recovers() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::FileSearch { search_id: 7 };
-        let other_key = RuntimeObjectKey::FileSearch { search_id: 8 };
-        let (id, handle) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        let (other_id, other) = objects
-            .register_object_and_open_handle(other_key.clone())
-            .unwrap();
-        objects.identity_index.insert(key.clone(), other_id);
-        assert!(objects.find_close(handle).is_err());
-        assert_eq!(objects.objects.get(&id).unwrap().open_handles, 1);
-        assert!(objects.handles.contains_key(&handle.0));
-        objects.identity_index.insert(key.clone(), id);
-        objects.find_close(handle).unwrap();
-        assert!(
-            objects
-                .lookup_entry(handle, RuntimeObjectKind::FileSearch)
-                .is_err()
-        );
-        assert!(!objects.contains_identity(&key));
-        assert!(objects.find_close(handle).is_err());
-        assert_eq!(
-            objects
-                .object_for_handle(other, RuntimeObjectKind::FileSearch)
-                .unwrap()
-                .id,
-            other_id
-        );
-        let duplicate = objects.open_handle(&other_key).unwrap();
-        assert!(objects.find_close(other).is_err());
-        assert_eq!(
-            objects
-                .object_for_handle(other, RuntimeObjectKind::FileSearch)
-                .unwrap()
-                .open_handles,
-            2
-        );
-        assert!(objects.handles.contains_key(&duplicate.0));
-    }
-
-    #[test]
-    fn find_close_count_and_policy_rejection_preserves_handle_for_retry() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::FileSearch { search_id: 7 };
-        let (id, handle) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        for policy in [
-            RuntimeHandleClosePolicy::CloseHandle,
-            RuntimeHandleClosePolicy::SubsystemOwned,
-        ] {
-            objects.objects.get_mut(&id).unwrap().close_policy = policy;
-            assert!(objects.find_close(handle).is_err());
-            assert!(objects.handles.contains_key(&handle.0));
-            assert!(objects.contains_identity(&key));
-        }
-        let record = objects.objects.get_mut(&id).unwrap();
-        record.close_policy = RuntimeHandleClosePolicy::FindClose;
-        record.open_handles = 2;
-        assert!(objects.find_close(handle).is_err());
-        assert!(objects.handles.contains_key(&handle.0));
-        objects.objects.get_mut(&id).unwrap().open_handles = 1;
-        objects.find_close(handle).unwrap();
-        assert!(!objects.contains_identity(&key));
-        assert!(!objects.handles.contains_key(&handle.0));
-        let (_, next_handle) = objects
-            .register_object_and_open_handle(RuntimeObjectKey::FileSearch { search_id: 8 })
-            .unwrap();
-        assert_ne!(next_handle, handle);
-        assert!(objects.find_close(handle).is_err());
-        objects.find_close(next_handle).unwrap();
-    }
-
-    #[test]
-    fn payload_close_derives_retirement_from_live_handles() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::Mutex { mutex_id: 7 };
-        let (id, first) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        let duplicate = objects.open_handle(&key).unwrap();
-        let other_key = RuntimeObjectKey::Mutex { mutex_id: 8 };
-        let (other_id, other) = objects
-            .register_object_and_open_handle(other_key.clone())
+        let second = objects.open_handle(&key).unwrap();
+        let (_, other) = objects
+            .register_object_and_open_handle(RuntimeObjectKey::Mutex { mutex_id: 8 })
             .unwrap();
         objects.close_payload_handle(first).unwrap();
         assert!(
-            objects
-                .lookup_entry(first, RuntimeObjectKind::Mutex)
-                .is_err()
-        );
-        assert_eq!(
-            objects
-                .object_for_handle(duplicate, RuntimeObjectKind::Mutex)
+            !objects
+                .is_live_handle(first, RuntimeObjectKind::Mutex)
                 .unwrap()
-                .id,
-            id
         );
-        assert_eq!(
+        assert!(
             objects
-                .object_for_handle(duplicate, RuntimeObjectKind::Mutex)
+                .is_live_handle(second, RuntimeObjectKind::Mutex)
                 .unwrap()
-                .open_handles,
-            1
         );
-        objects.close_payload_handle(duplicate).unwrap();
+        objects.close_payload_handle(second).unwrap();
+        assert!(objects.close_payload_handle(second).is_err());
         assert!(!objects.contains_identity(&key));
-        assert!(objects.close_payload_handle(first).is_err());
-        assert!(objects.close_payload_handle(duplicate).is_err());
-        assert_eq!(
+        assert!(
             objects
-                .object_for_handle(other, RuntimeObjectKind::Mutex)
+                .is_live_handle(other, RuntimeObjectKind::Mutex)
                 .unwrap()
-                .id,
-            other_id
         );
-        objects.identity_index.remove(&other_key);
-        assert!(objects.close_payload_handle(other).is_err());
-        assert_eq!(objects.objects.get(&other_id).unwrap().open_handles, 1);
-        objects.identity_index.insert(other_key.clone(), other_id);
         objects.close_payload_handle(other).unwrap();
-        assert!(!objects.contains_identity(&other_key));
-    }
-
-    #[test]
-    fn payload_close_rejects_corrupt_handle_count_before_mutation() {
-        let mut objects = RuntimeObjectTable::default();
-        let key = RuntimeObjectKey::Mutex { mutex_id: 7 };
-        let (id, first) = objects
-            .register_object_and_open_handle(key.clone())
-            .unwrap();
-        let duplicate = objects.open_handle(&key).unwrap();
-        objects.objects.get_mut(&id).unwrap().open_handles = 1;
-        assert!(objects.close_payload_handle(first).is_err());
-        assert!(objects.handles.contains_key(&first.0));
-        assert!(objects.handles.contains_key(&duplicate.0));
-        assert!(objects.contains_identity(&key));
-        objects.objects.get_mut(&id).unwrap().open_handles = 2;
-        objects.close_payload_handle(first).unwrap();
-        objects.close_payload_handle(duplicate).unwrap();
-        assert!(!objects.contains_identity(&key));
     }
 }

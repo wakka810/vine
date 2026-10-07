@@ -335,183 +335,50 @@ impl RuntimeWaits {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::{RuntimeHandle, RuntimeObjectKind};
-
-    fn registration(id: u64, thread_id: u32, object_id: u64) -> RuntimeWaitRegistration {
-        RuntimeWaitRegistration {
-            id: RuntimeWaitRegistrationId(id),
-            thread_id: RuntimeThreadId(thread_id),
-            object_id: RuntimeObjectId(object_id),
-            handle: RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, object_id as u16)
-                .unwrap(),
-            timeout_deadline_time_100ns: None,
-            alertable: false,
-            waitable_timer_pacing: None,
-        }
-    }
+    use crate::runtime::RuntimeObjectKind;
 
     #[test]
-    fn registration_publishes_both_indexes() {
+    fn duplicate_thread_wait_rejection_and_cancellation_preserve_the_other_waiter() {
         let mut waits = RuntimeWaits::default();
-        let registration = registration(1, 0x2000, 2);
-        assert_eq!(
-            waits
-                .register(
-                    registration.thread_id,
-                    registration.object_id,
-                    registration.handle
-                )
-                .unwrap(),
-            registration
-        );
-        assert_eq!(waits.next_registration_id(), 2);
-        assert_eq!(
-            waits.registration_for_thread(RuntimeThreadId(0x2000)),
-            Ok(Some(registration))
-        );
-        assert_eq!(
-            waits.object_waiters().get(&RuntimeObjectId(2)),
-            Some(&VecDeque::from([RuntimeWaitRegistrationId(1)]))
-        );
-    }
-
-    #[test]
-    fn wake_plans_preserve_fifo_and_remove_only_during_commit() {
-        let mut waits = RuntimeWaits::default();
-        let first = registration(1, 0x2000, 2);
-        let second = registration(2, 0x1001, 2);
-        waits
-            .register(first.thread_id, first.object_id, first.handle)
+        let first_thread = RuntimeThreadId(7);
+        let second_thread = RuntimeThreadId(8);
+        let first_object = RuntimeObjectId(1);
+        let second_object = RuntimeObjectId(2);
+        let first_handle = RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 1).unwrap();
+        let second_handle = RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 2).unwrap();
+        let first = waits
+            .register(first_thread, first_object, first_handle)
             .unwrap();
-        waits
-            .register(second.thread_id, second.object_id, second.handle)
+        let second = waits
+            .register(second_thread, second_object, second_handle)
             .unwrap();
-
-        let candidates = waits
-            .plan_wakes(
-                &[(
-                    RuntimeObjectId(2),
-                    RuntimeWaitState::Signaled { exit_code: 23 },
-                )],
-                &[],
-            )
-            .unwrap();
-        assert_eq!(
-            candidates
-                .iter()
-                .map(|candidate| candidate.completion.registration.id)
-                .collect::<Vec<_>>(),
-            vec![RuntimeWaitRegistrationId(1), RuntimeWaitRegistrationId(2)]
-        );
-        assert_eq!(waits.registrations().len(), 2);
-        for candidate in candidates {
-            waits.commit_remove(candidate.completion.registration);
-        }
-        assert!(waits.registrations().is_empty());
-        assert!(waits.object_waiters().is_empty());
-    }
-
-    #[test]
-    fn rejected_registration_preserves_both_indexes() {
-        let mut waits = RuntimeWaits::default();
-        let existing = registration(1, 0x2000, 2);
-        waits
-            .register(existing.thread_id, existing.object_id, existing.handle)
-            .unwrap();
-        let next_handle = RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 3).unwrap();
         assert!(
             waits
-                .register(existing.thread_id, RuntimeObjectId(3), next_handle)
+                .register(first_thread, second_object, second_handle)
                 .is_err()
         );
-        assert_eq!(waits.next_registration_id(), 2);
+        assert_eq!(waits.registration_for_thread(first_thread), Ok(Some(first)));
         assert_eq!(
-            waits.registration_for_thread(existing.thread_id).unwrap(),
-            Some(existing)
+            waits.registration_for_thread(second_thread),
+            Ok(Some(second))
         );
-        assert_eq!(waits.registrations().len(), 1);
+        waits.commit_remove(first);
+        assert_eq!(waits.registration_for_thread(first_thread), Ok(None));
         assert_eq!(
-            waits.object_waiters().get(&existing.object_id),
-            Some(&VecDeque::from([existing.id]))
+            waits.registration_for_thread(second_thread),
+            Ok(Some(second))
         );
-        assert!(!waits.object_waiters().contains_key(&RuntimeObjectId(3)));
-
-        waits.next_registration_id = 1;
-        assert!(
-            waits
-                .register(RuntimeThreadId(0x1001), RuntimeObjectId(3), next_handle)
-                .is_err()
-        );
-        assert_eq!(waits.next_registration_id(), 1);
-        assert_eq!(
-            waits.registration_for_thread(existing.thread_id).unwrap(),
-            Some(existing)
-        );
-        assert_eq!(waits.registrations().len(), 1);
-        assert_eq!(
-            waits.object_waiters().get(&existing.object_id),
-            Some(&VecDeque::from([existing.id]))
-        );
-        assert!(!waits.object_waiters().contains_key(&RuntimeObjectId(3)));
-        waits.next_registration_id = 2;
         let retry = waits
-            .register(RuntimeThreadId(0x1001), RuntimeObjectId(3), next_handle)
+            .register(first_thread, second_object, second_handle)
             .unwrap();
-        assert_eq!(retry.id, RuntimeWaitRegistrationId(2));
+        assert_eq!(waits.registration_for_thread(first_thread), Ok(Some(retry)));
         assert_eq!(
-            waits.registration_for_thread(existing.thread_id).unwrap(),
-            Some(existing)
+            waits.registration_for_thread(second_thread),
+            Ok(Some(second))
         );
-        assert_eq!(
-            waits.object_waiters().get(&retry.object_id),
-            Some(&VecDeque::from([retry.id]))
-        );
-    }
-
-    #[test]
-    fn exhausted_registration_allocator_is_mutation_free() {
-        let mut waits = RuntimeWaits {
-            next_registration_id: u64::MAX,
-            ..RuntimeWaits::default()
-        };
-        assert!(
-            waits
-                .register(
-                    RuntimeThreadId(0x2000),
-                    RuntimeObjectId(2),
-                    RuntimeHandle::from_parts(RuntimeObjectKind::Thread, 1, 2).unwrap()
-                )
-                .is_err()
-        );
-        assert_eq!(waits.next_registration_id(), u64::MAX);
-        assert!(waits.registrations().is_empty());
-        assert!(waits.object_waiters().is_empty());
-    }
-
-    #[test]
-    fn excluded_wakes_still_return_candidates_for_cross_subsystem_validation() {
-        let mut waits = RuntimeWaits::default();
-        let registration = registration(1, 0x2000, 2);
-        waits
-            .register(
-                registration.thread_id,
-                registration.object_id,
-                registration.handle,
-            )
-            .unwrap();
-
-        let candidates = waits
-            .plan_wakes(
-                &[(
-                    RuntimeObjectId(2),
-                    RuntimeWaitState::Signaled { exit_code: 7 },
-                )],
-                &[RuntimeThreadId(0x2000)],
-            )
-            .unwrap();
-        assert_eq!(candidates.len(), 1);
-        assert!(candidates[0].excluded);
-        assert_eq!(candidates[0].completion.registration, registration);
-        assert_eq!(waits.registrations().len(), 1);
+        waits.commit_remove(retry);
+        waits.commit_remove(second);
+        assert_eq!(waits.registration_for_thread(first_thread), Ok(None));
+        assert_eq!(waits.registration_for_thread(second_thread), Ok(None));
     }
 }

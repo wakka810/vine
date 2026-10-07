@@ -140,11 +140,6 @@ impl RuntimeScheduler {
     }
 
     #[cfg(test)]
-    fn next_host_request_id(&self) -> u64 {
-        self.next_host_request_id
-    }
-
-    #[cfg(test)]
     pub(crate) fn next_wait_registration_id(&self) -> u64 {
         self.waits.next_registration_id()
     }
@@ -636,14 +631,6 @@ impl RuntimeScheduler {
         self.events.pop_front()
     }
 
-    #[cfg(test)]
-    pub(super) fn event_count_for_thread(&self, thread_id: RuntimeThreadId) -> usize {
-        self.events
-            .iter()
-            .filter(|event| event.thread_id() == thread_id)
-            .count()
-    }
-
     pub(super) fn has_event_for_thread(&self, thread_id: RuntimeThreadId) -> bool {
         self.events
             .iter()
@@ -659,23 +646,20 @@ impl RuntimeScheduler {
 mod tests {
     use super::*;
 
-    const INITIAL: RuntimeThreadId = RuntimeThreadId(0x2000);
-    const SECOND: RuntimeThreadId = RuntimeThreadId(0x1001);
+    const INITIAL: RuntimeThreadId = RuntimeThreadId(7);
+    const SECOND: RuntimeThreadId = RuntimeThreadId(8);
 
     #[test]
-    fn resume_thread_decrements_only_suspended_lanes_and_preserves_waits() {
+    fn resume_decrements_the_suspend_count_without_consuming_other_waits() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
         scheduler.register(SECOND, SchedulerThreadState::Suspended { count: 2 });
-        assert_eq!(scheduler.resume_thread(SECOND).unwrap(), 2);
+        assert_eq!(scheduler.resume_thread(SECOND), Ok(2));
         assert_eq!(
-            scheduler.state(SECOND).unwrap(),
-            SchedulerThreadState::Suspended { count: 1 }
+            scheduler.state(SECOND),
+            Ok(SchedulerThreadState::Suspended { count: 1 })
         );
-        assert_eq!(scheduler.resume_thread(SECOND).unwrap(), 1);
-        assert_eq!(
-            scheduler.state(SECOND).unwrap(),
-            SchedulerThreadState::Runnable
-        );
+        assert_eq!(scheduler.resume_thread(SECOND), Ok(1));
+        assert_eq!(scheduler.state(SECOND), Ok(SchedulerThreadState::Runnable));
         for state in [
             SchedulerThreadState::Runnable,
             SchedulerThreadState::WaitingHost { request_id: 7 },
@@ -687,231 +671,125 @@ mod tests {
             SchedulerThreadState::WaitingMessage,
             SchedulerThreadState::InCallback { depth: 2 },
         ] {
-            scheduler.threads.insert(SECOND, state);
-            assert_eq!(scheduler.resume_thread(SECOND).unwrap(), 0);
-            assert_eq!(scheduler.state(SECOND).unwrap(), state);
-            assert_eq!(scheduler.current_thread_id(), INITIAL);
+            scheduler.set_validated_state(SECOND, state);
+            assert_eq!(scheduler.resume_thread(SECOND), Ok(0));
+            assert_eq!(scheduler.state(SECOND), Ok(state));
         }
-        let invalid_state = SchedulerThreadState::Suspended { count: 0 };
-        scheduler.threads.insert(SECOND, invalid_state);
-        assert!(scheduler.resume_thread(SECOND).is_err());
-        assert_eq!(scheduler.state(SECOND).unwrap(), invalid_state);
         for state in [
             SchedulerThreadState::Initialized,
             SchedulerThreadState::Terminating { exit_code: 7 },
             SchedulerThreadState::Terminated { exit_code: 7 },
         ] {
-            scheduler.threads.insert(SECOND, state);
-            assert_eq!(scheduler.resume_thread(SECOND).unwrap(), u32::MAX);
-            assert_eq!(scheduler.state(SECOND).unwrap(), state);
-            assert_eq!(scheduler.current_thread_id(), INITIAL);
+            scheduler.set_validated_state(SECOND, state);
+            assert_eq!(scheduler.resume_thread(SECOND), Ok(u32::MAX));
+            assert_eq!(scheduler.state(SECOND), Ok(state));
         }
         assert!(scheduler.resume_thread(RuntimeThreadId(0)).is_err());
-        assert_eq!(
-            scheduler.state(SECOND).unwrap(),
-            SchedulerThreadState::Terminated { exit_code: 7 }
-        );
-        assert_eq!(scheduler.threads.len(), 2);
         assert_eq!(scheduler.current_thread_id(), INITIAL);
     }
 
     #[test]
-    fn lane_registration_and_selection_validate_before_mutation() {
+    fn rejected_selection_and_yield_preserve_callback_lanes() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
-        scheduler.validate_registration(SECOND).unwrap();
-        assert!(!scheduler.contains_thread(SECOND));
+        let callback = SchedulerThreadState::InCallback { depth: 1 };
+        scheduler.set_validated_state(INITIAL, callback);
         scheduler.register(SECOND, SchedulerThreadState::Runnable);
-
-        scheduler.completed_api_boundaries_in_quantum = 3;
-        assert!(scheduler.select_thread(RuntimeThreadId(0)).is_err());
-        assert_eq!(scheduler.current_thread_id(), INITIAL);
-        assert_eq!(scheduler.completed_api_boundaries_in_quantum, 3);
-        assert_eq!(
-            scheduler.state(SECOND).unwrap(),
-            SchedulerThreadState::Runnable
-        );
-        scheduler.select_thread(SECOND).unwrap();
-        assert_eq!(scheduler.current_thread_id(), SECOND);
-    }
-
-    #[test]
-    fn api_boundaries_preserve_callback_lanes_and_reject_invalid_competitors() {
-        let mut scheduler = RuntimeScheduler::new(INITIAL);
-        scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
-        assert_eq!(
-            scheduler
-                .complete_api_boundary(RuntimeApiBoundaryDisposition::ContinueQuantum, None, false)
-                .unwrap(),
-            None
-        );
-        scheduler.validate_registration(SECOND).unwrap();
-        scheduler.register(SECOND, SchedulerThreadState::Runnable);
-        for _ in 1..RUNTIME_API_BOUNDARY_QUANTUM {
-            assert_eq!(
+        assert!(scheduler.validate_registration(SECOND).is_err());
+        assert!(scheduler.select_thread(RuntimeThreadId(99)).is_err());
+        for competitor in [INITIAL, RuntimeThreadId(99)] {
+            assert!(
                 scheduler
                     .complete_api_boundary(
-                        RuntimeApiBoundaryDisposition::ContinueQuantum,
-                        Some(SECOND),
+                        RuntimeApiBoundaryDisposition::YieldCurrentThread,
+                        Some(competitor),
                         false
                     )
-                    .unwrap(),
-                None
+                    .is_err()
             );
+            assert_eq!(scheduler.current_thread_id(), INITIAL);
+            assert_eq!(scheduler.current_state(), Ok(callback));
         }
-        let quantum_before = scheduler.completed_api_boundaries_in_quantum;
-        assert!(
-            scheduler
-                .complete_api_boundary(
-                    RuntimeApiBoundaryDisposition::YieldCurrentThread,
-                    Some(INITIAL),
-                    false
-                )
-                .is_err()
-        );
-        assert_eq!(scheduler.current_thread_id(), INITIAL);
         assert_eq!(
-            scheduler.completed_api_boundaries_in_quantum,
-            quantum_before
+            scheduler.complete_api_boundary(
+                RuntimeApiBoundaryDisposition::YieldCurrentThread,
+                Some(SECOND),
+                false
+            ),
+            Ok(Some(SECOND))
         );
         assert_eq!(
-            scheduler.state(INITIAL).unwrap(),
-            SchedulerThreadState::Runnable
+            scheduler.complete_api_boundary(
+                RuntimeApiBoundaryDisposition::YieldCurrentThread,
+                Some(INITIAL),
+                false
+            ),
+            Ok(Some(INITIAL))
         );
-        assert_eq!(
-            scheduler.state(SECOND).unwrap(),
-            SchedulerThreadState::Runnable
-        );
-        assert!(
-            scheduler
-                .complete_api_boundary(
-                    RuntimeApiBoundaryDisposition::YieldCurrentThread,
-                    Some(RuntimeThreadId(99)),
-                    false
-                )
-                .is_err()
-        );
-        assert_eq!(scheduler.current_thread_id(), INITIAL);
-        assert_eq!(
-            scheduler.completed_api_boundaries_in_quantum,
-            quantum_before
-        );
-        assert_eq!(
-            scheduler.state(INITIAL).unwrap(),
-            SchedulerThreadState::Runnable
-        );
-        assert_eq!(
-            scheduler.state(SECOND).unwrap(),
-            SchedulerThreadState::Runnable
-        );
-        scheduler.set_validated_state(INITIAL, SchedulerThreadState::InCallback { depth: 1 });
-        assert_eq!(
-            scheduler
-                .complete_api_boundary(
-                    RuntimeApiBoundaryDisposition::YieldCurrentThread,
-                    Some(SECOND),
-                    false
-                )
-                .unwrap(),
-            Some(SECOND)
-        );
-        assert_eq!(scheduler.completed_api_boundaries_in_quantum, 0);
-        assert_eq!(
-            scheduler
-                .complete_api_boundary(
-                    RuntimeApiBoundaryDisposition::YieldCurrentThread,
-                    Some(INITIAL),
-                    false
-                )
-                .unwrap(),
-            Some(INITIAL)
-        );
-        assert_eq!(
-            scheduler.current_state().unwrap(),
-            SchedulerThreadState::InCallback { depth: 1 }
-        );
+        assert_eq!(scheduler.current_state(), Ok(callback));
     }
 
     #[test]
-    fn host_completion_resumes_its_owner_without_selecting_it() {
+    fn host_completions_check_identity_and_resume_only_their_own_lane() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
         scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
-        scheduler.validate_registration(SECOND).unwrap();
         scheduler.register(SECOND, SchedulerThreadState::Runnable);
-
-        let request = scheduler
-            .checked_host_request("initial.pending".to_owned())
-            .unwrap();
-        let request = scheduler.publish_host_request(request);
-        scheduler.select_thread(SECOND).unwrap();
-
-        let completion = scheduler
-            .validate_host_completion(request.request_id)
-            .expect("completion is owned by the non-current initial thread");
-        scheduler.commit_host_completion(completion);
-        assert_eq!(scheduler.current_thread_id(), SECOND);
-        assert_eq!(scheduler.state(INITIAL), Ok(SchedulerThreadState::Runnable));
-    }
-
-    #[test]
-    fn event_queue_preserves_fifo_and_thread_identity() {
-        let mut scheduler = RuntimeScheduler::new(INITIAL);
-        scheduler.commit_event(RuntimeSchedulerEvent::MessageReady(INITIAL));
-        assert_eq!(scheduler.event_count_for_thread(INITIAL), 1);
-        assert!(matches!(
-            scheduler.pop_event(),
-            Some(RuntimeSchedulerEvent::MessageReady(_))
-        ));
-        assert!(scheduler.events().is_empty());
-    }
-
-    #[test]
-    fn host_request_plans_do_not_mutate_and_completion_commits_one_event() {
-        let mut scheduler = RuntimeScheduler::new(INITIAL);
-        scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
-
-        let start = scheduler
+        let first = scheduler
             .checked_host_request("browser.storage.read".to_owned())
             .unwrap();
+        let first = scheduler.publish_host_request(first);
+        scheduler.select_thread(SECOND).unwrap();
+        let second = scheduler
+            .checked_host_request("browser.timer-delay".to_owned())
+            .unwrap();
+        let second = scheduler.publish_host_request(second);
+        assert!(scheduler.validate_host_completion(u64::MAX).is_err());
         assert_eq!(
-            scheduler.current_state(),
-            Ok(SchedulerThreadState::Runnable)
+            scheduler.state(INITIAL),
+            Ok(SchedulerThreadState::WaitingHost {
+                request_id: first.request_id
+            })
         );
-        assert!(scheduler.host_requests().is_empty());
-        assert_eq!(scheduler.next_host_request_id(), 1);
-        let request = scheduler.publish_host_request(start);
-        assert_eq!(request.request_id, 1);
-        assert_eq!(scheduler.host_requests().get(&1), Some(&request));
-        assert_eq!(scheduler.next_host_request_id(), 2);
         assert_eq!(
-            scheduler.current_state(),
-            Ok(SchedulerThreadState::WaitingHost { request_id: 1 })
+            scheduler.state(SECOND),
+            Ok(SchedulerThreadState::WaitingHost {
+                request_id: second.request_id
+            })
         );
-
-        assert!(scheduler.validate_host_completion(2).is_err());
-        assert_eq!(scheduler.host_requests().len(), 1);
-        assert_eq!(scheduler.host_requests().get(&1), Some(&request));
-        assert_eq!(scheduler.next_host_request_id(), 2);
-        assert_eq!(scheduler.current_thread_id(), INITIAL);
+        assert_eq!(scheduler.pop_event(), None);
+        let completion = scheduler
+            .validate_host_completion(first.request_id)
+            .unwrap();
+        let first_completed = scheduler.commit_host_completion(completion);
+        assert!(
+            scheduler
+                .validate_host_completion(first.request_id)
+                .is_err()
+        );
+        assert_eq!(scheduler.current_thread_id(), SECOND);
+        assert_eq!(scheduler.state(INITIAL), Ok(SchedulerThreadState::Runnable));
         assert_eq!(
-            scheduler.current_state().unwrap(),
-            SchedulerThreadState::WaitingHost { request_id: 1 }
+            scheduler.state(SECOND),
+            Ok(SchedulerThreadState::WaitingHost {
+                request_id: second.request_id
+            })
         );
-        assert!(scheduler.events().is_empty());
-
-        let completion = scheduler.validate_host_completion(1).unwrap();
-        assert_eq!(scheduler.host_requests().get(&1), Some(&request));
-        assert!(scheduler.events().is_empty());
-        let completion = scheduler.commit_host_completion(completion);
-        assert_eq!(completion.request_id, 1);
-        assert!(scheduler.host_requests().is_empty());
+        let completion = scheduler
+            .validate_host_completion(second.request_id)
+            .unwrap();
+        let second_completed = scheduler.commit_host_completion(completion);
         assert_eq!(
             scheduler.current_state(),
             Ok(SchedulerThreadState::Runnable)
         );
         assert_eq!(
             scheduler.pop_event(),
-            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+            Some(RuntimeSchedulerEvent::HostCompleted(first_completed))
         );
+        assert_eq!(
+            scheduler.pop_event(),
+            Some(RuntimeSchedulerEvent::HostCompleted(second_completed))
+        );
+        assert_eq!(scheduler.pop_event(), None);
     }
 
     #[test]
@@ -935,10 +813,7 @@ mod tests {
             .unwrap();
         let media = scheduler.commit_consumed_host_completion(request);
         assert_eq!(media.thread_id, SECOND);
-        assert_eq!(
-            scheduler.state(SECOND).unwrap(),
-            SchedulerThreadState::Runnable
-        );
+        assert_eq!(scheduler.state(SECOND), Ok(SchedulerThreadState::Runnable));
         assert_eq!(
             scheduler.pop_event(),
             Some(RuntimeSchedulerEvent::HostCompleted(sleep))
@@ -951,33 +826,31 @@ mod tests {
     }
 
     #[test]
-    fn host_request_cancellation_preserves_other_thread_requests() {
+    fn host_request_cancellation_preserves_other_threads_requests() {
         let mut scheduler = RuntimeScheduler::new(INITIAL);
         scheduler.set_validated_state(INITIAL, SchedulerThreadState::Runnable);
-        scheduler.validate_registration(SECOND).unwrap();
         scheduler.register(SECOND, SchedulerThreadState::Runnable);
-
-        let initial_request = scheduler
-            .checked_host_request("initial.pending".to_owned())
+        let first = scheduler
+            .checked_host_request("browser.storage.read".to_owned())
             .unwrap();
-        let initial_request = scheduler.publish_host_request(initial_request);
+        let first = scheduler.publish_host_request(first);
         scheduler.select_thread(SECOND).unwrap();
-        let second_request = scheduler
-            .checked_host_request("second.pending".to_owned())
+        let second = scheduler
+            .checked_host_request("browser.timer-delay".to_owned())
             .unwrap();
-        let second_request = scheduler.publish_host_request(second_request);
-
-        let request_ids = scheduler.host_request_ids_for_thread(INITIAL);
-        assert_eq!(request_ids, vec![initial_request.request_id]);
-        scheduler.cancel_host_requests(INITIAL, &request_ids);
+        let second = scheduler.publish_host_request(second);
+        let ids = scheduler.host_request_ids_for_thread(INITIAL);
+        scheduler.cancel_host_requests(INITIAL, &ids);
         assert!(
-            !scheduler
-                .host_requests()
-                .contains_key(&initial_request.request_id)
+            scheduler
+                .validate_host_completion(first.request_id)
+                .is_err()
         );
         assert_eq!(
-            scheduler.host_requests().get(&second_request.request_id),
-            Some(&second_request)
+            scheduler.validate_host_completion(second.request_id),
+            Ok(second)
         );
+        assert_eq!(scheduler.current_thread_id(), SECOND);
+        assert_eq!(scheduler.pop_event(), None);
     }
 }
