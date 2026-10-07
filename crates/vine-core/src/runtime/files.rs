@@ -32,7 +32,6 @@ pub struct RuntimeSourceFileManifest {
     pub object_id: u32,
     pub relative_path_a: Vec<u8>,
     pub byte_length: u64,
-    pub sha256: String,
 }
 
 #[derive(Debug)]
@@ -225,7 +224,7 @@ impl RuntimeSourceReadHostResponse {
 
 // The selected directory spelling and its Rust-matched immediate children.
 pub(super) type SourceSearchSelection = (Vec<u8>, Vec<(Vec<u8>, bool)>);
-pub(super) type SourceSearchBatchEntry = (Vec<u8>, Option<(u64, String)>);
+pub(super) type SourceSearchBatchEntry = (Vec<u8>, Option<u64>);
 
 #[derive(Debug)]
 pub(super) struct RuntimeFiles {
@@ -555,12 +554,9 @@ impl RuntimeFiles {
         let mut files = BTreeMap::new();
         let mut path_index = BTreeMap::new();
         for file in manifest.files {
-            if file.object_id == 0
-                || file.byte_length > u64::from(u32::MAX)
-                || !is_sha256(&file.sha256)
-            {
+            if file.object_id == 0 || file.byte_length > u64::from(u32::MAX) {
                 return Err(RuntimeStateError::new(
-                    "source file manifest identity, size, or hash is invalid",
+                    "source file manifest identity or size is invalid",
                 ));
             }
             let relative = normalize_relative_path(&file.relative_path_a)?;
@@ -859,13 +855,13 @@ impl RuntimeFiles {
                 .enumerate()
                 .map(|(index, entry)| (Some(index), entry)),
         ) {
-            if let Some((byte_length, sha256)) = info {
+            if let Some(byte_length) = info {
                 next_id = next_id
                     .checked_add(1)
                     .ok_or_else(|| RuntimeStateError::new("source file identities exhausted"))?;
-                if byte_length > u64::from(u32::MAX) || !is_sha256(&sha256) {
+                if byte_length > u64::from(u32::MAX) {
                     return Err(RuntimeStateError::new(
-                        "source file length or SHA-256 is invalid",
+                        "source file length exceeds PE32 support",
                     ));
                 }
                 if snapshot.files.len() + files.len() >= RUNTIME_SOURCE_FILE_LIMIT {
@@ -941,10 +937,9 @@ impl RuntimeFiles {
         let snapshot = self.snapshot.as_mut().ok_or_else(|| {
             RuntimeStateError::new("source file registration requires a mounted source directory")
         })?;
-        if file.object_id == 0 || file.byte_length > u64::from(u32::MAX) || !is_sha256(&file.sha256)
-        {
+        if file.object_id == 0 || file.byte_length > u64::from(u32::MAX) {
             return Err(RuntimeStateError::new(
-                "source file identity, length, or SHA-256 is invalid",
+                "source file identity or length is invalid",
             ));
         }
         if snapshot.files.len() >= RUNTIME_SOURCE_FILE_LIMIT {
@@ -1899,10 +1894,6 @@ const fn is_windows_932_trail_byte(byte: u8) -> bool {
     matches!(byte, 0x40..=0x7e | 0x80..=0xfc)
 }
 
-fn is_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2011,12 +2002,8 @@ mod tests {
     #[test]
     fn source_search_batch_rejects_late_errors_without_publishing_or_consuming_ids() {
         for invalid in [
-            (b"New\\bad.dat".to_vec(), Some((1, "bad digest".to_owned()))),
-            (
-                b"New\\bad.dat".to_vec(),
-                Some((u64::from(u32::MAX) + 1, "a".repeat(64))),
-            ),
-            (b"NEW\\FIRST.DAT".to_vec(), Some((1, "a".repeat(64)))),
+            (b"New\\bad.dat".to_vec(), Some(u64::from(u32::MAX) + 1)),
+            (b"NEW\\FIRST.DAT".to_vec(), Some(1)),
             (b"NEW\\FIRST.DAT".to_vec(), None),
             (b"..\\escape".to_vec(), None),
         ] {
@@ -2027,10 +2014,7 @@ mod tests {
                 files
                     .register_source_search_batch(
                         b"New",
-                        vec![
-                            (b"New\\first.dat".to_vec(), Some((4, "A".repeat(64)))),
-                            invalid,
-                        ]
+                        vec![(b"New\\first.dat".to_vec(), Some(4)), invalid,]
                     )
                     .is_err()
             );
@@ -2043,7 +2027,7 @@ mod tests {
                 files
                     .register_source_search_batch(
                         b"New",
-                        vec![(b"New\\first.dat".to_vec(), Some((4, "A".repeat(64)))),]
+                        vec![(b"New\\first.dat".to_vec(), Some(4)),]
                     )
                     .unwrap(),
                 vec![(0, 12)]
@@ -2068,7 +2052,7 @@ mod tests {
                     b"New",
                     vec![
                         (b"New\\folder".to_vec(), None),
-                        (b"NEW\\FOLDER".to_vec(), Some((1, "a".repeat(64)))),
+                        (b"NEW\\FOLDER".to_vec(), Some(1)),
                     ]
                 )
                 .is_err()
@@ -2090,10 +2074,7 @@ mod tests {
         files.register_snapshot(source).unwrap();
         assert!(
             files
-                .register_source_search_batch(
-                    b"New",
-                    vec![(b"New\\one.dat".to_vec(), Some((0, "a".repeat(64)))),]
-                )
+                .register_source_search_batch(b"New", vec![(b"New\\one.dat".to_vec(), Some(0)),])
                 .is_err()
         );
         assert_eq!(files.snapshot().unwrap().files.len(), 1);
@@ -2118,7 +2099,6 @@ mod tests {
                 object_id: u32::try_from(index).unwrap(),
                 relative_path_a: format!("Data\\{index}.dat").into_bytes(),
                 byte_length: 0,
-                sha256: "a".repeat(64),
             })
             .collect();
         files.register_snapshot(source).unwrap();
@@ -2127,8 +2107,8 @@ mod tests {
                 .register_source_search_batch(
                     b"New",
                     vec![
-                        (b"New\\one.dat".to_vec(), Some((0, "a".repeat(64)))),
-                        (b"New\\two.dat".to_vec(), Some((0, "a".repeat(64)))),
+                        (b"New\\one.dat".to_vec(), Some(0)),
+                        (b"New\\two.dat".to_vec(), Some(0)),
                     ]
                 )
                 .is_err()
@@ -2146,10 +2126,7 @@ mod tests {
         );
         assert_eq!(
             files
-                .register_source_search_batch(
-                    b"New",
-                    vec![(b"New\\one.dat".to_vec(), Some((0, "a".repeat(64)))),]
-                )
+                .register_source_search_batch(b"New", vec![(b"New\\one.dat".to_vec(), Some(0)),])
                 .unwrap(),
             vec![(0, u32::try_from(RUNTIME_SOURCE_FILE_LIMIT).unwrap())]
         );
@@ -2178,7 +2155,6 @@ mod tests {
                     object_id: 12,
                     relative_path_a: b"empty".to_vec(),
                     byte_length: 0,
-                    sha256: "0".repeat(64),
                 })
                 .is_err()
         );
@@ -2259,7 +2235,6 @@ mod tests {
                 object_id: 11,
                 relative_path_a: b"Data\\ARC.gdb".to_vec(),
                 byte_length: 9,
-                sha256: "0".repeat(64),
             }],
         }
     }
@@ -2284,7 +2259,6 @@ mod tests {
             object_id: 12,
             relative_path_a: b"Data\\archive.arc".to_vec(),
             byte_length: 7,
-            sha256: "a".repeat(64),
         };
         for invalid in [
             RuntimeSourceFileManifest {
@@ -2296,7 +2270,11 @@ mod tests {
                 ..file.clone()
             },
             RuntimeSourceFileManifest {
-                sha256: "invalid".to_owned(),
+                object_id: 0,
+                ..file.clone()
+            },
+            RuntimeSourceFileManifest {
+                byte_length: u64::from(u32::MAX) + 1,
                 ..file.clone()
             },
         ] {
@@ -2525,26 +2503,6 @@ mod tests {
     }
 
     #[test]
-    fn source_registration_accepts_uppercase_digest_and_retains_path_and_length() {
-        let mut files = RuntimeFiles::default();
-        let mut source = manifest();
-        source.files[0].sha256 = "AB".repeat(32);
-        files.register_snapshot(source).unwrap();
-
-        files
-            .register_source_file(RuntimeSourceFileManifest {
-                object_id: 12,
-                relative_path_a: b"second.dat".to_vec(),
-                byte_length: 7,
-                sha256: "CD".repeat(32),
-            })
-            .unwrap();
-        let second = &files.snapshot().unwrap().files[&12];
-        assert_eq!(second.relative_path_a, b"second.dat");
-        assert_eq!(second.byte_length, 7);
-    }
-
-    #[test]
     fn registration_rejects_duplicate_source_paths_without_mutation() {
         let mut files = RuntimeFiles::default();
         let mut source = manifest();
@@ -2552,7 +2510,6 @@ mod tests {
             object_id: 12,
             relative_path_a: b"data\\arc.GDB".to_vec(),
             byte_length: 1,
-            sha256: "0".repeat(64),
         });
         assert!(files.register_snapshot(source).is_err());
         assert!(files.snapshot().is_none());

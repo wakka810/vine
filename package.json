@@ -31,8 +31,5 @@
     "esbuild": "^0.28.1",
     "lucide": "^1.24.0",
     "typescript": "^7.0.2"
-  },
-  "dependencies": {
-    "@noble/hashes": "2.2.0"
   }
 }

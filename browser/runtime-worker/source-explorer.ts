@@ -1,4 +1,3 @@
-import { sha256 } from "@noble/hashes/sha2.js";
 import { isDevSource, listDevSource, openDevSourceFile, type SourceDirectory, type SourceFile } from "../storage/dev-source-directory.js";
 
 // Walk only handles obtained from the selected root. No user-supplied path is
@@ -47,7 +46,6 @@ export interface VerifiedSourceFile {
   pathSegments: string[];
   byteLength: number;
   lastModified: number;
-  sha256: string;
   sourceVersion?: string;
 }
 
@@ -88,7 +86,8 @@ export async function listSourceDirectory(
 }
 
 // The relative Windows-932 path is resolved by Rust. Here we only locate that
-// name beneath the selected handle and hash the immutable browser snapshot.
+// name beneath the selected handle and verify its bounded metadata. Asset reads
+// validate the same snapshot observations before and after each requested range.
 export async function inspectSourcePath(
   root: SourceDirectory,
   relativePathA: readonly number[],
@@ -119,21 +118,14 @@ export async function inspectSourcePath(
     if (handle.kind !== "file") return null;
   }
   const file = await openSourceFile(root, resolved);
-  if (!Number.isSafeInteger(file.size) || file.size > 0xffff_ffff) {
-    throw new Error("Source file exceeds PE32 file size support");
-  }
-  const hasher = sha256.create();
-  // The opt-in development server hashes immutable snapshots with a streaming
-  // reader. Do not transfer gigabytes of archives merely to inspect their hash.
-  if (file.sha256 === undefined) {
-    for (let offset = 0; offset < file.size; offset += 2 * 1024 * 1024) {
-      hasher.update(new Uint8Array(await file.slice(offset, offset + 2 * 1024 * 1024).arrayBuffer()));
-    }
+  if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > 0xffff_ffff ||
+      !Number.isSafeInteger(file.lastModified) || file.lastModified < 0) {
+    throw new Error("Invalid source file metadata");
   }
   const after = await openSourceFile(root, resolved);
   if (after.size !== file.size || after.lastModified !== file.lastModified ||
       after.sourceVersion !== file.sourceVersion) {
-    throw new Error("Source file changed while hashing");
+    throw new Error("Source file changed during inspection");
   }
   return {
     kind: "file",
@@ -141,7 +133,6 @@ export async function inspectSourcePath(
     byteLength: file.size,
     lastModified: file.lastModified,
     ...(file.sourceVersion === undefined ? {} : { sourceVersion: file.sourceVersion }),
-    sha256: file.sha256 ?? Array.from(hasher.digest(), (byte) => byte.toString(16).padStart(2, "0")).join(""),
   };
 }
 

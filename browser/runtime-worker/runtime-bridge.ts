@@ -160,7 +160,7 @@ export class RuntimeBridge {
     ));
   }
 
-  completeSourceLookup(entry: { kind: "file"; byteLength: number; sha256: string } | { kind: "directory" } | null): void {
+  completeSourceLookup(entry: { kind: "file"; byteLength: number } | { kind: "directory" } | null): void {
     const input = new TextEncoder().encode(JSON.stringify(entry));
     this.#setInput([input]);
     const result = this.#invoke<{ kind: string; found: boolean }>(() =>
@@ -184,7 +184,7 @@ export class RuntimeBridge {
     return result.metadata.entries!;
   }
 
-  completeSourceSearch(results: Array<{ kind: "file"; byteLength: number; sha256: string } | { kind: "directory" } | null>): Array<{ objectId: number; path: number[] }> {
+  completeSourceSearch(results: Array<{ kind: "file"; byteLength: number } | { kind: "directory" } | null>): Array<{ objectId: number; path: number[] }> {
     const input = new TextEncoder().encode(JSON.stringify(results));
     this.#setInput([input]);
     const result = this.#invoke<{kind: "source-search-complete"; registered: Array<{ objectId: number; path: number[] }> }>(

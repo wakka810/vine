@@ -607,7 +607,6 @@ impl BrowserRuntime {
                         [b"C:\\Vine\\".len()..virtual_image_path.len() - 1]
                         .to_vec(),
                     byte_length: source.bytes,
-                    sha256: source.sha256,
                 })
                 .chain(
                     mapped_dlls
@@ -619,7 +618,6 @@ impl BrowserRuntime {
                                 object_id: dll.source_id,
                                 relative_path_a: path[b"C:\\Vine\\".len()..path.len() - 1].to_vec(),
                                 byte_length: identity.bytes,
-                                sha256: identity.sha256,
                             })
                         })
                         .collect::<Result<Vec<_>, String>>()?,
@@ -840,17 +838,13 @@ impl BrowserRuntime {
                     }
                     let kind = value.get("kind").and_then(Value::as_str);
                     let info = match (*file, kind) {
-                        (true, Some("file")) => Some((
-                            value
+                        (true, Some("file")) => {
+                            let byte_length = value
                                 .get("byteLength")
                                 .and_then(Value::as_u64)
-                                .ok_or_else(|| "source search file length is missing".to_owned())?,
-                            value
-                                .get("sha256")
-                                .and_then(Value::as_str)
-                                .ok_or_else(|| "source search file digest is missing".to_owned())?
-                                .to_owned(),
-                        )),
+                                .ok_or_else(|| "source search file length is missing".to_owned())?;
+                            Some(byte_length)
+                        }
                         (false, Some("directory")) => None,
                         _ => {
                             return Err(
@@ -945,16 +939,11 @@ impl BrowserRuntime {
                 .get("byteLength")
                 .and_then(Value::as_u64)
                 .ok_or_else(|| "source lookup length is missing".to_owned())?;
-            let hash = result
-                .get("sha256")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "source lookup digest is missing".to_owned())?;
             self.runtime
                 .register_source_file(RuntimeSourceFileManifest {
                     object_id,
                     relative_path_a: path.clone(),
                     byte_length: length,
-                    sha256: hash.to_owned(),
                 })
                 .map_err(error_string)?;
             true
@@ -4289,7 +4278,6 @@ mod tests {
                     object_id: 1,
                     relative_path_a: b"directshow.exe".to_vec(),
                     byte_length: identity.bytes,
-                    sha256: identity.sha256,
                 }],
             })
             .unwrap();

@@ -2929,7 +2929,6 @@ fn load_library_a_reuses_registered_runtime_modules_without_export_configuration
                 object_id: 1,
                 relative_path_a: b"fixture.exe".to_vec(),
                 byte_length: 1,
-                sha256: "1".repeat(64),
             }],
         })
         .unwrap();

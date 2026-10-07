@@ -93,7 +93,6 @@ try {
   const japanese = [0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea];
   const verified = await inspectSourcePath(source, [...japanese, 0x5c, ...Buffer.from("data.dat")]);
   assert.equal(verified.byteLength, 3 * 1024 * 1024 * 1024);
-  assert.equal(verified.sha256, "f".repeat(64));
   assert.equal(rangeCalls, 0, "large archive inspection must not transfer or locally hash bytes");
   assert.deepEqual(await listSourceDirectory(source, japanese), {
     pathSegments: ["日本語"], entries: [{ name:"Data.DAT", kind:"file" }],

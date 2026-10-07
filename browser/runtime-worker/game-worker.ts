@@ -220,7 +220,7 @@ async function launch(request: LaunchRequest): Promise<void> {
   sourceFiles.set(1, {
     kind: "file",
     pathSegments: [...request.segments, request.name],
-    byteLength: file.size, lastModified: file.lastModified, sha256: inspected.sha256, sourceVersion: file.sourceVersion,
+    byteLength: file.size, lastModified: file.lastModified, sourceVersion: file.sourceVersion,
   });
   const pending = [...inspected.guestImports];
   const libraries = new Set<string>();
@@ -258,7 +258,7 @@ async function launch(request: LaunchRequest): Promise<void> {
     }
     sourceFiles.set(registered.sourceId, {
       kind: "file", pathSegments: [...selected.segments, selected.name],
-      byteLength: dll.size, lastModified: dll.lastModified, sha256: registered.sha256, sourceVersion: dll.sourceVersion,
+      byteLength: dll.size, lastModified: dll.lastModified, sourceVersion: dll.sourceVersion,
     });
     libraries.add(key);
     pending.push(...registered.guestImports);
@@ -842,7 +842,7 @@ async function launch(request: LaunchRequest): Promise<void> {
             const verified = await inspectSourcePath(request.root, lookup.relativePathA);
             bridge.completeSourceLookup(verified === null ? null : verified.kind === "directory"
               ? { kind: "directory" }
-              : { kind: "file", byteLength: verified.byteLength, sha256: verified.sha256 });
+              : { kind: "file", byteLength: verified.byteLength });
             if (verified?.kind === "file") sourceFiles.set(lookup.objectId!, verified);
           } else if (lookup.kind === "source-search") {
             if (!Array.isArray(lookup.relativeDirectoryA)) {
@@ -859,14 +859,14 @@ async function launch(request: LaunchRequest): Promise<void> {
                 if (verified?.kind === "file") verifiedFiles.set(path.join(","), verified);
                 results.push(verified === null ? null : verified.kind === "directory"
                   ? { kind: "directory" as const }
-                  : { kind: "file" as const, byteLength: verified.byteLength, sha256: verified.sha256 });
+                  : { kind: "file" as const, byteLength: verified.byteLength });
               }
               for (const entry of bridge.completeSourceSearch(results)) {
                 if (!Number.isInteger(entry.objectId) || !Array.isArray(entry.path)) {
                   throw new Error("Rust returned an invalid source search registration");
                 }
                 const file = verifiedFiles.get(entry.path.join(","));
-                if (!file) throw new Error("Source search registered a file without verified bytes");
+                if (!file) throw new Error("Source search registered a file without verified metadata");
                 sourceFiles.set(entry.objectId, file);
               }
             }

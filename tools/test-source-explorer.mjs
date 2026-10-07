@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { build } from "esbuild";
 
 const { outputFiles } = await build({
@@ -132,8 +131,40 @@ const verified = await inspectSourcePath(selected, [0x93, 0xfa, 0x96, 0x7b, 0x8c
   0x5c, ...Array.from("data.dat", (c) => c.charCodeAt(0))]);
 assert.deepEqual(verified, {
   kind: "file", pathSegments: ["日本語", "Data.DAT"], byteLength: 3, lastModified: sourceModified,
-  sha256: createHash("sha256").update(sourceBytes).digest("hex"),
 });
+const largeAsset = {
+  size: 3 * 1024 * 1024 * 1024, lastModified: 42,
+  slice() { throw new Error("Asset inspection must not read bytes"); },
+  arrayBuffer() { throw new Error("Asset inspection must not read bytes"); },
+};
+let inspectedFiles = [largeAsset, largeAsset];
+const largeRoot = {
+  async *entries() { yield ["archive.dat", { kind: "file" }]; },
+  async getFileHandle(name, options) {
+    assert.equal(name, "archive.dat"); assert.equal(options.create, false);
+    return { getFile: async () => inspectedFiles.shift() };
+  },
+};
+const largePath = Array.from("archive.dat", character => character.charCodeAt(0));
+assert.deepEqual(await inspectSourcePath(largeRoot, largePath), {
+  kind: "file", pathSegments: ["archive.dat"], byteLength: largeAsset.size, lastModified: 42,
+});
+for (const changed of [
+  { ...largeAsset, size: largeAsset.size - 1 },
+  { ...largeAsset, lastModified: 43 },
+  { ...largeAsset, sourceVersion: "new-snapshot" },
+]) {
+  inspectedFiles = [largeAsset, changed];
+  await assert.rejects(inspectSourcePath(largeRoot, largePath), /changed during inspection/);
+}
+for (const invalid of [
+  { ...largeAsset, size: -1 },
+  { ...largeAsset, size: 0x1_0000_0000 },
+  { ...largeAsset, lastModified: NaN },
+]) {
+  inspectedFiles = [invalid];
+  await assert.rejects(inspectSourcePath(largeRoot, largePath), /Invalid source file metadata/);
+}
 assert.deepEqual(await inspectSourcePath(selected, [0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]), {kind: "directory"});
 assert.deepEqual(await listSourceDirectory(selected, [0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]),
   {pathSegments: ["日本語"], entries: [{name: "Data.DAT", kind: "file"}]});

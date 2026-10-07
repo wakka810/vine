@@ -134,10 +134,10 @@ fn wildcard_browser_batch_registers_selected_source_paths_atomically() {
     );
     let files_before = runtime.source_snapshot().unwrap().files.len();
     let invalid = vec![
-        (selected[0].0.clone(), Some((94, "a".repeat(64)))),
+        (selected[0].0.clone(), Some(94)),
         (
             b"fixtures\\storage\\bad.dat".to_vec(),
-            Some((1, "bad digest".to_owned())),
+            Some(u64::from(u32::MAX) + 1),
         ),
     ];
     assert!(
@@ -156,7 +156,7 @@ fn wildcard_browser_batch_registers_selected_source_paths_atomically() {
         runtime
             .register_source_search_batch(
                 b"fixtures\\storage",
-                vec![(selected[0].0.clone(), Some((94, "a".repeat(64))))]
+                vec![(selected[0].0.clone(), Some(94))]
             )
             .unwrap(),
         vec![(0, 2)]
@@ -2548,21 +2548,18 @@ fn find_file_manifest() -> RuntimeSourceSnapshotManifest {
             root_path_a: b"C:\\Vine\0".to_vec(),
         },
         files: [
-            (1, b"data01099.arc".as_slice(), 10_u64, '1'),
-            (2, b"DATA01100.ARC".as_slice(), 20_u64, '2'),
-            (3, b"data01999.arc".as_slice(), 30_u64, '3'),
-            (4, b"notes.txt".as_slice(), 40_u64, '4'),
-            (5, b"assets\\nested.bin".as_slice(), 50_u64, '5'),
+            (1, b"data01099.arc".as_slice(), 10_u64),
+            (2, b"DATA01100.ARC".as_slice(), 20_u64),
+            (3, b"data01999.arc".as_slice(), 30_u64),
+            (4, b"notes.txt".as_slice(), 40_u64),
+            (5, b"assets\\nested.bin".as_slice(), 50_u64),
         ]
         .into_iter()
-        .map(
-            |(object_id, path, byte_length, hash_digit)| RuntimeSourceFileManifest {
-                object_id,
-                relative_path_a: path.to_vec(),
-                byte_length,
-                sha256: std::iter::repeat_n(hash_digit, 64).collect(),
-            },
-        )
+        .map(|(object_id, path, byte_length)| RuntimeSourceFileManifest {
+            object_id,
+            relative_path_a: path.to_vec(),
+            byte_length,
+        })
         .collect(),
     }
 }
@@ -2577,7 +2574,6 @@ fn source_manifest() -> RuntimeSourceSnapshotManifest {
             object_id: 1,
             relative_path_a: b"fixtures\\storage\\source-read-v1.dat".to_vec(),
             byte_length: 94,
-            sha256: "95c642cb0120d8973d8dc66972cd09c1191f31dc85f30af4f75a80fb5836ed2c".to_owned(),
         }],
     }
 }
