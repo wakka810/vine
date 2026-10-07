@@ -3565,7 +3565,7 @@ fn heap_initialization(flags: u32) -> Result<RuntimeHeapInitialization, ApiFault
     Ok(if flags & HEAP_ZERO_MEMORY != 0 {
         RuntimeHeapInitialization::Zeroed
     } else {
-        RuntimeHeapInitialization::DeterministicUninitialized
+        RuntimeHeapInitialization::Uninitialized
     })
 }
 

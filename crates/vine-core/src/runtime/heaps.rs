@@ -14,8 +14,6 @@ pub const RUNTIME_PRIVATE_HEAP_BACKING_LIMIT: u16 = 36;
 pub const RUNTIME_PRIVATE_HEAP_MAX_ORDINARY_SEGMENTS: usize =
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT as usize;
 pub const RUNTIME_PRIVATE_HEAP_ALIGNMENT: u32 = 8;
-pub const RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE: u8 = 0xa5;
-pub const RUNTIME_PRIVATE_HEAP_FREED_BYTE: u8 = 0xdd;
 pub const RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS: usize = 65_536;
 
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
@@ -33,16 +31,7 @@ pub struct RuntimeHeapAllocationId(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeHeapInitialization {
     Zeroed,
-    DeterministicUninitialized,
-}
-
-impl RuntimeHeapInitialization {
-    pub const fn fill_byte(self) -> u8 {
-        match self {
-            Self::Zeroed => 0,
-            Self::DeterministicUninitialized => RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
-        }
-    }
+    Uninitialized,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +40,6 @@ pub struct RuntimeHeapAllocation {
     pub address: GuestAddress,
     pub byte_length: u32,
     pub reserved_byte_length: u32,
-    pub initialization: RuntimeHeapInitialization,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,7 +80,6 @@ type HeapPlacement = (u32, Option<(u32, u32)>, u32);
 
 #[derive(Debug)]
 pub(super) struct RuntimeHeaps {
-    poison_uninitialized_and_freed: bool,
     heaps: BTreeMap<u32, RuntimeHeap>,
     backings: BTreeMap<u32, RuntimeHeapBacking>,
     extension_backings: BTreeMap<u32, BTreeMap<u16, RuntimeHeapBacking>>,
@@ -105,7 +92,6 @@ pub(super) struct RuntimeHeaps {
 impl Default for RuntimeHeaps {
     fn default() -> Self {
         Self {
-            poison_uninitialized_and_freed: true,
             heaps: BTreeMap::new(),
             backings: BTreeMap::new(),
             extension_backings: BTreeMap::new(),
@@ -136,7 +122,7 @@ impl RuntimeHeaps {
                 allocator,
                 handle,
                 byte_length,
-                RuntimeHeapInitialization::DeterministicUninitialized,
+                RuntimeHeapInitialization::Uninitialized,
                 None,
             );
         }
@@ -170,7 +156,7 @@ impl RuntimeHeaps {
                 allocator,
                 handle,
                 byte_length,
-                RuntimeHeapInitialization::DeterministicUninitialized,
+                RuntimeHeapInitialization::Uninitialized,
                 None,
             );
             if matches!(result, Ok(Some(_))) {
@@ -198,15 +184,6 @@ impl RuntimeHeaps {
             RuntimeStateError::new("COM task memory pointer has no live task allocator")
         })?;
         self.free(memory, allocator, handle, address)
-    }
-
-    pub(super) fn poisoning_enabled(&self) -> bool {
-        self.poison_uninitialized_and_freed
-    }
-
-    #[cfg(test)]
-    pub(super) fn set_poisoning_enabled(&mut self, enabled: bool) {
-        self.poison_uninitialized_and_freed = enabled;
     }
 
     #[cfg(test)]
@@ -514,14 +491,8 @@ impl RuntimeHeaps {
                     "large heap reallocation requires moving lazy guest pages",
                 ));
             }
-            return self.allocate_large(
-                memory,
-                allocator,
-                handle,
-                byte_length,
-                initialization,
-                next_allocation_id,
-            );
+            // Lazy pages receive fresh zeroed frames when committed, in either mode.
+            return self.allocate_large(memory, allocator, handle, byte_length, next_allocation_id);
         }
         let mut existing_space = self
             .backing(handle)
@@ -660,7 +631,6 @@ impl RuntimeHeaps {
                 })?,
             byte_length,
             reserved_byte_length,
-            initialization,
         };
         let additional_pages =
             ((next_committed_bytes - committed_bytes) / GUEST_PAGE_SIZE as u32) as usize;
@@ -718,12 +688,11 @@ impl RuntimeHeaps {
                 .map_err(RuntimeStateError::from_memory)?;
         }
         if eager {
-            crate::heap::fill_allocation(
+            crate::heap::initialize_allocation(
                 &mut transaction,
                 allocation.address,
                 reserved_byte_length,
-                (initialization == RuntimeHeapInitialization::Zeroed || self.poisoning_enabled())
-                    .then_some(initialization.fill_byte()),
+                initialization,
             )?;
             if replacement.is_some() {
                 transaction
@@ -797,7 +766,6 @@ impl RuntimeHeaps {
         allocator: &mut ProcessAddressSpaceAllocator,
         handle: u32,
         byte_length: u32,
-        initialization: RuntimeHeapInitialization,
         next_allocation_id: RuntimeHeapAllocationId,
     ) -> Result<Option<RuntimeHeapAllocation>, RuntimeStateError> {
         let heap = self.heap(handle)?;
@@ -844,7 +812,6 @@ impl RuntimeHeaps {
                     address: range.start(),
                     byte_length,
                     reserved_byte_length,
-                    initialization,
                 };
                 transaction.commit_transaction();
                 self.large_backings.insert(
@@ -947,13 +914,9 @@ impl RuntimeHeaps {
         storage: HeapAllocationStorage,
     ) -> Result<(), RuntimeStateError> {
         match storage {
-            HeapAllocationStorage::Small(_) => crate::heap::fill_allocation(
-                memory,
-                allocation.address,
-                allocation.reserved_byte_length,
-                self.poisoning_enabled()
-                    .then_some(RUNTIME_PRIVATE_HEAP_FREED_BYTE),
-            ),
+            HeapAllocationStorage::Small(_) => memory
+                .validate_host_write(allocation.address, allocation.reserved_byte_length as usize)
+                .map_err(RuntimeStateError::from_memory),
             HeapAllocationStorage::Large(base) => {
                 let backing = &self.large_backings[&base];
                 memory

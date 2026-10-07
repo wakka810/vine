@@ -20,7 +20,7 @@ fn lazy_heap_faults_preserve_boundaries_quota_and_released_ranges() {
     );
     let heap = runtime.allocate_private_heap(0, 0).unwrap();
     let block = runtime
-        .allocate_private_heap_block(heap, LARGE_BYTES, RuntimeHeapInitialization::Zeroed)
+        .allocate_private_heap_block(heap, LARGE_BYTES, RuntimeHeapInitialization::Uninitialized)
         .unwrap()
         .unwrap();
     assert_eq!(runtime.memory.stats().physical_pages, 0);

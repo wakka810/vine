@@ -111,16 +111,11 @@ fn rejected_realloc_preserves_source_bytes_and_allows_retry() {
 }
 
 #[test]
-fn disabling_heap_poisoning_preserves_zeroing_copy_and_protection_checks() {
+fn heap_preserves_zeroing_copy_and_protection_checks() {
     let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
-    runtime.set_heap_poisoning_enabled(false);
     let heap = runtime.allocate_private_heap(0x1000, 0).unwrap();
     let source = runtime
-        .allocate_private_heap_block(
-            heap,
-            32,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
+        .allocate_private_heap_block(heap, 32, RuntimeHeapInitialization::Uninitialized)
         .unwrap()
         .unwrap();
     acknowledge(&mut runtime.memory);
@@ -155,11 +150,7 @@ fn disabling_heap_poisoning_preserves_zeroing_copy_and_protection_checks() {
     );
     assert!(
         runtime
-            .allocate_private_heap_block(
-                heap,
-                32,
-                RuntimeHeapInitialization::DeterministicUninitialized
-            )
+            .allocate_private_heap_block(heap, 32, RuntimeHeapInitialization::Uninitialized)
             .is_err()
     );
     assert_eq!(runtime.memory.current_reflection().unwrap(), before);
@@ -183,6 +174,45 @@ fn disabling_heap_poisoning_preserves_zeroing_copy_and_protection_checks() {
         .unwrap();
     acknowledge(&mut runtime.memory);
     assert_eq!(runtime.memory.read(next.address, 64).unwrap(), [0; 64]);
+}
+
+#[test]
+fn uninitialized_alloc_free_and_reuse_preserve_bytes_without_memory_deltas() {
+    let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
+    let heap = runtime.allocate_private_heap(4096, 0).unwrap();
+    let seed = runtime
+        .allocate_private_heap_block(heap, 32, RuntimeHeapInitialization::Uninitialized)
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    assert_eq!(runtime.memory.read(seed.address, 4096).unwrap(), [0; 4096]);
+    runtime.memory.write(seed.address, &[0x5a; 4096]).unwrap();
+    acknowledge(&mut runtime.memory);
+    let generation = runtime.memory.stats().generation;
+    let neighbor = runtime
+        .allocate_private_heap_block(heap, 32, RuntimeHeapInitialization::Uninitialized)
+        .unwrap()
+        .unwrap();
+    assert!(!runtime.memory.has_pending_delta());
+    assert_eq!(
+        runtime.memory.read(neighbor.address, 32).unwrap(),
+        [0x5a; 32]
+    );
+    runtime.free_private_heap_block(heap, seed.address).unwrap();
+    assert!(!runtime.memory.has_pending_delta());
+    assert_eq!(runtime.memory.read(seed.address, 32).unwrap(), [0x5a; 32]);
+    let reused = runtime
+        .allocate_private_heap_block(heap, 32, RuntimeHeapInitialization::Uninitialized)
+        .unwrap()
+        .unwrap();
+    assert_eq!(reused.address, seed.address);
+    assert_ne!(reused.id, seed.id);
+    assert_eq!(runtime.memory.stats().generation, generation);
+    assert!(!runtime.memory.has_pending_delta());
+    assert_eq!(
+        runtime.memory.read(seed.address, 4096).unwrap(),
+        [0x5a; 4096]
+    );
 }
 
 #[test]

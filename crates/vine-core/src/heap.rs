@@ -1,21 +1,21 @@
 use crate::memory::{GuestAddress, GuestMemory};
-use crate::runtime::RuntimeStateError;
+use crate::runtime::{RuntimeHeapInitialization, RuntimeStateError};
 
-pub(crate) fn fill_allocation(
+pub(crate) fn initialize_allocation(
     memory: &mut GuestMemory,
     address: GuestAddress,
     byte_length: u32,
-    fill_byte: Option<u8>,
+    initialization: RuntimeHeapInitialization,
 ) -> Result<(), RuntimeStateError> {
     let byte_length = usize::try_from(byte_length).map_err(|_| {
         RuntimeStateError::new("private heap allocation size does not fit host accounting")
     })?;
-    let Some(fill_byte) = fill_byte else {
+    if initialization == RuntimeHeapInitialization::Uninitialized {
         return memory
             .validate_host_write(address, byte_length)
             .map_err(RuntimeStateError::from_memory);
-    };
-    let bytes = vec![fill_byte; byte_length];
+    }
+    let bytes = vec![0; byte_length];
     memory
         .write(address, &bytes)
         .map_err(RuntimeStateError::from_memory)?;

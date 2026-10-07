@@ -4269,12 +4269,6 @@ impl Runtime {
         Ok(self.heaps.backing(handle))
     }
 
-    /// Diagnostic fills are optional; zero-initialization and allocation validation are not.
-    #[cfg(test)]
-    pub(crate) fn set_heap_poisoning_enabled(&mut self, enabled: bool) {
-        self.heaps.set_poisoning_enabled(enabled);
-    }
-
     #[cfg(test)]
     pub(crate) fn private_heap_allocation(
         &self,
@@ -4370,7 +4364,6 @@ impl Runtime {
             .heaps
             .preview_page_materialization(&self.address_space_allocator, fault_address)?;
         let base = backing.allocation.address.0;
-        let fill_byte = backing.allocation.initialization.fill_byte();
         let memory_owner = backing.memory_owner;
         let region_matches = self.memory.regions().any(|region| {
             region.owner == backing.memory_owner
@@ -4398,12 +4391,6 @@ impl Runtime {
                 },
             )
             .map_err(RuntimeStateError::from_memory)?;
-        if fill_byte != 0 && self.heaps.poisoning_enabled() {
-            let bytes = vec![fill_byte; GUEST_PAGE_SIZE as usize];
-            transaction
-                .write(committed_page.start(), &bytes)
-                .map_err(RuntimeStateError::from_memory)?;
-        }
         self.heaps.record_materialized_page(base, committed_page);
         transaction.commit_transaction();
         Ok(())
