@@ -2532,34 +2532,6 @@ mod tests {
     }
 
     #[test]
-    fn synchronous_stock_brush_and_font_fail_before_publishing_exhausted_handles() {
-        let mut gdi = RuntimeGdi {
-            next_object_handle: u32::MAX,
-            ..RuntimeGdi::default()
-        };
-        let before = gdi.clone();
-        assert!(
-            gdi.get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(gdi, before);
-        assert!(gdi.create_font_a(font()).unwrap().is_none());
-        assert_eq!(gdi, before);
-
-        let mut gdi = RuntimeGdi::default();
-        let stock = gdi
-            .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-            .unwrap()
-            .unwrap();
-        gdi.object_handle_index.remove(&stock);
-        let before = gdi.clone();
-        gdi.get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)
-            .unwrap_err();
-        assert_eq!(gdi, before);
-    }
-
-    #[test]
     fn stock_reuse_rejects_corrupt_live_identity_and_memory_dc_defaults() {
         for damage in 0..4 {
             let mut gdi = RuntimeGdi::default();

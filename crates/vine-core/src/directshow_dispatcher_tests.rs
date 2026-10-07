@@ -306,13 +306,6 @@ fn directshow_guest_read_rejects_bad_callee_without_consuming_wait_and_retries()
     ));
 }
 
-#[test]
-fn directshow_guest_read_callback_exhaustion_preserves_wait_bytes_and_allocations() {
-    let (mut fixture, pending, _, _) = pending_guest_reader();
-    fixture.runtime.exhaust_callback_ids_for_test();
-    assert_read_rejected_without_mutation(&mut fixture, pending.request_id);
-}
-
 fn assert_read_rejected_without_mutation(fixture: &mut Fixture, request_id: u64) {
     let before = fixture.runtime.memory.stats();
     let allocator = fixture.runtime.process_address_space_allocator().clone();

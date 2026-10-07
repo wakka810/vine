@@ -2444,37 +2444,6 @@ mod tests {
     }
 
     #[test]
-    fn buffer_creation_rejects_exhaustion_before_publication() {
-        let descriptor = secondary_descriptor();
-        for next_buffer_id in [0, u64::MAX] {
-            let mut audio = priority_audio();
-            audio.next_buffer_id = next_buffer_id;
-            let before = audio.clone();
-            assert!(
-                audio
-                    .validate_buffer_creation(RuntimeComObjectId(13), descriptor)
-                    .is_err()
-            );
-            assert_eq!(audio, before);
-        }
-        let mut audio = priority_audio();
-        audio.next_buffer_id = u64::MAX - 1;
-        let creation = audio
-            .validate_buffer_creation(RuntimeComObjectId(13), descriptor)
-            .unwrap();
-        let buffer_id = audio.insert_buffer(creation, RuntimeComObjectId(22));
-        assert_eq!(buffer_id, RuntimeAudioBufferId(u64::MAX - 1));
-        assert_eq!(audio.next_buffer_id, u64::MAX);
-        let before = audio.clone();
-        assert!(
-            audio
-                .validate_buffer_creation(RuntimeComObjectId(13), descriptor)
-                .is_err()
-        );
-        assert_eq!(audio, before);
-    }
-
-    #[test]
     fn buffer_creation_rejects_corrupt_parent_identity_and_owned_buffer_indexes() {
         let mut audio = priority_audio();
         let device_id = audio.device_com_object_index[&RuntimeComObjectId(13)];

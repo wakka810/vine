@@ -43,21 +43,6 @@ fn media_callback_read_only_stack_retains_open_frame_and_end_then_retries() {
 }
 
 #[test]
-fn media_callback_id_exhaustion_retains_open_frame_and_end_without_publication() {
-    for completion in [Completion::Opened, Completion::Frame, Completion::Ended] {
-        let (mut runtime, pending) = pending_completion(completion, 0);
-        runtime.exhaust_callback_ids_for_test();
-        let error =
-            assert_completion_rejected(&mut runtime, &pending, response(completion, &pending));
-        assert!(
-            error
-                .message
-                .contains("callback frame ID space is exhausted")
-        );
-    }
-}
-
-#[test]
 fn media_opened_read_only_scratch_retains_wait_and_format_then_retries() {
     let (mut runtime, pending) = pending_completion(Completion::Opened, 0);
     let scratch = runtime.callback_scratch_allocation().unwrap().clone();

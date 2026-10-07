@@ -406,11 +406,6 @@ impl RuntimeSynchronization {
         Ok(next)
     }
 
-    #[cfg(test)]
-    pub(super) fn mutex_ids(&self) -> Vec<RuntimeMutexId> {
-        self.mutexes.keys().copied().collect()
-    }
-
     pub(super) fn validate_mutex_retirement(
         &self,
         id: RuntimeMutexId,

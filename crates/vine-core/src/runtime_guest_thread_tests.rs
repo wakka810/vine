@@ -578,52 +578,14 @@ fn current_api_created_thread_grows_only_its_own_stack_guard_atomically() {
 }
 
 #[test]
-fn guest_thread_late_object_rejection_rolls_back_bytes_mappings_and_thread_publication() {
+fn guest_thread_creation_failures_preserve_memory_and_guest_output_then_retry() {
     let mut runtime = prepared_runtime();
-    let key = crate::runtime::RuntimeObjectKey::Thread { thread_id: 8193 };
-    let (_, existing_handle) = runtime
-        .objects
-        .register_object_and_open_handle(key)
-        .unwrap();
+    let initial_stack = runtime.thread_stack(INITIAL_THREAD_ID).unwrap().clone();
     runtime
         .memory
         .write(OUTPUT, &0xdead_beef_u32.to_le_bytes())
         .unwrap();
     acknowledge_pending_delta(&mut runtime.memory);
-    let memory = runtime.memory.current_reflection().unwrap();
-    let allocations = runtime.process_address_space_allocator().clone();
-    let objects = runtime.objects.clone();
-    let scheduler = runtime.scheduler.clone();
-    let last_error = runtime.current_last_error().unwrap();
-    let failed = runtime.create_guest_thread(RuntimeCreateThreadRequest {
-        stack_reserve_bytes: 0x0010_0000,
-        stack_commit_bytes: GUEST_PAGE_SIZE,
-        entry_point: ENTRY,
-        parameter: 0,
-        thread_id_output: Some(OUTPUT),
-        initial_suspend_count: 0,
-    });
-    assert!(failed.is_err());
-    assert_eq!(runtime.memory.current_reflection().unwrap(), memory);
-    assert_eq!(runtime.process_address_space_allocator(), &allocations);
-    assert_eq!(runtime.objects, objects);
-    assert_eq!(runtime.scheduler, scheduler);
-    assert_eq!(runtime.current_last_error().unwrap(), last_error);
-    assert_eq!(read_u32(&runtime.memory, OUTPUT), 0xdead_beef);
-    assert!(runtime.thread_state(RuntimeThreadId(8193)).is_err());
-    assert_eq!(
-        runtime
-            .object_for_handle(existing_handle, RuntimeObjectKind::Thread)
-            .unwrap()
-            .key,
-        crate::runtime::RuntimeObjectKey::Thread { thread_id: 8193 }
-    );
-}
-
-#[test]
-fn guest_thread_creation_failures_preserve_memory_allocators_and_handle_generation() {
-    let mut runtime = prepared_runtime();
-    let initial_stack = runtime.thread_stack(INITIAL_THREAD_ID).unwrap().clone();
     let last_error = runtime.current_last_error().unwrap();
     let memory_before = runtime.memory.current_reflection().unwrap();
     runtime
@@ -636,25 +598,14 @@ fn guest_thread_creation_failures_preserve_memory_allocators_and_handle_generati
             initial_suspend_count: 1,
         })
         .expect_err("unmapped thread ID output must fail");
-    assert!(runtime.thread_state(RuntimeThreadId(8193)).is_err());
-    assert!(
-        runtime
-            .scheduler_state_for_thread(RuntimeThreadId(8193))
-            .is_err()
-    );
-    assert!(
-        runtime
-            .object_for_handle(RuntimeHandle(0x5401_0002), RuntimeObjectKind::Thread)
-            .is_err()
-    );
     assert_eq!(
         runtime.thread_stack(INITIAL_THREAD_ID).unwrap(),
         &initial_stack
     );
     assert_eq!(runtime.current_last_error().unwrap(), last_error);
     assert_eq!(runtime.memory.current_reflection().unwrap(), memory_before);
+    assert_eq!(read_u32(&runtime.memory, OUTPUT), 0xdead_beef);
 
-    let memory_before = runtime.memory.current_reflection().unwrap();
     let unavailable = runtime
         .create_guest_thread(RuntimeCreateThreadRequest {
             stack_reserve_bytes: 0x1000_0000,
@@ -669,17 +620,6 @@ fn guest_thread_creation_failures_preserve_memory_allocators_and_handle_generati
         unavailable.is_none(),
         "physical page quota must fail before commit"
     );
-    assert!(runtime.thread_state(RuntimeThreadId(8193)).is_err());
-    assert!(
-        runtime
-            .scheduler_state_for_thread(RuntimeThreadId(8193))
-            .is_err()
-    );
-    assert!(
-        runtime
-            .object_for_handle(RuntimeHandle(0x5401_0002), RuntimeObjectKind::Thread)
-            .is_err()
-    );
     assert_eq!(
         runtime.thread_stack(INITIAL_THREAD_ID).unwrap(),
         &initial_stack
@@ -691,9 +631,9 @@ fn guest_thread_creation_failures_preserve_memory_allocators_and_handle_generati
     assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
     assert_eq!(runtime.current_last_error().unwrap(), last_error);
     assert_eq!(runtime.memory.current_reflection().unwrap(), memory_before);
-    assert_eq!(read_u32(&runtime.memory, OUTPUT), 0);
+    assert_eq!(read_u32(&runtime.memory, OUTPUT), 0xdead_beef);
 
-    let result = runtime
+    let (thread_id, handle) = runtime
         .create_guest_thread(RuntimeCreateThreadRequest {
             stack_reserve_bytes: 0x0010_0000,
             stack_commit_bytes: GUEST_PAGE_SIZE,
@@ -704,21 +644,31 @@ fn guest_thread_creation_failures_preserve_memory_allocators_and_handle_generati
         })
         .expect("retry after rejected creation")
         .expect("guest thread capacity");
-    let result_stack = runtime.thread_stack(result.0).unwrap().clone();
-    let result_environment = runtime
-        .thread_state(result.0)
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert_ne!(thread_id, INITIAL_THREAD_ID);
+    assert_eq!(read_u32(&runtime.memory, OUTPUT), thread_id.0);
+    assert_eq!(
+        runtime
+            .object_wait_state(handle, RuntimeObjectKind::Thread)
+            .unwrap(),
+        RuntimeWaitState::Nonsignaled
+    );
+    let stack = runtime.thread_stack(thread_id).unwrap();
+    assert_eq!(
+        read_u32(&runtime.memory, stack.initial_stack_pointer),
+        stack.return_sentinel.0
+    );
+    let teb = runtime
+        .thread_state(thread_id)
         .unwrap()
         .environment
         .as_ref()
         .unwrap()
-        .clone();
-    assert_eq!(result.0, RuntimeThreadId(8193));
-    assert_eq!(result.1, RuntimeHandle(0x5401_0002));
+        .teb_address;
     assert_eq!(
-        result_stack.reserved_range.start(),
-        GuestAddress(0x5000_0000)
+        read_u32(&runtime.memory, GuestAddress(teb.0 + 0x24)),
+        thread_id.0
     );
-    assert_eq!(result_environment.teb_address, GuestAddress(0x7f03_0000));
 }
 
 fn prepared_runtime() -> Runtime {

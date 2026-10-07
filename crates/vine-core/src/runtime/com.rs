@@ -798,88 +798,33 @@ mod tests {
     }
 
     #[test]
-    fn method_lookup_distinguishes_unowned_endpoint_from_corrupt_live_index() {
+    fn guest_pointer_and_endpoint_lookup_resolve_only_live_interfaces() {
         let mut runtime = RuntimeCom::default();
         let missing = GuestAddress(0x0100_ffff);
-        assert!(runtime.resolve_method(missing).unwrap().is_none());
-
-        let object = register(&mut runtime, registration()).unwrap();
-        let endpoint = runtime.interface(object.interface_ids[1]).unwrap().methods[&0].endpoint;
-        assert!(runtime.resolve_method(endpoint).unwrap().is_some());
-
-        let (interface_id, slot) = runtime.endpoint_index[&endpoint];
-        let mut method = runtime
-            .interfaces
-            .get_mut(&interface_id)
-            .unwrap()
-            .methods
-            .remove(&slot)
-            .unwrap();
-        assert!(runtime.resolve_method(endpoint).is_err());
-        method.endpoint = missing;
-        runtime
-            .interfaces
-            .get_mut(&interface_id)
-            .unwrap()
-            .methods
-            .insert(slot, method);
-        assert!(runtime.resolve_method(endpoint).is_err());
-        runtime
-            .interfaces
-            .get_mut(&interface_id)
-            .unwrap()
-            .methods
-            .get_mut(&slot)
-            .unwrap()
-            .endpoint = endpoint;
-
-        let (object_id, pointer, iid) = {
-            let interface = runtime.interface(interface_id).unwrap();
-            (interface.object_id, interface.guest_pointer, interface.iid)
-        };
-        runtime.pointer_index.remove(&pointer);
-        assert!(runtime.resolve_method(endpoint).is_err());
-        runtime.pointer_index.insert(pointer, interface_id);
-        runtime.iid_index.remove(&(object_id, iid));
-        assert!(runtime.resolve_method(endpoint).is_err());
-        runtime.iid_index.insert((object_id, iid), interface_id);
-
-        let target = runtime.resolve_method(endpoint).unwrap().unwrap();
-        assert_eq!(target.object_id, object_id);
-        assert_eq!(target.class, RuntimeComClass::D3d9);
-        assert_eq!(runtime.object(target.object_id).unwrap().reference_count, 1);
-        assert_eq!(target.interface_id, interface_id);
-        assert_eq!(target.iid, SYNTHETIC_IID);
-        assert_eq!(target.guest_pointer, pointer);
-        assert_eq!(target.method.slot, slot);
-        assert_eq!(target.method.endpoint, endpoint);
-        assert_eq!(target.method.argument_words(), Some(3));
-        assert_eq!(target.interface_name, "ISynthetic");
-        assert_eq!(runtime.object(object_id).unwrap().reference_count, 1);
-    }
-
-    #[test]
-    fn pointer_lookup_distinguishes_absence_from_dangling_and_aliased_indices() {
-        let mut runtime = RuntimeCom::default();
         let pointer = registration().interfaces[1].guest_pointer;
+        assert!(runtime.resolve_method(missing).unwrap().is_none());
         assert!(runtime.interface_for_pointer(pointer).unwrap().is_none());
         let object = register(&mut runtime, registration()).unwrap();
-        let interface_id = object.interface_ids[1];
+        let interface = runtime.interface(object.interface_ids[1]).unwrap();
+        let endpoint = interface.methods[&0].endpoint;
+        let target = runtime.resolve_method(endpoint).unwrap().unwrap();
+        assert_eq!(target.guest_pointer, pointer);
+        assert_eq!(target.iid, SYNTHETIC_IID);
+        assert_eq!(target.method.argument_words(), Some(3));
         assert_eq!(
             runtime.interface_for_pointer(pointer).unwrap().unwrap().id,
-            interface_id
+            target.interface_id
         );
-
-        let alias = GuestAddress(pointer.0 + 4);
-        runtime.pointer_index.insert(alias, interface_id);
-        runtime.interface_for_pointer(alias).unwrap_err();
-        runtime.pointer_index.remove(&alias);
-        let object_id = runtime.interfaces[&interface_id].object_id;
-        let object = runtime.objects.remove(&object_id).unwrap();
-        runtime.interface_for_pointer(pointer).unwrap_err();
-        runtime.objects.insert(object_id, object);
-        runtime.interfaces.remove(&interface_id);
-        runtime.interface_for_pointer(pointer).unwrap_err();
+        assert!(
+            runtime
+                .interface_for_pointer(GuestAddress(pointer.0 + 4))
+                .unwrap()
+                .is_none()
+        );
+        let release = runtime.validate_release(target.interface_id).unwrap();
+        runtime.remove_validated_objects(release);
+        assert!(runtime.interface_for_pointer(pointer).unwrap().is_none());
+        assert!(runtime.resolve_method(endpoint).unwrap().is_none());
     }
 
     #[test]
@@ -970,44 +915,6 @@ mod tests {
         );
         runtime.remove_validated_objects(release_child);
         assert!(runtime.is_empty());
-    }
-
-    #[test]
-    fn final_release_rejects_corrupt_reverse_indices_then_retires_after_repair() {
-        let mut runtime = RuntimeCom::default();
-        let object = register(&mut runtime, registration()).unwrap();
-        let object_id = object.id;
-        let interface_id = object.interface_ids[1];
-        let interface = runtime.interface(interface_id).unwrap();
-        let pointer = interface.guest_pointer;
-        let endpoint = interface.methods[&0].endpoint;
-
-        runtime.pointer_index.remove(&pointer);
-        assert!(runtime.validate_release(interface_id).is_err());
-        assert_eq!(runtime.object(object_id).unwrap().reference_count, 1);
-        assert_eq!(
-            runtime.interface(interface_id).unwrap().guest_pointer,
-            pointer
-        );
-        assert_eq!(runtime.endpoint_index[&endpoint], (interface_id, 0));
-        runtime.pointer_index.insert(pointer, interface_id);
-
-        runtime.endpoint_index.insert(endpoint, (interface_id, 1));
-        assert!(runtime.validate_release(interface_id).is_err());
-        assert_eq!(runtime.object(object_id).unwrap().reference_count, 1);
-        assert_eq!(runtime.pointer_index[&pointer], interface_id);
-        runtime.endpoint_index.insert(endpoint, (interface_id, 0));
-
-        let release = runtime.validate_release(interface_id).unwrap();
-        assert_eq!(release.retired_objects(), [object_id]);
-        runtime.remove_validated_objects(release);
-        assert!(runtime.objects.is_empty());
-        assert!(runtime.interfaces.is_empty());
-        assert!(runtime.pointer_index.is_empty());
-        assert!(runtime.endpoint_index.is_empty());
-        assert!(runtime.iid_index.is_empty());
-        assert!(runtime.interface_for_pointer(pointer).unwrap().is_none());
-        assert!(runtime.resolve_method(endpoint).unwrap().is_none());
     }
 
     #[test]

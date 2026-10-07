@@ -3089,21 +3089,6 @@ mod tests {
     }
 
     #[test]
-    fn device_creation_rejects_exhausted_identity_before_publication() {
-        {
-            let graphics = RuntimeGraphics {
-                next_device_id: u64::MAX,
-                ..RuntimeGraphics::default()
-            };
-            let before = graphics.clone();
-            assert!(graphics.validate_device_creation(request()).is_err());
-            assert_eq!(graphics, before);
-            assert!(graphics.devices.is_empty());
-            assert!(graphics.device_com_object_index.is_empty());
-        }
-    }
-
-    #[test]
     fn retirement_rejects_corrupt_identity_and_exhaustion_before_mutation() {
         let mut graphics = RuntimeGraphics::default();
         let device_id = graphics

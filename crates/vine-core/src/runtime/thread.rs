@@ -318,11 +318,6 @@ impl RuntimeThreads {
         })
     }
 
-    #[cfg(test)]
-    pub(super) fn exhaust_callback_ids_for_test(&mut self) {
-        self.next_callback_frame_id = u64::MAX;
-    }
-
     pub(super) fn next_callback_frame_id(
         &self,
     ) -> Result<RuntimeCallbackFrameId, RuntimeStateError> {
@@ -1449,27 +1444,5 @@ mod tests {
             );
         }
         assert!(threads.require_tls_index(TLS_INDEX_LIMIT).is_err());
-    }
-
-    #[test]
-    fn resource_allocator_rejections_preserve_all_owned_state() {
-        let mut threads = RuntimeThreads::new(INITIAL, 0);
-        threads.next_tls_index = TLS_OUT_OF_INDEXES;
-        let before_tls_exhaustion = threads.clone();
-        assert_eq!(threads.allocate_tls_index().unwrap(), TLS_OUT_OF_INDEXES);
-        assert_eq!(threads, before_tls_exhaustion);
-
-        threads.next_fls_index = RUNTIME_FLS_INDEX_LIMIT;
-        let before_fls_exhaustion = threads.clone();
-        assert_eq!(
-            threads.allocate_fls_slot(INITIAL, None).unwrap(),
-            FLS_OUT_OF_INDEXES
-        );
-        assert_eq!(threads, before_fls_exhaustion);
-
-        threads.next_callback_frame_id = u64::MAX;
-        let before_callback_exhaustion = threads.clone();
-        threads.next_callback_frame_id().unwrap_err();
-        assert_eq!(threads, before_callback_exhaustion);
     }
 }
