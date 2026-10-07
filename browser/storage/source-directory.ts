@@ -1,3 +1,5 @@
+import { isDevSource, type SourceDirectory } from "./dev-source-directory.js";
+
 // The directory handle is a browser capability, not a physical path. Remember
 // it without requesting write access so the same selection keeps its own save tree.
 const databaseName = "vine-source-directories";
@@ -45,13 +47,13 @@ export function rememberSourceDirectory(handle: FileSystemDirectoryHandle): Prom
 // A selected executable's path is part of its save identity: two copies with
 // identical PE bytes under one selected directory must not share writable data.
 export async function gameStorageFingerprint(
-  handle: FileSystemDirectoryHandle, segments: string[], name: string, executableSha256: string,
+  handle: SourceDirectory, segments: string[], name: string, executableSha256: string,
 ): Promise<string> {
   if (!Array.isArray(segments) || typeof name !== "string" ||
       !/^[0-9a-f]{64}$/u.test(executableSha256)) {
     throw new Error("Invalid executable storage identity");
   }
-  const directoryId = await rememberSourceDirectory(handle);
+  const directoryId = isDevSource(handle) ? `development:${handle.id}` : await rememberSourceDirectory(handle);
   const identity = JSON.stringify([directoryId, segments, name, executableSha256]);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity));
   return Array.from(new Uint8Array(digest),

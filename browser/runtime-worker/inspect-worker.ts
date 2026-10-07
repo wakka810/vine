@@ -1,3 +1,4 @@
+import type { SourceDirectory } from "../storage/dev-source-directory.js";
 import { gameStorageFingerprint } from "../storage/source-directory.js";
 import { RuntimeBridge } from "./runtime-bridge.js";
 import { openSourceExecutable } from "./source-explorer.js";
@@ -6,7 +7,7 @@ import { openWritableTree } from "./writable-tree.js";
 export interface InspectExecutableMessage {
   type: "inspect-executable";
   requestId: number;
-  root: FileSystemDirectoryHandle;
+  root: SourceDirectory;
   segments: string[];
   name: string;
 }
@@ -35,7 +36,8 @@ worker.addEventListener("message", (event: MessageEvent<InspectExecutableMessage
       const bytes = new Uint8Array(await file.arrayBuffer());
       const after = await openSourceExecutable(root, segments, name);
       if (bytes.length !== file.size || after.size !== file.size ||
-          after.lastModified !== file.lastModified) throw new Error("Executable changed while reading");
+          after.lastModified !== file.lastModified ||
+          after.sourceVersion !== file.sourceVersion) throw new Error("Executable changed while reading");
       inspector ??= RuntimeBridge.instantiate(new URL("./runtime-core.wasm", import.meta.url));
       result = (await inspector).inspectExecutable(bytes, [...segments, name].join("/"));
       const storageFingerprint = await gameStorageFingerprint(root, segments, name, result.sha256);

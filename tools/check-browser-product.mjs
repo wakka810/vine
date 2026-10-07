@@ -6,19 +6,46 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createDevSourceHandler } from "./dev-source-server.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assets = path.join(root, ".work", "browser-runtime");
+const serve = process.argv.includes("--serve");
+const arguments_ = process.argv.slice(2);
+let gameRoot;
+let servePort = 4173;
+const seen = new Set();
+for (let index = 0; index < arguments_.length; index += 1) {
+  const argument = arguments_[index];
+  if (seen.has(argument)) throw Error(`Duplicate option: ${argument}`);
+  seen.add(argument);
+  if (["--serve", "--scheduler-only", "--keyboard-only"].includes(argument)) continue;
+  if (!["--dev-game-root", "--port"].includes(argument)) throw Error(`Unknown option: ${argument}`);
+  if (!serve) throw Error(`${argument} requires --serve`);
+  const value = arguments_[++index];
+  if (!value || value.startsWith("--")) throw Error(`${argument} requires a value`);
+  if (argument === "--dev-game-root") gameRoot = value;
+  else {
+    if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || Number(value) > 65535) throw Error("Invalid --port");
+    servePort = Number(value);
+  }
+}
+const devSource = gameRoot === undefined ? null : await createDevSourceHandler(gameRoot);
 const schedulerOnly = process.argv.includes("--scheduler-only");
 const keyboardOnly = process.argv.includes("--keyboard-only");
 const mime = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript",
   ".wasm": "application/wasm" };
 const server = http.createServer(async (request, response) => {
   try {
+    if (devSource && await devSource(request, response)) return;
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
     const file = path.resolve(assets, pathname === "/" ? "index.html" : pathname.slice(1));
     if (!file.startsWith(`${path.resolve(assets)}${path.sep}`)) throw Error("Path escapes browser assets");
-    const bytes = await readFile(file);
+    let bytes = await readFile(file);
+    if (devSource && file === path.join(assets, "index.html")) {
+      bytes = Buffer.from(bytes.toString("utf8").replace("<head>",
+        '<head>\n<meta name="vine-dev-source" content="enabled">'));
+    }
     response.writeHead(200, {
       "Content-Type": mime[path.extname(file)] ?? "application/octet-stream",
       "Cache-Control": "no-store",
@@ -33,13 +60,15 @@ const server = http.createServer(async (request, response) => {
 });
 await new Promise((resolve, reject) => {
   server.once("error", reject);
-  server.listen(process.argv.includes("--serve") ? 4173 : 0, "127.0.0.1", resolve);
+  server.listen(serve ? servePort : 0, "127.0.0.1", resolve);
 });
 const url = `http://127.0.0.1:${server.address().port}/`;
-if (process.argv.includes("--serve")) {
+if (serve) {
   console.log(`Vine game selector: ${url}`);
+  if (devSource) console.log("Read-only development source enabled (Linux descriptor-relative reads; saves remain in OPFS)");
   await new Promise((resolve) => { process.once("SIGINT", resolve); process.once("SIGTERM", resolve); });
-  server.close();
+  await new Promise((resolve) => server.close(resolve));
+  await devSource?.close();
 } else {
   let chrome;
   const profile = await mkdtemp(path.join(os.tmpdir(), "vine-chrome-"));
