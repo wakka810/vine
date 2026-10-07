@@ -769,19 +769,6 @@ impl RuntimeModules {
             .map_err(runtime_module_graph_error)
     }
 
-    #[cfg(test)]
-    pub(super) fn release_dynamic_reference(
-        &mut self,
-        handle: u32,
-        thread_id: u32,
-    ) -> Result<u32, RuntimeStateError> {
-        self.require_graph_mutation_allowed()?;
-        let module = self.module_id_by_handle(handle)?;
-        self.module_graph
-            .release_dynamic_reference(module, thread_id)
-            .map_err(runtime_module_graph_error)
-    }
-
     pub(super) fn mark_ready(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
         self.require_graph_mutation_allowed()?;
         let module = self.module_id_by_handle(handle)?;
@@ -800,19 +787,6 @@ impl RuntimeModules {
         self.require_graph_mutation_allowed()?;
         self.module_graph
             .attach_all()
-            .map_err(runtime_module_graph_error)
-    }
-
-    #[cfg(test)]
-    pub(super) fn detach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
-        if self.dll_lifecycle.phase != RuntimeDllLifecyclePhase::Idle {
-            return Err(RuntimeStateError::new(
-                "direct module detach cannot bypass the active DLL lifecycle coordinator",
-            ));
-        }
-        self.require_graph_mutation_allowed()?;
-        self.module_graph
-            .detach_all()
             .map_err(runtime_module_graph_error)
     }
 

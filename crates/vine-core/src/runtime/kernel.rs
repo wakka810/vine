@@ -73,9 +73,9 @@ use super::graphics::{
     RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureId,
     RuntimeGraphicsTextureStageStateUpdate, RuntimeGraphicsWindowTarget, texture_byte_layout,
 };
-use super::heaps::{RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeaps};
 #[cfg(test)]
-use super::heaps::{RuntimeHeapBacking, RuntimeLargeHeapAllocationBacking};
+use super::heaps::RuntimeHeapBacking;
+use super::heaps::{RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapInitialization, RuntimeHeaps};
 use super::imm32::{RuntimeImeContext, RuntimeImm32};
 use super::input::{
     RuntimeCursorPosition, RuntimeInput, RuntimeInputProfile, RuntimeKeyboardSourceEvent,
@@ -4280,29 +4280,6 @@ impl Runtime {
         Ok(self.heaps.backing(handle))
     }
 
-    #[cfg(test)]
-    pub(crate) fn heap_extension_backing(
-        &self,
-        handle: u32,
-    ) -> Result<Option<&RuntimeHeapBacking>, RuntimeStateError> {
-        self.heap(handle)?;
-        Ok(self.heaps.extension_backing(handle))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn large_heap_allocation_backing(
-        &self,
-    ) -> Option<&RuntimeLargeHeapAllocationBacking> {
-        self.heaps.large_backing()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn large_heap_allocation_backings(
-        &self,
-    ) -> &BTreeMap<u32, RuntimeLargeHeapAllocationBacking> {
-        self.heaps.large_backings()
-    }
-
     /// Diagnostic fills are optional; zero-initialization and allocation validation are not.
     #[cfg(test)]
     pub(crate) fn set_heap_poisoning_enabled(&mut self, enabled: bool) {
@@ -4583,16 +4560,6 @@ impl Runtime {
             .add_dynamic_reference(handle, self.current_thread_id().0)
     }
 
-    #[cfg(test)]
-    pub(crate) fn release_current_thread_module_reference(
-        &mut self,
-        handle: u32,
-    ) -> Result<u32, RuntimeStateError> {
-        self.module(handle)?;
-        self.modules
-            .release_dynamic_reference(handle, self.current_thread_id().0)
-    }
-
     pub fn mark_module_ready(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
         self.module(handle)?;
         self.modules.mark_ready(handle)
@@ -4601,11 +4568,6 @@ impl Runtime {
     #[cfg(test)]
     pub(crate) fn attach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
         self.modules.attach_all()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn detach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
-        self.modules.detach_all()
     }
 
     pub(crate) fn dll_lifecycle_phase(&self) -> RuntimeDllLifecyclePhase {

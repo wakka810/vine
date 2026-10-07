@@ -224,13 +224,6 @@ impl RuntimeHeaps {
         self.backings.get(&handle)
     }
 
-    #[cfg(test)]
-    pub(super) fn extension_backing(&self, handle: u32) -> Option<&RuntimeHeapBacking> {
-        self.extension_backings
-            .get(&handle)
-            .and_then(|backings| backings.values().next_back())
-    }
-
     fn extension_backings(
         &self,
         handle: u32,
@@ -277,16 +270,6 @@ impl RuntimeHeaps {
                 .get_mut(&handle)
                 .and_then(|backings| backings.get_mut(&slot)),
         }
-    }
-
-    #[cfg(test)]
-    pub(super) fn large_backing(&self) -> Option<&RuntimeLargeHeapAllocationBacking> {
-        self.large_backings.values().next()
-    }
-
-    #[cfg(test)]
-    pub(super) fn large_backings(&self) -> &BTreeMap<u32, RuntimeLargeHeapAllocationBacking> {
-        &self.large_backings
     }
 
     #[cfg(test)]

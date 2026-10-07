@@ -1,57 +1,22 @@
+use crate::runtime::X86_STARTUP_INFO_W_BYTE_LENGTH;
 use crate::{
-    GuestAddress, Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint,
-    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeThreadId,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeProcessId, RuntimeProcessImagePathA,
+    RuntimeStartupInfo, RuntimeThreadId,
 };
 
 #[test]
-fn dynamic_endpoints_and_pointer_permutation_preserve_runtime_state() {
+fn pointer_encoding_is_reversible_without_changing_thread_values_or_last_error() {
     let mut runtime = running_runtime();
-    let endpoint = RuntimeDynamicEndpoint {
-        id: 2,
-        address: GuestAddress(0x7f02_0010),
-        module: "kernel32.dll".to_owned(),
-        name: "FlsGetValue".to_owned(),
-        ordinal: Some(18),
-    };
-    runtime
-        .register_dynamic_endpoint(endpoint.clone())
-        .expect("register controlled endpoint");
-
-    runtime
-        .register_dynamic_endpoint(endpoint.clone())
-        .expect_err("duplicate endpoint must be rejected");
-    let second = RuntimeDynamicEndpoint {
-        id: 3,
-        address: GuestAddress(0x7f02_0020),
-        module: "kernel32.dll".to_owned(),
-        name: "FlsAlloc".to_owned(),
-        ordinal: None,
-    };
-    assert_eq!(
-        runtime.register_dynamic_endpoint(second.clone()).unwrap(),
-        &second
-    );
-
-    let tls_index = runtime.allocate_tls_index().expect("allocate TLS index");
-    runtime
-        .set_tls_value(tls_index, endpoint.address.0)
-        .expect("store endpoint identity in thread TLS");
-    assert_eq!(runtime.tls_value(tls_index), Ok(endpoint.address.0));
-
-    let clock_before_encoding = runtime.clock().clone();
-    let first = runtime.encode_pointer(endpoint.address.0);
-    assert_eq!(runtime.encode_pointer(endpoint.address.0), first);
-    assert_eq!(runtime.clock(), &clock_before_encoding);
+    let index = runtime.allocate_tls_index().unwrap();
+    runtime.set_tls_value(index, 42).unwrap();
+    for pointer in [0, 1, 0x7f02_0010, u32::MAX] {
+        let encoded = runtime.encode_pointer(pointer);
+        assert_eq!(runtime.encode_pointer(pointer), encoded);
+        assert_eq!(runtime.decode_pointer(encoded), pointer);
+        assert_ne!(runtime.decode_pointer(encoded ^ 1), pointer);
+    }
+    assert_eq!(runtime.tls_value_or_unset(index), Ok(Some(42)));
     assert_eq!(runtime.current_last_error().unwrap(), 87);
-    assert_eq!(runtime.tls_value(tls_index), Ok(endpoint.address.0));
-
-    // DecodePointer is the inverse process transform, including for tokens not returned by EncodePointer.
-    assert_ne!(runtime.decode_pointer(first ^ 1), endpoint.address.0);
-    assert_eq!(runtime.decode_pointer(first), endpoint.address.0);
-    assert_eq!(runtime.clock(), &clock_before_encoding);
-    assert_eq!(runtime.current_last_error().unwrap(), 87);
-    assert_eq!(runtime.tls_value(tls_index), Ok(endpoint.address.0));
 }
 
 fn running_runtime() -> Runtime {

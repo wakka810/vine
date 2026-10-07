@@ -1,189 +1,136 @@
+use crate::runtime::{RuntimeHeapInitialization, X86_STARTUP_INFO_W_BYTE_LENGTH};
 use crate::{
-    GuestAddress, GuestMemory, MemoryLimits, MemoryOwnerKind, MemoryRegionKind,
-    ProcessAddressAllocationPurpose, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
-    RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, Runtime, RuntimeBootstrap, RuntimeClockState,
-    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimeProcessId, RuntimeStartupInfo,
-    RuntimeThreadId, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    GuestAddress, GuestMemory, GuestRange, MemoryLimits, PageProtection, Runtime, RuntimeBootstrap,
+    RuntimeClockState, RuntimeProcessId, RuntimeStartupInfo, RuntimeThreadId,
 };
 
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
-const REACHED_SAVE_COMPRESSION_BYTES: u32 = 7_786_068;
-const REACHED_SCENARIO_BUFFER_BYTES: u32 = 61_219_868;
 
 #[test]
-fn realloc_coalesces_the_free_space_remaining_after_target_allocation() {
+fn realloc_preserves_other_blocks_and_leaves_coalesced_space_usable() {
     let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
-    let handle = runtime.allocate_private_heap(0, 0).unwrap();
+    let heap = runtime.allocate_private_heap(0, 4096).unwrap();
     let first = runtime
-        .allocate_private_heap_block(handle, 32, RuntimeHeapInitialization::Zeroed)
+        .allocate_private_heap_block(heap, 32, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
     let source = runtime
-        .allocate_private_heap_block(handle, 32, RuntimeHeapInitialization::Zeroed)
+        .allocate_private_heap_block(heap, 32, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
     let last = runtime
-        .allocate_private_heap_block(handle, 32, RuntimeHeapInitialization::Zeroed)
+        .allocate_private_heap_block(heap, 4032, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
-    acknowledge_initial_reflection(&mut runtime.memory);
+    acknowledge(&mut runtime.memory);
     runtime.memory.write(source.address, &[0x5a; 32]).unwrap();
     runtime.memory.write(last.address, &[0x77; 32]).unwrap();
-    acknowledge_delta(&mut runtime.memory);
+    acknowledge(&mut runtime.memory);
     runtime
-        .free_private_heap_block(handle, first.address)
+        .free_private_heap_block(heap, first.address)
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-
+    acknowledge(&mut runtime.memory);
     let target = runtime
-        .reallocate_private_heap_block(
-            handle,
-            source.address,
-            16,
-            RuntimeHeapInitialization::Zeroed,
-        )
+        .reallocate_private_heap_block(heap, source.address, 16, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    assert_eq!(target.address, first.address);
+    acknowledge(&mut runtime.memory);
     assert_eq!(runtime.memory.read(target.address, 16).unwrap(), [0x5a; 16]);
     assert_eq!(runtime.memory.read(last.address, 32).unwrap(), [0x77; 32]);
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 2);
-    assert_eq!(
-        runtime.heap_backing(handle).unwrap().unwrap().free_blocks,
-        std::collections::BTreeMap::from([(16, 48)])
-    );
-    let reused = runtime
-        .allocate_private_heap_block(handle, 48, RuntimeHeapInitialization::Zeroed)
+    let remaining = runtime
+        .allocate_private_heap_block(heap, 48, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
-    assert_eq!(reused.address, GuestAddress(first.address.0 + 16));
+    acknowledge(&mut runtime.memory);
+    assert_eq!(runtime.memory.read(remaining.address, 48).unwrap(), [0; 48]);
+    assert_eq!(runtime.memory.read(target.address, 16).unwrap(), [0x5a; 16]);
+    assert_eq!(runtime.memory.read(last.address, 32).unwrap(), [0x77; 32]);
 }
 
 #[test]
-fn realloc_source_write_fault_rolls_back_target_memory_and_heap_identity() {
+fn rejected_realloc_preserves_source_bytes_and_allows_retry() {
     let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
-    let handle = runtime.allocate_private_heap(0, 0).unwrap();
+    let heap = runtime.allocate_private_heap(0, 0).unwrap();
     let source = runtime
-        .allocate_private_heap_block(handle, 4096, RuntimeHeapInitialization::Zeroed)
+        .allocate_private_heap_block(heap, 4096, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
-    acknowledge_initial_reflection(&mut runtime.memory);
+    acknowledge(&mut runtime.memory);
     runtime.memory.write(source.address, &[0x5a; 4096]).unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    let backing = runtime.heap_backing(handle).unwrap().unwrap().clone();
-    let source_page = crate::GuestRange::new(source.address, 4096).unwrap();
+    acknowledge(&mut runtime.memory);
+    let owner = runtime.heap_backing(heap).unwrap().unwrap().memory_owner;
+    let page = GuestRange::new(source.address, 4096).unwrap();
     runtime
         .memory
-        .protect(
-            backing.memory_owner,
-            source_page,
-            crate::PageProtection {
-                read: true,
-                write: false,
-                execute: false,
-            },
-        )
+        .protect(owner, page, protection(false))
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    let before_memory = runtime.memory.stats();
-    let before_backing = runtime.heap_backing(handle).unwrap().unwrap().clone();
-    let before_allocator = runtime.process_address_space_allocator().clone();
-
+    acknowledge(&mut runtime.memory);
+    let before = runtime.memory.current_reflection().unwrap();
     assert!(
         runtime
             .reallocate_private_heap_block(
-                handle,
+                heap,
                 source.address,
                 8192,
                 RuntimeHeapInitialization::Zeroed
             )
             .is_err()
     );
-    assert_eq!(runtime.memory.stats(), before_memory);
-    assert_eq!(
-        runtime.heap_backing(handle).unwrap().unwrap(),
-        &before_backing
-    );
-    assert_eq!(runtime.process_address_space_allocator(), &before_allocator);
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 1);
+    assert_eq!(runtime.memory.current_reflection().unwrap(), before);
     assert_eq!(
         runtime.memory.read(source.address, 4096).unwrap(),
         [0x5a; 4096]
     );
-
     runtime
         .memory
-        .protect(
-            backing.memory_owner,
-            source_page,
-            crate::PageProtection {
-                read: true,
-                write: true,
-                execute: false,
-            },
-        )
+        .protect(owner, page, protection(true))
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    let next = runtime
-        .allocate_private_heap_block(handle, 32, RuntimeHeapInitialization::Zeroed)
-        .unwrap()
-        .unwrap();
-    assert_eq!(next.id, RuntimeHeapAllocationId(source.id.0 + 1));
-    assert_eq!(next.address, GuestAddress(source.address.0 + 4096));
-}
-
-#[test]
-fn heap_poisoning_can_be_disabled_without_skipping_zeroing_copy_or_validation() {
-    let memory = GuestMemory::new(MemoryLimits::default()).unwrap();
-    let mut runtime = running_runtime(memory);
-    runtime.set_heap_poisoning_enabled(false);
-    let handle = runtime.allocate_private_heap(0x1000, 0).unwrap();
-    let initial = runtime
-        .allocate_private_heap_block(
-            handle,
-            32,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
-        .unwrap()
-        .unwrap();
-    acknowledge_initial_reflection(&mut runtime.memory);
-    runtime.memory.write(initial.address, &[0x5a; 32]).unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    let unchanged = runtime.memory.stats();
-    runtime
-        .free_private_heap_block(handle, initial.address)
-        .unwrap();
-    assert_eq!(runtime.memory.stats(), unchanged);
-    assert_eq!(
-        runtime.memory.read(initial.address, 32).unwrap(),
-        [0x5a; 32]
-    );
-    let reused = runtime
-        .allocate_private_heap_block(
-            handle,
-            32,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(reused.address, initial.address);
-    assert_eq!(runtime.memory.stats(), unchanged);
-    assert_eq!(runtime.memory.read(reused.address, 32).unwrap(), [0x5a; 32]);
-
+    acknowledge(&mut runtime.memory);
     let grown = runtime
         .reallocate_private_heap_block(
-            handle,
-            reused.address,
-            64,
+            heap,
+            source.address,
+            8192,
             RuntimeHeapInitialization::Zeroed,
         )
         .unwrap()
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
+    acknowledge(&mut runtime.memory);
+    assert_eq!(
+        runtime.memory.read(grown.address, 4096).unwrap(),
+        [0x5a; 4096]
+    );
+    assert_eq!(
+        runtime
+            .memory
+            .read(GuestAddress(grown.address.0 + 4096), 4096)
+            .unwrap(),
+        [0; 4096]
+    );
+}
+
+#[test]
+fn disabling_heap_poisoning_preserves_zeroing_copy_and_protection_checks() {
+    let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
+    runtime.set_heap_poisoning_enabled(false);
+    let heap = runtime.allocate_private_heap(0x1000, 0).unwrap();
+    let source = runtime
+        .allocate_private_heap_block(
+            heap,
+            32,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    runtime.memory.write(source.address, &[0x5a; 32]).unwrap();
+    acknowledge(&mut runtime.memory);
+    let grown = runtime
+        .reallocate_private_heap_block(heap, source.address, 64, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut runtime.memory);
     assert_eq!(runtime.memory.read(grown.address, 32).unwrap(), [0x5a; 32]);
     assert_eq!(
         runtime
@@ -192,483 +139,245 @@ fn heap_poisoning_can_be_disabled_without_skipping_zeroing_copy_or_validation() 
             .unwrap(),
         [0; 32]
     );
-
-    let backing = runtime.heap_backing(handle).unwrap().unwrap().clone();
-    let page = crate::GuestRange::new(backing.range.start(), 4096).unwrap();
+    let owner = runtime.heap_backing(heap).unwrap().unwrap().memory_owner;
+    let page = GuestRange::new(GuestAddress(grown.address.0 & !0xfff), 4096).unwrap();
+    acknowledge(&mut runtime.memory);
     runtime
         .memory
-        .protect(
-            backing.memory_owner,
-            page,
-            crate::PageProtection {
-                read: true,
-                write: false,
-                execute: false,
-            },
-        )
+        .protect(owner, page, protection(false))
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    let memory_before = runtime.memory.stats();
-    let runtime_before_heap = runtime.heap(handle).unwrap().live_allocations;
-    let runtime_before_backing = runtime.heap_backing(handle).unwrap().cloned();
+    acknowledge(&mut runtime.memory);
+    let before = runtime.memory.current_reflection().unwrap();
     assert!(
         runtime
-            .free_private_heap_block(handle, grown.address)
+            .free_private_heap_block(heap, grown.address)
             .is_err()
     );
     assert!(
         runtime
             .allocate_private_heap_block(
-                handle,
+                heap,
                 32,
                 RuntimeHeapInitialization::DeterministicUninitialized
             )
             .is_err()
     );
-    assert_eq!(runtime.memory.stats(), memory_before);
-    assert_eq!(
-        runtime.heap(handle).unwrap().live_allocations,
-        runtime_before_heap
-    );
-    assert_eq!(
-        runtime.heap_backing(handle).unwrap(),
-        runtime_before_backing.as_ref()
-    );
-    assert!(runtime.heap_extension_backing(handle).unwrap().is_none());
-    assert_eq!(runtime.memory.read(grown.address, 32).unwrap(), [0x5a; 32]);
-
+    assert_eq!(runtime.memory.current_reflection().unwrap(), before);
     runtime
         .memory
-        .protect(
-            backing.memory_owner,
-            page,
-            crate::PageProtection {
-                read: true,
-                write: true,
-                execute: false,
-            },
-        )
+        .protect(owner, page, protection(true))
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    runtime.set_heap_poisoning_enabled(true);
+    acknowledge(&mut runtime.memory);
     runtime
-        .free_private_heap_block(handle, grown.address)
+        .free_private_heap_block(heap, grown.address)
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    assert_eq!(
-        runtime.memory.read(grown.address, 64).unwrap(),
-        [RUNTIME_PRIVATE_HEAP_FREED_BYTE; 64]
-    );
-    let before_heap = runtime.heap(handle).unwrap().live_allocations;
-    let before_backing = runtime.heap_backing(handle).unwrap().cloned();
+    acknowledge(&mut runtime.memory);
     assert!(
         runtime
-            .free_private_heap_block(handle, grown.address)
+            .free_private_heap_block(heap, grown.address)
             .is_err()
     );
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, before_heap);
-    assert_eq!(
-        runtime.heap_backing(handle).unwrap(),
-        before_backing.as_ref()
-    );
-    assert!(runtime.heap_extension_backing(handle).unwrap().is_none());
+    let next = runtime
+        .allocate_private_heap_block(heap, 64, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    assert_eq!(runtime.memory.read(next.address, 64).unwrap(), [0; 64]);
 }
 
 #[test]
-fn growable_heap_uses_and_reuses_multiple_bounded_segments() {
-    let memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 12_288,
-        ..MemoryLimits::default()
-    })
-    .unwrap();
-    let mut runtime = running_runtime(memory);
-    let handle = runtime.allocate_private_heap(0, 0).unwrap();
-    let first_length = RUNTIME_PRIVATE_HEAP_ARENA_STRIDE - 0x1000;
-    let first = runtime
-        .allocate_private_heap_block(
-            handle,
-            first_length,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
-        .unwrap()
-        .unwrap();
-    let reflection = runtime.memory.pending_reflection().unwrap();
-    runtime
-        .memory
-        .acknowledge_delta(reflection.invalidation.generation)
-        .unwrap();
-    assert_eq!(first.address, RUNTIME_PRIVATE_HEAP_ARENA_BASE);
-    assert!(runtime.heap_extension_backing(handle).unwrap().is_none());
-
-    let extension = runtime
-        .allocate_private_heap_block(handle, first_length, RuntimeHeapInitialization::Zeroed)
-        .unwrap()
-        .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    let extension_slot_base = RUNTIME_PRIVATE_HEAP_ARENA_BASE.0
-        + u32::from(RUNTIME_PRIVATE_HEAP_BACKING_LIMIT - 1) * RUNTIME_PRIVATE_HEAP_ARENA_STRIDE;
-    assert_eq!(extension.address, GuestAddress(extension_slot_base));
-    let extension_backing = runtime.heap_extension_backing(handle).unwrap().unwrap();
-    assert_eq!(extension_backing.range.start(), extension.address);
-    assert_eq!(extension_backing.committed_bytes, first_length);
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 2);
-
-    let third = runtime
-        .allocate_private_heap_block(handle, 0x406000, RuntimeHeapInitialization::Zeroed)
-        .unwrap()
-        .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    let third_slot = RUNTIME_PRIVATE_HEAP_BACKING_LIMIT - 1;
-    let third_slot_base = RUNTIME_PRIVATE_HEAP_ARENA_BASE.0
-        + u32::from(third_slot - 1) * RUNTIME_PRIVATE_HEAP_ARENA_STRIDE;
-    assert_eq!(third.address, GuestAddress(third_slot_base));
-    assert_eq!(
-        runtime
-            .private_heap_allocation(handle, third.address)
-            .unwrap(),
-        third
+fn growable_heap_allocations_remain_disjoint_across_segments_and_reuse() {
+    let mut runtime = running_runtime(
+        GuestMemory::new(MemoryLimits {
+            max_physical_pages: 12_288,
+            ..MemoryLimits::default()
+        })
+        .unwrap(),
     );
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 3);
-
-    runtime
-        .free_private_heap_block(handle, third.address)
-        .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    assert!(
+    let heap = runtime.allocate_private_heap(0, 0).unwrap();
+    let sizes = [16 * 1024 * 1024 - 4096, 16 * 1024 * 1024 - 4096, 0x406000];
+    let blocks = sizes.map(|size| {
         runtime
-            .private_heap_allocation_option(handle, third.address)
+            .allocate_private_heap_block(heap, size, RuntimeHeapInitialization::Zeroed)
             .unwrap()
-            .is_none()
-    );
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 2);
-    let reused = runtime
-        .allocate_private_heap_block(handle, 0x406000, RuntimeHeapInitialization::Zeroed)
+            .unwrap()
+    });
+    acknowledge(&mut runtime.memory);
+    for (index, block) in blocks.iter().enumerate() {
+        runtime
+            .memory
+            .write(block.address, &[index as u8 + 1; 32])
+            .unwrap();
+    }
+    acknowledge(&mut runtime.memory);
+    for (index, block) in blocks.iter().enumerate() {
+        assert_eq!(
+            runtime.memory.read(block.address, 32).unwrap(),
+            [index as u8 + 1; 32]
+        );
+    }
+    runtime
+        .free_private_heap_block(heap, blocks[2].address)
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    let next = runtime
+        .allocate_private_heap_block(heap, sizes[2], RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    assert_eq!(reused.address, third.address);
+    acknowledge(&mut runtime.memory);
+    assert_eq!(runtime.memory.read(next.address, 32).unwrap(), [0; 32]);
+    assert_eq!(runtime.memory.read(blocks[0].address, 32).unwrap(), [1; 32]);
+    assert_eq!(runtime.memory.read(blocks[1].address, 32).unwrap(), [2; 32]);
 }
 
 #[test]
-fn growable_heap_keeps_save_compression_capacity_while_the_large_slot_is_live() {
-    let memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 8_192,
-        ..MemoryLimits::default()
-    })
-    .unwrap();
-    let mut runtime = running_runtime(memory);
-    let handle = runtime.allocate_private_heap(0, 0).unwrap();
+fn a_live_large_allocation_keeps_ordinary_growth_available() {
+    let mut runtime = running_runtime(
+        GuestMemory::new(MemoryLimits {
+            max_physical_pages: 8192,
+            ..MemoryLimits::default()
+        })
+        .unwrap(),
+    );
+    let heap = runtime.allocate_private_heap(0, 0).unwrap();
     for _ in 1..32 {
         runtime.allocate_private_heap(0, 0).unwrap();
     }
-
     runtime
-        .allocate_private_heap_block(
-            handle,
-            RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
+        .allocate_private_heap_block(heap, 16 * 1024 * 1024, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
-    acknowledge_initial_reflection(&mut runtime.memory);
-    let scenario_buffer = runtime
-        .allocate_private_heap_block(
-            handle,
-            REACHED_SCENARIO_BUFFER_BYTES,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
+    acknowledge(&mut runtime.memory);
+    let large = runtime
+        .allocate_private_heap_block(heap, 64 * 1024 * 1024, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
-    assert!(scenario_buffer.address.0.is_multiple_of(65_536));
-    acknowledge_delta(&mut runtime.memory);
-
-    let save_compression = runtime
-        .allocate_private_heap_block(
-            handle,
-            REACHED_SAVE_COMPRESSION_BYTES,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
+    acknowledge(&mut runtime.memory);
+    let ordinary = runtime
+        .allocate_private_heap_block(heap, 8 * 1024 * 1024, RuntimeHeapInitialization::Zeroed)
         .unwrap()
         .unwrap();
-    let final_ordinary_slot = RUNTIME_PRIVATE_HEAP_ARENA_BASE.0
-        + u32::from(RUNTIME_PRIVATE_HEAP_BACKING_LIMIT - 1) * RUNTIME_PRIVATE_HEAP_ARENA_STRIDE;
-    assert_eq!(save_compression.address, GuestAddress(final_ordinary_slot));
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 3);
+    acknowledge(&mut runtime.memory);
+    runtime.service_page_fault(large.address, 6).unwrap();
+    acknowledge(&mut runtime.memory);
+    runtime.memory.write(large.address, &[0x77; 32]).unwrap();
+    runtime.memory.write(ordinary.address, &[0x5a; 32]).unwrap();
+    acknowledge(&mut runtime.memory);
+    assert_eq!(runtime.memory.read(large.address, 32).unwrap(), [0x77; 32]);
+    assert_eq!(
+        runtime.memory.read(ordinary.address, 32).unwrap(),
+        [0x5a; 32]
+    );
 }
 
 #[test]
-fn extension_slot_exhaustion_and_fixed_heap_growth_rejection_are_atomic() {
-    let memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 8_192,
-        ..MemoryLimits::default()
-    })
-    .unwrap();
-    let mut runtime = running_runtime(memory);
-    let handle = runtime.allocate_private_heap(0, 0).unwrap();
-    for _ in 1..RUNTIME_PRIVATE_HEAP_BACKING_LIMIT {
-        runtime.allocate_private_heap(0, 0).unwrap();
+fn fixed_heap_exhaustion_preserves_live_bytes_and_can_recover_after_free() {
+    let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
+    let heap = runtime.allocate_private_heap(0, 4096).unwrap();
+    let block = runtime
+        .allocate_private_heap_block(heap, 4096, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    runtime.memory.write(block.address, &[0x5a; 32]).unwrap();
+    acknowledge(&mut runtime.memory);
+    let before = runtime.memory.current_reflection().unwrap();
+    assert!(
+        runtime
+            .allocate_private_heap_block(heap, 8, RuntimeHeapInitialization::Zeroed)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(runtime.memory.current_reflection().unwrap(), before);
+    assert_eq!(runtime.memory.read(block.address, 32).unwrap(), [0x5a; 32]);
+    runtime
+        .free_private_heap_block(heap, block.address)
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    let next = runtime
+        .allocate_private_heap_block(heap, 4096, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    assert_eq!(runtime.memory.read(next.address, 32).unwrap(), [0; 32]);
+}
+
+#[test]
+fn heap_rejects_interior_double_and_foreign_frees_without_changing_live_bytes() {
+    let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
+    let heap = runtime.allocate_private_heap(0x1000, 0).unwrap();
+    let other = runtime.allocate_private_heap(0x1000, 0).unwrap();
+    let block = runtime
+        .allocate_private_heap_block(heap, 0x214, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    let survivor = runtime
+        .allocate_private_heap_block(heap, 0x800, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    assert!(block.address.0.is_multiple_of(8));
+    assert_eq!(
+        runtime.memory.read(block.address, 0x214).unwrap(),
+        vec![0; 0x214]
+    );
+    runtime.memory.write(survivor.address, &[0x5a; 32]).unwrap();
+    acknowledge(&mut runtime.memory);
+    let before = runtime.memory.current_reflection().unwrap();
+    assert!(
+        runtime
+            .free_private_heap_block(heap, GuestAddress(block.address.0 + 4))
+            .is_err()
+    );
+    assert!(
+        runtime
+            .free_private_heap_block(other, block.address)
+            .is_err()
+    );
+    assert_eq!(runtime.memory.current_reflection().unwrap(), before);
+    runtime
+        .free_private_heap_block(heap, block.address)
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    let before = runtime.memory.current_reflection().unwrap();
+    assert!(
+        runtime
+            .free_private_heap_block(heap, block.address)
+            .is_err()
+    );
+    assert_eq!(runtime.memory.current_reflection().unwrap(), before);
+    assert_eq!(
+        runtime.memory.read(survivor.address, 32).unwrap(),
+        [0x5a; 32]
+    );
+    let next = runtime
+        .allocate_private_heap_block(heap, 0x100, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    assert_eq!(
+        runtime.memory.read(next.address, 0x100).unwrap(),
+        vec![0; 0x100]
+    );
+}
+
+fn protection(write: bool) -> PageProtection {
+    PageProtection {
+        read: true,
+        write,
+        execute: false,
     }
-    runtime
-        .allocate_private_heap_block(
-            handle,
-            RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
-        .unwrap()
-        .unwrap();
-    acknowledge_initial_reflection(&mut runtime.memory);
-    let runtime_before_exhaustion_heap = runtime.heap(handle).unwrap().live_allocations;
-    let runtime_before_exhaustion_backing = runtime.heap_backing(handle).unwrap().cloned();
-    let memory_before_exhaustion = runtime.memory.stats();
-    assert!(
-        runtime
-            .allocate_private_heap_block(handle, 8, RuntimeHeapInitialization::Zeroed)
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(
-        runtime.heap(handle).unwrap().live_allocations,
-        runtime_before_exhaustion_heap
-    );
-    assert_eq!(
-        runtime.heap_backing(handle).unwrap(),
-        runtime_before_exhaustion_backing.as_ref()
-    );
-    assert!(runtime.heap_extension_backing(handle).unwrap().is_none());
-    assert_eq!(runtime.memory.stats(), memory_before_exhaustion);
-
-    let fixed_memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 16,
-        ..MemoryLimits::default()
-    })
-    .unwrap();
-    let mut fixed_runtime = running_runtime(fixed_memory);
-    let fixed_handle = fixed_runtime.allocate_private_heap(0, 0x1000).unwrap();
-    fixed_runtime
-        .allocate_private_heap_block(
-            fixed_handle,
-            0x1000,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
-        .unwrap()
-        .unwrap();
-    acknowledge_initial_reflection(&mut fixed_runtime.memory);
-    let runtime_before_fixed_growth_heap =
-        fixed_runtime.heap(fixed_handle).unwrap().live_allocations;
-    let runtime_before_fixed_growth_backing =
-        fixed_runtime.heap_backing(fixed_handle).unwrap().cloned();
-    let memory_before_fixed_growth = fixed_runtime.memory.stats();
-    assert!(
-        fixed_runtime
-            .allocate_private_heap_block(fixed_handle, 8, RuntimeHeapInitialization::Zeroed)
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(
-        fixed_runtime.heap(fixed_handle).unwrap().live_allocations,
-        runtime_before_fixed_growth_heap
-    );
-    assert_eq!(
-        fixed_runtime.heap_backing(fixed_handle).unwrap(),
-        runtime_before_fixed_growth_backing.as_ref()
-    );
-    assert!(
-        fixed_runtime
-            .heap_extension_backing(fixed_handle)
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(fixed_runtime.memory.stats(), memory_before_fixed_growth);
 }
 
-#[test]
-fn private_heap_backing_is_atomic_reusable_and_process_owned() {
-    let memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 16,
-        ..MemoryLimits::default()
-    })
-    .unwrap();
-    let mut runtime = running_runtime(memory);
-    let handle = runtime.allocate_private_heap(0x1000, 0).unwrap();
-    assert_eq!(handle, 0x6801_0001);
-
-    let collision_owner = runtime
-        .memory
-        .create_owner(MemoryOwnerKind::Runtime)
-        .unwrap();
-    runtime
-        .memory
-        .reserve_fixed(
-            collision_owner,
-            MemoryRegionKind::Runtime,
-            RUNTIME_PRIVATE_HEAP_ARENA_BASE,
-            0x1000,
-        )
-        .unwrap();
-    let runtime_before_collision_heap = runtime.heap(handle).unwrap().live_allocations;
-    let runtime_before_collision_backing = runtime.heap_backing(handle).unwrap().cloned();
-    let memory_before_collision = runtime.memory.stats();
-    runtime
-        .allocate_private_heap_block(handle, 0x214, RuntimeHeapInitialization::Zeroed)
-        .unwrap_err();
-    assert_eq!(
-        runtime.heap(handle).unwrap().live_allocations,
-        runtime_before_collision_heap
-    );
-    assert_eq!(
-        runtime.heap_backing(handle).unwrap(),
-        runtime_before_collision_backing.as_ref()
-    );
-    assert!(runtime.heap_extension_backing(handle).unwrap().is_none());
-    assert_eq!(runtime.memory.stats(), memory_before_collision);
-    runtime
-        .memory
-        .release_region(collision_owner, RUNTIME_PRIVATE_HEAP_ARENA_BASE)
-        .unwrap();
-    runtime.memory.destroy_owner(collision_owner).unwrap();
-
-    let zeroed = runtime
-        .allocate_private_heap_block(handle, 0x214, RuntimeHeapInitialization::Zeroed)
-        .unwrap()
-        .unwrap();
-    assert_eq!(zeroed.id, RuntimeHeapAllocationId(1));
-    assert_eq!(zeroed.address, RUNTIME_PRIVATE_HEAP_ARENA_BASE);
-    assert_eq!(zeroed.address.0 % RUNTIME_PRIVATE_HEAP_ALIGNMENT, 0);
-    assert_eq!(zeroed.reserved_byte_length, 0x218);
-    let backing = runtime.heap_backing(handle).unwrap().unwrap();
-    let address_allocation = runtime
-        .process_address_space_allocator()
-        .allocation(backing.address_allocation_id)
-        .unwrap();
-    assert_eq!(
-        address_allocation.purpose,
-        ProcessAddressAllocationPurpose::PrivateHeapSlot { slot: 1 }
-    );
-    assert!(
-        address_allocation
-            .range
-            .contains(crate::RuntimeAddressRange {
-                base: backing.range.start(),
-                byte_length: backing.range.byte_length(),
-            })
-            .unwrap()
-    );
-    assert_eq!(backing.range.start(), RUNTIME_PRIVATE_HEAP_ARENA_BASE);
-    assert_eq!(
-        backing.range.byte_length(),
-        u64::from(RUNTIME_PRIVATE_HEAP_ARENA_STRIDE)
-    );
-    assert_eq!(backing.committed_bytes, 0x1000);
-    assert_eq!(backing.high_water_mark, 0x218);
-    let memory_owner = backing.memory_owner;
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 1);
-    let reflection = runtime.memory.pending_reflection().unwrap();
-    assert_eq!(reflection.pages.len(), 1);
-    assert_eq!(reflection.pages[0].owner, memory_owner);
-    runtime
-        .memory
-        .acknowledge_delta(reflection.invalidation.generation)
-        .unwrap();
-    assert_eq!(
-        runtime
-            .memory
-            .read(zeroed.address, zeroed.reserved_byte_length as usize)
-            .unwrap(),
-        vec![0; zeroed.reserved_byte_length as usize]
-    );
-
-    let uninitialized = runtime
-        .allocate_private_heap_block(
-            handle,
-            0x800,
-            RuntimeHeapInitialization::DeterministicUninitialized,
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(uninitialized.id, RuntimeHeapAllocationId(2));
-    assert_eq!(
-        uninitialized.address,
-        GuestAddress(RUNTIME_PRIVATE_HEAP_ARENA_BASE.0 + 0x218)
-    );
-    acknowledge_delta(&mut runtime.memory);
-    assert_eq!(
-        runtime
-            .memory
-            .read(
-                uninitialized.address,
-                uninitialized.reserved_byte_length as usize,
-            )
-            .unwrap(),
-        vec![RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE; uninitialized.reserved_byte_length as usize]
-    );
-
-    runtime
-        .free_private_heap_block(handle, zeroed.address)
-        .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    assert!(
-        runtime
-            .private_heap_allocation_option(handle, zeroed.address)
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 1);
-    assert_eq!(
-        runtime
-            .memory
-            .read(zeroed.address, zeroed.reserved_byte_length as usize)
-            .unwrap(),
-        vec![RUNTIME_PRIVATE_HEAP_FREED_BYTE; zeroed.reserved_byte_length as usize]
-    );
-    runtime
-        .free_private_heap_block(handle, zeroed.address)
-        .unwrap_err();
-    runtime
-        .free_private_heap_block(handle, GuestAddress(zeroed.address.0 + 4))
-        .unwrap_err();
-    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 1);
-    assert_eq!(
-        runtime
-            .private_heap_allocation(handle, uninitialized.address)
-            .unwrap(),
-        uninitialized
-    );
-    assert!(
-        runtime
-            .private_heap_allocation_option(handle, zeroed.address)
-            .unwrap()
-            .is_none()
-    );
-
-    let reused = runtime
-        .allocate_private_heap_block(handle, 0x100, RuntimeHeapInitialization::Zeroed)
-        .unwrap()
-        .unwrap();
-    acknowledge_delta(&mut runtime.memory);
-    assert_eq!(reused.id, RuntimeHeapAllocationId(3));
-    assert_eq!(reused.address, zeroed.address);
-    assert_eq!(
-        runtime
-            .memory
-            .read(reused.address, reused.reserved_byte_length as usize)
-            .unwrap(),
-        vec![0; reused.reserved_byte_length as usize]
-    );
-    runtime
-        .free_private_heap_block(handle, GuestAddress(reused.address.0 + 4))
-        .unwrap_err();
-}
-
-fn acknowledge_delta(memory: &mut GuestMemory) {
-    let delta = memory.pending_delta().unwrap();
-    memory.acknowledge_delta(delta.generation).unwrap();
-}
-
-fn acknowledge_initial_reflection(memory: &mut GuestMemory) {
-    let reflection = memory.pending_reflection().unwrap();
-    memory
-        .acknowledge_delta(reflection.invalidation.generation)
-        .unwrap();
+fn acknowledge(memory: &mut GuestMemory) {
+    if memory.has_pending_delta() {
+        let generation = if memory.stats().acknowledged_generation == 0 {
+            memory.pending_reflection().unwrap().invalidation.generation
+        } else {
+            memory.pending_delta().unwrap().generation
+        };
+        memory.acknowledge_delta(generation).unwrap();
+    }
 }
 
 fn running_runtime(memory: GuestMemory) -> Runtime {

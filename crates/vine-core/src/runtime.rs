@@ -82,14 +82,14 @@ pub use graphics::{
     RuntimeGraphicsVertexBufferDescriptor, RuntimeGraphicsVertexBufferPool,
     RuntimeGraphicsVertexBufferUsage,
 };
-#[cfg(test)]
-pub(crate) use heaps::{
-    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RuntimeHeapAllocationId,
-};
 pub use heaps::{
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RuntimeHeapInitialization,
+};
+#[cfg(test)]
+pub(crate) use heaps::{
+    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
+    RuntimeHeapAllocationId,
 };
 pub use input::{
     RuntimeCursorPositionProfile, RuntimeInputProfile, RuntimeKeyboardSourceEvent,
