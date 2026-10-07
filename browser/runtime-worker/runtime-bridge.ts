@@ -77,6 +77,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     esi: number, edi: number, eip: number, eflags: number,
     es: number, cs: number, ss: number, ds: number, fs: number, gs: number,
   ): number;
+  vine_bridge_api_completion_ptr(): number;
   vine_bridge_complete_host(low: number, high: number, result: number): number;
   vine_bridge_complete_opfs_open(low: number, high: number, observation: number, sizeLow: number, sizeHigh: number): number;
   vine_bridge_complete_opfs_write(low: number, high: number, observation: number): number;
@@ -290,7 +291,7 @@ export class RuntimeBridge {
       context.eax, context.ecx, context.edx, context.ebx, context.esp, context.ebp,
       context.esi, context.edi, context.instructionPointer, context.eflags,
       context.es, context.cs, context.ss, context.ds, context.fs, context.gs,
-    ));
+    ), true);
   }
 
   completeHost<T = Record<string, unknown>>(requestId: bigint, result: number): BridgeOutput<T> {
@@ -415,17 +416,32 @@ export class RuntimeBridge {
     return new Uint8Array(memory, pointer, length);
   }
 
-  #invoke<T>(operation: () => number): BridgeOutput<T> {
+  #invoke<T>(operation: () => number, apiDispatch = false): BridgeOutput<T> {
     this.#check(operation());
-    const metadata = this.#readJson<T>();
+    const completion = apiDispatch ? this.#exports.vine_bridge_api_completion_ptr() : 0;
+    const metadata = completion === 0 ? this.#readJson<T>() : this.#readApiCompletion<T>(completion);
+    // The Worker consumes plain dispatch deltas synchronously before ACK or any
+    // other core call. Deferred, media and presentation outputs remain owned.
     return {
       metadata,
-      control: this.#copyOutput(this.#exports.vine_bridge_control_ptr(), this.#exports.vine_bridge_control_len()),
-      payload: this.#copyOutput(this.#exports.vine_bridge_payload_ptr(), this.#exports.vine_bridge_payload_len()),
+      control: this.#outputBytes(this.#exports.vine_bridge_control_ptr(), this.#exports.vine_bridge_control_len(), completion !== 0),
+      payload: this.#outputBytes(this.#exports.vine_bridge_payload_ptr(), this.#exports.vine_bridge_payload_len(), completion !== 0),
       presentation: this.#copyPresentation(),
       audio: this.#copyAudio(),
       mediaBytes: this.#copyMedia(),
     };
+  }
+
+  #readApiCompletion<T>(pointer: number): T {
+    const bytes = this.#view(pointer, 16);
+    const words = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const hasEax = words.getUint32(12, true);
+    invariant(hasEax <= 1, "Invalid API completion register flag");
+    return { kind: "api-complete", completion: {
+      instructionPointer: words.getUint32(0, true),
+      stackPointer: words.getUint32(4, true),
+      eax: hasEax === 1 ? words.getUint32(8, true) : null,
+    } } as T;
   }
 
   #check(status: number): void {
@@ -463,5 +479,9 @@ export class RuntimeBridge {
 
   #copyOutput(pointer: number, length: number): Uint8Array {
     return length === 0 ? emptyBytes : Uint8Array.from(this.#view(pointer, length));
+  }
+
+  #outputBytes(pointer: number, length: number, borrowed: boolean): Uint8Array {
+    return borrowed ? (length === 0 ? emptyBytes : this.#view(pointer, length)) : this.#copyOutput(pointer, length);
   }
 }

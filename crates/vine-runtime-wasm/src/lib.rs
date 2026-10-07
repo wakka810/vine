@@ -57,10 +57,16 @@ struct MappedSourceDll {
     source_id: u32,
 }
 
+enum DispatchMetadata {
+    Json(Value),
+    ApiCompletion([u32; 4]),
+}
+
 struct Bridge {
     input: Vec<u8>,
     source_dlls: Vec<SourceDll>,
     metadata: Vec<u8>,
+    api_completion: Option<[u32; 4]>,
     control: Vec<u8>,
     payload: Vec<u8>,
     presentation_bytes: Vec<u8>,
@@ -77,6 +83,7 @@ impl Bridge {
             input: Vec::new(),
             source_dlls: Vec::new(),
             metadata: Vec::new(),
+            api_completion: None,
             control: Vec::new(),
             payload: Vec::new(),
             presentation_bytes: Vec::new(),
@@ -90,6 +97,7 @@ impl Bridge {
 
     fn clear_output(&mut self) {
         self.metadata.clear();
+        self.api_completion = None;
         self.control.clear();
         self.payload.clear();
         self.presentation_bytes.clear();
@@ -119,6 +127,7 @@ impl Bridge {
         control: Vec<u8>,
         payload: Vec<u8>,
     ) -> Result<(), String> {
+        self.api_completion = None;
         self.metadata = serde_json::to_vec(&metadata).map_err(|error| error.to_string())?;
         self.control = control;
         self.payload = payload;
@@ -126,6 +135,7 @@ impl Bridge {
     }
 
     fn set_error(&mut self, message: String) {
+        self.api_completion = None;
         self.control.clear();
         self.payload.clear();
         self.presentation_bytes.clear();
@@ -961,7 +971,7 @@ impl BrowserRuntime {
         return_address: GuestAddress,
         retired_instructions: u64,
         x86_context: X86CpuContext,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+    ) -> Result<(DispatchMetadata, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
         if self.pending_com_audio.is_some() {
             return Err("COM audio handoff must finish before guest dispatch".to_owned());
         }
@@ -1007,15 +1017,17 @@ impl BrowserRuntime {
                 }
             };
             self.prepared_source_trap = Some(identity);
-            return Ok((metadata, None, Vec::new()));
+            return Ok((DispatchMetadata::Json(metadata), None, Vec::new()));
         }
         let Some(endpoint_id) = endpoint_id else {
-            return self.dispatch_com(
-                endpoint_address,
-                stack_pointer,
-                return_address,
-                retired_instructions,
-            );
+            return self
+                .dispatch_com(
+                    endpoint_address,
+                    stack_pointer,
+                    return_address,
+                    retired_instructions,
+                )
+                .map(|(metadata, delta, bytes)| (DispatchMetadata::Json(metadata), delta, bytes));
         };
         self.advance_clock_for_dispatch(retired_instructions)?;
         let trap = ApiOwnedTrap {
@@ -1032,7 +1044,7 @@ impl BrowserRuntime {
             Some(x86_context),
         );
         acknowledge_thread_wakes(&mut self.runtime);
-        let result: Result<(Value, Option<MemoryDeltaBuffers>), String> = match outcome {
+        let result: Result<(DispatchMetadata, Option<MemoryDeltaBuffers>), String> = match outcome {
             DispatchOutcome::Deferred(call) => {
                 let message_box = if call.request.service == RUNTIME_MESSAGE_BOX_SERVICE {
                     if !call.request.payload.is_empty() {
@@ -1196,7 +1208,7 @@ impl BrowserRuntime {
                 let write_bytes =
                     opfs_write.map(|_| self.pending_host[&request_id].call.request.payload.clone());
                 Ok((
-                    metadata,
+                    DispatchMetadata::Json(metadata),
                     write_bytes.map(|bytes| MemoryDeltaBuffers {
                         control: Vec::new(),
                         page_bytes: bytes,
@@ -1205,12 +1217,11 @@ impl BrowserRuntime {
             }
             DispatchOutcome::GuestCallback(call) => {
                 let (metadata, delta) = self.begin_callback(call)?;
-                Ok((metadata, delta))
+                Ok((DispatchMetadata::Json(metadata), delta))
             }
             DispatchOutcome::Immediate(completion) => {
                 let delta = self.pending_delta()?;
-                let mut metadata = completion_metadata("api-complete", &completion);
-                if let Some(thread_id) = completion.created_thread {
+                let created_thread = if let Some(thread_id) = completion.created_thread {
                     let bootstrap = self
                         .runtime
                         .thread_state(thread_id)
@@ -1218,14 +1229,16 @@ impl BrowserRuntime {
                         .guest_bootstrap
                         .as_ref()
                         .ok_or_else(|| "created thread has no CPU bootstrap".to_owned())?;
-                    metadata["createdThread"] = json!({
+                    Some(json!({
                         "threadId": bootstrap.thread_id.0,
                         "entryPoint": bootstrap.entry_point.0,
                         "initialStackPointer": bootstrap.initial_stack_pointer.0,
                         "fsBase": bootstrap.fs_base.0,
                         "returnSentinel": bootstrap.return_sentinel.0,
-                    });
-                }
+                    }))
+                } else {
+                    None
+                };
                 let selection = if completion.execution_boundary
                     == vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread
                 {
@@ -1252,9 +1265,27 @@ impl BrowserRuntime {
                         )
                         .map_err(error_string)?
                 };
-                if let Some(selection) = selection {
-                    metadata["threadSelection"] = json!({"threadId": selection.0});
-                }
+                let metadata = if completion.execution_boundary
+                    == vine_core::RuntimeApiBoundaryDisposition::ContinueQuantum
+                    && created_thread.is_none()
+                    && selection.is_none()
+                {
+                    DispatchMetadata::ApiCompletion([
+                        completion.instruction_pointer.0,
+                        completion.stack_pointer.0,
+                        completion.eax.unwrap_or(0),
+                        u32::from(completion.eax.is_some()),
+                    ])
+                } else {
+                    let mut metadata = completion_metadata("api-complete", &completion);
+                    if let Some(created_thread) = created_thread {
+                        metadata["createdThread"] = created_thread;
+                    }
+                    if let Some(selection) = selection {
+                        metadata["threadSelection"] = json!({"threadId": selection.0});
+                    }
+                    DispatchMetadata::Json(metadata)
+                };
                 Ok((metadata, delta))
             }
             DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
@@ -2882,6 +2913,17 @@ pub extern "C" fn vine_bridge_metadata_len() -> u32 {
     BRIDGE.with(|cell| cell.borrow().metadata.len() as u32)
 }
 
+/// The fixed EIP/ESP/EAX/has-EAX output is borrowed until the next bridge operation.
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_api_completion_ptr() -> u32 {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .api_completion
+            .as_ref()
+            .map_or(0, |completion| completion.as_ptr() as usize as u32)
+    })
+}
+
 /// Read-only stop-boundary diagnostics use separate output so the original
 /// fault and any unacknowledged runtime output remain available to the caller.
 #[cold]
@@ -3118,7 +3160,18 @@ pub extern "C" fn vine_bridge_dispatch(
                 gs,
             },
         )?;
-        bridge.set_runtime_output(metadata, delta, pixels)
+        match metadata {
+            DispatchMetadata::Json(metadata) => bridge.set_runtime_output(metadata, delta, pixels),
+            DispatchMetadata::ApiCompletion(completion) => {
+                let (control, payload) = delta
+                    .map(|buffers| (buffers.control, buffers.page_bytes))
+                    .unwrap_or_default();
+                bridge.api_completion = Some(completion);
+                bridge.control = control;
+                bridge.payload = payload;
+                Ok(())
+            }
+        }
     })
 }
 
@@ -3383,6 +3436,195 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_api_completion_preserves_eax_and_expires_before_other_bridge_operations() {
+        let stack = GuestAddress(0x2000_0100);
+        let return_address = GuestAddress(0x0040_1000);
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.work/toolchain-spike/timer-wait.exe");
+        let limits = Pe32Limits::default();
+        let snapshot =
+            ModuleSnapshot::from_bytes(std::fs::read(fixture).unwrap(), &limits).unwrap();
+        let plan = build_pe32_load_plan(&snapshot, limits).unwrap();
+        let catalog = runtime_catalog_for_load_plan(&[&plan]).unwrap();
+        let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+        let image = materialize_pe32_image(
+            &mut memory,
+            &snapshot,
+            &plan,
+            GuestAddress(plan.image.preferred_image_base),
+        )
+        .unwrap();
+        let owner = memory
+            .create_owner(vine_core::MemoryOwnerKind::Runtime)
+            .unwrap();
+        let range = memory
+            .reserve_fixed(
+                owner,
+                MemoryRegionKind::Runtime,
+                GuestAddress(0x2000_0000),
+                0x1000,
+            )
+            .unwrap();
+        memory
+            .commit(
+                owner,
+                range,
+                vine_core::PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .unwrap();
+        for (offset, argument) in [(0, 0), (0x20, u32::MAX), (0x40, 0)] {
+            let frame = [return_address.0, argument]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>();
+            memory
+                .write_initialization(owner, GuestAddress(stack.0 + offset), &frame)
+                .unwrap();
+        }
+        memory.seal_owner(owner).unwrap();
+        let mut process = prepare_executable_runtime_process(
+            memory,
+            &plan,
+            &image,
+            &[],
+            &catalog,
+            0xec02_5c47,
+            "completion.exe",
+            b"C:\\Vine\\completion.exe\0".to_vec(),
+        )
+        .unwrap();
+        let reflection = process.runtime.memory_mut().pending_reflection().unwrap();
+        process
+            .runtime
+            .memory_mut()
+            .acknowledge_delta(reflection.invalidation.generation)
+            .unwrap();
+        let endpoints = ["GetLastError", "SetLastError", "Sleep"]
+            .into_iter()
+            .map(|name| {
+                ApiEndpointIdentity::from_runtime_guest_import(
+                    process.binding.imports.iter().find(|import| {
+                        matches!(&import.target, ImportTarget::Name { name: imported, .. } if imported == name)
+                    }).unwrap()
+                ).unwrap()
+            })
+            .collect::<Vec<_>>();
+        BRIDGE.with(|cell| {
+            let mut bridge = Bridge::new();
+            bridge.runtime = Some(BrowserRuntime {
+                runtime: process.runtime,
+                dispatcher: ApiDispatcher::from_endpoints(endpoints.clone()).unwrap(),
+                callback_sentinel: GuestAddress(0x7f01_0000),
+                pending_host: BTreeMap::new(),
+                pending_com_audio: None,
+                pending_com_media: BTreeMap::new(),
+                prepared_source_trap: None,
+                pending_source_lookup: None,
+                pending_source_search: None,
+            });
+            *cell.borrow_mut() = bridge;
+        });
+        let dispatch = |endpoint: usize, offset: u32| {
+            vine_bridge_dispatch(
+                endpoints[endpoint].address.0,
+                stack.0 + offset,
+                return_address.0,
+                0,
+                0,
+                0xaaaa_bbbb,
+                0,
+                0,
+                0,
+                stack.0 + offset,
+                0,
+                0,
+                0,
+                endpoints[endpoint].address.0,
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+        };
+        assert_eq!(dispatch(0, 0), 0);
+        assert_ne!(vine_bridge_api_completion_ptr(), 0);
+        assert_eq!(vine_bridge_metadata_len(), 0);
+        BRIDGE.with(|cell| {
+            assert_eq!(
+                cell.borrow().api_completion,
+                Some([return_address.0, stack.0 + 4, 87, 1])
+            );
+        });
+        assert_eq!(vine_bridge_input_resize(0), 0);
+        assert_eq!(vine_bridge_api_completion_ptr(), 0);
+        assert_eq!(dispatch(1, 0x20), 0);
+        BRIDGE.with(|cell| {
+            let bridge = cell.borrow();
+            assert_eq!(
+                bridge.api_completion,
+                Some([return_address.0, stack.0 + 0x28, 0, 0])
+            );
+            assert_eq!(
+                bridge
+                    .runtime
+                    .as_ref()
+                    .unwrap()
+                    .runtime
+                    .current_last_error()
+                    .unwrap(),
+                u32::MAX
+            );
+        });
+        assert_eq!(dispatch(0, 0), 0);
+        BRIDGE.with(|cell| {
+            assert_eq!(
+                cell.borrow().api_completion,
+                Some([return_address.0, stack.0 + 4, u32::MAX, 1])
+            );
+        });
+        assert_eq!(dispatch(2, 0x40), 0);
+        assert_eq!(vine_bridge_api_completion_ptr(), 0);
+        BRIDGE.with(|cell| {
+            let bridge = cell.borrow();
+            let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+            assert_eq!(metadata["kind"], "api-complete");
+            assert_eq!(
+                metadata["completion"]["executionBoundary"],
+                "yield-current-thread"
+            );
+            assert_eq!(metadata["completion"]["eax"], Value::Null);
+        });
+        assert_eq!(dispatch(0, 0), 0);
+        assert_ne!(vine_bridge_api_completion_ptr(), 0);
+        assert_eq!(dispatch(0, 0x2000), 1);
+        assert_eq!(vine_bridge_api_completion_ptr(), 0);
+        BRIDGE.with(|cell| {
+            let bridge = cell.borrow();
+            let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+            assert_eq!(metadata["kind"], "error");
+            assert!(!metadata["message"].as_str().unwrap().is_empty());
+            assert_eq!(
+                bridge
+                    .runtime
+                    .as_ref()
+                    .unwrap()
+                    .runtime
+                    .current_last_error()
+                    .unwrap(),
+                u32::MAX
+            );
+        });
+        BRIDGE.with(|cell| *cell.borrow_mut() = Bridge::new());
+    }
+
+    #[test]
     fn stop_context_without_runtime_preserves_original_fault_and_binary_outputs() {
         BRIDGE.with(|cell| {
             let mut bridge = Bridge::new();
@@ -3628,6 +3870,9 @@ mod tests {
         let (metadata, delta, presentation) = browser
             .dispatch(endpoint.address, stack, return_address, 0, context)
             .unwrap();
+        let DispatchMetadata::Json(metadata) = metadata else {
+            panic!("a deferred message box requires a browser host request");
+        };
         assert!(delta.is_none());
         assert!(presentation.is_empty());
         assert_eq!(metadata["kind"], "host-request");

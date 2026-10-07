@@ -251,4 +251,82 @@ assert.throws(() => stopBridge.stopContext(0), /outside Wasm memory/);
 stopPointer = 16384;
 stopStatus = 1;
 assert.throws(() => stopBridge.stopContext(0), /diagnostics are unavailable/);
-console.log("runtime bridge: bounded input/output, independent receipts, mixed-page memory growth, and stop diagnostics passed");
+{
+  const core = new WebAssembly.Memory({ initial: 1 });
+  let completionPointer = 1024, status = 0, growOnDispatch = false;
+  let jsonReads = 0, completionReads = 0, payloadPointer = 2048;
+  const writeCompletion = (eax, hasEax) => {
+    new Uint32Array(core.buffer, 1024, 4).set([0x401234, 0x801000, eax, hasEax]);
+    new Uint8Array(core.buffer, 2048, 2).set([42, 43]);
+  };
+  writeCompletion(0xffffffff, 1);
+  const json = { kind: "api-complete", completion: {
+    instructionPointer: 0x401234, stackPointer: 0x801000, eax: 7,
+    executionBoundary: "yield-current-thread",
+  }, createdThread: { threadId: 2 }, threadSelection: { threadId: 3 } };
+  let fallback = json;
+  const encoded = () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(fallback));
+    new Uint8Array(core.buffer, 128, bytes.length).set(bytes);
+    return bytes.length;
+  };
+  const fast = RuntimeBridge.fromExports({
+    memory: core,
+    vine_bridge_dispatch() { if (growOnDispatch) core.grow(1); return status; },
+    vine_bridge_api_completion_ptr() { completionReads++; return completionPointer; },
+    vine_bridge_metadata_ptr: () => 128,
+    vine_bridge_metadata_len() { jsonReads++; return encoded(); },
+    vine_bridge_control_ptr: () => 2048, vine_bridge_control_len: () => 2,
+    vine_bridge_payload_ptr: () => payloadPointer, vine_bridge_payload_len: () => 2,
+    vine_bridge_presentation_ptr: () => 2048, vine_bridge_presentation_len: () => 2,
+    vine_bridge_audio_ptr: () => 2048, vine_bridge_audio_len: () => 2,
+    vine_bridge_media_ptr: () => 2048, vine_bridge_media_len: () => 2,
+  });
+  const registers = Object.fromEntries(["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi",
+    "instructionPointer", "eflags", "es", "cs", "ss", "ds", "fs", "gs"].map(name => [name, 0]));
+  const dispatch = () => fast.dispatch(0x70000000, 0x801000, 0x401234, 0, registers);
+  const borrowed = dispatch();
+  assert.deepEqual(borrowed.metadata, { kind: "api-complete", completion: {
+    instructionPointer: 0x401234, stackPointer: 0x801000, eax: 0xffffffff,
+  } });
+  assert.equal(jsonReads, 0, "plain completion skips JSON decoding");
+  assert.equal(borrowed.control.buffer, core.buffer);
+  assert.equal(borrowed.payload.buffer, core.buffer);
+  for (const channel of ["presentation", "audio", "mediaBytes"]) {
+    assert.notEqual(borrowed[channel].buffer, core.buffer, "async resource bytes remain owned");
+  }
+  new Uint8Array(core.buffer, 2048, 2).fill(0);
+  assert.deepEqual([...borrowed.control], [0, 0], "plain delta lifetime ends at the next core mutation");
+  assert.deepEqual([...borrowed.presentation], [42, 43]);
+  assert.equal(borrowed.metadata.completion.eax, 0xffffffff, "resume values survive delta invalidation");
+  writeCompletion(0xdeadbeef, 0);
+  growOnDispatch = true;
+  const grown = dispatch();
+  growOnDispatch = false;
+  assert.equal(grown.payload.buffer, core.buffer, "views use the buffer after core growth during dispatch");
+  assert.equal(grown.metadata.completion.eax, null, "absent EAX preserves the CPU register");
+  const beforePayload = [...grown.payload];
+  for (const pointer of [-1, 1.5, NaN, core.buffer.byteLength - 8]) {
+    completionPointer = pointer;
+    assert.throws(dispatch, /outside Wasm memory/);
+    assert.deepEqual([...grown.payload], beforePayload);
+  }
+  completionPointer = 1024;
+  writeCompletion(0, 2);
+  assert.throws(dispatch, /register flag/);
+  writeCompletion(0, 1);
+  payloadPointer = core.buffer.byteLength - 1;
+  assert.throws(dispatch, /outside Wasm memory/);
+  payloadPointer = 2048;
+  completionPointer = 0;
+  const complex = dispatch();
+  assert.deepEqual(complex.metadata, json, "thread creation and selection retain the complete JSON receipt");
+  new Uint8Array(core.buffer, 2048, 2).fill(99);
+  assert.deepEqual([...complex.payload], [42, 43], "complex dispatch deltas remain owned");
+  fallback = { kind: "error", message: "reached failure" };
+  status = 1;
+  const beforeFailure = completionReads;
+  assert.throws(dispatch, /reached failure/);
+  assert.equal(completionReads, beforeFailure, "failed dispatch reads its error before a stale fast header");
+}
+console.log("runtime bridge: bounded input/output, owned async receipts, synchronous borrowed completion, mixed-page memory growth, and stop diagnostics passed");
