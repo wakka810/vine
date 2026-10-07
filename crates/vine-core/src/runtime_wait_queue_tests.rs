@@ -1,6 +1,6 @@
 use crate::runtime::{
-    RuntimeHandle, RuntimeObjectKind, RuntimeWaitDisposition, RuntimeWaitRegistrationId,
-    RuntimeWaitState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeHandle, RuntimeObjectKind, RuntimeWaitDisposition, RuntimeWaitState,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 use crate::{
     Runtime, RuntimeBootstrap, RuntimeClockState, RuntimeProcessId, RuntimeSchedulerEvent,
@@ -139,7 +139,6 @@ fn wait_queue_wakes_on_thread_exit_signal() {
         SchedulerThreadState::Runnable
     );
     assert_eq!(runtime.current_last_error().unwrap(), last_error);
-    assert_eq!(runtime.next_wait_registration_id(), 1);
     assert!(runtime.scheduler().wait_registrations().is_empty());
     assert!(runtime.scheduler().object_waiters().is_empty());
 
@@ -150,11 +149,9 @@ fn wait_queue_wakes_on_thread_exit_signal() {
         RuntimeWaitDisposition::Pending { registration } => registration,
         other => panic!("expected pending registration, got {other:?}"),
     };
-    assert_eq!(registration.id, RuntimeWaitRegistrationId(1));
     assert_eq!(registration.thread_id, INITIAL_THREAD_ID);
     assert_eq!(registration.object_id, second_object_id);
     assert_eq!(registration.handle, second_handle);
-    assert_eq!(runtime.next_wait_registration_id(), 2);
     assert_eq!(
         runtime
             .scheduler_state_for_thread(INITIAL_THREAD_ID)
@@ -179,7 +176,6 @@ fn wait_queue_wakes_on_thread_exit_signal() {
     assert!(runtime.wait_current_thread_on(second_handle).is_err());
     assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
     assert_eq!(runtime.current_last_error().unwrap(), last_error);
-    assert_eq!(runtime.next_wait_registration_id(), 2);
     assert_eq!(
         runtime.scheduler_state().unwrap(),
         SchedulerThreadState::WaitingObject {

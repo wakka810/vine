@@ -2829,11 +2829,6 @@ impl Runtime {
         &self.scheduler
     }
 
-    #[cfg(test)]
-    pub(crate) fn next_wait_registration_id(&self) -> u64 {
-        self.scheduler.next_wait_registration_id()
-    }
-
     pub(crate) fn module_graph(&self) -> &RuntimeModuleGraph {
         self.modules.graph()
     }

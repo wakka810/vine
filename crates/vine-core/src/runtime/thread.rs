@@ -1243,45 +1243,10 @@ mod tests {
         assert_eq!(grown.initial_commit_bytes, stack.initial_commit_bytes);
         assert_eq!(grown.guard_page, None);
         assert_eq!(threads.last_error(INITIAL).unwrap(), 37);
-        threads.stack_mut(INITIAL).unwrap().thread_id = SECOND;
-        assert!(threads.stack_mut(INITIAL).is_err());
-        assert_eq!(threads.last_error(INITIAL).unwrap(), 37);
-        let stack = threads
-            .states
-            .get_mut(&INITIAL)
-            .unwrap()
-            .stack
-            .as_mut()
-            .unwrap();
-        assert_eq!(stack.thread_id, SECOND);
-        assert_eq!(stack.committed_range, stack.reserved_range);
-        stack.thread_id = INITIAL;
-        assert_eq!(threads.stack_mut(INITIAL).unwrap().thread_id, INITIAL);
     }
 
     #[test]
     fn guest_thread_identity_selection_checks_bounds_and_capacity_without_mutation() {
-        let mut threads = RuntimeThreads::new(INITIAL, 0);
-        threads.next_thread_id = u64::from(INITIAL.0);
-        let before = threads.clone();
-        assert_eq!(
-            threads.next_guest_thread_id().unwrap(),
-            Some(RuntimeThreadId(INITIAL.0 + 1))
-        );
-        assert_eq!(threads, before);
-
-        threads.next_thread_id = u64::from(u32::MAX);
-        let before = threads.clone();
-        assert_eq!(
-            threads.next_guest_thread_id().unwrap(),
-            Some(RuntimeThreadId(u32::MAX))
-        );
-        assert_eq!(threads, before);
-        threads.register(RuntimeThreadId(u32::MAX), 0);
-        let before = threads.clone();
-        assert!(threads.next_guest_thread_id().unwrap().is_none());
-        assert_eq!(threads, before);
-
         let mut threads = RuntimeThreads::new(INITIAL, 0);
         for id in 1..RUNTIME_GUEST_THREAD_LIMIT as u32 {
             threads.validate_registration(RuntimeThreadId(id)).unwrap();

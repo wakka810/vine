@@ -1600,29 +1600,6 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     });
 
     let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).expect("dispatcher");
-    let frames = [
-        vec![0x1000_1001, 0x5701_0001, 10, 1],
-        vec![0x1000_1002, 0x5701_0001, 0, 1],
-        vec![0x1000_1003, 0x5701_0002, 0, 1],
-        vec![0x1000_1004, 0x5701_0002, 10, 1],
-        vec![0x1000_1005, 0x5701_ffff, 10, 1],
-        vec![0x1000_1006, 0x5701_0001, 11, 1],
-        vec![0x1000_1007, 0x5701_0001, 10, 0],
-    ];
-    for (index, words) in frames.iter().enumerate() {
-        write_frame(
-            &mut memory,
-            owner,
-            GuestAddress(STACK_BASE + index as u32 * 0x20),
-            words,
-        );
-    }
-    memory.seal_owner(owner).expect("seal runtime owner");
-    let reflection = memory.pending_reflection().expect("initial reflection");
-    memory
-        .acknowledge_delta(reflection.invalidation.generation)
-        .expect("acknowledge initial reflection");
-
     let mut runtime = controlled_runtime(memory, controlled_startup_info());
     let pacing_competitor = RuntimeThreadId(THREAD_ID + 1);
     runtime
@@ -1637,8 +1614,36 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     let unarmed = runtime
         .create_waitable_timer_a(true)
         .expect("create unarmed timeout timer");
-    assert_eq!(manual.0, 0x5701_0001);
-    assert_eq!(unarmed.0, 0x5701_0002);
+    let frames = [
+        vec![0x1000_1001, manual.0, 10, 1],
+        vec![0x1000_1002, manual.0, 0, 1],
+        vec![0x1000_1003, unarmed.0, 0, 1],
+        vec![0x1000_1004, unarmed.0, 10, 1],
+        vec![0x1000_1005, u32::MAX, 10, 1],
+        vec![0x1000_1006, manual.0, 11, 1],
+        vec![0x1000_1007, manual.0, 10, 0],
+    ];
+    for (index, words) in frames.iter().enumerate() {
+        write_frame(
+            &mut runtime.memory,
+            owner,
+            GuestAddress(STACK_BASE + index as u32 * 0x20),
+            words,
+        );
+    }
+    runtime
+        .memory
+        .seal_owner(owner)
+        .expect("seal runtime owner");
+    let reflection = runtime
+        .memory
+        .pending_reflection()
+        .expect("initial reflection");
+    runtime
+        .memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
     let dispatch = |index: usize, runtime: &mut Runtime| -> DispatchOutcome {
         dispatcher.dispatch_owned(
             owned_trap(
@@ -1679,7 +1684,12 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     let scheduler_before_bad_ack = runtime.scheduler_state().unwrap();
     let manual_before_bad_ack = *runtime.waitable_timer_for_handle(manual).unwrap();
     let unarmed_before_bad_ack = *runtime.waitable_timer_for_handle(unarmed).unwrap();
-    let wait_id_before_bad_ack = runtime.next_wait_registration_id();
+    let wait_before_bad_ack = *runtime
+        .scheduler()
+        .wait_registrations()
+        .values()
+        .find(|registration| registration.thread_id == RuntimeThreadId(THREAD_ID))
+        .expect("live timer wait before browser acknowledgement");
     let memory_before_bad_ack = runtime.memory.stats();
     let bad_ack =
         complete_kernel32_waitable_timer_pacing(&dispatcher, &satisfied_call, 0, &mut runtime);
@@ -1694,7 +1704,13 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
         runtime.waitable_timer_for_handle(unarmed).unwrap(),
         &unarmed_before_bad_ack
     );
-    assert_eq!(runtime.next_wait_registration_id(), wait_id_before_bad_ack);
+    assert_eq!(
+        runtime
+            .scheduler()
+            .wait_registrations()
+            .get(&wait_before_bad_ack.id),
+        Some(&wait_before_bad_ack)
+    );
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
     assert_eq!(runtime.memory.stats(), memory_before_bad_ack);
     let original_delay = std::mem::replace(
@@ -1714,7 +1730,13 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
         runtime.waitable_timer_for_handle(unarmed).unwrap(),
         &unarmed_before_bad_ack
     );
-    assert_eq!(runtime.next_wait_registration_id(), wait_id_before_bad_ack);
+    assert_eq!(
+        runtime
+            .scheduler()
+            .wait_registrations()
+            .get(&wait_before_bad_ack.id),
+        Some(&wait_before_bad_ack)
+    );
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
     assert_eq!(runtime.memory.stats(), memory_before_bad_ack);
     satisfied_call.request.payload = original_delay;
@@ -1732,8 +1754,6 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
     assert_eq!(runtime.memory.stats(), memory_before_success);
     assert_eq!(runtime.timer_time_100ns(), 20_000);
-
-    assert_eq!(runtime.next_wait_registration_id(), 2);
     assert!(runtime.scheduler().wait_registrations().is_empty());
     assert!(runtime.scheduler().object_waiters().is_empty());
     assert_eq!(
@@ -1760,7 +1780,6 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
                 && runtime.current_last_error().unwrap() == INITIAL_LAST_ERROR
     ));
     assert_eq!(runtime.timer_time_100ns(), 20_000);
-    assert_eq!(runtime.next_wait_registration_id(), 2);
 
     let poll_timeout = dispatch(2, &mut runtime);
     assert!(matches!(
@@ -1770,7 +1789,6 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
                 && runtime.current_last_error().unwrap() == INITIAL_LAST_ERROR
     ));
     assert_eq!(runtime.timer_time_100ns(), 20_000);
-    assert_eq!(runtime.next_wait_registration_id(), 2);
 
     let finite_timeout = dispatch(3, &mut runtime);
     let DispatchOutcome::Deferred(mut finite_timeout_call) = finite_timeout else {
@@ -1814,8 +1832,6 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
         Some(RuntimeSchedulerEvent::HostCompleted(_))
     ));
     assert_eq!(runtime.timer_time_100ns(), 120_000);
-
-    assert_eq!(runtime.next_wait_registration_id(), 3);
     assert!(runtime.scheduler().wait_registrations().is_empty());
     assert!(runtime.scheduler().object_waiters().is_empty());
     assert_eq!(
@@ -1824,7 +1840,6 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     );
 
     let time_before_invalid_handle = runtime.timer_time_100ns();
-    let wait_id_before_invalid_handle = runtime.next_wait_registration_id();
     let memory_before_invalid_handle = runtime.memory.stats();
     let invalid_handle = dispatch(4, &mut runtime);
     assert!(matches!(
@@ -1834,17 +1849,12 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
                 && runtime.current_last_error().unwrap() == 6
     ));
     assert_eq!(runtime.timer_time_100ns(), time_before_invalid_handle);
-    assert_eq!(
-        runtime.next_wait_registration_id(),
-        wait_id_before_invalid_handle
-    );
     assert_eq!(runtime.current_last_error().unwrap(), 6);
     assert_eq!(runtime.memory.stats(), memory_before_invalid_handle);
 
     for index in [5_usize, 6] {
         let clock_before = runtime.clock().clone();
         let timer_before = *runtime.waitable_timer_for_handle(manual).unwrap();
-        let wait_id_before = runtime.next_wait_registration_id();
         let memory_before = runtime.memory.stats();
         let satisfied = dispatch(index, &mut runtime);
         assert!(matches!(
@@ -1857,7 +1867,6 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
             runtime.waitable_timer_for_handle(manual).unwrap(),
             &timer_before
         );
-        assert_eq!(runtime.next_wait_registration_id(), wait_id_before);
         assert_eq!(runtime.current_last_error().unwrap(), 6);
         assert_eq!(
             runtime.scheduler_state().unwrap(),

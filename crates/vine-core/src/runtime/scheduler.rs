@@ -139,11 +139,6 @@ impl RuntimeScheduler {
         &self.host_requests
     }
 
-    #[cfg(test)]
-    pub(crate) fn next_wait_registration_id(&self) -> u64 {
-        self.waits.next_registration_id()
-    }
-
     pub(super) fn contains_thread(&self, thread_id: RuntimeThreadId) -> bool {
         self.threads.contains_key(&thread_id)
     }

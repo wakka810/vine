@@ -107,11 +107,6 @@ impl RuntimeWaits {
         &self.object_waiters
     }
 
-    #[cfg(test)]
-    pub(crate) const fn next_registration_id(&self) -> u64 {
-        self.next_registration_id
-    }
-
     pub(super) fn register(
         &mut self,
         thread_id: RuntimeThreadId,

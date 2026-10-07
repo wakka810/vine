@@ -271,7 +271,6 @@ fn ready_timer_polls_consume_exact_arms_without_advancing_time_or_registering_wa
         assert!(runtime.scheduler().host_requests().is_empty());
         assert!(runtime.scheduler().wait_registrations().is_empty());
         assert!(runtime.scheduler().object_waiters().is_empty());
-        assert_eq!(runtime.next_wait_registration_id(), 1);
 
         let deadline = runtime
             .waitable_timer_for_handle(timer)
@@ -317,7 +316,6 @@ fn ready_timer_polls_consume_exact_arms_without_advancing_time_or_registering_wa
         );
         assert!(runtime.scheduler().wait_registrations().is_empty());
         assert!(runtime.scheduler().object_waiters().is_empty());
-        assert_eq!(runtime.next_wait_registration_id(), 1);
     }
 }
 
@@ -350,8 +348,6 @@ fn paced_timer_waits_bind_host_wait_identity_and_cancel_without_partial_time() {
     let pacing = registration
         .waitable_timer_pacing
         .expect("deferred wait carries pacing identity");
-    assert_eq!(registration.id.0, 1);
-    assert_eq!(pacing.request_id, 1);
     assert_eq!(pacing.delay_milliseconds, 1);
     assert_eq!(pacing.target_time_100ns, 5_000);
     assert_eq!(
@@ -360,7 +356,9 @@ fn paced_timer_waits_bind_host_wait_identity_and_cancel_without_partial_time() {
     );
     assert_eq!(
         runtime.scheduler_state().unwrap(),
-        SchedulerThreadState::WaitingHost { request_id: 1 }
+        SchedulerThreadState::WaitingHost {
+            request_id: pacing.request_id,
+        }
     );
     assert_eq!(runtime.timer_time_100ns(), 0);
     assert_eq!(

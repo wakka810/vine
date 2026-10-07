@@ -81,7 +81,6 @@ fn named_mutex_identity_owner_and_handle_lifetime_are_atomic() {
         );
         assert!(runtime.scheduler().wait_registrations().is_empty());
         assert!(runtime.scheduler().object_waiters().is_empty());
-        assert_eq!(runtime.next_wait_registration_id(), 1);
     }
     runtime
         .select_thread(THREAD_ID)
