@@ -122,13 +122,10 @@ interface PhysicalCapacityRequirement {
   bytes: number;
 }
 
-interface MirrorPageSnapshot {
-  address: number;
-  addressAllocationId?: number;
-  owner: number;
-  protection: MemoryProtection;
-  bytes: Uint8Array;
-  dirty: boolean;
+interface PreparedAdapter {
+  wasm: V86Exports;
+  physicalBase: number;
+  dirtyPagesPointer: number;
 }
 
 function physicalCapacityError(
@@ -308,7 +305,8 @@ export class V86Mirror implements ExecutionEngine {
       Math.max(initialPhysicalPoolBytes, physicalPoolBytesForAllocations(1)),
       this.#maximumPhysicalPoolBytes,
     );
-    this.#installAdapter(V86Mirror.#instantiateAdapter(this.#module), this.#physicalPoolBytes);
+    this.#publishAdapter(this.#prepareAdapter(this.#physicalPoolBytes), this.#physicalPoolBytes);
+    this.#pageDirectory = this.#allocatePage();
   }
 
   static async instantiate(url: URL, options: ExecutionEngineOptions): Promise<V86Mirror> {
@@ -423,11 +421,8 @@ export class V86Mirror implements ExecutionEngine {
     return wasm;
   }
 
-  #installFreshAdapter(poolBytes: number): void {
-    this.#installAdapter(V86Mirror.#instantiateAdapter(this.#module), poolBytes);
-  }
-
-  #installAdapter(wasm: V86Exports, poolBytes: number): void {
+  #prepareAdapter(poolBytes: number): PreparedAdapter {
+    const wasm = V86Mirror.#instantiateAdapter(this.#module);
     wasm.rust_init();
     invariant(
       wasm.vine_cpu_state_size() === 612,
@@ -442,26 +437,36 @@ export class V86Mirror implements ExecutionEngine {
     invariant(
       dirtyPagesPointer % Uint32Array.BYTES_PER_ELEMENT === 0 &&
         dirtyPagesPointer + dirtyPageCandidateCapacity * Uint32Array.BYTES_PER_ELEMENT <=
-          wasm.memory.buffer.byteLength,
-      "execution engine dirty-page candidate buffer is invalid",
+          wasm.memory.buffer.byteLength &&
+        physicalBase + poolBytes <= wasm.memory.buffer.byteLength,
+      "execution engine mirror buffer is invalid",
     );
+    wasm.vine_reset_dirty_pages();
+    wasm.zero_memory(0, poolBytes);
+    return { wasm, physicalBase, dirtyPagesPointer };
+  }
+
+  #publishAdapter(adapter: PreparedAdapter, poolBytes: number): void {
+    const { wasm, physicalBase, dirtyPagesPointer } = adapter;
+    // Construct every view before publishing: allocation, permission setup and
+    // CPU restoration on a replacement must not damage the live adapter on failure.
+    const buffer = wasm.memory.buffer;
+    const dirtyPageCandidates = new Uint32Array(buffer, dirtyPagesPointer, dirtyPageCandidateCapacity);
+    const physicalMemory = new Uint8Array(buffer, physicalBase, poolBytes);
+    const physicalWords = new Uint32Array(buffer, physicalBase, poolBytes / 4);
+    const physicalView = new DataView(buffer, physicalBase, poolBytes);
     this.#wasm = wasm;
     this.#dirtyPagesPointer = dirtyPagesPointer;
     this.#physicalBase = physicalBase;
     this.#physicalPoolBytes = poolBytes;
+    this.#dirtyPageCandidates = dirtyPageCandidates;
+    this.#physicalMemory = physicalMemory;
+    this.#physicalWords = physicalWords;
+    this.#physicalView = physicalView;
     // Borrowed writeback views expire at the next engine call. An unused cache
     // tail must not retain the previous adapter's entire linear memory.
     this.#borrowedDirtyPages.length = 0;
     this.#borrowedDirtyPagePool.length = 0;
-    this.#refreshLinearMemoryViews();
-    this.#nextPhysicalPage = memoryPageSize;
-    this.#freePhysicalPages.length = 0;
-    this.#pageTables.clear();
-    this.#directoryMappingCounts.clear();
-    this.#forceFullDirtyScan = false;
-    wasm.vine_reset_dirty_pages();
-    wasm.zero_memory(0, poolBytes);
-    this.#pageDirectory = this.#allocatePage();
   }
 
   #capacityRequirement(guestPages: number, pageTables: number): PhysicalCapacityRequirement {
@@ -500,48 +505,50 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #reinstantiateAdapter(poolBytes: number): void {
-    const cpuState = this.#mappings.size === 0 ? null : this.saveState().words;
-    const pages: MirrorPageSnapshot[] = [...this.#mappings.values()].map((mapping) => ({
-      address: mapping.address,
-      ...(mapping.addressAllocationId === undefined
-        ? {}
-        : { addressAllocationId: mapping.addressAllocationId }),
-      owner: mapping.owner,
-      protection: { ...mapping.protection },
-      bytes: Uint8Array.from(
-        this.#physicalMemory.subarray(
-          mapping.physicalBase,
-          mapping.physicalBase + memoryPageSize,
-        ),
-      ),
-      dirty: Boolean(this.#physicalView.getUint32(mapping.pteAddress, true) & pageFlags.dirty),
-    }));
-    this.#mappings.clear();
-    this.#installFreshAdapter(poolBytes);
-    let restoredDirtyPage = false;
-    for (const page of pages.sort((left, right) => left.address - right.address)) {
-      this.#mapPage(
-        page.address,
-        page.owner,
-        page.protection,
-        page.addressAllocationId,
+    const cpuState = this.#mappings.size === 0 && this.#threadContextTemplate === null
+      ? null
+      : this.saveState().words;
+    const needsDirtyScan = this.#forceFullDirtyScan ||
+      this.#wasm.vine_dirty_page_count() !== 0 || this.#wasm.vine_dirty_pages_overflowed() !== 0;
+    const adapter = this.#prepareAdapter(poolBytes);
+    // Guest physical addresses are offsets within the pool, independent of its
+    // Wasm allocation. Copy paging structures and frames together so CR3, PTEs,
+    // sparse directories and the allocator's free list keep their exact identity.
+    this.#refreshLinearMemoryViews();
+    const nextPhysicalMemory = new Uint8Array(adapter.wasm.memory.buffer, adapter.physicalBase, poolBytes);
+    // Below half occupancy, skip at least half the old pool's bytes. The fresh
+    // pool is already zeroed, including freed frames and the unallocated tail.
+    const livePhysicalBytes = (1 + this.#pageTables.size + this.#mappings.size) * memoryPageSize;
+    const copySparse = livePhysicalBytes <= this.#physicalPoolBytes / 2;
+    const copyPage = (base: number): void => {
+      nextPhysicalMemory.set(this.#physicalMemory.subarray(base, base + memoryPageSize), base);
+    };
+    if (copySparse) {
+      copyPage(this.#pageDirectory);
+      for (const table of this.#pageTables.values()) copyPage(table);
+    } else {
+      nextPhysicalMemory.set(this.#physicalMemory);
+    }
+    for (const mapping of this.#mappings.values()) {
+      if (copySparse) copyPage(mapping.physicalBase);
+      invariant(
+        adapter.wasm.vine_set_page_executable(mapping.address, Number(mapping.protection.execute)) === 0,
+        "v86 rejected restored execute permission",
       );
-      const mapping = this.#mappings.get(page.address)!;
-      this.#physicalMemory.set(page.bytes, mapping.physicalBase);
-      if (page.dirty) {
-        const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
-        this.#physicalView.setUint32(mapping.pteAddress, pte | pageFlags.dirty, true);
-        restoredDirtyPage = true;
-      }
     }
-    this.#forceFullDirtyScan = restoredDirtyPage;
     if (cpuState !== null) {
-      cpuState[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
-      this.#restoreState(cpuState);
+      new Uint32Array(
+        adapter.wasm.memory.buffer,
+        adapter.wasm.vine_cpu_state_ptr(),
+        cpuState.length,
+      ).set(cpuState);
+      invariant(adapter.wasm.vine_cpu_state_restore() === 0, "v86 rejected a restored CPU state");
     }
-    if (this.#threadContextTemplate !== null) {
-      this.#threadContextTemplate[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
-    }
+    this.#publishAdapter(adapter, poolBytes);
+    // CPU writes set a dirty PTE and enqueue its page together; writeback clears
+    // both and flushes the TLB. Preserve an earlier forced scan across repeated
+    // growth, but a clean adapter needs no scan just because its pool moved.
+    this.#forceFullDirtyScan = needsDirtyScan;
   }
 
   initialize(reflection: MemoryReflection, prepared: ExecutionBootstrap): void {
