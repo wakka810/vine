@@ -15,6 +15,21 @@ node tools/check-browser-product.mjs --serve
 
 Open the printed loopback URL in Chrome. The normal directory-picker path requires WebGL2 and Web Audio. The first build downloads and prepares the pinned CPU and media dependencies; generated output stays in `.work/` and `target/`. A checkout on another machine can rebuild those files and does not require a workspace-specific environment script or copied game assets. If tools are installed in user-owned directories, add their executable directories to `PATH` before building.
 
+### Prepared or offline rebuilds
+
+The pinned environment uses Rust 1.97.0, Node.js 22, LLVM-MinGW 20260616 for PE fixtures, and Emscripten 4.0.23 for media. JavaScript dependency versions are recorded in `package-lock.json`; do not substitute a fresh lockfile. The Linux CI workflow records the LLVM archive checksum and Chrome fixture version.
+
+For an offline rebuild, first prepare this same revision while online, including `npm ci`, the Rust target and Cargo dependencies, `npm run check:toolchain`, `npm run prepare:engine`, and `npm run prepare:media`. Retain the prepared `.work/vine-v86`, `.work/libav-mpeg-build`, toolchains, `node_modules`, and Cargo cache. Then:
+
+```sh
+CARGO_NET_OFFLINE=true npm run build:runtime:browser-worker:prepared
+npm run check:engine:prepared
+npm run check:media
+node tools/check-browser-product.mjs --serve
+```
+
+Prepared mode intentionally does not fetch or update CPU/media dependencies. Check that `.work/vine-v86` is clean and its `git rev-parse HEAD` matches `revision` in `tools/prepare-v86-adapter.mjs` before reusing it after a checkout change. Missing tools or caches require online preparation; a fresh clone alone is not an offline bundle. Do not transfer authentication configuration, private source assets, or browser save data with build caches.
+
 ## Local loop
 
 1. Check `git status --short --branch` and preserve unrelated changes and immutable game files.
