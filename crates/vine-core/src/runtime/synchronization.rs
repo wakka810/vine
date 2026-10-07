@@ -272,6 +272,7 @@ impl RuntimeSynchronization {
         Ok(section)
     }
 
+    #[cfg(test)]
     pub(super) fn critical_section_waiters(&self, address: GuestAddress) -> Vec<RuntimeThreadId> {
         self.critical_section_waiters
             .get(&address)
@@ -384,6 +385,7 @@ impl RuntimeSynchronization {
         Ok((next.recursion_count, abandoned_acquisition))
     }
 
+    #[cfg(test)]
     pub(super) fn release_mutex(
         &mut self,
         id: RuntimeMutexId,

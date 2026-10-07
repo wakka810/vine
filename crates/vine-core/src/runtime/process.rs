@@ -193,6 +193,7 @@ impl RuntimeProcessState {
         self.clock.synchronized_instruction_count()
     }
 
+    #[cfg(test)]
     pub(super) fn advance_clock(
         &mut self,
         target_time_100ns: u64,
@@ -250,6 +251,7 @@ impl RuntimeProcessState {
         self.environment.as_ref()
     }
 
+    #[cfg(test)]
     pub fn unhandled_exception_filter(&self) -> Option<GuestAddress> {
         self.unhandled_exception_filter
     }

@@ -96,8 +96,10 @@ pub use input::{
     RuntimeKeyboardSourceEventKind, RuntimePointerButton, RuntimePointerButtonSourceEvent,
     RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent,
 };
+#[cfg(test)]
+pub(crate) use kernel::RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE;
 pub(crate) use kernel::RuntimeFindFirstFileOutcome;
-pub use kernel::*;
+pub use kernel::{Runtime, RuntimeBootstrap, RuntimeStateError};
 #[cfg(test)]
 pub(crate) use messages::RuntimeMessageReceiveDisposition;
 pub(crate) use messages::RuntimeThreadMessage;

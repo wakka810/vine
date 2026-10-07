@@ -160,6 +160,7 @@ impl Default for RuntimeDllLifecycle {
 enum RuntimeDllOperationKind {
     Attach,
     AttachUnwind,
+    #[cfg(test)]
     Detach,
 }
 
@@ -188,6 +189,7 @@ pub(super) struct RuntimeDllCallbackSpec {
 
 pub(super) enum RuntimeDllLifecycleRequest {
     Attach(GuestAddress),
+    #[cfg(test)]
     Detach(GuestAddress),
     Complete {
         frame_id: RuntimeCallbackFrameId,
@@ -281,6 +283,7 @@ impl RuntimeModules {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn require_process_detach_start(&self) -> Result<(), RuntimeStateError> {
         if self.dll_lifecycle.phase != RuntimeDllLifecyclePhase::ProcessAttached
             || self.dll_lifecycle.operation.is_some()
@@ -311,6 +314,7 @@ impl RuntimeModules {
                     initialize,
                 )
             }
+            #[cfg(test)]
             RuntimeDllLifecycleRequest::Detach(return_sentinel) => {
                 self.require_process_detach_start()?;
                 self.start_dll_operation(
@@ -339,6 +343,7 @@ impl RuntimeModules {
         validate_dll_return_sentinel(return_sentinel)?;
         let graph_order = match kind {
             RuntimeDllOperationKind::Attach => self.module_graph.planned_attach_order(),
+            #[cfg(test)]
             RuntimeDllOperationKind::Detach => self.module_graph.planned_detach_order(),
             RuntimeDllOperationKind::AttachUnwind => {
                 unreachable!("unwind begins at a failed attach callback")
@@ -413,28 +418,22 @@ impl RuntimeModules {
             (operation.kind, operation.remaining.front().copied())
         };
         if next_module.is_none() {
-            match kind {
-                RuntimeDllOperationKind::Attach | RuntimeDllOperationKind::Detach => {
-                    let graph_order = if kind == RuntimeDllOperationKind::Attach {
-                        self.module_graph.planned_attach_order()
-                    } else {
-                        self.module_graph.planned_detach_order()
-                    }
-                    .map_err(runtime_module_graph_error)?;
-                    if graph_order != operation.graph_order {
-                        return Err(RuntimeStateError::new(
-                            "module graph order changed while DLL callbacks were in progress",
-                        ));
-                    }
+            if kind != RuntimeDllOperationKind::AttachUnwind {
+                let graph_order = if kind == RuntimeDllOperationKind::Attach {
+                    self.module_graph.planned_attach_order()
+                } else {
+                    self.module_graph.planned_detach_order()
                 }
-                RuntimeDllOperationKind::AttachUnwind
-                    if !attach_failed && operation.attach_failure.is_none() =>
-                {
+                .map_err(runtime_module_graph_error)?;
+                if graph_order != operation.graph_order {
                     return Err(RuntimeStateError::new(
-                        "DLL attach unwind lost the failing module identity",
+                        "module graph order changed while DLL callbacks were in progress",
                     ));
                 }
-                RuntimeDllOperationKind::AttachUnwind => {}
+            } else if !attach_failed && operation.attach_failure.is_none() {
+                return Err(RuntimeStateError::new(
+                    "DLL attach unwind lost the failing module identity",
+                ));
             }
         }
         let prepared =
@@ -529,6 +528,7 @@ impl RuntimeModules {
                 self.module_graph.publish_attach(graph_order);
                 RuntimeDllLifecyclePhase::ProcessAttached
             }
+            #[cfg(test)]
             RuntimeDllOperationKind::Detach => {
                 self.module_graph.publish_detach(graph_order);
                 RuntimeDllLifecyclePhase::ProcessDetached
@@ -743,6 +743,7 @@ impl RuntimeModules {
             .map_err(runtime_module_graph_error)
     }
 
+    #[cfg(test)]
     pub(super) fn add_dependency(
         &mut self,
         requester_handle: u32,
@@ -768,6 +769,7 @@ impl RuntimeModules {
             .map_err(runtime_module_graph_error)
     }
 
+    #[cfg(test)]
     pub(super) fn release_dynamic_reference(
         &mut self,
         handle: u32,
@@ -788,6 +790,7 @@ impl RuntimeModules {
             .map_err(runtime_module_graph_error)
     }
 
+    #[cfg(test)]
     pub(super) fn attach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
         if self.dll_lifecycle.phase != RuntimeDllLifecyclePhase::Idle {
             return Err(RuntimeStateError::new(
@@ -800,6 +803,7 @@ impl RuntimeModules {
             .map_err(runtime_module_graph_error)
     }
 
+    #[cfg(test)]
     pub(super) fn detach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
         if self.dll_lifecycle.phase != RuntimeDllLifecyclePhase::Idle {
             return Err(RuntimeStateError::new(

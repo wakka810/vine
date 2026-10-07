@@ -106,10 +106,10 @@ use super::scheduler::{
     RuntimeApiBoundaryDisposition, RuntimeHostCompletion, RuntimeHostRequest, RuntimeScheduler,
     RuntimeSchedulerEvent, SchedulerThreadState,
 };
+#[cfg(test)]
+use super::synchronization::RuntimeMutex;
 use super::synchronization::RuntimeSynchronization;
-use super::synchronization::{
-    RuntimeCriticalSection, RuntimeMutex, RuntimeMutexId, RuntimeMutexNameA,
-};
+use super::synchronization::{RuntimeCriticalSection, RuntimeMutexId, RuntimeMutexNameA};
 use super::thread::{
     RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE, RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE,
     RUNTIME_GUEST_THREAD_STACK_ARENA_BASE, RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
@@ -1724,7 +1724,8 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn unhandled_exception_filter(&self) -> Option<GuestAddress> {
+    #[cfg(test)]
+    pub(crate) fn unhandled_exception_filter(&self) -> Option<GuestAddress> {
         self.process.unhandled_exception_filter()
     }
 
@@ -3186,7 +3187,8 @@ impl Runtime {
         self.process.clock()
     }
 
-    pub fn advance_scheduled_clock_to(
+    #[cfg(test)]
+    pub(crate) fn advance_scheduled_clock_to(
         &mut self,
         target_time_100ns: u64,
     ) -> Result<u64, RuntimeStateError> {
@@ -3832,7 +3834,8 @@ impl Runtime {
         Ok(Some(thread_id))
     }
 
-    pub fn complete_api_execution_boundary(
+    #[cfg(test)]
+    pub(crate) fn complete_api_execution_boundary(
         &mut self,
     ) -> Result<Option<RuntimeThreadId>, RuntimeStateError> {
         self.complete_api_execution_boundary_with_disposition(
@@ -4013,7 +4016,7 @@ impl Runtime {
         Ok(RuntimeWaitDisposition::Pending { registration })
     }
 
-    pub fn post_thread_message(
+    pub(crate) fn post_thread_message(
         &mut self,
         target_thread_id: RuntimeThreadId,
         hwnd: u32,
@@ -4559,7 +4562,8 @@ impl Runtime {
         self.module(handle)
     }
 
-    pub fn add_module_dependency(
+    #[cfg(test)]
+    pub(crate) fn add_module_dependency(
         &mut self,
         requester_handle: u32,
         dependency_handle: u32,
@@ -4579,7 +4583,8 @@ impl Runtime {
             .add_dynamic_reference(handle, self.current_thread_id().0)
     }
 
-    pub fn release_current_thread_module_reference(
+    #[cfg(test)]
+    pub(crate) fn release_current_thread_module_reference(
         &mut self,
         handle: u32,
     ) -> Result<u32, RuntimeStateError> {
@@ -4593,11 +4598,13 @@ impl Runtime {
         self.modules.mark_ready(handle)
     }
 
-    pub fn attach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+    #[cfg(test)]
+    pub(crate) fn attach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
         self.modules.attach_all()
     }
 
-    pub fn detach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
+    #[cfg(test)]
+    pub(crate) fn detach_modules(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeStateError> {
         self.modules.detach_all()
     }
 
@@ -4614,7 +4621,8 @@ impl Runtime {
         self.advance_dll_lifecycle(RuntimeDllLifecycleRequest::Attach(return_sentinel), None)
     }
 
-    pub fn begin_dll_process_detach(
+    #[cfg(test)]
+    pub(crate) fn begin_dll_process_detach(
         &mut self,
         return_sentinel: GuestAddress,
     ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
@@ -4665,6 +4673,7 @@ impl Runtime {
         Ok(())
     }
 
+    #[cfg(test)]
     fn require_dll_process_detach_thread_state(&self) -> Result<(), RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
@@ -4883,7 +4892,8 @@ impl Runtime {
             .set_fls_value(self.current_thread_id(), index, value)
     }
 
-    pub fn fls_value(&self, index: u32) -> Result<u32, RuntimeStateError> {
+    #[cfg(test)]
+    pub(crate) fn fls_value(&self, index: u32) -> Result<u32, RuntimeStateError> {
         self.fls_value_or_unset(index)?.ok_or_else(|| {
             RuntimeStateError::new(format!(
                 "logical FLS index {index} has no value for the current thread"
@@ -4907,7 +4917,8 @@ impl Runtime {
             .set_tls_value(self.current_thread_id(), index, value)
     }
 
-    pub fn tls_value(&self, index: u32) -> Result<u32, RuntimeStateError> {
+    #[cfg(test)]
+    pub(crate) fn tls_value(&self, index: u32) -> Result<u32, RuntimeStateError> {
         self.tls_value_or_unset(index)?.ok_or_else(|| {
             RuntimeStateError::new(format!(
                 "current thread has no value for logical TLS index {index}"
@@ -5673,7 +5684,8 @@ impl Runtime {
         self.user32.load_shared_cursor(source)
     }
 
-    pub fn cursor(&self, handle: u32) -> Result<&RuntimeCursor, RuntimeStateError> {
+    #[cfg(test)]
+    pub(crate) fn cursor(&self, handle: u32) -> Result<&RuntimeCursor, RuntimeStateError> {
         self.user32.cursor(handle)
     }
 
@@ -8512,7 +8524,8 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn mutex_for_handle(
+    #[cfg(test)]
+    pub(crate) fn mutex_for_handle(
         &self,
         handle: RuntimeHandle,
     ) -> Result<&RuntimeMutex, RuntimeStateError> {
@@ -8527,7 +8540,8 @@ impl Runtime {
         self.synchronization.mutex(RuntimeMutexId(*mutex_id))
     }
 
-    pub fn release_mutex(
+    #[cfg(test)]
+    pub(crate) fn release_mutex(
         &mut self,
         handle: RuntimeHandle,
     ) -> Result<&RuntimeMutex, RuntimeStateError> {
@@ -8682,7 +8696,8 @@ impl Runtime {
         self.synchronization.critical_section(address)
     }
 
-    pub fn critical_section_waiters(&self, address: GuestAddress) -> Vec<RuntimeThreadId> {
+    #[cfg(test)]
+    pub(crate) fn critical_section_waiters(&self, address: GuestAddress) -> Vec<RuntimeThreadId> {
         self.synchronization.critical_section_waiters(address)
     }
 
@@ -8709,7 +8724,8 @@ impl Runtime {
         self.registries.decode_pointer(token)
     }
 
-    pub fn push_callback_frame(
+    #[cfg(test)]
+    pub(crate) fn push_callback_frame(
         &mut self,
         target: GuestAddress,
         return_sentinel: GuestAddress,
@@ -8942,17 +8958,6 @@ impl Runtime {
             ));
         }
         Ok(())
-    }
-
-    pub fn replace_callback_frame(
-        &mut self,
-        expected: RuntimeCallbackFrameId,
-        target: GuestAddress,
-        return_sentinel: GuestAddress,
-    ) -> Result<RuntimeCallbackFrame, RuntimeStateError> {
-        let frame = self.prepare_callback_frame(Some(expected), target, return_sentinel, 0)?;
-        self.publish_callback_frame(frame, true);
-        Ok(frame)
     }
 
     pub(crate) fn publish_callback_frame(&mut self, frame: RuntimeCallbackFrame, replacing: bool) {

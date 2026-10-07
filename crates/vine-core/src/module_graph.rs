@@ -380,6 +380,7 @@ impl RuntimeModuleGraph {
         Ok(count)
     }
 
+    #[cfg(test)]
     pub fn release_dynamic_reference(
         &mut self,
         module: RuntimeModuleId,
@@ -424,6 +425,7 @@ impl RuntimeModuleGraph {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn attach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeModuleGraphError> {
         let order = self.planned_attach_order()?;
         self.publish_attach(&order);
@@ -564,12 +566,14 @@ impl RuntimeModuleGraph {
         Ok(order)
     }
 
+    #[cfg(test)]
     pub fn detach_all(&mut self) -> Result<Vec<RuntimeModuleId>, RuntimeModuleGraphError> {
         let order = self.planned_detach_order()?;
         self.publish_detach(&order);
         Ok(order)
     }
 
+    #[cfg(test)]
     pub(crate) fn publish_detach(&mut self, order: &[RuntimeModuleId]) {
         for (index, id) in order.iter().enumerate() {
             self.nodes
