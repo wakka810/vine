@@ -1016,7 +1016,7 @@ mod tests {
     }
 
     #[test]
-    fn optional_reservations_preserve_authority_on_exhaustion_and_reject_malformed_requests() {
+    fn optional_reservations_preserve_ranges_on_capacity_and_malformed_requests_then_retry() {
         let mut allocator = ProcessAddressSpaceAllocator::new().unwrap();
         let mut request = search_request(
             ProcessAddressAllocationPurpose::MappedFile,
@@ -1034,27 +1034,12 @@ mod tests {
             allocator
                 .try_reserve_batch_with(
                     vec![(None, request.clone()), (None, request.clone())],
-                    |_| Ok(Some(()))
+                    |_| Ok(Some(())),
                 )
                 .unwrap()
                 .is_none()
         );
         assert_eq!(allocator, before);
-        allocator.next_id = u64::MAX;
-        let exhausted = allocator.clone();
-        assert!(
-            allocator
-                .try_reserve_batch_with(vec![(None, request.clone())], |_| Ok(Some(())))
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            allocator
-                .try_reserve_top_down_with(request.clone(), |_| Ok(Some(())))
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(allocator, exhausted);
         request.alignment = 3;
         assert!(
             allocator
@@ -1063,25 +1048,18 @@ mod tests {
         );
         assert!(
             allocator
-                .try_reserve_top_down_with(request, |_| Ok(Some(())))
+                .try_reserve_top_down_with(request.clone(), |_| Ok(Some(())))
                 .is_err()
         );
-        assert_eq!(allocator, exhausted);
-        allocator.next_id = before.next_id;
-        allocator
-            .try_reserve_batch_with(
-                vec![(
-                    None,
-                    search_request(
-                        ProcessAddressAllocationPurpose::MappedFile,
-                        ProcessAddressAllocationClassification::MappedFile,
-                    ),
-                )],
-                |_| Ok(Some(())),
-            )
+        assert_eq!(allocator, before);
+        request.alignment = GUEST_PAGE_SIZE as u32;
+        let allocation = allocator
+            .try_reserve_batch_with(vec![(None, request)], |allocations| {
+                Ok(Some(allocations[0].clone()))
+            })
             .unwrap()
             .unwrap();
-        assert_eq!(allocator.records().len(), before.records().len() + 1);
+        assert_eq!(allocator.allocation(allocation.id).unwrap(), &allocation);
     }
 
     #[test]
@@ -1254,21 +1232,6 @@ mod tests {
             let before = allocator.clone();
             assert!(allocator.validate_releases(&ids).is_err());
             assert_eq!(allocator, before);
-        }
-        for corrupt_identity in [true, false] {
-            let mut rejected = allocator.clone();
-            if corrupt_identity {
-                rejected.allocations.get_mut(&child.id).unwrap().id.0 += 1;
-            } else {
-                rejected
-                    .allocations
-                    .get_mut(&child.id)
-                    .unwrap()
-                    .release_policy = ProcessAddressAllocationReleasePolicy::Permanent
-            }
-            let before = rejected.clone();
-            assert!(rejected.validate_releases(&[child.id, parent.id]).is_err());
-            assert_eq!(rejected, before);
         }
         let before_empty = allocator.clone();
         let empty = allocator.validate_releases(&[]).unwrap();

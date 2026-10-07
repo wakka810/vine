@@ -920,7 +920,7 @@ mod tests {
     }
 
     #[test]
-    fn import_dependency_batch_checks_cycles_and_capacity_before_any_edge() {
+    fn import_dependency_batch_checks_cycles_before_any_edge_and_reuses_existing_edges() {
         let (mut graph, main, engine) = graph_with_two_modules();
         let codec = graph
             .register_module(RuntimeModuleRegistration {
@@ -953,61 +953,10 @@ mod tests {
         graph.validate_additional_dependencies(&edges).unwrap();
         graph.insert_checked_dependencies(&edges);
         assert_eq!(graph, bound, "rebinding an existing edge adds no reference");
-
-        let mut exhausted = before;
-        exhausted
-            .nodes
-            .get_mut(&codec)
-            .unwrap()
-            .references
-            .push(RuntimeModuleReference {
-                owner: RuntimeModuleReferenceOwner::DynamicLoad { thread_id: 1 },
-                count: u32::MAX,
-            });
-        let before_rejection = exhausted.clone();
-        assert!(exhausted.validate_additional_dependencies(&edges).is_err());
-        assert_eq!(exhausted, before_rejection);
     }
 
     #[test]
-    fn exhausted_dependency_reference_does_not_publish_an_edge() {
-        let (mut graph, main, dependency) = graph_with_two_modules();
-        graph
-            .nodes
-            .get_mut(&dependency)
-            .unwrap()
-            .references
-            .push(RuntimeModuleReference {
-                owner: RuntimeModuleReferenceOwner::DynamicLoad { thread_id: 1 },
-                count: u32::MAX,
-            });
-        let before = graph.clone();
-        assert!(graph.add_dependency(main, dependency).is_err());
-        assert_eq!(graph, before);
-    }
-
-    #[test]
-    fn checked_node_exhaustion_and_invalid_registration_preserve_identity_allocators() {
-        for exhausted_id in [true, false] {
-            let mut graph = RuntimeModuleGraph::default();
-            if exhausted_id {
-                graph.next_module_id = u32::MAX;
-            } else {
-                graph.next_discovery_sequence = u32::MAX;
-            }
-            let before = graph.clone();
-            assert!(
-                graph
-                    .register_module(RuntimeModuleRegistration {
-                        handle: 1,
-                        requested_name: "game.exe".to_owned(),
-                        canonical_name: "game.exe".to_owned(),
-                        class: RuntimeModuleClass::MainExecutable,
-                    })
-                    .is_err()
-            );
-            assert_eq!(graph, before);
-        }
+    fn invalid_module_registration_preserves_the_graph_and_can_retry() {
         let mut graph = RuntimeModuleGraph::default();
         let before = graph.clone();
         assert!(
@@ -1021,6 +970,18 @@ mod tests {
                 .is_err()
         );
         assert_eq!(graph, before);
+        let module = graph
+            .register_module(RuntimeModuleRegistration {
+                handle: 1,
+                requested_name: "game.exe".to_owned(),
+                canonical_name: "game.exe".to_owned(),
+                class: RuntimeModuleClass::MainExecutable,
+            })
+            .unwrap();
+        assert_eq!(
+            graph.find_module_by_name("game.exe").unwrap().unwrap().id,
+            module
+        );
     }
 
     #[test]

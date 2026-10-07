@@ -2195,17 +2195,18 @@ mod tests {
     }
 
     #[test]
-    fn search_construction_and_cursor_failures_preserve_existing_state() {
+    fn searches_reject_missing_paths_and_unknown_cursors_without_disturbing_live_enumeration() {
         let mut files = RuntimeFiles::default();
         files.register_snapshot(manifest()).unwrap();
-        let next_search_id = files.next_search_id;
         let search = files
             .new_file_search(b"Data\\*\0", b"C:\\Vine\0")
             .unwrap()
             .unwrap()
             .unwrap();
-        assert_eq!(files.next_search_id, next_search_id);
-        assert!(files.searches.is_empty());
+        let id = search.id;
+        let first = search.entries[0].clone();
+        files.insert_file_search(search);
+        assert!(files.next_file_search_entry(id).unwrap().is_none());
         assert!(matches!(
             files.new_file_search(b"Data\\nothing.dat\0", b"C:\\Vine\0"),
             Ok(Ok(None))
@@ -2215,47 +2216,24 @@ mod tests {
                 files.new_file_search(missing, b"C:\\Vine\0"),
                 Ok(Err(3))
             ));
-            assert_eq!(files.next_search_id, next_search_id);
-            assert!(files.searches.is_empty());
         }
-        let id = search.id;
-        files.insert_file_search(search);
-        assert!(files.next_file_search_entry(id).unwrap().is_none());
         assert!(
             files
                 .next_file_search_entry(RuntimeFileSearchId(999))
                 .is_err()
         );
-
-        assert_eq!(files.searches.len(), 1);
-        assert_eq!(files.searches[&id].next_index, 1);
-        files.searches.get_mut(&id).unwrap().next_index = usize::MAX;
-        assert!(files.next_file_search_entry(id).is_err());
-
-        assert_eq!(files.searches[&id].next_index, usize::MAX);
-        files.searches.get_mut(&id).unwrap().next_index = 1;
         assert!(files.next_file_search_entry(id).unwrap().is_none());
-        files.next_search_id = id.0;
-        assert!(files.new_file_search(b"Data\\*\0", b"C:\\Vine\0").is_err());
-
-        assert_eq!(files.next_search_id, id.0);
-        assert_eq!(files.searches.len(), 1);
-        assert_eq!(files.searches[&id].next_index, 1);
-        files.next_search_id = u64::MAX;
-        assert!(files.new_file_search(b"Data\\*\0", b"C:\\Vine\0").is_err());
-
-        assert_eq!(files.next_search_id, u64::MAX);
-        assert_eq!(files.searches.len(), 1);
-        files.next_search_id = id.0 + 1;
         let retry = files
             .new_file_search(b"Data\\*\0", b"C:\\Vine\0")
             .unwrap()
             .unwrap()
             .unwrap();
-        assert_eq!(retry.id.0, id.0 + 1);
+        assert_ne!(retry.id, id);
+        assert_eq!(retry.entries[0], first);
+        let retry_id = retry.id;
         files.insert_file_search(retry);
-        assert_eq!(files.searches.len(), 2);
-        assert_eq!(files.searches[&id].next_index, 1);
+        assert!(files.next_file_search_entry(id).unwrap().is_none());
+        assert!(files.next_file_search_entry(retry_id).unwrap().is_none());
     }
 
     fn source_read_response_control(

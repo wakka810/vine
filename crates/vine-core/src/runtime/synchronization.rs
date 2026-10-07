@@ -589,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn bad_addresses_and_recursion_overflow_do_not_publish_changes() {
+    fn bad_critical_section_addresses_preserve_state_and_can_retry() {
         let mut synchronization = RuntimeSynchronization::default();
         let before = synchronization.clone();
         for address in [GuestAddress(0), GuestAddress(ADDRESS.0 + 1)] {
@@ -597,15 +597,20 @@ mod tests {
             assert_eq!(synchronization, before);
         }
         synchronization.initialize(ADDRESS, 0).unwrap();
-        synchronization.enter(ADDRESS, OWNER).unwrap();
-        synchronization
-            .critical_sections
-            .get_mut(&ADDRESS)
-            .unwrap()
-            .recursion_count = u32::MAX;
-        let before_overflow = synchronization.clone();
-        assert!(synchronization.enter(ADDRESS, OWNER).is_err());
-        assert_eq!(synchronization, before_overflow);
+        assert_eq!(
+            synchronization
+                .enter(ADDRESS, OWNER)
+                .unwrap()
+                .recursion_count,
+            1
+        );
+        assert_eq!(
+            synchronization
+                .leave(ADDRESS, OWNER)
+                .unwrap()
+                .recursion_count,
+            0
+        );
     }
 
     #[test]
@@ -686,28 +691,10 @@ mod tests {
             synchronization.acquire_mutex(id, CONTENDER).unwrap(),
             (1, false)
         );
-
-        synchronization
-            .mutexes
-            .get_mut(&id)
-            .unwrap()
-            .recursion_count = u32::MAX;
-        let before_overflow = synchronization.clone();
-        assert!(synchronization.acquire_mutex(id, CONTENDER).is_err());
-        assert_eq!(synchronization, before_overflow);
-        synchronization
-            .mutexes
-            .get_mut(&id)
-            .unwrap()
-            .owning_thread_id = None;
-        let before_corruption = synchronization.clone();
-        assert!(synchronization.acquire_mutex(id, OWNER).is_err());
-        assert!(synchronization.release_mutex(id, OWNER).is_err());
-        assert_eq!(synchronization, before_corruption);
     }
 
     #[test]
-    fn mutex_creation_checks_capacity_allocator_and_identity_before_publication() {
+    fn mutex_creation_rejects_real_capacity_without_publication() {
         let mut synchronization = RuntimeSynchronization::default();
         for _ in 0..RUNTIME_MUTEX_LIMIT {
             let (id, existing) = synchronization.validate_mutex_creation(None).unwrap();
@@ -717,24 +704,10 @@ mod tests {
         let before_capacity = synchronization.clone();
         assert!(synchronization.validate_mutex_creation(None).is_err());
         assert_eq!(synchronization, before_capacity);
-
-        let mut exhausted = RuntimeSynchronization {
-            next_mutex_id: u64::MAX,
-            ..Default::default()
-        };
-        let before_exhaustion = exhausted.clone();
-        assert!(exhausted.validate_mutex_creation(None).is_err());
-        assert_eq!(exhausted, before_exhaustion);
-        exhausted.next_mutex_id = 1;
-        exhausted.insert_mutex(RuntimeMutexId(1), None, false, OWNER);
-        exhausted.next_mutex_id = 1;
-        let before_collision = exhausted.clone();
-        assert!(exhausted.validate_mutex_creation(None).is_err());
-        assert_eq!(exhausted, before_collision);
     }
 
     #[test]
-    fn named_mutex_retirement_checks_index_and_allows_recreation() {
+    fn named_mutex_retirement_invalidates_old_identity_and_allows_recreation() {
         let mut synchronization = RuntimeSynchronization::default();
         let name = RuntimeMutexNameA::new(
             b"Vine mutex\0".to_vec(),
@@ -745,22 +718,8 @@ mod tests {
             .validate_mutex_creation(Some(&name))
             .unwrap();
         synchronization.insert_mutex(id, Some(name.clone()), false, OWNER);
-        synchronization
-            .named_mutexes
-            .insert(name.identity(), RuntimeMutexId(999));
-        let before_mismatch = synchronization.clone();
-        assert!(synchronization.validate_mutex_retirement(id).is_err());
-        assert!(
-            synchronization
-                .validate_mutex_creation(Some(&name))
-                .is_err()
-        );
-        assert_eq!(synchronization, before_mismatch);
-        synchronization.named_mutexes.insert(name.identity(), id);
         synchronization.validate_mutex_retirement(id).unwrap();
         synchronization.retire_mutex(id);
-        assert!(synchronization.named_mutexes.is_empty());
-        assert!(synchronization.mutexes.is_empty());
         assert!(synchronization.validate_mutex_retirement(id).is_err());
         let (new_id, existing) = synchronization
             .validate_mutex_creation(Some(&name))

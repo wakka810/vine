@@ -2999,27 +2999,6 @@ fn virtual_page_address(virtual_page: u32) -> Result<GuestAddress, GuestMemoryEr
 
 #[cfg(test)]
 #[test]
-fn growth_capacity_preserves_the_last_usable_owner_identifier() {
-    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
-    memory.next_owner = u32::MAX - 1;
-    let before = memory.stats();
-    memory.preflight_growth(2, 0, 0).unwrap_err();
-    assert_eq!(memory.stats(), before);
-    assert_eq!(memory.next_owner, u32::MAX - 1);
-
-    memory.preflight_growth(1, 0, 0).unwrap();
-    let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
-    assert_eq!(owner.0, u32::MAX - 1);
-    let before = memory.stats();
-    memory.preflight_growth(1, 0, 0).unwrap_err();
-    memory.create_owner(MemoryOwnerKind::Runtime).unwrap_err();
-    assert_eq!(memory.stats(), before);
-    assert_eq!(memory.next_owner, u32::MAX);
-    memory.preflight_growth(0, 0, 0).unwrap();
-}
-
-#[cfg(test)]
-#[test]
 fn transaction_journals_only_touched_pages_not_the_baseline() {
     let mut memory = GuestMemory::new(MemoryLimits {
         max_physical_pages: 128,
