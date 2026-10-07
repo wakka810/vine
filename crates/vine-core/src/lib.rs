@@ -35,7 +35,7 @@ pub use api::{
     GuestCallbackReturn, HostCompletion, X86CpuContext,
 };
 #[cfg(test)]
-pub(crate) use api::{ApiEndpointBinding, ApiSymbol, HostRequest};
+pub(crate) use api::{ApiEndpointBinding, ApiSymbol};
 pub use bootstrap::install_initial_thread_stack;
 pub use callbacks::install_runtime_return_sentinels;
 #[cfg(test)]
@@ -45,9 +45,7 @@ pub(crate) use com::{COM_E_NOINTERFACE, COM_E_POINTER, COM_S_OK, ComCallCompleti
 pub use com::{ComAudioDeferred, ComCallTrap, ComDispatchOutcome};
 pub use dynamic_exports::DynamicExportThunk;
 #[cfg(test)]
-pub(crate) use environment::{
-    CONTROLLED_COMMAND_LINE_BASE, PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET,
-};
+pub(crate) use environment::CONTROLLED_COMMAND_LINE_BASE;
 pub use gdi32::{
     Gdi32TextRasterHostResponse, RUNTIME_GDI_TEXT_RASTER_SERVICE, complete_gdi32_text_raster,
 };
@@ -78,17 +76,12 @@ pub(crate) use runtime::RuntimePathResolution;
 pub(crate) use runtime::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationReleasePolicy,
     ProcessAddressSpaceAllocator, RUNTIME_API_BOUNDARY_QUANTUM, RUNTIME_COM_IUNKNOWN_IID,
-    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_GDIPLUS_SESSION_LIMIT,
-    RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
-    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
-    RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
-    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeCallbackFrameId, RuntimeComApartmentModel,
-    RuntimeComIid, RuntimeDeviceContextTarget, RuntimeDynamicEndpoint, RuntimeGdiObjectKind,
-    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocationId,
-    RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeMutexId, RuntimeMutexNameA,
-    RuntimeObjectKey, RuntimeObjectKind, RuntimeProcessLifecycleState, RuntimeThreadPriority,
-    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RUNTIME_GDIPLUS_SESSION_LIMIT, RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RuntimeCallbackFrameId,
+    RuntimeComApartmentModel, RuntimeComIid, RuntimeDeviceContextTarget, RuntimeDynamicEndpoint,
+    RuntimeGdiObjectKind, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHostCompletion,
+    RuntimeMutexId, RuntimeMutexNameA, RuntimeObjectKey, RuntimeObjectKind,
+    RuntimeProcessLifecycleState, RuntimeThreadPriority, RuntimeWaitDisposition,
+    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitRegistrationId, RuntimeWaitState, RuntimeWaitableTimerArm,
     RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };

@@ -86,18 +86,11 @@ pub use heaps::{
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RuntimeHeapInitialization,
 };
-#[cfg(test)]
-pub(crate) use heaps::{
-    RUNTIME_PRIVATE_HEAP_FREED_BYTE, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
-    RuntimeHeapAllocationId,
-};
 pub use input::{
     RuntimeCursorPositionProfile, RuntimeInputProfile, RuntimeKeyboardSourceEvent,
     RuntimeKeyboardSourceEventKind, RuntimePointerButton, RuntimePointerButtonSourceEvent,
     RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent,
 };
-#[cfg(test)]
-pub(crate) use kernel::RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE;
 pub(crate) use kernel::RuntimeFindFirstFileOutcome;
 pub use kernel::{Runtime, RuntimeBootstrap, RuntimeStateError};
 #[cfg(test)]
@@ -117,11 +110,7 @@ pub use process::{
     RuntimeProcessImagePathA, RuntimeStartupInfo,
 };
 #[cfg(test)]
-pub(crate) use process::{
-    RUNTIME_STANDARD_ERROR_HANDLE, RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
-    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeProcessLifecycleState, X86_STARTUP_INFO_W_BYTE_LENGTH,
-};
+pub(crate) use process::{RuntimeProcessLifecycleState, X86_STARTUP_INFO_W_BYTE_LENGTH};
 pub use registries::RuntimeDynamicEndpoint;
 #[cfg(test)]
 pub(crate) use scheduler::RUNTIME_API_BOUNDARY_QUANTUM;
@@ -132,8 +121,6 @@ pub use scheduler::{
 pub use synchronization::{
     RuntimeCriticalSection, RuntimeMutexId, RuntimeMutexNameA, X86_CRITICAL_SECTION_BYTE_LENGTH,
 };
-#[cfg(test)]
-pub(crate) use thread::RUNTIME_FLS_INDEX_LIMIT;
 pub(crate) use thread::RuntimeCreateThreadRequest;
 pub(crate) use thread::TLS_OUT_OF_INDEXES;
 pub use thread::{

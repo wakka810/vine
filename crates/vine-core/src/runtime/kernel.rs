@@ -1723,11 +1723,6 @@ impl Runtime {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(crate) fn unhandled_exception_filter(&self) -> Option<GuestAddress> {
-        self.process.unhandled_exception_filter()
-    }
-
     pub(crate) fn set_unhandled_exception_filter(
         &mut self,
         filter: Option<GuestAddress>,
