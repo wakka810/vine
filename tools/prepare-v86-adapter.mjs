@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.join(root, ".work", "vine-v86");
 const repository = "https://github.com/wakka810/vine-v86.git";
-const revision = "6574073bdb4d11a9b9bb8509e7487609c4699f77";
+const revision = "a043c973d57c0efd1eaa296f066863a8a00e5aeb";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
