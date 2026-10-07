@@ -421,34 +421,24 @@ impl RuntimeHeaps {
         address: GuestAddress,
     ) -> Result<Option<RuntimeHeapAllocation>, RuntimeStateError> {
         let heap = self.heap(handle)?;
-        self.validate_allocation_count(heap)?;
+        // Heap maps and IDs are private Rust state, never guest heap headers.
+        // Creation/allocation/free preserve their partition and unique IDs before
+        // publishing. Like mutations, queries retain metadata checks in release
+        // and full internal audits in debug; the selected record is checked below.
+        self.validate_allocation_mutation_state(heap)?;
         let next_allocation_id = self.next_allocation_id(handle)?;
-        let ordinary_backing = self.backing(handle);
-        if let Some(backing) = ordinary_backing {
-            validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
+        if let Some(backing) = self.backing(handle) {
+            validate_runtime_heap_backing_mutation_state(heap, backing, next_allocation_id)?;
         }
         for (_, backing) in self.extension_backings(handle) {
-            validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
+            validate_runtime_heap_backing_mutation_state(heap, backing, next_allocation_id)?;
         }
         for (_, backing) in self.large_backings_for_handle(handle) {
             validate_large_heap_backing(heap, backing, next_allocation_id)?;
         }
-        if let Some(backing) = ordinary_backing
-            && let Some(allocation) = backing.allocations.get(&address.0)
-        {
-            return Ok(Some(*allocation));
-        }
-        for (_, backing) in self.extension_backings(handle) {
-            if let Some(allocation) = backing.allocations.get(&address.0) {
-                return Ok(Some(*allocation));
-            }
-        }
-        for (_, backing) in self.large_backings_for_handle(handle) {
-            if backing.allocation.address == address {
-                return Ok(Some(backing.allocation));
-            }
-        }
-        Ok(None)
+        Ok(self
+            .find_allocation_option(handle, address)?
+            .map(|(allocation, _)| allocation))
     }
 
     fn next_allocation_id(
@@ -906,30 +896,55 @@ impl RuntimeHeaps {
         handle: u32,
         address: GuestAddress,
     ) -> Result<(RuntimeHeapAllocation, HeapAllocationStorage), RuntimeStateError> {
+        self.find_allocation_option(handle, address)?
+            .ok_or_else(|| {
+                RuntimeStateError::new("private heap pointer does not identify a live allocation")
+            })
+    }
+
+    fn find_allocation_option(
+        &self,
+        handle: u32,
+        address: GuestAddress,
+    ) -> Result<Option<(RuntimeHeapAllocation, HeapAllocationStorage)>, RuntimeStateError> {
+        let next_allocation_id = self.next_allocation_id(handle)?;
         if let Some(backing) = self.backing(handle)
             && let Some(allocation) = backing.allocations.get(&address.0)
         {
-            return Ok((
+            validate_runtime_heap_allocation(backing, address, *allocation, next_allocation_id)?;
+            return Ok(Some((
                 *allocation,
                 HeapAllocationStorage::Small(RuntimeHeapBackingKind::Primary),
-            ));
+            )));
         }
         for (slot, backing) in self.extension_backings(handle) {
             if let Some(allocation) = backing.allocations.get(&address.0) {
-                return Ok((
+                validate_runtime_heap_allocation(
+                    backing,
+                    address,
+                    *allocation,
+                    next_allocation_id,
+                )?;
+                return Ok(Some((
                     *allocation,
                     HeapAllocationStorage::Small(RuntimeHeapBackingKind::Extension { slot }),
-                ));
+                )));
             }
         }
         for (base, backing) in self.large_backings_for_handle(handle) {
             if backing.allocation.address == address {
-                return Ok((backing.allocation, HeapAllocationStorage::Large(base)));
+                if base != address.0 {
+                    return Err(RuntimeStateError::new(
+                        "large heap backing address differs from its live table key",
+                    ));
+                }
+                return Ok(Some((
+                    backing.allocation,
+                    HeapAllocationStorage::Large(base),
+                )));
             }
         }
-        Err(RuntimeStateError::new(
-            "private heap pointer does not identify a live allocation",
-        ))
+        Ok(None)
     }
 
     fn validate_free_allocation(
@@ -1146,11 +1161,6 @@ impl RuntimeHeaps {
         backing.materialized_pages.insert(page.start().0);
     }
 
-    fn validate_allocation_count(&self, heap: &RuntimeHeap) -> Result<(), RuntimeStateError> {
-        self.validate_allocation_count_metadata(heap)?;
-        self.validate_allocation_id_uniqueness(heap)
-    }
-
     fn validate_allocation_mutation_state(
         &self,
         heap: &RuntimeHeap,
@@ -1210,6 +1220,7 @@ impl RuntimeHeaps {
         Ok(())
     }
 
+    #[cfg(any(test, debug_assertions))]
     fn validate_allocation_id_uniqueness(
         &self,
         heap: &RuntimeHeap,
@@ -1269,6 +1280,42 @@ fn find_existing_heap_space(
         free_block,
         backing.committed_bytes.max(required_commit),
     )))
+}
+
+// Exact map membership is resolved before this check. Bounds/identity checks
+// concern the selected host record; free-neighbor checks keep free/realloc safe
+// without rebuilding the complete live/free partition on a read-only lookup.
+fn validate_runtime_heap_allocation(
+    backing: &RuntimeHeapBacking,
+    address: GuestAddress,
+    allocation: RuntimeHeapAllocation,
+    next_allocation_id: RuntimeHeapAllocationId,
+) -> Result<(), RuntimeStateError> {
+    let offset = address
+        .0
+        .checked_sub(backing.range.start().0)
+        .ok_or_else(|| {
+            RuntimeStateError::new("private heap allocation precedes its backing range")
+        })?;
+    let end = offset
+        .checked_add(allocation.reserved_byte_length)
+        .ok_or_else(|| RuntimeStateError::new("private heap allocation range overflowed"))?;
+    if allocation.address != address
+        || allocation.id.0 == 0
+        || allocation.id.0 >= next_allocation_id.0
+        || allocation.byte_length == 0
+        || allocation.byte_length > allocation.reserved_byte_length
+        || !allocation
+            .reserved_byte_length
+            .is_multiple_of(backing.alignment)
+        || !offset.is_multiple_of(backing.alignment)
+        || end > backing.high_water_mark
+    {
+        return Err(RuntimeStateError::new(
+            "private heap allocation violates identity, alignment, or range invariants",
+        ));
+    }
+    validate_small_heap_free(backing, allocation)
 }
 
 fn validate_small_heap_free(
@@ -1370,15 +1417,6 @@ fn runtime_heap_range_slot(range: GuestRange) -> Option<u16> {
     (slot <= RUNTIME_PRIVATE_HEAP_BACKING_LIMIT).then_some(slot)
 }
 
-fn validate_runtime_heap_backing(
-    heap: &RuntimeHeap,
-    backing: &RuntimeHeapBacking,
-    next_allocation_id: RuntimeHeapAllocationId,
-) -> Result<(), RuntimeStateError> {
-    validate_runtime_heap_backing_metadata(heap, backing, next_allocation_id)?;
-    validate_runtime_heap_backing_contents(backing, next_allocation_id)
-}
-
 fn validate_runtime_heap_backing_mutation_state(
     heap: &RuntimeHeap,
     backing: &RuntimeHeapBacking,
@@ -1429,6 +1467,7 @@ fn validate_runtime_heap_backing_metadata(
     Ok(())
 }
 
+#[cfg(any(test, debug_assertions))]
 fn validate_runtime_heap_backing_contents(
     backing: &RuntimeHeapBacking,
     next_allocation_id: RuntimeHeapAllocationId,
@@ -1850,3 +1889,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "heap_lookup_tests.rs"]
+mod lookup_tests;
