@@ -134,7 +134,7 @@ use super::user32::{
     RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
 };
 use super::waits::{
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitCompletion, RuntimeWaitDisposition,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitDisposition,
     RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitRegistration, RuntimeWaitableTimerPacing,
 };
@@ -5024,25 +5024,24 @@ impl Runtime {
                 "event handle resolved to a different object identity",
             ));
         };
-        let mut updates = self.objects.plan_wait_state_updates(&[(
-            RuntimeObjectKey::Event {
-                event_id,
-                manual_reset,
-            },
+        let (object_id, wait_state) =
+            self.objects
+                .wait_state_mut_for_identity(&RuntimeObjectKey::Event {
+                    event_id,
+                    manual_reset,
+                })?;
+        let wakes = self.scheduler.wake_object_waiters(
+            &self.threads,
+            object_id,
             RuntimeWaitState::Signaled { exit_code: 0 },
-        )])?;
-        let mut wakes = self.plan_waiter_wakes(&updates, &[])?;
-        if !manual_reset {
-            wakes.truncate(1);
-        }
-        let wait_state = if !manual_reset && !wakes.is_empty() {
+            &[],
+            if manual_reset { usize::MAX } else { 1 },
+        )?;
+        *wait_state = if !manual_reset && wakes != 0 {
             RuntimeWaitState::Nonsignaled
         } else {
             RuntimeWaitState::Signaled { exit_code: 0 }
         };
-        updates[0].1 = wait_state;
-        self.objects.commit_wait_state_updates(updates);
-        self.commit_waiter_wakes(wakes);
         Ok(true)
     }
 
@@ -5287,15 +5286,14 @@ impl Runtime {
             RuntimeWaitState::Nonsignaled
         };
         let object_id = object.id;
-        let wait_updates = self.objects.plan_wait_state_updates(&[(
-            RuntimeObjectKey::WaitableTimer {
-                timer_id: timer_id.0,
-            },
-            next_wait_state,
-        )])?;
+        let (_, wait_state) =
+            self.objects
+                .wait_state_mut_for_identity(&RuntimeObjectKey::WaitableTimer {
+                    timer_id: timer_id.0,
+                })?;
         self.timers
             .expire_waitable_timer(timer_id, arm.generation)?;
-        self.objects.commit_wait_state_updates(wait_updates);
+        *wait_state = next_wait_state;
         if timer.manual_reset {
             self.scheduler
                 .signal_timer_waiters(object_id, arm.deadline_time_100ns, true);
@@ -9164,7 +9162,9 @@ impl Runtime {
                 "thread exit request requires a running thread and a live scheduler state",
             ));
         }
-        let cancelled_wait = self.plan_thread_wait_cancellation(thread_id, scheduler_state)?;
+        let cancelled_wait = self
+            .scheduler
+            .wait_registration_for_cancellation(thread_id)?;
         let host_request_ids = self.scheduler.host_request_ids_for_thread(thread_id);
         let source_read_cancellation = self.files.pending_read_ids(&host_request_ids);
         self.messages.is_empty(thread_id)?;
@@ -9180,7 +9180,7 @@ impl Runtime {
         self.scheduler
             .cancel_host_requests(thread_id, &host_request_ids);
         if let Some(registration) = cancelled_wait {
-            self.commit_remove_wait_registration(registration);
+            self.scheduler.commit_remove_wait_registration(registration);
         }
         self.scheduler.commit_remove_events_for_thread(thread_id);
         for frame in &self
@@ -9207,16 +9207,20 @@ impl Runtime {
         }
         let thread_id = self.current_thread_id();
         let exit_code = self.validate_thread_exit_completion(thread_id)?;
-        let wait_updates = self.objects.plan_wait_state_updates(&[(
-            RuntimeObjectKey::Thread {
-                thread_id: thread_id.0,
-            },
+        let (object_id, wait_state) =
+            self.objects
+                .wait_state_mut_for_identity(&RuntimeObjectKey::Thread {
+                    thread_id: thread_id.0,
+                })?;
+        self.scheduler.wake_object_waiters(
+            &self.threads,
+            object_id,
             RuntimeWaitState::Signaled { exit_code },
-        )])?;
-        let wake_completions = self.plan_waiter_wakes(&wait_updates, &[thread_id])?;
-        self.objects.commit_wait_state_updates(wait_updates);
+            &[thread_id],
+            usize::MAX,
+        )?;
+        *wait_state = RuntimeWaitState::Signaled { exit_code };
         self.publish_thread_exit_completion(thread_id, exit_code);
-        self.commit_waiter_wakes(wake_completions);
         Ok(())
     }
 
@@ -9237,13 +9241,11 @@ impl Runtime {
             )
         })?;
         let exit_code = self.validate_thread_exit_completion(thread_id)?;
-        let wait_updates = self.objects.plan_wait_state_updates(&[(
-            RuntimeObjectKey::Thread {
-                thread_id: thread_id.0,
-            },
-            RuntimeWaitState::Signaled { exit_code },
-        )])?;
-        let wake_completions = self.plan_waiter_wakes(&wait_updates, &[thread_id])?;
+        let (object_id, wait_state) =
+            self.objects
+                .wait_state_mut_for_identity(&RuntimeObjectKey::Thread {
+                    thread_id: thread_id.0,
+                })?;
         let address_releases = vec![
             stack.address_allocation_id,
             environment.address_allocation_id,
@@ -9264,148 +9266,19 @@ impl Runtime {
         transaction
             .destroy_owner(environment.memory_owner)
             .map_err(RuntimeStateError::from_memory)?;
+        self.scheduler.wake_object_waiters(
+            &self.threads,
+            object_id,
+            RuntimeWaitState::Signaled { exit_code },
+            &[thread_id],
+            usize::MAX,
+        )?;
         transaction.commit_transaction();
-        self.objects.commit_wait_state_updates(wait_updates);
+        *wait_state = RuntimeWaitState::Signaled { exit_code };
         self.publish_thread_exit_completion(thread_id, exit_code);
-        self.commit_waiter_wakes(wake_completions);
         self.address_space_allocator
             .remove_validated_allocations(address_releases);
         Ok(())
-    }
-
-    fn plan_thread_wait_cancellation(
-        &self,
-        thread_id: RuntimeThreadId,
-        scheduler_state: SchedulerThreadState,
-    ) -> Result<Option<RuntimeWaitRegistration>, RuntimeStateError> {
-        let registration = self.scheduler.wait_registration_for_thread(thread_id)?;
-        match scheduler_state {
-            SchedulerThreadState::WaitingObject {
-                registration_id,
-                object_id,
-            } => {
-                let registration = registration.ok_or_else(|| {
-                    RuntimeStateError::new("waiting thread must own exactly one wait registration")
-                })?;
-                if registration.id != registration_id || registration.object_id != object_id {
-                    return Err(RuntimeStateError::new(
-                        "scheduler wait state does not match the thread registration",
-                    ));
-                }
-                let queue = self
-                    .scheduler
-                    .object_waiters()
-                    .get(&object_id)
-                    .ok_or_else(|| {
-                        RuntimeStateError::new("wait registration has no object queue")
-                    })?;
-                if queue
-                    .iter()
-                    .filter(|&&queued_id| queued_id == registration_id)
-                    .count()
-                    != 1
-                {
-                    return Err(RuntimeStateError::new(
-                        "wait registration must occur exactly once in its object queue",
-                    ));
-                }
-                Ok(Some(registration))
-            }
-            SchedulerThreadState::WaitingHost { request_id } if registration.is_some() => {
-                let registration = registration.expect("checked timer pacing registration");
-                let pacing = registration.waitable_timer_pacing.ok_or_else(|| {
-                    RuntimeStateError::new(
-                        "host-waiting thread registration has no timer pacing contract",
-                    )
-                })?;
-                let request = self
-                    .scheduler
-                    .host_requests()
-                    .get(&request_id)
-                    .ok_or_else(|| {
-                        RuntimeStateError::new(
-                            "host-waiting timer registration has no scheduler request",
-                        )
-                    })?;
-                if pacing.request_id != request_id
-                    || request.thread_id != thread_id
-                    || request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
-                {
-                    return Err(RuntimeStateError::new(
-                        "timer pacing wait registration does not match its scheduler request",
-                    ));
-                }
-                let queue = self
-                    .scheduler
-                    .object_waiters()
-                    .get(&registration.object_id)
-                    .ok_or_else(|| {
-                        RuntimeStateError::new("timer pacing wait registration has no object queue")
-                    })?;
-                if queue
-                    .iter()
-                    .filter(|&&queued_id| queued_id == registration.id)
-                    .count()
-                    != 1
-                {
-                    return Err(RuntimeStateError::new(
-                        "timer pacing wait registration must occur exactly once in its object queue",
-                    ));
-                }
-                Ok(Some(registration))
-            }
-            _ if registration.is_none() => Ok(None),
-            _ => Err(RuntimeStateError::new(
-                "nonwaiting thread owns a wait registration",
-            )),
-        }
-    }
-
-    fn plan_waiter_wakes(
-        &self,
-        wait_updates: &[(RuntimeObjectId, RuntimeWaitState)],
-        excluded_threads: &[RuntimeThreadId],
-    ) -> Result<Vec<(RuntimeWaitCompletion, SchedulerThreadState)>, RuntimeStateError> {
-        let candidates = self
-            .scheduler
-            .plan_waiter_wakes(wait_updates, excluded_threads)?;
-        let mut plans = Vec::with_capacity(candidates.len());
-        for candidate in candidates {
-            let completion = candidate.completion;
-            let registration = completion.registration;
-            if self.thread_state(registration.thread_id)?.lifecycle
-                != RuntimeThreadLifecycleState::Running
-                || self.scheduler_state_for_thread(registration.thread_id)?
-                    != (SchedulerThreadState::WaitingObject {
-                        registration_id: registration.id,
-                        object_id: registration.object_id,
-                    })
-            {
-                return Err(RuntimeStateError::new(
-                    "wait registration does not match a running waiting thread",
-                ));
-            }
-            if candidate.excluded {
-                continue;
-            }
-            let resumed_state = self.resumed_execution_state_for_thread(registration.thread_id)?;
-            plans.push((completion, resumed_state));
-        }
-        Ok(plans)
-    }
-
-    fn commit_waiter_wakes(&mut self, wakes: Vec<(RuntimeWaitCompletion, SchedulerThreadState)>) {
-        for (completion, resumed_state) in wakes {
-            self.commit_remove_wait_registration(completion.registration);
-            self.scheduler
-                .set_validated_state(completion.registration.thread_id, resumed_state);
-            self.scheduler
-                .commit_event(RuntimeSchedulerEvent::WaitSatisfied(completion));
-        }
-    }
-
-    fn commit_remove_wait_registration(&mut self, registration: RuntimeWaitRegistration) {
-        self.scheduler.commit_remove_wait_registration(registration);
     }
 
     fn validate_thread_exit_completion(

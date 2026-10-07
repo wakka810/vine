@@ -699,6 +699,23 @@ impl RuntimeObjectTable {
         Ok(planned)
     }
 
+    pub(super) fn wait_state_mut_for_identity(
+        &mut self,
+        key: &RuntimeObjectKey,
+    ) -> Result<(RuntimeObjectId, &mut RuntimeWaitState), RuntimeStateError> {
+        let id = self.object_for_identity(key)?.id;
+        let state = self
+            .objects
+            .get_mut(&id)
+            .expect("validated wait object")
+            .wait_state
+            .as_mut()
+            .ok_or_else(|| {
+                RuntimeStateError::new("runtime object type does not expose a wait state")
+            })?;
+        Ok((id, state))
+    }
+
     pub(super) fn commit_wait_state_updates(
         &mut self,
         updates: Vec<(RuntimeObjectId, RuntimeWaitState)>,

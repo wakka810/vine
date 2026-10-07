@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use super::waits::{RuntimeWaitWakeCandidate, RuntimeWaitableTimerPacing, RuntimeWaits};
+use super::thread::{RuntimeThreadLifecycleState, RuntimeThreads};
+use super::waits::{
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitableTimerPacing, RuntimeWaits,
+};
 use super::{
     RuntimeHandle, RuntimeObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWaitCompletion,
     RuntimeWaitRegistration, RuntimeWaitRegistrationId, RuntimeWaitState,
@@ -504,12 +507,118 @@ impl RuntimeScheduler {
         self.waits.has_registration_for_thread(thread_id)
     }
 
-    pub(super) fn plan_waiter_wakes(
+    pub(super) fn wait_registration_for_cancellation(
         &self,
-        wait_states: &[(RuntimeObjectId, RuntimeWaitState)],
+        thread_id: RuntimeThreadId,
+    ) -> Result<Option<RuntimeWaitRegistration>, RuntimeStateError> {
+        let registration = self.waits.registration_for_thread(thread_id)?;
+        match (self.state(thread_id)?, registration) {
+            (
+                SchedulerThreadState::WaitingObject {
+                    registration_id,
+                    object_id,
+                },
+                Some(registration),
+            ) => {
+                if registration.id != registration_id || registration.object_id != object_id {
+                    return Err(RuntimeStateError::new(
+                        "scheduler wait state does not match the thread registration",
+                    ));
+                }
+            }
+            (SchedulerThreadState::WaitingObject { .. }, None) => {
+                return Err(RuntimeStateError::new(
+                    "waiting thread must own exactly one wait registration",
+                ));
+            }
+            (SchedulerThreadState::WaitingHost { request_id }, Some(registration)) => {
+                let pacing = registration.waitable_timer_pacing.ok_or_else(|| {
+                    RuntimeStateError::new(
+                        "host-waiting thread registration has no timer pacing contract",
+                    )
+                })?;
+                let request = self.host_requests.get(&request_id).ok_or_else(|| {
+                    RuntimeStateError::new(
+                        "host-waiting timer registration has no scheduler request",
+                    )
+                })?;
+                if pacing.request_id != request_id
+                    || request.thread_id != thread_id
+                    || request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+                {
+                    return Err(RuntimeStateError::new(
+                        "timer pacing wait registration does not match its scheduler request",
+                    ));
+                }
+            }
+            (_, None) => return Ok(None),
+            _ => {
+                return Err(RuntimeStateError::new(
+                    "nonwaiting thread owns a wait registration",
+                ));
+            }
+        }
+        let registration = registration.expect("validated waiting registration");
+        let queue = self
+            .waits
+            .object_waiters()
+            .get(&registration.object_id)
+            .ok_or_else(|| RuntimeStateError::new("wait registration has no object queue"))?;
+        if queue.iter().filter(|&&id| id == registration.id).count() != 1 {
+            return Err(RuntimeStateError::new(
+                "wait registration must occur exactly once in its object queue",
+            ));
+        }
+        Ok(Some(registration))
+    }
+
+    pub(super) fn wake_object_waiters(
+        &mut self,
+        threads: &RuntimeThreads,
+        object_id: RuntimeObjectId,
+        wait_state: RuntimeWaitState,
         excluded_threads: &[RuntimeThreadId],
-    ) -> Result<Vec<RuntimeWaitWakeCandidate>, RuntimeStateError> {
-        self.waits.plan_wakes(wait_states, excluded_threads)
+        maximum_wakes: usize,
+    ) -> Result<usize, RuntimeStateError> {
+        let mut candidates = self
+            .waits
+            .plan_wakes(&[(object_id, wait_state)], excluded_threads)?;
+        for candidate in &candidates {
+            let registration = candidate.completion.registration;
+            if threads.state(registration.thread_id)?.lifecycle
+                != RuntimeThreadLifecycleState::Running
+                || self.state(registration.thread_id)?
+                    != (SchedulerThreadState::WaitingObject {
+                        registration_id: registration.id,
+                        object_id: registration.object_id,
+                    })
+            {
+                return Err(RuntimeStateError::new(
+                    "wait registration does not match a running waiting thread",
+                ));
+            }
+            if !candidate.excluded {
+                threads.callback_depth(registration.thread_id)?;
+            }
+        }
+        candidates.retain(|candidate| !candidate.excluded);
+        candidates.truncate(maximum_wakes);
+        let count = candidates.len();
+        for candidate in candidates {
+            let completion = candidate.completion;
+            let depth = threads
+                .callback_depth(completion.registration.thread_id)
+                .expect("validated waiting thread");
+            let resumed_state = if depth == 0 {
+                SchedulerThreadState::Runnable
+            } else {
+                SchedulerThreadState::InCallback { depth }
+            };
+            self.waits.commit_remove(completion.registration);
+            self.set_validated_state(completion.registration.thread_id, resumed_state);
+            self.commit_event(RuntimeSchedulerEvent::WaitSatisfied(completion));
+        }
+        Ok(count)
     }
 
     pub(super) fn commit_remove_wait_registration(
