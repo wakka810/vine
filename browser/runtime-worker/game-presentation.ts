@@ -87,19 +87,37 @@ export function validatePresentation(frame: GamePresentation, payload: Uint8Arra
   });
 }
 
+const littleEndian = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+
 export function texturePixels(source: QuadPresentation["texture"], payload: Uint8Array): Uint8Array {
   const pixels = new Uint8Array(source.width * source.height * 4);
-  // X8R8G8B8 has an opaque alpha channel, including previously undefined texels.
-  for (let offset = 3; offset < pixels.length; offset += 4) pixels[offset] = 255;
-  if (source.pixels !== null) {
-    const snapshot = source.pixels;
+  const snapshot = source.pixels;
+  // Both renderers validate the full snapshot before allocating or decoding pixels.
+  if (littleEndian && snapshot !== null && snapshot.pitch % 4 === 0 &&
+      (payload.byteOffset + snapshot.offset) % 4 === 0) {
+    const input = new Uint32Array(payload.buffer, payload.byteOffset + snapshot.offset, snapshot.length / 4);
+    const output = new Uint32Array(pixels.buffer);
+    const stride = snapshot.pitch / 4;
+    let target = 0;
     for (let y = 0; y < source.height; y++) {
+      let from = y * stride;
       for (let x = 0; x < source.width; x++) {
-        const input = snapshot.offset + y * snapshot.pitch + x * 4;
-        const output = (y * source.width + x) * 4;
-        pixels[output] = payload[input + 2]!;
-        pixels[output + 1] = payload[input + 1]!;
-        pixels[output + 2] = payload[input]!;
+        const word = input[from++]!;
+        output[target++] = 0xff000000 | (word & 0xff00) | ((word & 255) << 16) | ((word >>> 16) & 255);
+      }
+    }
+  } else {
+    // X8R8G8B8 is opaque, including undefined texels and byte-aligned snapshots.
+    for (let offset = 3; offset < pixels.length; offset += 4) pixels[offset] = 255;
+    if (snapshot !== null) {
+      for (let y = 0; y < source.height; y++) {
+        for (let x = 0; x < source.width; x++) {
+          const input = snapshot.offset + y * snapshot.pitch + x * 4;
+          const output = (y * source.width + x) * 4;
+          pixels[output] = payload[input + 2]!;
+          pixels[output + 1] = payload[input + 1]!;
+          pixels[output + 2] = payload[input]!;
+        }
       }
     }
   }

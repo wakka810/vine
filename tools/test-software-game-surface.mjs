@@ -4,6 +4,9 @@ import { build } from "esbuild";
 const { outputFiles } = await build({ entryPoints: ["browser/runtime-worker/game-surface.ts"],
   bundle: true, write: false, platform: "node", format: "esm" });
 const { GameSurface } = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].contents).toString("base64")}`);
+const presentation = await build({ entryPoints: ["browser/runtime-worker/game-presentation.ts"],
+  bundle: true, write: false, platform: "node", format: "esm" });
+const { texturePixels } = await import(`data:text/javascript;base64,${Buffer.from(presentation.outputFiles[0].contents).toString("base64")}`);
 
 function canvas({ webgl = null, twoD = true } = {}) {
   const result = { width: 7, height: 9, contexts: [], writes: 0, allocations: 0, image: null,
@@ -86,6 +89,32 @@ close(pixel(target, 0, 0), [128, 128, 128, 255], "repeat blends across both text
 surface.present({ ...frame, draws: [{ ...uploaded, texture: { ...texture,
   fills: [{ left: 0, top: 0, right: 1, bottom: 1, colorRef: 0x785634 }] } }] }, payload);
 assert.deepEqual(pixel(target, 1, 1), [0x34, 0x56, 0x78, 255], "COLORREF fill overrides BGRX bytes");
+
+// BGRX decoding uses the payload view's absolute byte offset and each row's pitch.
+const expectedPixels = [3, 2, 1, 255, 6, 5, 4, 255, 9, 8, 7, 255, 12, 11, 10, 255];
+for (const [byteOffset, offset, pitch] of [[0, 0, 8], [0, 4, 12], [1, 3, 12], [1, 0, 12], [0, 2, 12], [0, 0, 10]]) {
+  const bytes = new Uint8Array(new ArrayBuffer(byteOffset + offset + pitch * 2), byteOffset);
+  bytes.fill(0xee);
+  bytes.set([1, 2, 3, 0, 4, 5, 6, 1], offset);
+  bytes.set([7, 8, 9, 128, 10, 11, 12, 255], offset + pitch);
+  const source = { width: 2, height: 2, pixels: { offset, length: pitch * 2, pitch }, fills: [] };
+  const original = bytes.slice();
+  const rgba = texturePixels(source, bytes);
+  assert.deepEqual([...rgba], expectedPixels, "row padding and every X byte leave RGB ordering and opaque alpha exact");
+  assert.deepEqual(bytes, original, "texture decoding never changes the source snapshot");
+  assert.notEqual(rgba.buffer, bytes.buffer, "decoded pixels own their output buffer");
+  bytes.fill(0);
+  assert.deepEqual([...rgba], expectedPixels, "later source mutations cannot change decoded pixels");
+}
+const fillOnly = { width: 2, height: 1, pixels: null, fills: [] };
+assert.deepEqual([...texturePixels(fillOnly, new Uint8Array())], [0, 0, 0, 255, 0, 0, 0, 255]);
+fillOnly.fills = [{ left: 0, top: 0, right: 2, bottom: 1, colorRef: 0x112233 },
+  { left: 1, top: 0, right: 2, bottom: 1, colorRef: 0x445566 }];
+assert.deepEqual([...texturePixels(fillOnly, new Uint8Array())], [0x33, 0x22, 0x11, 255, 0x66, 0x55, 0x44, 255],
+  "fills remain ordered after opaque pixel initialization");
+const withFills = { width: 2, height: 1, pixels: { offset: 0, length: 8, pitch: 8 }, fills: fillOnly.fills };
+assert.deepEqual([...texturePixels(withFills, Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8))],
+  [0x33, 0x22, 0x11, 255, 0x66, 0x55, 0x44, 255], "ordered fills override decoded BGRX texels");
 
 // Constant UV outside [0,1], RGB diffuse modulation, and ignored diffuse alpha.
 const tinted = quad(4, 4, texture, [[0, 0, -0.75, 1.25, 1, 0x00804020],
