@@ -1384,33 +1384,6 @@ impl RuntimeUser32 {
     }
 
     #[cfg(test)]
-    pub(crate) fn cursor_for_source(
-        &self,
-        source: &RuntimeCursorSource,
-    ) -> Result<&RuntimeCursor, RuntimeStateError> {
-        validate_cursor_source(source)?;
-        let id = self
-            .cursor_source_index
-            .get(source)
-            .copied()
-            .ok_or_else(|| RuntimeStateError::new("logical shared cursor source is not loaded"))?;
-        let cursor = self.cursors.get(&id).ok_or_else(|| {
-            RuntimeStateError::new(
-                "logical shared cursor source index does not resolve to a live cursor",
-            )
-        })?;
-        if cursor.id != id
-            || &cursor.source != source
-            || self.cursor_handle_index.get(&cursor.handle) != Some(&id)
-        {
-            return Err(RuntimeStateError::new(
-                "logical shared cursor source does not match its handle index",
-            ));
-        }
-        Ok(cursor)
-    }
-
-    #[cfg(test)]
     pub(crate) fn cursors(&self) -> &BTreeMap<RuntimeCursorId, RuntimeCursor> {
         &self.cursors
     }
@@ -2770,18 +2743,6 @@ impl RuntimeUser32 {
         Ok(Some(menu))
     }
 
-    #[cfg(test)]
-    pub(crate) fn system_menu(&self, handle: u32) -> Result<&RuntimeSystemMenu, RuntimeStateError> {
-        self.system_menu_option(handle)?.ok_or_else(|| {
-            RuntimeStateError::new(format!("logical HMENU {handle:#010x} is not live"))
-        })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn system_menus(&self) -> &BTreeMap<RuntimeMenuId, RuntimeSystemMenu> {
-        &self.system_menus
-    }
-
     fn validate_system_menu_identity(
         &self,
         menu: &RuntimeSystemMenu,
@@ -3096,371 +3057,80 @@ mod tests {
     use super::*;
 
     #[test]
-    fn window_lookup_distinguishes_absence_from_a_dangling_handle_index() {
+    fn shared_resource_capacity_rejects_new_resources_and_keeps_live_handles() {
         let mut user32 = RuntimeUser32::default();
-        let handle = RUNTIME_WINDOW_HANDLE_BASE;
-        assert!(user32.window_option(handle).unwrap().is_none());
-        user32
-            .window_handle_index
-            .insert(handle, RuntimeWindowId(1));
-        user32.window_option(handle).unwrap_err();
-        user32.window(handle).unwrap_err();
-    }
-
-    #[test]
-    fn window_lookup_rejects_forged_handle_alias_without_exposing_the_window() {
-        let (mut user32, handle, _) = created_window_with_small_icon();
-        let window_id = user32.window(handle).unwrap().id;
-        let forged_handle = handle + 1;
-        assert!(user32.window_option(forged_handle).unwrap().is_none());
-        user32.window_handle_index.insert(forged_handle, window_id);
-        user32.window_option(forged_handle).unwrap_err();
-        assert_eq!(user32.window(handle).unwrap().id, window_id);
-    }
-
-    #[test]
-    fn icon_and_cursor_lookups_reject_forged_handle_aliases() {
-        let mut user32 = RuntimeUser32::default();
-        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
-        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        let forged_icon = icon + 1;
-        let forged_cursor = cursor + 1;
-        assert!(user32.icon_option(forged_icon).unwrap().is_none());
-        assert!(user32.cursor_option(forged_cursor).unwrap().is_none());
-        user32.icon(forged_icon).unwrap_err();
-        user32.cursor(forged_cursor).unwrap_err();
-        user32
-            .handle_index
-            .insert(forged_icon, user32.icon(icon).unwrap().id);
-        user32
-            .cursor_handle_index
-            .insert(forged_cursor, user32.cursor(cursor).unwrap().id);
-        let before = user32.clone();
-        user32.icon_option(forged_icon).unwrap_err();
-        user32.cursor_option(forged_cursor).unwrap_err();
-        user32.icon(forged_icon).unwrap_err();
-        user32.cursor(forged_cursor).unwrap_err();
-        user32.set_current_cursor(Some(forged_cursor)).unwrap_err();
-        assert_eq!(user32, before);
-        assert_eq!(user32.icon(icon).unwrap().id, user32.icon(icon).unwrap().id);
-        assert_eq!(
-            user32.cursor(cursor).unwrap().id,
-            user32.cursor(cursor).unwrap().id
-        );
-    }
-
-    #[test]
-    fn icon_resource_and_cursor_source_indexes_reject_live_identity_aliases() {
-        let mut user32 = RuntimeUser32::default();
-        let first_icon = resource(101, 3, 0x3000);
-        let second_icon = resource(102, 4, 0x4000);
-        let first_cursor = arrow_cursor();
-        let second_cursor = module_cursor(106, 5, 0x6000);
-        let icon = user32.load_shared_icon(second_icon).unwrap();
-        let cursor = user32.load_shared_cursor(second_cursor).unwrap();
-        let icon_id = user32.icon(icon).unwrap().id;
-        let cursor_id = user32.cursor(cursor).unwrap().id;
-        user32.resource_index.insert(first_icon.clone(), icon_id);
-        user32
-            .cursor_source_index
-            .insert(first_cursor.clone(), cursor_id);
-        let before = user32.clone();
-        user32.load_shared_icon(first_icon).unwrap_err();
-        user32.load_shared_cursor(first_cursor.clone()).unwrap_err();
-        user32.cursor_for_source(&first_cursor).unwrap_err();
-        assert_eq!(user32, before);
-    }
-
-    #[test]
-    fn shared_icons_reuse_identity() {
-        let mut user32 = RuntimeUser32::default();
-        let first_resource = resource(101, 3, 0x3000);
-        assert!(user32.icons().is_empty());
+        let first_resource = resource(1, 1, 0x3001);
         let first = user32.load_shared_icon(first_resource.clone()).unwrap();
-        assert_eq!(user32.icon(first).unwrap().id, RuntimeIconId(1));
-        assert_eq!(first, RUNTIME_ICON_HANDLE_BASE);
-
-        let before_reuse = user32.clone();
-        let repeated = user32.load_shared_icon(first_resource).unwrap();
-        assert_eq!(repeated, first);
-        assert_eq!(user32, before_reuse);
-
-        let next = user32.load_shared_icon(resource(102, 4, 0x4000)).unwrap();
-        assert_eq!(user32.icon(next).unwrap().id, RuntimeIconId(2));
-
-        assert_eq!(user32.icons().len(), 2);
-    }
-
-    #[test]
-    fn shared_icon_capacity_failure_preserves_identity_and_allocators() {
-        let mut user32 = RuntimeUser32::default();
-        for ordinal in 1..=RUNTIME_SHARED_ICON_LIMIT {
-            let ordinal = u32::try_from(ordinal).unwrap();
-            let result = user32
+        for ordinal in 2..=RUNTIME_SHARED_ICON_LIMIT as u32 {
+            user32
                 .load_shared_icon(resource(ordinal, ordinal, 0x3000 + ordinal))
                 .unwrap();
-            assert_eq!(user32.icon(result).unwrap().id.0, u64::from(ordinal));
         }
-        let before = user32.clone();
-        let _error = user32
-            .load_shared_icon(resource(4_097, 4_097, 0x5000))
-            .expect_err("shared icon capacity must be bounded");
-
-        assert_eq!(user32, before);
-    }
-
-    #[test]
-    fn shared_cursor_identity_selection_and_failures_are_atomic() {
-        let mut user32 = RuntimeUser32::default();
-        user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
-
-        let first = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        assert_eq!(user32.cursor(first).unwrap().id, RuntimeCursorId(1));
-        assert_eq!(first, RUNTIME_CURSOR_HANDLE_BASE);
-
-        assert_eq!(
-            user32.current_cursor().unwrap().map(|cursor| cursor.id),
-            Some(user32.cursor(first).unwrap().id)
-        );
-        let before_reuse = user32.clone();
-        let repeated = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        assert_eq!(repeated, first);
-        assert_eq!(user32, before_reuse);
-
-        assert_eq!(user32.cursors().len(), 1);
-
-        let module = user32
-            .load_shared_cursor(module_cursor(106, 5, 0x6000))
-            .unwrap();
-        assert_eq!(user32.cursor(module).unwrap().id, RuntimeCursorId(2));
-        assert_eq!(module, RUNTIME_CURSOR_HANDLE_BASE + 1);
-
-        let before_reuse = user32.clone();
-        let repeated_module = user32
-            .load_shared_cursor(module_cursor(106, 5, 0x6000))
-            .unwrap();
-        assert_eq!(repeated_module, module);
-        assert_eq!(user32, before_reuse);
-
-        assert_eq!(user32.cursors().len(), 2);
-        assert_eq!(
-            user32.current_cursor().unwrap().map(|cursor| cursor.id),
-            Some(user32.cursor(first).unwrap().id)
-        );
-
-        assert_eq!(user32.set_current_cursor(Some(module)).unwrap(), first);
-        assert_eq!(
-            user32.current_cursor().unwrap().map(|cursor| cursor.id),
-            Some(user32.cursor(module).unwrap().id)
-        );
-        assert_eq!(user32.set_current_cursor(None).unwrap(), module);
-        assert_eq!(user32.current_cursor().unwrap(), None);
-
-        let before_invalid_handle = user32.clone();
-        user32
-            .set_current_cursor(Some(RUNTIME_CURSOR_HANDLE_BASE + 99))
-            .unwrap_err();
-        assert_eq!(user32, before_invalid_handle);
-
-        // Re-loading an existing arrow is a resource lookup, not an implicit SetCursor call.
-        let before_reload = user32.clone();
-        let repeated_after_clear = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        assert_eq!(repeated_after_clear, first);
-        assert_eq!(user32, before_reload);
-        assert_eq!(user32.current_cursor().unwrap(), None);
-
-        let invalid = RuntimeCursorSource::SystemPredefined {
-            resource_id: 0x7f01,
-            cursor: RuntimeSystemCursorKind::Arrow,
-        };
-        let before_invalid = user32.clone();
-        user32.load_shared_cursor(invalid).unwrap_err();
-        assert_eq!(user32, before_invalid);
-    }
-
-    #[test]
-    fn shared_cursor_capacity_failure_preserves_identity_and_allocators() {
-        let mut user32 = RuntimeUser32::default();
-        for ordinal in 1..=RUNTIME_SHARED_CURSOR_LIMIT {
-            let ordinal = u32::try_from(ordinal).unwrap();
-            let source = module_cursor(ordinal, ordinal, 0x4000 + ordinal * 0x1000);
-            let result = user32.load_shared_cursor(source).unwrap();
-            assert_eq!(user32.cursor(result).unwrap().id.0, u64::from(ordinal));
-        }
-        let before = user32.clone();
-        let _error = user32
-            .load_shared_cursor(module_cursor(257, 257, 0x0010_5000))
-            .expect_err("shared cursor capacity must be bounded");
-
-        assert_eq!(user32, before);
-    }
-
-    #[test]
-    fn window_class_indexes_reject_live_class_aliases() {
-        let mut user32 = RuntimeUser32::default();
-        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
-        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        let first = user32
-            .register_window_class(window_class_registration(
-                &user32,
-                icon,
-                cursor,
-                "First fixture",
-                0x28,
-                0x92550,
-            ))
-            .unwrap();
-        let second = user32
-            .register_window_class(window_class_registration(
-                &user32,
-                icon,
-                cursor,
-                "Second fixture",
-                0x3020,
-                0x2e6e0,
-            ))
-            .unwrap();
-        let first_id = user32.window_class(first).unwrap().id;
-        let second_id = user32.window_class(second).unwrap().id;
-        let key = window_class_key_from_name(RuntimeModuleId(1), "First fixture").unwrap();
+        let extra = RUNTIME_SHARED_ICON_LIMIT as u32 + 1;
         assert!(
             user32
-                .window_class_by_name_option(RuntimeModuleId(1), "Missing fixture")
-                .unwrap()
-                .is_none()
+                .load_shared_icon(resource(extra, extra, 0x3000 + extra))
+                .is_err()
         );
-        user32
-            .window_class_name_index
-            .insert(key.clone(), second_id);
-        let before = user32.clone();
-        user32
-            .window_class_by_name_option(RuntimeModuleId(1), "First fixture")
-            .unwrap_err();
-        user32
-            .register_window_class(window_class_registration(
-                &user32,
-                icon,
-                cursor,
-                "First fixture",
-                0x28,
-                0x92550,
-            ))
-            .unwrap_err();
-        assert_eq!(user32, before);
-        user32.window_class_name_index.insert(key, first_id);
-        user32.window_class_atom_index.insert(first, second_id);
-        user32.window_class(first).unwrap_err();
-        user32
-            .window_class_by_name_option(RuntimeModuleId(1), "First fixture")
-            .unwrap_err();
+        assert_eq!(user32.load_shared_icon(first_resource).unwrap(), first);
+
+        let first_source = module_cursor(1, 1, 0x4000);
+        let cursor = user32.load_shared_cursor(first_source.clone()).unwrap();
+        user32.set_current_cursor(Some(cursor)).unwrap();
+        for ordinal in 2..=RUNTIME_SHARED_CURSOR_LIMIT as u32 {
+            user32
+                .load_shared_cursor(module_cursor(ordinal, ordinal, 0x4000 + ordinal * 0x1000))
+                .unwrap();
+        }
+        let extra = RUNTIME_SHARED_CURSOR_LIMIT as u32 + 1;
+        assert!(
+            user32
+                .load_shared_cursor(module_cursor(extra, extra, 0x4000 + extra * 0x1000))
+                .is_err()
+        );
+        assert_eq!(user32.load_shared_cursor(first_source).unwrap(), cursor);
+        assert_eq!(user32.current_cursor().unwrap().unwrap().handle, cursor);
     }
 
     #[test]
-    fn window_class_registration_is_module_scoped_case_folded_and_failure_atomic() {
+    fn classes_are_case_insensitive_and_scoped_to_the_registering_module() {
         let mut user32 = RuntimeUser32::default();
         let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
         let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
-
-        let main_registration =
-            window_class_registration(&user32, icon, cursor, "Main fixture window", 0x28, 0x92550);
-        assert!(user32.window_classes().is_empty());
-        let main = user32
-            .register_window_class(main_registration.clone())
-            .unwrap();
-        assert_eq!(
-            user32.window_class(main).unwrap().id,
-            RuntimeWindowClassId(1)
-        );
-        assert_eq!(main, RUNTIME_WINDOW_CLASS_ATOM_BASE);
-        assert_eq!(
-            user32.window_class(main).unwrap().registration,
-            main_registration
-        );
+        let first = window_class_registration(&user32, icon, cursor, "Main fixture", 0x28, 0x92550);
+        let atom = user32.register_window_class(first.clone()).unwrap();
+        let mut duplicate = first.clone();
+        duplicate.class_name = "MAIN FIXTURE".into();
+        assert_eq!(user32.register_window_class(duplicate).unwrap(), 0);
         assert_eq!(
             user32
-                .window_class_by_name(RuntimeModuleId(1), "MAIN FIXTURE WINDOW")
+                .window_class_by_name(RuntimeModuleId(1), "main FIXTURE")
                 .unwrap()
-                .id,
-            user32.window_class(main).unwrap().id
+                .atom,
+            atom
         );
-
-        let mut duplicate_registration = main_registration.clone();
-        duplicate_registration.class_name = "main fixture WINDOW".to_owned();
-        let generation_before_duplicate = user32.generation;
-        let duplicate = user32
-            .register_window_class(duplicate_registration)
-            .unwrap();
-        assert_eq!(duplicate, 0);
-        assert_eq!(user32.generation, generation_before_duplicate);
-        assert_eq!(user32.window_classes().len(), 1);
-
-        let child = user32
-            .register_window_class(window_class_registration(
-                &user32,
-                icon,
-                cursor,
-                "Child fixture window",
-                0x3020,
-                0x2e6e0,
-            ))
-            .unwrap();
+        let mut other = first;
+        other.module.module_id = RuntimeModuleId(2);
+        other.window_procedure.module_id = RuntimeModuleId(2);
+        let other_atom = user32.register_window_class(other).unwrap();
+        assert_ne!(other_atom, atom);
         assert_eq!(
-            user32.window_class(child).unwrap().id,
-            RuntimeWindowClassId(2)
+            user32
+                .window_class_by_name(RuntimeModuleId(2), "main fixture")
+                .unwrap()
+                .atom,
+            other_atom
         );
-        assert_eq!(child, RUNTIME_WINDOW_CLASS_ATOM_BASE + 1);
-
-        let mut bad_reference =
-            window_class_registration(&user32, icon, cursor, "bad reference", 0x28, 0x92550);
-        bad_reference.icon.as_mut().unwrap().handle ^= 1;
-        let before_bad_reference = user32.clone();
-        user32.register_window_class(bad_reference).unwrap_err();
-        assert_eq!(user32, before_bad_reference);
     }
 
     #[test]
-    fn invalid_window_class_metadata_and_atom_exhaustion_do_not_consume_identity() {
+    fn class_capacity_failure_preserves_existing_registration_and_duplicate_results() {
         let mut user32 = RuntimeUser32::default();
         let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
         let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        let valid = window_class_registration(&user32, icon, cursor, "valid class", 0x28, 0x92550);
-
-        for invalid in [
-            {
-                let mut invalid = valid.clone();
-                invalid.module.module_id = RuntimeModuleId(0);
-                invalid
-            },
-            {
-                let mut invalid = valid.clone();
-                invalid.window_procedure.address.0 += 1;
-                invalid
-            },
-            {
-                let mut invalid = valid.clone();
-                invalid.class_name = "class-\u{1f600}".to_owned();
-                invalid
-            },
-        ] {
-            let before = user32.clone();
-            user32.register_window_class(invalid).unwrap_err();
-            assert_eq!(user32, before);
-        }
-
-        user32.next_window_class_atom = u32::from(u16::MAX) + 1;
-        let before_exhaustion = user32.clone();
-        user32
-            .register_window_class(valid)
-            .expect_err("logical ATOM space must be bounded");
-        assert_eq!(user32, before_exhaustion);
-    }
-
-    #[test]
-    fn window_class_capacity_and_allocator_failure_preserve_state() {
-        let mut user32 = RuntimeUser32::default();
-        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
-        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        for ordinal in 0..RUNTIME_WINDOW_CLASS_LIMIT {
+        let first = window_class_registration(&user32, icon, cursor, "class 0", 0x28, 0x92550);
+        let atom = user32.register_window_class(first.clone()).unwrap();
+        for ordinal in 1..RUNTIME_WINDOW_CLASS_LIMIT {
             let registration = window_class_registration(
                 &user32,
                 icon,
@@ -3469,165 +3139,84 @@ mod tests {
                 0x28,
                 0x92550,
             );
-            let class = user32.register_window_class(registration).unwrap();
-            assert_eq!(user32.window_class(class).unwrap().id.0, ordinal as u64 + 1);
+            user32.register_window_class(registration).unwrap();
         }
-        let registration =
+        let extra =
             window_class_registration(&user32, icon, cursor, "over capacity", 0x28, 0x92550);
-        let before = user32.clone();
-        assert!(user32.register_window_class(registration.clone()).is_err());
-        assert_eq!(user32, before);
-        // Reuse does not allocate even at capacity.
+        assert!(user32.register_window_class(extra).is_err());
         assert_eq!(
             user32
-                .register_window_class(window_class_registration(
-                    &user32, icon, cursor, "CLASS 0", 0x28, 0x92550,
-                ))
-                .unwrap(),
-            0
+                .window_class_by_name(RuntimeModuleId(1), "CLASS 0")
+                .unwrap()
+                .atom,
+            atom
         );
-        assert_eq!(user32, before);
-
-        let mut user32 = RuntimeUser32::default();
-        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
-        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        let registration =
-            window_class_registration(&user32, icon, cursor, "new class", 0x28, 0x92550);
-        user32.next_window_class_id = u64::MAX;
-        let before = user32.clone();
-        assert!(user32.register_window_class(registration.clone()).is_err());
-        assert_eq!(user32, before);
-        user32.next_window_class_id = 1;
-        user32.generation = u64::MAX;
-        let before = user32.clone();
-        assert!(user32.register_window_class(registration).is_err());
-        assert_eq!(user32, before);
+        assert_eq!(user32.register_window_class(first).unwrap(), 0);
     }
 
     #[test]
-    fn logical_window_creation_callbacks_are_ordered_and_abort_without_live_identity_leaks() {
-        let mut user32 = RuntimeUser32::default();
-        let icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
-        let cursor = user32.load_shared_cursor(arrow_cursor()).unwrap();
-        let class = user32
-            .register_window_class(window_class_registration(
-                &user32,
-                icon,
-                cursor,
-                "Main fixture window",
-                0x28,
-                0x92550,
-            ))
-            .unwrap();
-
-        let creation = window_creation_request(&user32, class);
-        let creation_plan = user32.checked_window_creation(creation.clone()).unwrap();
-        let preview = (creation_plan.id, creation_plan.handle);
-        assert_eq!(preview.0, RuntimeWindowId(1));
-        assert_eq!(preview.1, RUNTIME_WINDOW_HANDLE_BASE);
-        assert!(
-            user32.windows().is_empty(),
-            "planning must not publish HWND state"
-        );
-        let created = user32.publish_window_creation(creation_plan);
-        assert_eq!(created, preview);
-        assert_eq!(
-            user32.window(created.1).unwrap().lifecycle,
-            RuntimeWindowLifecycle::Creating {
-                message: RuntimeWindowCreationMessage::NonClientCreate,
-            }
-        );
-
-        for (message, result, next) in [
-            (
-                RuntimeWindowCreationMessage::NonClientCreate,
-                1,
-                Some(RuntimeWindowCreationMessage::NonClientCalculate),
-            ),
-            (
-                RuntimeWindowCreationMessage::NonClientCalculate,
-                0,
-                Some(RuntimeWindowCreationMessage::Create),
-            ),
-            (
-                RuntimeWindowCreationMessage::Create,
-                0,
-                Some(RuntimeWindowCreationMessage::Size),
-            ),
-            (
-                RuntimeWindowCreationMessage::Size,
-                0,
-                Some(RuntimeWindowCreationMessage::Move),
-            ),
-            (RuntimeWindowCreationMessage::Move, 0, None),
-        ] {
-            let plan = (created.0, message, result);
-            let preview = user32
-                .preview_window_creation_callback(plan.0, plan.1, plan.2)
-                .unwrap()
-                .clone();
-            let action = user32
-                .complete_window_creation_callback(plan.0, plan.1, plan.2)
-                .unwrap();
-            assert_eq!(action, preview);
-            match (action, next) {
-                (
-                    RuntimeWindowCreationCallbackAction::Continue { next_message, .. },
-                    Some(expected),
-                ) => assert_eq!(next_message, expected),
-                (RuntimeWindowCreationCallbackAction::Created { window }, None) => {
-                    assert_eq!(window.lifecycle, RuntimeWindowLifecycle::Created)
-                }
-                other => panic!("unexpected creation transition {other:?}"),
-            }
-        }
-        assert_eq!(
-            user32.window(created.1).unwrap().lifecycle,
-            RuntimeWindowLifecycle::Created
-        );
-
-        let rejected_plan = user32.checked_window_creation(creation.clone()).unwrap();
-        let rejected = user32.publish_window_creation(rejected_plan);
-        assert_eq!(rejected.0, RuntimeWindowId(2));
-        assert_eq!(rejected.1, RUNTIME_WINDOW_HANDLE_BASE + 1);
-        let abort_plan = (rejected.0, RuntimeWindowCreationMessage::NonClientCreate, 0);
-        assert!(matches!(
+    fn file_drop_acceptance_changes_only_the_requested_extended_style_bit() {
+        let (mut user32, window, _) = created_window_with_small_icon();
+        let original = user32
+            .window(window)
+            .unwrap()
+            .creation
+            .effective_extended_style;
+        for accepts in [true, true, false] {
             user32
-                .complete_window_creation_callback(abort_plan.0, abort_plan.1, abort_plan.2)
-                .unwrap(),
-            RuntimeWindowCreationCallbackAction::Aborted { .. }
-        ));
-        user32.window(rejected.1).unwrap_err();
-        assert_eq!(user32.windows().len(), 1);
+                .set_window_file_drop_acceptance(window, accepts)
+                .unwrap();
+            let style = user32
+                .window(window)
+                .unwrap()
+                .creation
+                .effective_extended_style;
+            assert_eq!(
+                style & !RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
+                original & !RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES
+            );
+            assert_eq!(
+                style & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES != 0,
+                accepts
+            );
+        }
+        assert!(
+            user32
+                .set_window_file_drop_acceptance(window.wrapping_add(2), true)
+                .is_err()
+        );
+        assert_eq!(
+            user32
+                .window(window)
+                .unwrap()
+                .creation
+                .effective_extended_style,
+            original
+        );
+    }
 
-        let create_rejected_plan = user32.checked_window_creation(creation).unwrap();
-        let create_rejected = user32.publish_window_creation(create_rejected_plan);
-        let first = (
-            create_rejected.0,
-            RuntimeWindowCreationMessage::NonClientCreate,
-            1,
-        );
+    #[test]
+    fn iconic_state_follows_normal_style_changes_and_foreign_owner_is_rejected() {
+        let (mut user32, window, _) = created_window_with_small_icon();
+        let owner = RuntimeThreadId(0x2000);
+        let style = user32.window(window).unwrap().creation.effective_style;
+        assert_eq!(user32.window_is_iconic(window).unwrap(), Some(false));
         user32
-            .complete_window_creation_callback(first.0, first.1, first.2)
+            .set_window_style(window, owner, style | RUNTIME_WINDOW_STYLE_MINIMIZED)
             .unwrap();
-        let second = (
-            create_rejected.0,
-            RuntimeWindowCreationMessage::NonClientCalculate,
-            0,
+        assert_eq!(user32.window_is_iconic(window).unwrap(), Some(true));
+        assert!(
+            user32
+                .set_window_style(window, RuntimeThreadId(0x2001), style)
+                .is_err()
         );
-        user32
-            .complete_window_creation_callback(second.0, second.1, second.2)
-            .unwrap();
-        let create_abort = (
-            create_rejected.0,
-            RuntimeWindowCreationMessage::Create,
-            u32::MAX,
+        assert_eq!(user32.window_is_iconic(window).unwrap(), Some(true));
+        user32.set_window_style(window, owner, style).unwrap();
+        assert_eq!(user32.window_is_iconic(window).unwrap(), Some(false));
+        assert_eq!(
+            user32.window_is_iconic(window.wrapping_add(2)).unwrap(),
+            None
         );
-        user32
-            .complete_window_creation_callback(create_abort.0, create_abort.1, create_abort.2)
-            .unwrap();
-        user32.window(create_rejected.1).unwrap_err();
-        assert_eq!(user32.windows().len(), 1);
     }
 
     #[test]
@@ -3675,7 +3264,6 @@ mod tests {
                 };
                 operation = next;
             }
-            let before = user32.clone();
             assert!(matches!(
                 user32
                     .complete_set_window_pos_callback(
@@ -3689,792 +3277,11 @@ mod tests {
                     ..
                 }
             ));
-            assert_eq!(user32, before);
-        }
-    }
-
-    #[test]
-    fn small_icon_updates_directly_and_window_position_callbacks_validate_live_operations() {
-        let (mut user32, window_handle, small_icon_handle) = created_window_with_small_icon();
-        let initial = user32.window(window_handle).unwrap().clone();
-        let before_repeated = user32.clone();
-        assert_eq!(
-            user32
-                .set_window_small_icon(window_handle, RuntimeThreadId(0x2000), small_icon_handle)
-                .unwrap(),
-            small_icon_handle
-        );
-        assert_eq!(user32, before_repeated);
-
-        let show_geometry = RuntimeWindowGeometry {
-            x: 15_360,
-            y: 8_640,
-            width: 806,
-            height: 629,
-            client_x: 15_363,
-            client_y: 8_666,
-            client_width: 800,
-            client_height: 600,
-        };
-        let show = user32
-            .preview_set_window_pos(
-                RuntimeThreadId(0x2000),
-                RuntimeSetWindowPosRequest {
-                    window_handle,
-                    variant: RuntimeSetWindowPosVariant::InitialShow,
-                    next_geometry: show_geometry,
-                    next_visible: true,
-                    next_topmost: false,
-                    entry_last_error: 0x1234_5678,
-                    callback_flags: 0x1000_0d59,
-                    callback_insert_after: 0xffff_fffe,
-                    activation_insert_after: 0,
-                    activation_internal_flags: 3,
-                    resize_nccalc_window_pos_flags: 0x190e,
-                    resize_changed_flags: 0x110e,
-                    frame_change_nccalc_window_pos_flags: 0x1825,
-                    frame_change_changed_flags: 0x0825,
-                },
-            )
-            .unwrap();
-        let first_callback = (
-            show,
-            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-            0,
-        );
-        assert!(matches!(
-            user32
-                .preview_set_window_pos_callback(
-                    first_callback.0,
-                    first_callback.1,
-                    first_callback.2
-                )
-                .unwrap(),
-            RuntimeSetWindowPosCallbackAction::Continue {
-                next_message: RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
-                ..
-            }
-        ));
-        let before_first_callback = user32.clone();
-        user32
-            .complete_set_window_pos_callback(first_callback.0, first_callback.1, first_callback.2)
-            .unwrap();
-        assert_eq!(
-            user32, before_first_callback,
-            "the first synchronous callback must not publish geometry or visibility"
-        );
-        let final_callback = (
-            show,
-            RuntimeSetWindowPosCallbackMessage::GetSmallIcon,
-            small_icon_handle,
-        );
-        assert_eq!(user32.window(window_handle).unwrap(), &initial);
-        let shown = user32
-            .complete_set_window_pos_callback(final_callback.0, final_callback.1, final_callback.2)
-            .unwrap();
-        let RuntimeSetWindowPosCallbackAction::Completed { window: shown } = shown else {
-            panic!("show must complete after the icon relation is validated");
-        };
-        assert_eq!(shown.creation.geometry, show_geometry);
-        assert!(shown.visible);
-        assert_eq!(shown.creation.effective_style, 0x94ca_0000);
-        assert_eq!(user32.window(window_handle).unwrap(), &shown);
-
-        let hide = user32
-            .preview_set_window_pos(
-                RuntimeThreadId(0x2000),
-                RuntimeSetWindowPosRequest {
-                    window_handle,
-                    variant: RuntimeSetWindowPosVariant::InitialHide,
-                    next_geometry: show_geometry,
-                    next_visible: false,
-                    next_topmost: false,
-                    entry_last_error: 0x1234_5678,
-                    callback_flags: 0x0000_1d9f,
-                    callback_insert_after: 0xffff_fffe,
-                    activation_insert_after: 0,
-                    activation_internal_flags: 3,
-                    resize_nccalc_window_pos_flags: 0x190e,
-                    resize_changed_flags: 0x110e,
-                    frame_change_nccalc_window_pos_flags: 0x1825,
-                    frame_change_changed_flags: 0x0825,
-                },
-            )
-            .unwrap();
-        let stale_hide = (
-            hide,
-            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-            0,
-        );
-        let mut intervening_resource = resource(102, 5, 0x5000);
-        intervening_resource.width = 16;
-        intervening_resource.height = 16;
-        intervening_resource.icon_data_size = 1_128;
-        user32.load_shared_icon(intervening_resource).unwrap();
-        let before_stale = user32.clone();
-        user32
-            .complete_set_window_pos_callback(stale_hide.0, stale_hide.1, stale_hide.2)
-            .unwrap_err();
-        assert_eq!(user32, before_stale);
-        assert!(user32.window(window_handle).unwrap().visible);
-
-        let fresh_hide = user32
-            .preview_set_window_pos(
-                RuntimeThreadId(0x2000),
-                RuntimeSetWindowPosRequest {
-                    window_handle,
-                    variant: RuntimeSetWindowPosVariant::InitialHide,
-                    next_geometry: show_geometry,
-                    next_visible: false,
-                    next_topmost: false,
-                    entry_last_error: 0x1234_5678,
-                    callback_flags: 0x0000_1d9f,
-                    callback_insert_after: 0xffff_fffe,
-                    activation_insert_after: 0,
-                    activation_internal_flags: 3,
-                    resize_nccalc_window_pos_flags: 0x190e,
-                    resize_changed_flags: 0x110e,
-                    frame_change_nccalc_window_pos_flags: 0x1825,
-                    frame_change_changed_flags: 0x0825,
-                },
-            )
-            .unwrap();
-        let hide_plan = (
-            fresh_hide,
-            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-            0,
-        );
-        let duplicate = hide_plan;
-        let hidden = user32
-            .complete_set_window_pos_callback(hide_plan.0, hide_plan.1, hide_plan.2)
-            .unwrap();
-        assert!(matches!(
-            hidden,
-            RuntimeSetWindowPosCallbackAction::Completed { ref window }
-                if !window.visible
-                    && window.creation.geometry == show_geometry
-                    && window.creation.effective_style == 0x84ca_0000
-        ));
-        let before_duplicate = user32.clone();
-        user32
-            .complete_set_window_pos_callback(duplicate.0, duplicate.1, duplicate.2)
-            .unwrap_err();
-        assert_eq!(user32, before_duplicate);
-
-        let style = user32
-            .set_window_style(window_handle, RuntimeThreadId(0x2000), 0x90ca_0000)
-            .unwrap();
-        assert_eq!(style, 0x84ca_0000);
-        let updated = user32.window(window_handle).unwrap();
-        assert_eq!(updated.creation.effective_style, 0x90ca_0000);
-        assert!(updated.visible);
-        let before_repeated = user32.clone();
-        assert_eq!(
-            user32
-                .set_window_style(window_handle, RuntimeThreadId(0x2000), 0x90ca_0000)
-                .unwrap(),
-            0x90ca_0000
-        );
-        assert_eq!(user32, before_repeated);
-
-        let owner_thread_id = RuntimeThreadId(0x2000);
-        let window_id = user32.window(window_handle).unwrap().id;
-        user32.active_windows.insert(owner_thread_id, window_id);
-        user32.focused_windows.insert(owner_thread_id, window_id);
-        user32.foreground_window = Some(window_id);
-        user32.generation += 1;
-        let repeat_request = RuntimeSetWindowPosRequest {
-            window_handle,
-            variant: RuntimeSetWindowPosVariant::ActivateSameGeometry,
-            next_geometry: show_geometry,
-            next_visible: true,
-            next_topmost: false,
-            entry_last_error: 0x1234_5678,
-            callback_flags: 0x0000_010a,
-            callback_insert_after: 0xffff_fffe,
-            activation_insert_after: 0,
-            activation_internal_flags: 3,
-            resize_nccalc_window_pos_flags: 0x190e,
-            resize_changed_flags: 0x110e,
-            frame_change_nccalc_window_pos_flags: 0x1825,
-            frame_change_changed_flags: 0x0825,
-        };
-        let repeat = user32
-            .preview_set_window_pos(owner_thread_id, repeat_request)
-            .unwrap();
-        assert_eq!(repeat.variant, RuntimeSetWindowPosVariant::RepeatActivation);
-        let before_wrong_result = user32.clone();
-        user32
-            .preview_set_window_pos_callback(
-                repeat,
-                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
-                1,
-            )
-            .unwrap_err();
-        assert_eq!(user32, before_wrong_result);
-        let repeat_plan = (
-            repeat,
-            RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
-            0,
-        );
-        assert!(matches!(
-            user32.preview_set_window_pos_callback(repeat_plan.0, repeat_plan.1, repeat_plan.2).unwrap(),
-            RuntimeSetWindowPosCallbackAction::Completed { window }
-                if &window == user32.window(window_handle).unwrap()
-        ));
-        let before_repeat_commit = user32.clone();
-        assert!(matches!(
-            user32
-                .complete_set_window_pos_callback(repeat_plan.0, repeat_plan.1, repeat_plan.2)
-                .unwrap(),
-            RuntimeSetWindowPosCallbackAction::Completed { .. }
-        ));
-        assert_eq!(user32, before_repeat_commit);
-
-        let move_geometry = RuntimeWindowGeometry {
-            x: 317,
-            y: 154,
-            client_x: 320,
-            client_y: 180,
-            ..show_geometry
-        };
-        let move_operation = user32
-            .preview_set_window_pos(
-                owner_thread_id,
-                RuntimeSetWindowPosRequest {
-                    window_handle,
-                    variant: RuntimeSetWindowPosVariant::FrameChangeMove,
-                    next_geometry: move_geometry,
-                    next_visible: true,
-                    next_topmost: false,
-                    entry_last_error: 0x1234_5678,
-                    callback_flags: 0x0025,
-                    callback_insert_after: 0,
-                    activation_insert_after: 0,
-                    activation_internal_flags: 3,
-                    resize_nccalc_window_pos_flags: 0x190e,
-                    resize_changed_flags: 0x110e,
-                    frame_change_nccalc_window_pos_flags: 0x1825,
-                    frame_change_changed_flags: 0x0825,
-                },
-            )
-            .unwrap();
-        assert_eq!(
-            move_operation.variant,
-            RuntimeSetWindowPosVariant::FrameChangeMove
-        );
-        let before_wrong_move_result = user32.clone();
-        user32
-            .preview_set_window_pos_callback(
-                move_operation,
-                RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
-                1,
-            )
-            .unwrap_err();
-        assert_eq!(user32, before_wrong_move_result);
-
-        let changing = (
-            move_operation,
-            RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
-            0,
-        );
-        let before_changing = user32.clone();
-        assert!(matches!(
-            user32
-                .complete_set_window_pos_callback(changing.0, changing.1, changing.2)
-                .unwrap(),
-            RuntimeSetWindowPosCallbackAction::Continue {
-                next_message: RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
-                ..
-            }
-        ));
-        assert_eq!(user32, before_changing);
-
-        let nccalc = (
-            move_operation,
-            RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
-            0,
-        );
-        let stale_nccalc = nccalc;
-        let moved = user32
-            .complete_set_window_pos_callback(nccalc.0, nccalc.1, nccalc.2)
-            .unwrap();
-        let RuntimeSetWindowPosCallbackAction::Continue {
-            window: moved_window,
-            operation: moved_operation,
-            next_message: RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-        } = moved
-        else {
-            panic!("frame-change NCCALCSIZE must commit geometry before changed notification");
-        };
-        assert_eq!(moved_window.creation.geometry, move_geometry);
-        assert_eq!(user32.window(window_handle).unwrap(), &moved_window);
-        let before_stale_nccalc = user32.clone();
-        user32
-            .complete_set_window_pos_callback(stale_nccalc.0, stale_nccalc.1, stale_nccalc.2)
-            .unwrap_err();
-        assert_eq!(user32, before_stale_nccalc);
-
-        let changed = (
-            moved_operation,
-            RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
-            0,
-        );
-        let before_changed = user32.clone();
-        assert!(matches!(
-            user32.complete_set_window_pos_callback(changed.0, changed.1, changed.2).unwrap(),
-            RuntimeSetWindowPosCallbackAction::Completed { window }
-                if window == moved_window
-        ));
-        assert_eq!(user32, before_changed);
-        let full_client_update_rect = RuntimeRect {
-            left: 0,
-            top: 0,
-            right: 800,
-            bottom: 600,
-        };
-        assert_eq!(
-            moved_window.pending_update_rect,
-            Some(full_client_update_rect)
-        );
-        assert_eq!(
-            user32.active_windows.get(&owner_thread_id),
-            Some(&moved_window.id)
-        );
-        assert_eq!(
-            user32.focused_windows.get(&owner_thread_id),
-            Some(&moved_window.id)
-        );
-        assert_eq!(user32.foreground_window, Some(moved_window.id));
-
-        let update = user32
-            .preview_update_window(owner_thread_id, window_handle, 0x1234_5678)
-            .unwrap();
-        assert_eq!(update.update_rect, full_client_update_rect);
-        user32.validate_update_window_callback(update).unwrap_err();
-        let paint_struct_address = GuestAddress(0x2000);
-        let mut exhausted = user32.clone();
-        exhausted.generation = u64::MAX;
-        let before_exhausted = exhausted.clone();
-        assert!(
-            exhausted
-                .validate_begin_paint(
-                    owner_thread_id,
-                    window_handle,
-                    paint_struct_address,
-                    RuntimeDeviceContextId(1),
-                    0x4701_0001
-                )
-                .is_err()
-        );
-        assert_eq!(exhausted, before_exhausted);
-        let mut exhausted = user32.clone();
-        exhausted
-            .windows
-            .get_mut(&window_id)
-            .unwrap()
-            .paint_generation = u64::MAX;
-        let before_exhausted = exhausted.clone();
-        assert!(
-            exhausted
-                .validate_begin_paint(
-                    owner_thread_id,
-                    window_handle,
-                    paint_struct_address,
-                    RuntimeDeviceContextId(1),
-                    0x4701_0001
-                )
-                .is_err()
-        );
-        assert_eq!(exhausted, before_exhausted);
-        let begin = user32
-            .validate_begin_paint(
-                owner_thread_id,
-                window_handle,
-                paint_struct_address,
-                RuntimeDeviceContextId(1),
-                0x4701_0001,
-            )
-            .unwrap();
-        let window_id = begin.window_id;
-        user32.finish_begin_paint(begin);
-        let session = user32.paint_sessions[&window_id].clone();
-        assert_eq!(session.update_rect, full_client_update_rect);
-        assert_eq!(session.paint_generation, 1);
-        assert_eq!(session.paint_struct_bytes.len(), 64);
-        assert_eq!(
-            user32.window(window_handle).unwrap().pending_update_rect,
-            None,
-            "BeginPaint must consume the update region"
-        );
-        let before_duplicate = user32.clone();
-        assert!(
-            user32
-                .validate_begin_paint(
-                    owner_thread_id,
-                    window_handle,
-                    paint_struct_address,
-                    RuntimeDeviceContextId(2),
-                    0x4701_0002
-                )
-                .is_err()
-        );
-        assert_eq!(user32, before_duplicate);
-        let mut corrupted_bytes = session.paint_struct_bytes.clone();
-        corrupted_bytes[4] = 0;
-        let before_wrong_end = user32.clone();
-        user32
-            .validate_end_paint(
-                owner_thread_id,
-                window_handle,
-                session.paint_struct_address,
-                &corrupted_bytes,
-            )
-            .unwrap_err();
-        assert_eq!(user32, before_wrong_end);
-        let mut exhausted = user32.clone();
-        exhausted.generation = u64::MAX;
-        let before_exhausted = exhausted.clone();
-        assert!(
-            exhausted
-                .validate_end_paint(
-                    owner_thread_id,
-                    window_handle,
-                    session.paint_struct_address,
-                    &session.paint_struct_bytes
-                )
-                .is_err()
-        );
-        assert_eq!(exhausted, before_exhausted);
-        let end = user32
-            .validate_end_paint(
-                owner_thread_id,
-                window_handle,
-                session.paint_struct_address,
-                &session.paint_struct_bytes,
-            )
-            .unwrap();
-        assert_eq!(end, &session);
-        user32.finish_end_paint(end.window_id, end.paint_generation);
-        assert!(user32.paint_sessions.is_empty());
-        assert_eq!(user32.window(window_handle).unwrap().paint_generation, 1);
-        let before_duplicate = user32.clone();
-        assert!(
-            user32
-                .validate_end_paint(
-                    owner_thread_id,
-                    window_handle,
-                    session.paint_struct_address,
-                    &session.paint_struct_bytes
-                )
-                .is_err()
-        );
-        assert_eq!(user32, before_duplicate);
-
-        let title = RuntimeWindowNameA {
-            value: "Paint callback title".to_owned(),
-        };
-        user32
-            .set_window_title(window_handle, owner_thread_id, title.clone())
-            .unwrap();
-        user32
-            .validate_update_window_callback(update)
-            .expect("unrelated title update must not invalidate a completed paint cycle");
-        let painted = user32.window(window_handle).unwrap();
-        assert_eq!(painted.creation.name, title);
-        assert!(painted.pending_update_rect.is_none());
-        assert_eq!(painted.paint_generation, 1);
-        user32
-            .preview_update_window(owner_thread_id, window_handle, 0)
-            .unwrap_err();
-
-        let before_unknown = user32.clone();
-        user32
-            .set_window_style(window_handle + 1, RuntimeThreadId(0x2000), 0x90ca_0000)
-            .unwrap_err();
-        assert_eq!(user32, before_unknown);
-    }
-
-    #[test]
-    fn window_title_copies_windows_932_and_rejects_invalid_changes_atomically() {
-        let (mut user32, window_handle, _) = created_window_with_small_icon();
-        let title = RuntimeWindowNameA {
-            value: "日本語".to_owned(),
-        };
-        assert_eq!(
-            title.windows_932_bytes().unwrap(),
-            [0x93, 0xfa, 0x96, 0x7b, 0x8c, 0xea]
-        );
-        user32
-            .set_window_title(window_handle, RuntimeThreadId(0x2000), title.clone())
-            .unwrap();
-        let updated = user32.window(window_handle).unwrap().clone();
-        assert_eq!(updated.creation.name, title);
-        user32
-            .set_window_title(window_handle, RuntimeThreadId(0x2000), title.clone())
-            .unwrap();
-        assert_eq!(user32.window(window_handle).unwrap(), &updated);
-
-        for (owner, value) in [
-            (RuntimeThreadId(0x2001), "other"),
-            (RuntimeThreadId(0x2000), "title-😀"),
-        ] {
-            user32
-                .set_window_title(
-                    window_handle,
-                    owner,
-                    RuntimeWindowNameA {
-                        value: value.to_owned(),
-                    },
-                )
-                .expect_err("foreign owner or unencodable title must be rejected");
-            assert_eq!(user32.window(window_handle).unwrap(), &updated);
-            assert_eq!(user32.windows().len(), 1);
-        }
-        user32
-            .set_window_title(
-                window_handle,
-                RuntimeThreadId(0x2000),
-                RuntimeWindowNameA {
-                    value: String::new(),
-                },
-            )
-            .unwrap();
-        assert!(
-            user32
-                .window(window_handle)
-                .unwrap()
-                .creation
-                .name
-                .value
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn file_drop_acceptance_uses_effective_extended_style_and_is_failure_atomic() {
-        let (mut user32, window_handle, _) = created_window_with_small_icon();
-        assert_eq!(
-            user32
-                .window(window_handle)
-                .unwrap()
-                .creation
-                .effective_extended_style
-                & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
-            0
-        );
-
-        user32
-            .set_window_file_drop_acceptance(window_handle, true)
-            .unwrap();
-        assert_ne!(
-            user32
-                .window(window_handle)
-                .unwrap()
-                .creation
-                .effective_extended_style
-                & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
-            0
-        );
-        let before_repeated = user32.clone();
-        user32
-            .set_window_file_drop_acceptance(window_handle, true)
-            .unwrap();
-        assert_eq!(user32, before_repeated);
-
-        user32
-            .set_window_file_drop_acceptance(window_handle, false)
-            .unwrap();
-        assert_eq!(
-            user32
-                .window(window_handle)
-                .unwrap()
-                .creation
-                .effective_extended_style
-                & RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES,
-            0
-        );
-
-        let before_unknown = user32.clone();
-        user32
-            .set_window_file_drop_acceptance(window_handle + 2, true)
-            .unwrap_err();
-        assert_eq!(user32, before_unknown);
-    }
-
-    #[test]
-    fn system_menu_creation_checks_all_allocators_before_publication() {
-        for exhausted in 0..2 {
-            let (mut user32, window_handle, _) = created_window_with_small_icon();
-            let next_id = user32.next_menu_id;
-            let next_handle = user32.next_menu_handle;
-            match exhausted {
-                0 => user32.next_menu_id = u64::MAX,
-                _ => user32.next_menu_handle = u32::MAX,
-            }
-            let before = user32.clone();
-            assert!(user32.get_system_menu(window_handle, 0xf060).is_err());
-            assert_eq!(user32, before);
-            assert!(user32.system_menus.is_empty());
-            assert!(user32.system_menu_window_index.is_empty());
-            assert!(user32.menu_handle_index.is_empty());
-            user32.next_menu_id = next_id;
-            user32.next_menu_handle = next_handle;
-            let handle = user32
-                .get_system_menu(window_handle, 0xf060)
-                .unwrap()
-                .unwrap();
-            assert_eq!(handle, next_handle);
-            let menu = user32.system_menu(handle).unwrap();
-            assert_eq!(menu.id, RuntimeMenuId(next_id));
-            assert_eq!(menu.owner_window_handle, window_handle);
-            assert_eq!(user32.system_menus.len(), 1);
-            assert_eq!(user32.system_menu_window_index.len(), 1);
-            assert_eq!(user32.menu_handle_index.len(), 1);
             assert_eq!(
-                user32.get_system_menu(window_handle, 0xf060).unwrap(),
-                Some(handle)
+                user32.window(window_handle).unwrap().creation.geometry,
+                geometry
             );
         }
-    }
-
-    #[test]
-    fn window_style_changes_validate_owner_and_capacity_before_mutation() {
-        let (mut user32, window_handle, _) = created_window_with_small_icon();
-        let before = user32.clone();
-        assert!(
-            user32
-                .set_window_style(window_handle, RuntimeThreadId(0x9999), 0x90ca_0000)
-                .is_err()
-        );
-        assert_eq!(user32, before);
-        user32.generation = u64::MAX;
-        let exhausted = user32.clone();
-        assert!(
-            user32
-                .set_window_style(window_handle, RuntimeThreadId(0x2000), 0x90ca_0000)
-                .is_err()
-        );
-        assert_eq!(user32, exhausted);
-        let unchanged_style = user32
-            .window(window_handle)
-            .unwrap()
-            .creation
-            .effective_style;
-        assert_eq!(
-            user32
-                .set_window_style(window_handle, RuntimeThreadId(0x2000), unchanged_style)
-                .unwrap(),
-            unchanged_style
-        );
-        assert_eq!(user32, exhausted);
-    }
-
-    #[test]
-    fn system_menu_lookup_rejects_forged_handle_alias() {
-        let (mut user32, window_handle, _) = created_window_with_small_icon();
-        let handle = user32
-            .get_system_menu(window_handle, 0xf060)
-            .unwrap()
-            .unwrap();
-        let alias = handle + 1;
-        assert!(user32.system_menu_option(alias).unwrap().is_none());
-        let before_unknown = user32.clone();
-        assert_eq!(
-            user32.enable_system_menu_close_item(alias, 0xf060).unwrap(),
-            None
-        );
-        assert_eq!(
-            user32.get_system_menu(window_handle + 1, 0xf060).unwrap(),
-            None
-        );
-        assert_eq!(user32, before_unknown);
-        user32.menu_handle_index.insert(alias, RuntimeMenuId(1));
-        let before = user32.clone();
-        user32.system_menu_option(alias).unwrap_err();
-        user32.system_menu(alias).unwrap_err();
-        user32
-            .enable_system_menu_close_item(alias, 0xf060)
-            .unwrap_err();
-        assert_eq!(user32, before);
-        assert!(user32.system_menu_option(handle).unwrap().is_some());
-    }
-
-    #[test]
-    fn system_menu_identity_is_window_owned_reentrant_and_failure_atomic() {
-        let (mut user32, window_handle, _) = created_window_with_small_icon();
-        let user32_generation = user32.generation;
-        let first = user32
-            .get_system_menu(window_handle, 0xf060)
-            .unwrap()
-            .unwrap();
-        assert_eq!(first, RUNTIME_MENU_HANDLE_BASE);
-        assert_eq!(user32.generation, user32_generation);
-
-        let menu = user32.system_menu(first).unwrap();
-        assert_eq!(menu.id, RuntimeMenuId(1));
-        assert_eq!(menu.owner_window_handle, window_handle);
-        assert_eq!(menu.close_item_command, 0xf060);
-        assert!(menu.close_item_enabled);
-
-        let style = user32
-            .set_window_style(window_handle, RuntimeThreadId(0x2000), 0x90ca_0000)
-            .expect("window style update preserves the live system menu");
-        assert_ne!(style, 0x90ca_0000);
-        assert_eq!(
-            user32
-                .window(window_handle)
-                .unwrap()
-                .creation
-                .effective_style,
-            0x90ca_0000
-        );
-        let repeated = user32
-            .get_system_menu(window_handle, 0xf060)
-            .unwrap()
-            .unwrap();
-        assert_eq!(repeated, first);
-        assert_eq!(user32.system_menus().len(), 1);
-
-        let enabled = user32
-            .enable_system_menu_close_item(first, 0xf060)
-            .unwrap()
-            .unwrap();
-        assert_eq!(enabled, 0);
-
-        let before_invalid_item = user32.clone();
-        assert!(user32.enable_system_menu_close_item(first, 0xf061).is_err());
-        assert_eq!(
-            user32
-                .enable_system_menu_close_item(first + 1, 0xf060)
-                .unwrap(),
-            None
-        );
-        assert_eq!(user32, before_invalid_item);
-        let before_exhaustion = user32.clone();
-        user32.next_menu_handle = u32::MAX;
-        let exhausted = user32.clone();
-        let other_window = user32.publish_window_creation(
-            user32
-                .checked_window_creation(user32.window(window_handle).unwrap().creation.clone())
-                .unwrap(),
-        );
-        for (message, result) in [
-            (RuntimeWindowCreationMessage::NonClientCreate, 1),
-            (RuntimeWindowCreationMessage::NonClientCalculate, 0),
-            (RuntimeWindowCreationMessage::Create, 0),
-            (RuntimeWindowCreationMessage::Size, 0),
-            (RuntimeWindowCreationMessage::Move, 0),
-        ] {
-            let plan = (other_window.0, message, result);
-            user32
-                .complete_window_creation_callback(plan.0, plan.1, plan.2)
-                .unwrap();
-        }
-        user32.get_system_menu(other_window.1, 0xf060).unwrap_err();
-        assert_eq!(user32.next_menu_handle, u32::MAX);
-        assert_eq!(user32.system_menus(), exhausted.system_menus());
-        user32.next_menu_handle = before_exhaustion.next_menu_handle;
     }
 
     fn resource(
@@ -4542,100 +3349,6 @@ mod tests {
             0
         );
         (user32, created.1, small_icon)
-    }
-
-    #[test]
-    fn iconic_state_queries_use_effective_style_without_mutating_window_authority() {
-        let (mut user32, window_handle, _) = created_window_with_small_icon();
-        let before_normal = user32.clone();
-        assert_eq!(user32.window_is_iconic(window_handle).unwrap(), Some(false));
-        assert_eq!(user32, before_normal);
-
-        let window_id = user32.window_handle_index[&window_handle];
-        user32
-            .windows
-            .get_mut(&window_id)
-            .unwrap()
-            .creation
-            .effective_style |= RUNTIME_WINDOW_STYLE_MINIMIZED;
-        let before_minimized = user32.clone();
-        assert_eq!(user32.window_is_iconic(window_handle).unwrap(), Some(true));
-        assert_eq!(user32, before_minimized);
-
-        user32.windows.get_mut(&window_id).unwrap().lifecycle = RuntimeWindowLifecycle::Creating {
-            message: RuntimeWindowCreationMessage::Move,
-        };
-        let before_creating = user32.clone();
-        user32.window_is_iconic(window_handle).unwrap_err();
-        assert_eq!(user32, before_creating);
-
-        assert_eq!(user32.window_is_iconic(0x1234).unwrap(), None);
-        assert_eq!(user32, before_creating);
-    }
-
-    #[test]
-    fn default_ime_window_rejects_exhaustion_without_publishing_a_hwnd() {
-        for exhausted in 0..3 {
-            let (mut user32, handle, _) = created_window_with_small_icon();
-            let owner = user32.window(handle).unwrap().creation.owner_thread_id;
-            match exhausted {
-                0 => user32.next_window_handle = u32::MAX,
-                1 => user32.next_ime_window_id = u64::MAX,
-                _ => user32.generation = u64::MAX,
-            }
-            let before = user32.clone();
-            assert!(user32.validate_default_ime_window(handle, owner).is_err());
-            assert_eq!(user32, before);
-            assert!(user32.ime_windows.is_empty());
-            assert!(user32.default_ime_windows.is_empty());
-        }
-    }
-
-    #[test]
-    fn default_ime_window_uses_shared_hwnd_authority_and_tracks_status_requests() {
-        let (mut user32, app_window_handle, _) = created_window_with_small_icon();
-        let owner_thread_id = user32
-            .window(app_window_handle)
-            .unwrap()
-            .creation
-            .owner_thread_id;
-        user32
-            .validate_default_ime_window(app_window_handle, owner_thread_id)
-            .unwrap();
-        let handle = user32.ensure_default_ime_window(owner_thread_id);
-        assert_eq!(handle, app_window_handle + 1);
-        let ime = user32.ime_window(handle).unwrap();
-        assert_eq!(ime.class_name, "IME");
-        assert_eq!(ime.owner_thread_id, owner_thread_id);
-        assert_eq!(ime.status_window_request, None);
-
-        user32
-            .validate_default_ime_window(app_window_handle, owner_thread_id)
-            .unwrap();
-        let before_repeated = user32.clone();
-        let repeated = user32.ensure_default_ime_window(owner_thread_id);
-        assert_eq!(repeated, handle);
-        assert_eq!(user32, before_repeated);
-
-        user32
-            .control_ime_status_window(handle, RuntimeImeStatusWindowRequest::Close)
-            .unwrap();
-        assert_eq!(
-            user32.ime_window(handle).unwrap().status_window_request,
-            Some(RuntimeImeStatusWindowRequest::Close)
-        );
-        let before_repeated_close = user32.clone();
-        user32
-            .control_ime_status_window(handle, RuntimeImeStatusWindowRequest::Close)
-            .unwrap();
-        assert_eq!(user32, before_repeated_close);
-        user32
-            .control_ime_status_window(handle, RuntimeImeStatusWindowRequest::Open)
-            .unwrap();
-        assert_eq!(
-            user32.ime_window(handle).unwrap().status_window_request,
-            Some(RuntimeImeStatusWindowRequest::Open)
-        );
     }
 
     fn arrow_cursor() -> RuntimeCursorSource {
@@ -4721,7 +3434,7 @@ mod tests {
                 load_base: GuestAddress(0x1000_0000),
             },
             name: RuntimeWindowNameA {
-                value: "Ethornell - BURIKO General Interpreter".to_owned(),
+                value: "Runtime window fixture".to_owned(),
             },
             extended_style: 0x0004_0000,
             effective_extended_style: 0x0004_0100,

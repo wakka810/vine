@@ -37,9 +37,9 @@ pub use api::{
 #[cfg(test)]
 pub(crate) use api::{ApiEndpointBinding, ApiSymbol};
 pub use bootstrap::install_initial_thread_stack;
-pub use callbacks::install_runtime_return_sentinels;
 #[cfg(test)]
-pub(crate) use callbacks::{CALLBACK_RETURN_ARENA_BASE, CALLBACK_SCRATCH_ARENA_BASE};
+pub(crate) use callbacks::CALLBACK_RETURN_ARENA_BASE;
+pub use callbacks::install_runtime_return_sentinels;
 #[cfg(test)]
 pub(crate) use com::{COM_E_NOINTERFACE, COM_E_POINTER, COM_S_OK, ComCallCompletion, ComFault};
 pub use com::{ComAudioDeferred, ComCallTrap, ComDispatchOutcome};
@@ -77,11 +77,10 @@ pub(crate) use runtime::{
     ProcessAddressAllocationClassification, ProcessAddressAllocationReleasePolicy,
     ProcessAddressSpaceAllocator, RUNTIME_API_BOUNDARY_QUANTUM, RUNTIME_COM_IUNKNOWN_IID,
     RUNTIME_GDIPLUS_SESSION_LIMIT, RUNTIME_GDIPLUS_SESSION_TOKEN_PREFIX, RuntimeCallbackFrameId,
-    RuntimeComApartmentModel, RuntimeComIid, RuntimeDeviceContextTarget, RuntimeDynamicEndpoint,
-    RuntimeGdiObjectKind, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHostCompletion,
-    RuntimeMutexId, RuntimeMutexNameA, RuntimeObjectKey, RuntimeObjectKind,
-    RuntimeProcessLifecycleState, RuntimeThreadPriority, RuntimeWaitDisposition,
-    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeComApartmentModel, RuntimeComIid, RuntimeDynamicEndpoint, RuntimeGdiObjectKind,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeMutexId, RuntimeMutexNameA,
+    RuntimeObjectKey, RuntimeObjectKind, RuntimeProcessLifecycleState, RuntimeThreadPriority,
+    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitRegistrationId, RuntimeWaitState, RuntimeWaitableTimerArm,
     RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };

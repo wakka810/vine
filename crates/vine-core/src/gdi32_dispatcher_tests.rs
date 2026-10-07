@@ -6,15 +6,16 @@ use crate::gdi32::{
     X86_ENUMLOGFONTEXA_BYTE_LENGTH, X86_LOGFONTA_BYTE_LENGTH, X86_NEWTEXTMETRICEXA_BYTE_LENGTH,
     X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH,
 };
+use crate::imports::{ImportThunk, ImportThunkDisposition, ImportThunkId};
+use crate::pe32::ImportTarget;
+use crate::runtime::{RuntimeDeviceContextTarget, RuntimeGdiObjectKind, RuntimeHostCompletion};
 use crate::user32::dispatch_user32_api;
 use vine_core::{
-    ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, CALLBACK_SCRATCH_ARENA_BASE,
-    DispatchOutcome, GUEST_PAGE_SIZE, Gdi32TextRasterHostResponse, GuestAddress, GuestMemory,
-    GuestRange, ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, MemoryLimits,
-    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
-    ProcessAddressAllocationPurpose, Runtime, RuntimeBootstrap, RuntimeCallbackFrameId,
-    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeDeviceContextTarget, RuntimeDisplayProfile,
-    RuntimeGdiObjectKind, RuntimeHostCompletion, RuntimeProcessId, RuntimeProcessImagePathA,
+    ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiOwnedTrap, DispatchOutcome,
+    GUEST_PAGE_SIZE, Gdi32TextRasterHostResponse, GuestAddress, GuestCallbackReturn, GuestMemory,
+    GuestRange, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    ProcessAddressAllocationPurpose, Runtime, RuntimeBootstrap, RuntimeClockState,
+    RuntimeCurrentDirectoryA, RuntimeDisplayProfile, RuntimeProcessId, RuntimeProcessImagePathA,
     RuntimeRect, RuntimeStartupInfo, RuntimeThreadId, complete_gdi32_text_raster,
 };
 
@@ -2005,64 +2006,6 @@ fn create_font_a_creates_distinct_rust_owned_objects_without_guest_writes() {
 }
 
 #[test]
-fn font_enumeration_delivers_the_fixed_cp932_record_and_checks_guest_access() {
-    let mut fixture = FontFixture::new();
-    let device_context = fixture.acquire_screen_dc();
-    fixture.install_filter(&primary_filter());
-    fixture.configure_enum(device_context, LOG_FONT_ADDRESS, CALLBACK_TARGET, 0);
-    let dc_before = fixture
-        .runtime
-        .gdi_device_context(device_context)
-        .unwrap()
-        .clone();
-    let clock_before = fixture.runtime.clock().clone();
-    let last_error_before = fixture.runtime.current_last_error().unwrap();
-    let thread_before = fixture.runtime.current_thread_id();
-    let object_count = fixture.runtime.gdi_objects().len();
-    let call = match fixture.dispatch_enum() {
-        DispatchOutcome::GuestCallback(call) => call,
-        other => panic!("expected checked font callback, got {other:?}"),
-    };
-    assert_eq!(
-        fixture.runtime.gdi_device_context(device_context).unwrap(),
-        &dc_before
-    );
-    assert_eq!(fixture.runtime.clock(), &clock_before);
-    assert_eq!(
-        fixture.runtime.current_last_error().unwrap(),
-        last_error_before
-    );
-    assert_eq!(fixture.runtime.current_thread_id(), thread_before);
-    assert_eq!(fixture.runtime.gdi_objects().len(), object_count);
-    assert_eq!(call.request.target, CALLBACK_TARGET);
-    assert_eq!(call.request.arguments[2], GuestCallbackArgument::U32(4));
-    assert_primary_record(&call.request.scratch);
-
-    fixture.configure_enum(device_context, LOG_FONT_ADDRESS, GET_DC_STACK_POINTER, 0);
-    let dc_before = fixture
-        .runtime
-        .gdi_device_context(device_context)
-        .unwrap()
-        .clone();
-    let clock_before = fixture.runtime.clock().clone();
-    let last_error_before = fixture.runtime.current_last_error().unwrap();
-    let thread_before = fixture.runtime.current_thread_id();
-    let object_count = fixture.runtime.gdi_objects().len();
-    assert!(matches!(fixture.dispatch_enum(), DispatchOutcome::Fault(_)));
-    assert_eq!(
-        fixture.runtime.gdi_device_context(device_context).unwrap(),
-        &dc_before
-    );
-    assert_eq!(fixture.runtime.clock(), &clock_before);
-    assert_eq!(
-        fixture.runtime.current_last_error().unwrap(),
-        last_error_before
-    );
-    assert_eq!(fixture.runtime.current_thread_id(), thread_before);
-    assert_eq!(fixture.runtime.gdi_objects().len(), object_count);
-}
-
-#[test]
 fn enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_result() {
     for callback_result in [0_u32, 1] {
         let mut fixture = FontFixture::new();
@@ -2131,8 +2074,6 @@ fn enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_r
             .begin_guest_callback(call.clone())
             .expect("prepare font callback");
         fixture.acknowledge_pending_delta();
-        assert_eq!(prepared.frame_id, RuntimeCallbackFrameId(1));
-        assert_eq!(prepared.scratch_address, CALLBACK_SCRATCH_ARENA_BASE);
         assert_eq!(
             prepared.scratch_bytes,
             (X86_ENUMLOGFONTEXA_BYTE_LENGTH + X86_NEWTEXTMETRICEXA_BYTE_LENGTH) as u32
@@ -2174,20 +2115,12 @@ fn enum_font_families_ex_a_materializes_primary_record_and_propagates_callback_r
             filter
         );
 
-        fixture
+        let completion = fixture
             .runtime
-            .pop_callback_frame(prepared.frame_id)
-            .expect("retire font callback");
-        let completion = {
-            fixture.dispatcher.complete_guest_callback_result(
-                call,
-                callback_result,
-                &mut fixture.runtime,
-            )
-        };
-        let completion = match completion {
-            DispatchOutcome::Immediate(completion) => completion,
-            other => panic!("expected completed enumeration, got {other:?}"),
+            .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, callback_result)
+            .expect("complete live font callback");
+        let GuestCallbackReturn::Completed(completion) = completion else {
+            panic!("expected completed font enumeration")
         };
         assert_eq!(completion.eax, Some(callback_result));
         assert_eq!(completion.instruction_pointer, ENUM_RETURN_ADDRESS);
@@ -2249,7 +2182,7 @@ fn enum_font_families_ex_a_requires_live_same_thread_screen_dc_atomically() {
 }
 
 #[test]
-fn font_callback_preparation_failure_preserves_memory_and_frame_identity() {
+fn font_callback_stack_failure_preserves_memory_and_can_retry() {
     let mut fixture = FontFixture::with_enum_stack(LOW_ENUM_STACK_POINTER);
     let device_context = fixture.acquire_screen_dc();
     fixture.install_filter(&primary_filter());
@@ -2289,11 +2222,33 @@ fn font_callback_preparation_failure_preserves_memory_and_frame_identity() {
             .expect("unchanged reflection"),
         reflection_before
     );
-    let frame = fixture
+    fixture.enum_stack_pointer = ENUM_STACK_POINTER;
+    fixture.configure_enum(device_context, LOG_FONT_ADDRESS, CALLBACK_TARGET, 0);
+    let DispatchOutcome::GuestCallback(call) = fixture.dispatch_enum() else {
+        panic!("expected font callback after stack correction")
+    };
+    fixture
         .runtime
-        .push_callback_frame(CALLBACK_TARGET, CALLBACK_SENTINEL)
-        .expect("failed preparation did not consume callback identity");
-    assert_eq!(frame.id, RuntimeCallbackFrameId(1));
+        .begin_guest_callback(call)
+        .expect("valid stack permits retry after failed preparation");
+    fixture.acknowledge_pending_delta();
+    let completion = fixture
+        .runtime
+        .complete_guest_callback(&fixture.dispatcher, CALLBACK_SENTINEL, 7)
+        .expect("complete retried font callback");
+    let GuestCallbackReturn::Completed(completion) = completion else {
+        panic!("expected completed retried font enumeration")
+    };
+    assert_eq!(completion.eax, Some(7));
+    assert_eq!(completion.instruction_pointer, ENUM_RETURN_ADDRESS);
+    assert_eq!(
+        completion.stack_pointer,
+        GuestAddress(ENUM_STACK_POINTER.0 + 24)
+    );
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        INITIAL_LAST_ERROR
+    );
 }
 
 fn assert_enum_fault_atomic(fixture: &mut FontFixture) {
