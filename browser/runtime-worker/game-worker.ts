@@ -1234,7 +1234,7 @@ async function launch(request: LaunchRequest): Promise<void> {
           continue;
         }
         installCreatedThread(output.metadata.createdThread);
-        engine.applyCpuResume(output.metadata.completion);
+        engine.applyStoppedCpuResume(output.metadata.completion);
         if (output.metadata.threadSelection !== undefined) {
           switchThread(output.metadata.threadSelection.threadId);
         } else if (boundary === "block-current-thread") {

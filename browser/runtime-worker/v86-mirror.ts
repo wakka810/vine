@@ -81,6 +81,8 @@ interface V86Exports extends WebAssembly.Exports {
   vine_cpu_state_size(): number;
   vine_cpu_state_save(): void;
   vine_cpu_state_restore(): number;
+  vine_cpu_apply_stopped_resume(eax: number, writeEax: number, esp: number, eip: number): number;
+  vine_rearm_dirty_page(address: number): number;
   vine_dirty_pages_ptr(): number;
   vine_dirty_page_count(): number;
   vine_dirty_pages_overflowed(): number;
@@ -694,8 +696,21 @@ export class V86Mirror implements ExecutionEngine {
         state[stateWord.wordCount] === state.byteLength / Uint32Array.BYTES_PER_ELEMENT,
       "stopped CPU resume requires the current saved v86 state",
     );
-    this.#applyCpuResumeToState(state, completion);
-    invariant(this.#wasm.vine_cpu_state_restore() === 0, "v86 rejected a stopped CPU resume");
+    if (completion.eax !== null) {
+      invariant(
+        Number.isInteger(completion.eax) && completion.eax >= 0 && completion.eax <= 0xffff_ffff,
+        "CPU resume EAX must be an unsigned x86 register value or null",
+      );
+    }
+    invariant(
+      this.#wasm.vine_cpu_apply_stopped_resume(
+        completion.eax ?? 0,
+        Number(completion.eax !== null),
+        completion.stackPointer >>> 0,
+        completion.instructionPointer >>> 0,
+      ) === 0,
+      "v86 rejected a stopped CPU resume",
+    );
   }
 
   #applyCpuResumeToState(state: Uint32Array, completion: CpuResume): void {
@@ -871,8 +886,15 @@ export class V86Mirror implements ExecutionEngine {
         dirty.push(page);
       }
     }
-    if (dirtyMappings.length > 0) {
+    if (scanAll) {
       this.#wasm.full_clear_tlb();
+    } else {
+      for (const mapping of dirtyMappings) {
+        invariant(
+          this.#wasm.vine_rearm_dirty_page(mapping.address) === 0,
+          "v86 rejected dirty-page write tracking",
+        );
+      }
     }
     return dirty;
   }

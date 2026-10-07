@@ -78,7 +78,7 @@ try {
           return cpuContext;
         },
         executeBudget: () => ({ stop: { kind: "runtime-dispatch" }, context: cpuContext, instructions: 1 }),
-        collectChangedPageViews: () => [], readGuestU32: () => 0x401000, applyCpuResume() {},
+        collectChangedPageViews: () => [], readGuestU32: () => 0x401000, applyCpuResume() {}, applyStoppedCpuResume() {},
       },
     };
     await import(`${workerModule}#${failure}`);

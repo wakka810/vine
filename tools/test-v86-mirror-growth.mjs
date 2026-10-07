@@ -52,7 +52,8 @@ WebAssembly.Instance = function(module, imports) {
   if (typeof raw.vine_cpu_state_ptr !== "function") return instance;
   const failure = failNextAdapter;
   failNextAdapter = undefined;
-  record = { raw, poolBytes: 0, base: 0, compiles: 0, finalizes: 0, copiedBytes: 0, copyCalls: 0 };
+  record = { raw, poolBytes: 0, base: 0, compiles: 0, finalizes: 0, copiedBytes: 0, copyCalls: 0,
+    fullClears: 0, rearmedPages: 0, stoppedResumes: 0, forceDirtyOverflow: false };
   adapters.push(record);
   return { exports: {
     ...raw,
@@ -66,6 +67,11 @@ WebAssembly.Instance = function(module, imports) {
     vine_set_memory_size(bytes) {
       return failure === "memory-size" ? 1 : raw.vine_set_memory_size(bytes);
     },
+    full_clear_tlb() { record.fullClears += 1; return raw.full_clear_tlb(); },
+    vine_rearm_dirty_page(address) { record.rearmedPages += 1; return raw.vine_rearm_dirty_page(address); },
+    vine_cpu_apply_stopped_resume(...args) { record.stoppedResumes += 1; return raw.vine_cpu_apply_stopped_resume(...args); },
+    vine_dirty_pages_overflowed() { return record.forceDirtyOverflow ? 1 : raw.vine_dirty_pages_overflowed(); },
+    vine_reset_dirty_pages() { record.forceDirtyOverflow = false; return raw.vine_reset_dirty_pages(); },
     vine_dirty_pages_ptr() {
       return failure === "dirty-pointer" ? raw.memory.buffer.byteLength : raw.vine_dirty_pages_ptr();
     },
@@ -164,6 +170,70 @@ function assertDirtyOnce(engine, addresses) {
 }
 
 try {
+  {
+    const engine = await fixture();
+    const loop = page(codeBase, rx);
+    loop.bytes.set([0xff, 0x05, ...u32(data), 0xeb, 0xf8]);
+    engine.applyMemoryDelta(delta([], [loop]));
+    startAt(engine, codeBase);
+    for (let i = 0; jitRetired(current()) === 0n && i < 100; i++) {
+      run(engine, 16384);
+      await Promise.resolve();
+    }
+    assert(jitRetired(current()) > 0n, "stopped-resume controls must start with a real warmed JIT");
+    const record = current();
+    const fullClears = record.fullClears;
+    assertDirtyOnce(engine, [data]);
+    assert.equal(record.fullClears, fullClears, "ordinary dirty collection preserves code/read translations");
+    assert.equal(record.rearmedPages, 1, "ordinary dirty collection rearms only its dirty virtual page");
+    const before = engine.saveCpuContext().opaqueWords;
+    const expected = Uint32Array.from(before);
+    expected[2] = 0x12345678;
+    expected[6] = stack + 4000;
+    expected[10] = expected[11] = codeBase;
+    expected[22] = 0;
+    const staging = new Uint32Array(record.raw.memory.buffer, record.raw.vine_cpu_state_ptr(), 153);
+    staging.fill(0xa5a5a5a5, 2);
+    engine.applyStoppedCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0x12345678 });
+    assert.deepEqual(engine.saveCpuContext().opaqueWords, expected, "stopped resume preserves all other CPU words despite stale staging");
+    const resumes = record.stoppedResumes;
+    assert.throws(() => engine.applyStoppedCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: NaN }), /unsigned/u);
+    assert.equal(record.stoppedResumes, resumes, "invalid EAX is rejected before the CPU mutation");
+    assert.deepEqual(engine.saveCpuContext().opaqueWords, expected);
+    const retired = jitRetired(record);
+    run(engine, 4096);
+    assert(jitRetired(record) > retired, "the first rearmed write must use compiled code");
+    assertDirtyOnce(engine, [data]);
+    engine.applyStoppedCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: null });
+    const value = engine.readGuestU32(data);
+    run(engine, 4096);
+    assert(engine.readGuestU32(data) > value);
+    record.forceDirtyOverflow = true;
+    const overflowClears = record.fullClears;
+    assertDirtyOnce(engine, [data]);
+    record.forceDirtyOverflow = false;
+    assert.equal(record.fullClears, overflowClears + 1, "reported overflow retains full translation invalidation");
+    engine.applyStoppedCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: null });
+    run(engine, 4096);
+    assert(record.raw.vine_dirty_page_count() > 0, "growth must start with uncollected guest writes");
+    const beforeGrowth = engine.saveCpuContext();
+    commit(engine, 0x20000000, 40);
+    assert.notEqual(current(), record, "partial resume is followed by actual physical-pool growth");
+    assert.deepEqual(engine.saveCpuContext(), beforeGrowth, "growth after partial resume preserves all 153 current words");
+    engine.applyStoppedCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: null });
+    run(engine, 4096);
+    const growthClears = current().fullClears;
+    assertDirtyOnce(engine, [data]);
+    assert.equal(current().fullClears, growthClears + 1, "growth restoration retains its forced full dirty scan flush");
+    engine.applyMemoryDelta(delta([operation("protect", data, 1, ro)]));
+    engine.applyStoppedCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0xdeadbeef });
+    const immutable = engine.readGuestU32(data);
+    const rejected = engine.executeBudget(16);
+    assert.equal(rejected.stop.fault, "page-fault");
+    assert.equal(engine.readGuestU32(data), immutable, "protection changes still reject cached guest writes");
+    assertDirtyOnce(engine, []);
+    console.log("mirror stopped resume, repeated JIT dirty rearm, overflow, growth and protection passed");
+  }
   {
     const engine = await fixture();
     const parked = engine.createCpuContext({ entryPoint: entry, initialStackPointer: stack + 3996, fsBase: 0x54321000 });
