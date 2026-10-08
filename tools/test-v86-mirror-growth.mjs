@@ -313,6 +313,76 @@ try {
 
   {
     const engine = await fixture();
+    const highBase = 0xffffe000;
+    const highLast = 0xfffff000;
+    const allocationId = 78;
+    const before = engine.saveCpuContext();
+    engine.applyMemoryDelta(delta([
+      { ...operation("reserve", highBase, 2), kind: "anonymous", addressAllocationId: allocationId },
+      { ...operation("commit", highBase, 2), addressAllocationId: allocationId },
+    ], [page(highBase, rw, 0x11), page(highLast, rw, 0x22)]));
+    assert.deepEqual(engine.readGuestBytes(highBase, pageSize), new Uint8Array(pageSize).fill(0x11));
+    assert.deepEqual(engine.readGuestBytes(highLast, pageSize), new Uint8Array(pageSize).fill(0x22));
+    engine.applyMemoryDelta(delta([
+      { ...operation("protect", highBase, 2, ro), addressAllocationId: allocationId },
+    ]));
+    const writer = page(codeBase, rx);
+    writer.bytes.set([0xa3, ...u32(highLast), 0x0f, 0x0b]);
+    engine.applyMemoryDelta(delta([], [writer]));
+    engine.applyCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0xabcdef01 });
+    const rejected = engine.executeBudget(16);
+    assert.equal(rejected.stop.fault, "page-fault");
+    assert.equal(rejected.stop.faultAddress, highLast);
+    assert.equal(engine.readGuestU32(highLast), 0x22222222, "the last x86 page remains write protected");
+    assertDirtyOnce(engine, []);
+    engine.applyMemoryDelta(delta([
+      { ...operation("decommit", highBase, 2), addressAllocationId: allocationId },
+      { ...operation("release", highBase, 2), addressAllocationId: allocationId },
+    ]));
+    assert.throws(() => engine.readGuestU32(highBase), /unmapped/u);
+    assert.throws(() => engine.readGuestU32(highLast), /unmapped/u);
+    engine.restoreCpuContext(before);
+    assert.deepEqual(engine.saveCpuContext(), before);
+    console.log("mirror mappings ending at the x86 address limit passed");
+  }
+
+  {
+    const engine = await fixture();
+    const overlapBase = 0x30000000;
+    const overlapLast = overlapBase + pageSize;
+    commit(engine, overlapLast, 1);
+    engine.applyMemoryDelta(delta([], [page(overlapLast, rw, 0x35)]));
+    const before = engine.saveCpuContext();
+    const record = current();
+    const bytes = Uint8Array.from(physical(record));
+    const instances = adapters.length;
+    assert.throws(() => engine.applyMemoryDelta(delta([
+      { ...operation("reserve", overlapBase, 2), kind: "anonymous", addressAllocationId: 79 },
+    ])), /overlaps a committed mirror page/u);
+    assert.deepEqual(engine.saveCpuContext(), before, "a final-page reserve collision preserves all 153 CPU words");
+    assert.deepEqual(physical(record), bytes, "a failed reserve leaves guest bytes and page tables unchanged");
+    assert.throws(() => engine.readGuestU32(overlapBase), /unmapped/u);
+    assert.equal(engine.readGuestU32(overlapLast), 0x35353535);
+    const fresh = 0x40000000;
+    assert.throws(() => engine.applyMemoryDelta(delta([
+      operation("commit", fresh, 256), operation("protect", data, 1, ro, 2),
+    ])), /protect operation owner mismatch/u);
+    assert.deepEqual(engine.saveCpuContext(), before, "a later operation failure preserves all 153 CPU words");
+    assert.deepEqual(physical(record), bytes, "a later failure does not publish earlier mappings or protection");
+    assert.throws(() => engine.readGuestU32(fresh), /unmapped/u);
+    assert.throws(() => engine.readGuestU32(fresh + 255 * pageSize), /unmapped/u);
+    assert.equal(current(), record);
+    assert.equal(adapters.length, instances, "both rejected batches fail before adapter allocation");
+    // A failed reserve must not publish its reservation either.
+    engine.applyMemoryDelta(delta([
+      { ...operation("reserve", overlapBase), kind: "anonymous", addressAllocationId: 79 },
+      { ...operation("commit", overlapBase), addressAllocationId: 79 },
+    ]));
+    console.log("mirror final-page reserve collision and later batch failure preserve live state");
+  }
+
+  {
+    const engine = await fixture();
     writeOnce(engine, 0x11112222);
     const borrowedPages = engine.collectChangedPageViews();
     assert.equal(borrowedPages.length, 1);

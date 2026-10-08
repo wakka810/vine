@@ -255,14 +255,6 @@ function rangeContains(outer: MemoryRange, inner: MemoryRange): boolean {
   return outer.base <= inner.base && rangeEnd(inner) <= rangeEnd(outer);
 }
 
-function pageAddresses(range: MemoryRange): number[] {
-  const addresses: number[] = [];
-  for (let address = range.base; address < rangeEnd(range); address += memoryPageSize) {
-    addresses.push(address);
-  }
-  return addresses;
-}
-
 export class V86Mirror implements ExecutionEngine {
   readonly #module: WebAssembly.Module;
   #wasm!: V86Exports;
@@ -1009,12 +1001,12 @@ export class V86Mirror implements ExecutionEngine {
             ),
             "reserve operation overlaps a mirror reservation",
           );
-          invariant(
-            pageAddresses(operation.range).every(
-              (address) => plannedMapping(address) === undefined,
-            ),
-            "reserve operation overlaps a committed mirror page",
-          );
+          for (let address = operation.range.base; address < rangeEnd(operation.range); address += memoryPageSize) {
+            invariant(
+              plannedMapping(address) === undefined,
+              "reserve operation overlaps a committed mirror page",
+            );
+          }
           reservations.set(operation.range.base, {
             ...(operation.addressAllocationId === undefined
               ? {}
@@ -1039,7 +1031,7 @@ export class V86Mirror implements ExecutionEngine {
               ),
             "commit operation is outside its mirror reservation",
           );
-          for (const address of pageAddresses(operation.range)) {
+          for (let address = operation.range.base; address < rangeEnd(operation.range); address += memoryPageSize) {
             addMapping(address, {
               ...(operation.addressAllocationId === undefined
                 ? {}
@@ -1051,7 +1043,7 @@ export class V86Mirror implements ExecutionEngine {
           break;
         }
         case "protect":
-          for (const address of pageAddresses(operation.range)) {
+          for (let address = operation.range.base; address < rangeEnd(operation.range); address += memoryPageSize) {
             const mapping = plannedMapping(address);
             invariant(mapping !== undefined, "protect operation targets an unmapped mirror page");
             invariant(mapping.owner === operation.owner, "protect operation owner mismatch");
@@ -1069,7 +1061,7 @@ export class V86Mirror implements ExecutionEngine {
           }
           break;
         case "decommit":
-          for (const address of pageAddresses(operation.range)) {
+          for (let address = operation.range.base; address < rangeEnd(operation.range); address += memoryPageSize) {
             const mapping = plannedMapping(address);
             invariant(
               mapping !== undefined,
@@ -1100,7 +1092,7 @@ export class V86Mirror implements ExecutionEngine {
             invariant(overlapping.length === 0, "release operation partially overlaps a reservation");
           }
           let matched = reservation !== undefined;
-          for (const address of pageAddresses(operation.range)) {
+          for (let address = operation.range.base; address < rangeEnd(operation.range); address += memoryPageSize) {
             const mapping = plannedMapping(address);
             if (mapping === undefined) {
               continue;
@@ -1170,7 +1162,7 @@ export class V86Mirror implements ExecutionEngine {
         });
         break;
       case "commit":
-        for (const address of pageAddresses(operation.range)) {
+        for (let address = operation.range.base; address < rangeEnd(operation.range); address += memoryPageSize) {
           this.#mapPage(
             address,
             operation.owner,
@@ -1180,12 +1172,12 @@ export class V86Mirror implements ExecutionEngine {
         }
         break;
       case "protect":
-        for (const address of pageAddresses(operation.range)) {
+        for (let address = operation.range.base; address < rangeEnd(operation.range); address += memoryPageSize) {
           this.#updateProtection(address, operation.protection);
         }
         break;
       case "decommit":
-        for (const address of pageAddresses(operation.range)) {
+        for (let address = operation.range.base; address < rangeEnd(operation.range); address += memoryPageSize) {
           this.#unmapPage(address);
         }
         break;
