@@ -382,6 +382,46 @@ try {
   }
 
   {
+    const addresses = [data, data + pageSize, data + 2 * pageSize, data + 3 * pageSize];
+    const engine = await fixture(4096, addresses.slice(1).map(address => page(address)));
+    const write = (targets, value) => {
+      const writer = page(codeBase, rx);
+      writer.bytes.set([...targets.flatMap(address => [0xa3, ...u32(address)]), 0x0f, 0x0b]);
+      engine.applyMemoryDelta(delta([], [writer]));
+      engine.applyCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: value });
+      assert.equal(engine.executeBudget(32).stop.trap, "invalid-opcode");
+    };
+    write([...addresses].reverse(), 0x11112222);
+    const four = engine.collectChangedPageViews();
+    assert.deepEqual(four.map(p => [p.address, p.owner]), addresses.map(address => [address, 1]));
+    assert(four.every(p => new DataView(p.bytes.buffer, p.bytes.byteOffset).getUint32(0, true) === 0x11112222));
+    const oldBytes = four[0].bytes;
+    write([addresses[3]], 0x33334444);
+    current().forceDirtyOverflow = true;
+    const one = engine.collectChangedPageViews();
+    assert.deepEqual(one.map(p => [p.address, p.owner]), [[addresses[3], 1]], "a smaller full scan does not return stale dirty pages");
+    assert.equal(new DataView(one[0].bytes.buffer, one[0].bytes.byteOffset).getUint32(0, true), 0x33334444);
+    assert.deepEqual(engine.collectChangedPageViews(), [], "a clean collection has no stale tail");
+    engine.applyMemoryDelta(delta([
+      operation("decommit", addresses[1]), operation("release", addresses[1]),
+      { ...operation("reserve", addresses[1], 1, rw, 2), kind: "anonymous" },
+      operation("commit", addresses[1], 1, rw, 2),
+    ]));
+    const beforeGrowth = engine.saveCpuContext();
+    current().raw.memory.grow(1);
+    assert.equal(oldBytes.byteLength, 0, "actual Wasm growth detaches the old borrowed bytes");
+    assert.deepEqual(engine.saveCpuContext(), beforeGrowth);
+    write(addresses.slice(0, 3).reverse(), 0x55556666);
+    const three = engine.collectChangedPageViews();
+    assert.deepEqual(three.map(p => [p.address, p.owner]), [[addresses[0], 1], [addresses[1], 2], [addresses[2], 1]]);
+    assert(three.every(p => p.bytes.buffer === current().raw.memory.buffer &&
+      new DataView(p.bytes.buffer, p.bytes.byteOffset).getUint32(0, true) === 0x55556666),
+    "regrown writeback contains fresh bytes and current mapping owners");
+    assert.deepEqual(engine.collectChangedPageViews(), []);
+    console.log("mirror dirty batches 4-to-1-to-0-to-3 preserve current owners and grown views");
+  }
+
+  {
     const engine = await fixture();
     writeOnce(engine, 0x11112222);
     const borrowedPages = engine.collectChangedPageViews();

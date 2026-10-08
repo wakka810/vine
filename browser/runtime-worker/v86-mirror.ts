@@ -813,7 +813,7 @@ export class V86Mirror implements ExecutionEngine {
   #collectChangedPages(copyBytes: boolean): DirtyMirrorPage[] {
     this.#refreshLinearMemoryViews();
     const dirtyMappings = this.#dirtyMappingsScratch;
-    dirtyMappings.length = 0;
+    let dirtyMappingCount = 0;
     const candidateCount = this.#wasm.vine_dirty_page_count();
     invariant(
       Number.isInteger(candidateCount) &&
@@ -832,7 +832,7 @@ export class V86Mirror implements ExecutionEngine {
         const pte = this.#physicalWords[mapping.pteWordIndex]!;
         if ((pte & pageFlags.dirty) !== 0) {
           this.#physicalWords[mapping.pteWordIndex] = pte & ~pageFlags.dirty;
-          dirtyMappings.push(mapping);
+          dirtyMappings[dirtyMappingCount++] = mapping;
         }
       }
     } else {
@@ -845,14 +845,16 @@ export class V86Mirror implements ExecutionEngine {
         const pte = this.#physicalWords[mapping.pteWordIndex]!;
         if ((pte & pageFlags.dirty) !== 0) {
           this.#physicalWords[mapping.pteWordIndex] = pte & ~pageFlags.dirty;
-          dirtyMappings.push(mapping);
+          dirtyMappings[dirtyMappingCount++] = mapping;
         }
       }
     }
+    // Refill before truncating so nonempty batches retain their array storage.
+    dirtyMappings.length = dirtyMappingCount;
     this.#wasm.vine_reset_dirty_pages();
     dirtyMappings.sort((left, right) => left.address - right.address);
     const dirty = copyBytes ? [] : this.#borrowedDirtyPages;
-    dirty.length = 0;
+    let dirtyCount = 0;
     for (const mapping of dirtyMappings) {
       const bytes = this.#physicalMemory.subarray(
         mapping.physicalBase,
@@ -865,7 +867,7 @@ export class V86Mirror implements ExecutionEngine {
           bytes: Uint8Array.from(bytes),
         });
       } else {
-        const index = dirty.length;
+        const index = dirtyCount;
         let page = this.#borrowedDirtyPagePool[index];
         if (page === undefined) {
           page = { address: mapping.address, owner: mapping.owner, bytes };
@@ -875,9 +877,11 @@ export class V86Mirror implements ExecutionEngine {
           page.owner = mapping.owner;
           page.bytes = bytes;
         }
-        dirty.push(page);
+        dirty[index] = page;
       }
+      dirtyCount += 1;
     }
+    dirty.length = dirtyCount;
     if (scanAll) {
       this.#wasm.full_clear_tlb();
     } else {

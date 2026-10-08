@@ -209,6 +209,43 @@ const writebackControlBytes = 28 + pages.length * 8;
 const input = new Uint8Array(memory.buffer, inputPointer, writebackControlBytes + 8192);
 assert(input.subarray(writebackControlBytes, writebackControlBytes + 4096).every(byte => byte === 0x5a));
 assert(input.subarray(writebackControlBytes + 4096).every(byte => byte === 0xa5));
+{
+  const shared = new Uint8Array(memory.buffer, 65536, 4096).fill(0x61);
+  const external = new Uint8Array(4096).fill(0x72);
+  const batches = [
+    [
+      { address: 0x3000, owner: 2, bytes: shared },
+      { address: 0x4000, owner: 3, bytes: external },
+      { address: 0x5000, owner: 4, bytes: new Uint8Array(4096).fill(0x83) },
+      { address: 0x6000, owner: 5, bytes: new Uint8Array(4096).fill(0x94) },
+    ],
+    [{ address: 0x7000, owner: 6, bytes: new Uint8Array(4096).fill(0xa5) }],
+    [],
+    () => [
+      { address: 0x8000, owner: 7, bytes: new Uint8Array(4096).fill(0xb6) },
+      { address: 0x9000, owner: 8, bytes: new Uint8Array(memory.buffer, 69632, 4096).fill(0xc7) },
+      { address: 0xa000, owner: 9, bytes: new Uint8Array(4096).fill(0xd8) },
+    ],
+  ];
+  for (const next of batches) {
+    const batch = typeof next === "function" ? next() : next;
+    const expected = batch.map(p => ({ address: p.address, owner: p.owner, bytes: Uint8Array.from(p.bytes),
+      external: p.bytes.buffer !== memory.buffer ? p.bytes : null }));
+    assert.equal(bridge.reconcileWritebackPages(8n, batch), 9n);
+    const length = 28 + batch.length * 8;
+    const packet = new Uint8Array(memory.buffer, inputPointer, length + batch.length * 4096);
+    const control = new DataView(packet.buffer, packet.byteOffset, length);
+    assert.equal(control.getUint32(20, true), batch.length, "writeback count does not retain a stale tail");
+    for (let index = 0; index < batch.length; index++) {
+      assert.equal(control.getUint32(28 + index * 8, true), expected[index].address);
+      assert.equal(control.getUint32(32 + index * 8, true), expected[index].owner);
+      assert.deepEqual(packet.subarray(length + index * 4096, length + (index + 1) * 4096), expected[index].bytes);
+      if (expected[index].external) assert.equal(batch[index].bytes, expected[index].external,
+        "an old shared offset must never replace a new external page");
+      else assert.equal(batch[index].bytes.buffer, memory.buffer);
+    }
+  }
+}
 let stopCalls = 0, stopStatus = 0, stopLength = null, stopPointer = 16384;
 let stopFields = { threadId: 3, lastError: 5, module: "fixture.dll", symbol: "FailingApi" };
 let stopBytes;

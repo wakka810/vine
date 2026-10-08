@@ -214,10 +214,11 @@ export class RuntimeBridge {
     const payloadLength = pages.length * memoryPageSize;
     const sourceBuffer = this.#exports.memory.buffer;
     const sharedOffsets = this.#sharedWritebackOffsets;
-    sharedOffsets.length = 0;
+    let sharedOffsetCount = 0;
     for (const page of pages) {
-      sharedOffsets.push(page.bytes.buffer === sourceBuffer ? page.bytes.byteOffset : -1);
+      sharedOffsets[sharedOffsetCount++] = page.bytes.buffer === sourceBuffer ? page.bytes.byteOffset : -1;
     }
+    sharedOffsets.length = sharedOffsetCount;
     const input = this.#resizeInput(controlLength + payloadLength);
     // Resizing Wasm memory can detach CPU page views; rebuild only those views
     // which point into this same linear memory before copying their contents.
