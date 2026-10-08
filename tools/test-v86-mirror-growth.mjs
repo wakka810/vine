@@ -57,6 +57,8 @@ WebAssembly.Instance = function(module, imports) {
   adapters.push(record);
   return { exports: {
     ...raw,
+    vine_cpu_state_ptr() { return record.statePointer ?? raw.vine_cpu_state_ptr(); },
+    vine_cpu_state_size() { return record.stateSize ?? raw.vine_cpu_state_size(); },
     allocate_memory(bytes) {
       if (failure === "allocate") return 0;
       record.poolBytes = bytes;
@@ -170,6 +172,32 @@ function assertDirtyOnce(engine, addresses) {
 }
 
 try {
+  {
+    const engine = await fixture();
+    const record = current();
+    const before = engine.saveCpuContext();
+    const warmed = engine.saveCpuContext();
+    const retained = Uint32Array.from(before.opaqueWords);
+    assert.equal(before.opaqueWords.length, 153);
+    assert.deepEqual(warmed, before);
+    assert.notEqual(warmed.opaqueWords.buffer, before.opaqueWords.buffer, "saved contexts own distinct CPU words");
+    assert.notEqual(before.opaqueWords.buffer, record.raw.memory.buffer);
+    record.statePointer = record.raw.memory.buffer.byteLength;
+    assert.throws(() => engine.saveCpuContext(), RangeError, "a warmed state view still checks its live pointer");
+    record.statePointer = undefined;
+    const pointerRecovered = engine.saveCpuContext();
+    assert.deepEqual(pointerRecovered, before, "pointer recovery preserves all 153 words and scalar context");
+    assert.notEqual(pointerRecovered.opaqueWords.buffer, before.opaqueWords.buffer);
+    record.stateSize = record.raw.memory.buffer.byteLength + 4;
+    assert.throws(() => engine.saveCpuContext(), RangeError, "a warmed state view still checks its live size");
+    record.stateSize = undefined;
+    const sizeRecovered = engine.saveCpuContext();
+    assert.deepEqual(sizeRecovered, before, "size recovery preserves all 153 words and scalar context");
+    assert.notEqual(sizeRecovered.opaqueWords.buffer, before.opaqueWords.buffer);
+    assert.deepEqual(before.opaqueWords, retained, "failed state reads do not change the owned snapshot");
+    console.log("mirror warmed CPU state range failures and recovery preserve owned contexts");
+  }
+
   {
     const engine = await fixture();
     const loop = page(codeBase, rx);

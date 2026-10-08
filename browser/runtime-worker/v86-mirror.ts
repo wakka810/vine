@@ -270,6 +270,7 @@ export class V86Mirror implements ExecutionEngine {
   #physicalMemory!: Uint8Array;
   #physicalWords!: Uint32Array;
   #physicalView!: DataView;
+  #cpuStateWords: Uint32Array | null = null;
   readonly #maximumPhysicalPages: number;
   readonly #maximumPhysicalPoolBytes: number;
   #physicalPoolBytes: number;
@@ -457,6 +458,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#physicalMemory = physicalMemory;
     this.#physicalWords = physicalWords;
     this.#physicalView = physicalView;
+    this.#cpuStateWords = null;
     // Borrowed writeback views expire at the next engine call. An unused cache
     // tail must not retain the previous adapter's entire linear memory.
     this.#borrowedDirtyPages.length = 0;
@@ -1390,11 +1392,15 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #liveStateWords(): Uint32Array {
-    return new Uint32Array(
-      this.#wasm.memory.buffer,
-      this.#wasm.vine_cpu_state_ptr(),
-      this.#wasm.vine_cpu_state_size() / 4,
-    );
+    const buffer = this.#wasm.memory.buffer;
+    const pointer = this.#wasm.vine_cpu_state_ptr();
+    const byteLength = this.#wasm.vine_cpu_state_size();
+    const cached = this.#cpuStateWords;
+    if (byteLength > 0 && cached !== null && cached.buffer === buffer &&
+        cached.byteOffset === pointer && cached.byteLength === byteLength) return cached;
+    const words = new Uint32Array(buffer, pointer, byteLength / 4);
+    this.#cpuStateWords = words;
+    return words;
   }
 
   #refreshLinearMemoryViews(): void {
