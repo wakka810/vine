@@ -638,6 +638,36 @@ if (serve) {
             throw Error('Invalid later draw changed the frame before full preflight');
           }
         }
+        const blackVertices = quadBytes.slice(), blackVertexView = new DataView(blackVertices.buffer);
+        [[0,-2,-1], [8,3,-1], [0,-2,4], [8,3,4]].forEach(([x,u,v], index) => {
+          const base = index * 28;
+          blackVertexView.setFloat32(base, x, true);
+          blackVertexView.setUint32(base + 16, 0x80402010, true);
+          blackVertexView.setFloat32(base + 20, u, true); blackVertexView.setFloat32(base + 24, v, true);
+        });
+        const largeTexture = {width:2048,height:1024,pixels:null,fills:[]};
+        const blackDraw = {vertices:[...blackVertices],texture:largeTexture};
+        for (const fills of [[], [{left:17,top:23,right:1025,bottom:513,colorRef:0xff000000}]]) {
+          surface.present({...valid,draws:[{...blackDraw,texture:{...largeTexture,fills}}]});
+          if (sample(4,6) !== '0,0,0,255' || sample(4,1) !== '0,0,0,255' ||
+              sample(12,6) !== '17,51,85,255') {
+            throw Error('Undefined XRGB or partial black fill lost opacity, repeat UVs, tint or clipping');
+          }
+        }
+        const coloredLarge = {...draw,texture:{...largeTexture,fills:[
+          {left:0,top:0,right:2048,bottom:512,colorRef:0x0000ff},
+          {left:0,top:0,right:1024,bottom:512,colorRef:0x00ff00}]}};
+        surface.present({...valid,draws:[coloredLarge]});
+        if (sample(4,6) !== '0,255,0,255' || sample(12,6) !== '255,0,0,255' ||
+            sample(4,1) !== '0,0,0,255') throw Error('Nonblack partial fills lost order or undefined black texels');
+        for (const draws of [[blackDraw,{...blackDraw,vertices:nanVertices}], [blackDraw,blackDraw,blackDraw]]) {
+          let rejected = false;
+          try { surface.present({...valid,width:32,height:16,colorArgb:0xffabcdef,draws}); } catch { rejected = true; }
+          if (!rejected || surfaceCanvas.width !== 16 || surfaceCanvas.height !== 8 ||
+              sample(4,6) !== '0,255,0,255' || sample(12,6) !== '255,0,0,255') {
+            throw Error('Invalid later draw or logical upload budget changed the existing frame');
+          }
+        }
         const loss = gl.getExtension('WEBGL_lose_context');
         if (!loss) throw Error('Chrome lacks the context-loss test extension');
         loss.loseContext();

@@ -121,10 +121,13 @@ class WebGLGameSurface {
     for (let index = 0; index < frame.draws.length; index++) {
       const source = frame.draws[index]!.texture;
       const snapshot = source.pixels;
+      // Undefined X8R8G8B8 texels and black fills are opaque black at every coordinate.
+      const black = snapshot === null && source.fills.every(fill => (fill.colorRef & 0xffffff) === 0);
       const direct = snapshot !== null && source.fills.length === 0 && snapshot.pitch % 4 === 0;
       // Upload consumes this validated, borrowed snapshot synchronously before the Wasm acknowledgement.
       // X8R8G8B8 channel order and opacity are applied after filtering in the shader.
-      const pixels = direct ? payload.subarray(snapshot.offset, snapshot.offset + snapshot.length) : texturePixels(source, payload);
+      const pixels = black ? new Uint8Array([0, 0, 0, 255]) :
+        direct ? payload.subarray(snapshot.offset, snapshot.offset + snapshot.length) : texturePixels(source, payload);
       const texture = gl.createTexture();
       if (texture === null) throw new Error("WebGL2 texture allocation failed");
       try {
@@ -136,7 +139,7 @@ class WebGLGameSurface {
         gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
         gl.pixelStorei(gl.UNPACK_ROW_LENGTH, direct ? snapshot.pitch / 4 : 0);
         gl.uniform1i(this.#bgrx, direct ? 1 : 0);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, source.width, source.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, black ? 1 : source.width, black ? 1 : source.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.#vertices);
         gl.bufferData(gl.ARRAY_BUFFER, vertices[index]!, gl.STREAM_DRAW);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
