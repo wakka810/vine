@@ -1,4 +1,5 @@
 import { isDevSource, type SourceDirectory } from "../storage/dev-source-directory.js";
+import { browserDelayMilliseconds } from "./browser-delay.js";
 import { gameStorageFingerprint } from "../storage/source-directory.js";
 import { instantiateExecutionEngine } from "./execution-engine.js";
 import { rasterizeGdiText } from "./gdi-text-raster.js";
@@ -610,6 +611,7 @@ async function launch(request: LaunchRequest): Promise<void> {
     if (audioEnds.length === 0) return false;
     const changed = engine.collectChangedPageViews();
     if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
+    bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
     let woke = false;
     while (audioEnds.length > 0) {
       const resourceId = audioEnds.shift()!;
@@ -627,22 +629,25 @@ async function launch(request: LaunchRequest): Promise<void> {
     const changed = engine.collectChangedPageViews();
     if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
     recordRecentEvent("host-completion", delay.threadId, null, delay.service);
+    if (delay.service === "browser.audio-delay") {
+      bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
+    }
     const completed = bridge.completeHost<BrowserHostCompletion>(delay.requestId, delay.acknowledgement);
     if (completed.metadata.threadId !== delay.threadId) {
       throw new Error("Browser completion disagrees with its guest thread");
     }
     if (completed.metadata.kind === "host-retry") {
       const retry = completed.metadata;
-      const milliseconds = retry.arguments?.[0];
-      if (delay.service !== "browser.timer-delay" || retry.service !== delay.service ||
+      if ((delay.service !== "browser.timer-delay" && delay.service !== "browser.audio-delay") ||
+          retry.service !== delay.service ||
           retry.requestId !== delay.requestId.toString() || !Array.isArray(retry.arguments) ||
-          retry.arguments.length !== 1 || !Number.isInteger(milliseconds) ||
-          milliseconds! < 1 || milliseconds! > 0x7fff_ffff || "completion" in retry ||
+          "completion" in retry ||
           completed.control.length !== 0 || completed.payload.length !== 0 ||
           completed.presentation.length !== 0 || completed.audio.length !== 0 ||
           completed.mediaBytes.length !== 0) {
         throw new Error("Browser timer retry disagrees with its pending request");
       }
+      const milliseconds = browserDelayMilliseconds(retry.service, retry.arguments);
       delay.done = false;
       delay.promise = new Promise<void>(resolve => setTimeout(() => {
         delay.done = true;
@@ -889,6 +894,7 @@ async function launch(request: LaunchRequest): Promise<void> {
             throw new Error("Audio request disagrees with the current guest call");
           }
           const accepted = await submitAudio(output.metadata.requestId, output.audio);
+          bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
           const completed = bridge.completeComAudio<{ kind: string; completion: CpuResume }>(
             BigInt(output.metadata.requestId), accepted,
           );
@@ -1134,24 +1140,10 @@ async function launch(request: LaunchRequest): Promise<void> {
           }
           if (host.service === "browser.timer-delay" || host.service === "browser.sleep" ||
               host.service === "browser.audio-delay") {
-            const words = host.arguments;
             const wait = host.service === "browser.timer-delay";
             const audio = host.service === "browser.audio-delay";
-            const audioActive = audio && words[0] === 1;
-            const countIndex = audioActive ? 5 : 3;
-            const timeoutIndex = audioActive ? 4 : 2;
-            const count = words[countIndex];
-            const timeout = words[timeoutIndex];
-            const milliseconds = audio ? words[1] : words[0];
-            if ((audio && ((words[0] !== 1 && words[0] !== 2) ||
-                    !Number.isInteger(count) || count! < 1 || count! > 32 ||
-                    words.length !== (audioActive ? 6 : 4) + count! ||
-                    words.some(word => !Number.isInteger(word) || word < 0 || word > 0xffff_ffff) ||
-                    !Number.isInteger(timeout) || timeout! < 1 || timeout! > 100 ||
-                    milliseconds! > timeout! || (!audioActive && milliseconds !== timeout))) ||
-                (!audio && words.length !== 1) ||
-                !Number.isInteger(milliseconds) || milliseconds! < 1 || milliseconds! > 0x7fff_ffff ||
-                pendingBrowserCompletions.length >= 32) {
+            const milliseconds = browserDelayMilliseconds(host.service, host.arguments);
+            if (pendingBrowserCompletions.length >= 32) {
               throw new Error("Invalid or excessive browser timer request");
             }
             const delay = {

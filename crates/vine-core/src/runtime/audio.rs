@@ -124,7 +124,20 @@ pub(crate) struct RuntimeAudioBuffer {
     pub browser_resource_id: Option<u64>,
     pub controls: RuntimeAudioBufferControls,
     pub notifications: Vec<RuntimeAudioNotification>,
-    pub notification_cursor: usize,
+    timeline: AudioTimeline,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct AudioTimeline {
+    host_time_100ns: u64,
+    frames: u64,
+    remainder: u32,
+}
+
+pub(super) struct AudioProgress {
+    buffer_id: RuntimeAudioBufferId,
+    timeline: AudioTimeline,
+    pub notifications: Vec<RuntimeHandle>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,18 +229,12 @@ pub(crate) enum BrowserAudioPreparation {
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub(crate) struct RuntimeAudioNotificationWaitPlan {
     buffer_id: RuntimeAudioBufferId,
-    next_position_bytes: u32,
-    next_cursor: usize,
     delay_milliseconds: u32,
-    result_index: Option<u32>,
     timeout_milliseconds: u32,
+    started_at_100ns: u64,
 }
 
 impl RuntimeAudioNotificationWaitPlan {
-    pub(crate) const fn result_index(&self) -> Option<u32> {
-        self.result_index
-    }
-
     pub(crate) fn encode_host_payload(&self, handles: &[RuntimeHandle]) -> Vec<u8> {
         let words = [
             1,
@@ -244,20 +251,19 @@ impl RuntimeAudioNotificationWaitPlan {
         {
             payload.extend_from_slice(&word.to_le_bytes());
         }
+        payload.extend_from_slice(&self.started_at_100ns.to_le_bytes());
         payload
     }
 
     pub(crate) fn matches_host_payload(&self, handles: &[RuntimeHandle], payload: &[u8]) -> bool {
-        // Other waiters may advance position and cursor; completion uses live state.
-        // The captured mode, delay, buffer identity, timeout, and handles stay fixed.
-        if payload.len() != (6 + handles.len()) * 4 {
+        if payload.len() != (8 + handles.len()) * 4 {
             return false;
         }
         let word = |index: usize| {
             u32::from_le_bytes(payload[index * 4..index * 4 + 4].try_into().unwrap())
         };
         word(0) == 1
-            && word(1) == self.delay_milliseconds
+            && (1..=self.timeout_milliseconds).contains(&word(1))
             && (u64::from(word(2)) | (u64::from(word(3)) << 32)) == self.buffer_id.0
             && word(4) == self.timeout_milliseconds
             && word(5) == handles.len() as u32
@@ -561,7 +567,7 @@ impl RuntimeAudio {
                 current_position_bytes: 0,
             },
             notifications: Vec::new(),
-            notification_cursor: 0,
+            timeline: AudioTimeline::default(),
         };
         let device = self
             .devices
@@ -760,11 +766,9 @@ impl RuntimeAudio {
             return Ok(true);
         }
         let id = buffer.id;
-        let cursor = first_notification_after(buffer, &notifications);
 
         let buffer = self.buffers.get_mut(&id).expect("checked audio buffer");
         buffer.notifications = notifications;
-        buffer.notification_cursor = cursor;
 
         Ok(true)
     }
@@ -791,6 +795,7 @@ impl RuntimeAudio {
         &self,
         handles: &[RuntimeHandle],
         timeout_milliseconds: u32,
+        host_time_100ns: u64,
     ) -> Result<Option<RuntimeAudioNotificationWaitPlan>, RuntimeStateError> {
         if handles.is_empty() || handles.len() > RUNTIME_AUDIO_NOTIFICATION_LIMIT {
             return Err(RuntimeStateError::new(
@@ -808,55 +813,39 @@ impl RuntimeAudio {
         let format = buffer.active_format.ok_or_else(|| {
             RuntimeStateError::new("playing notification buffer has no PCM format")
         })?;
-        let notification_index = normalize_notification_cursor(buffer, buffer.notification_cursor)
+        let timeline = project_timeline(buffer, host_time_100ns)?;
+        let position = buffer_position_frames(buffer, timeline);
+        let frames = u64::from(buffer.descriptor.byte_length / u32::from(format.block_align));
+        let distance = buffer
+            .notifications
+            .iter()
+            .filter(|n| n.offset_bytes != u32::MAX)
+            .map(|n| {
+                let offset = u64::from(n.offset_bytes / u32::from(format.block_align));
+                if offset > position {
+                    offset - position
+                } else {
+                    frames - position + offset
+                }
+            })
+            .min()
             .ok_or_else(|| {
                 RuntimeStateError::new("notification wait has no playable position notification")
             })?;
-        let notification = buffer.notifications[notification_index];
-        let position = buffer.controls.current_position_bytes;
-        let byte_length = buffer.descriptor.byte_length;
-        let distance = if notification.offset_bytes > position {
-            notification.offset_bytes - position
-        } else {
-            byte_length - position + notification.offset_bytes
-        };
-        let milliseconds_to_notification = u64::from(distance)
-            .saturating_mul(1000)
-            .div_ceil(u64::from(format.average_bytes_per_second))
+        let frequency = buffer
+            .controls
+            .frequency_hz
+            .unwrap_or(format.samples_per_second);
+        let until = (u128::from(distance) * 10_000_000 - u128::from(timeline.remainder))
+            .div_ceil(u128::from(frequency))
+            .div_ceil(10_000)
             .max(1);
-        let fires = milliseconds_to_notification <= u64::from(timeout_milliseconds);
-        let delay_milliseconds = if fires {
-            milliseconds_to_notification as u32
-        } else {
-            timeout_milliseconds
-        };
-        let advanced_bytes = if fires {
-            distance
-        } else {
-            u64::from(format.average_bytes_per_second)
-                .saturating_mul(u64::from(delay_milliseconds))
-                .checked_div(1000)
-                .unwrap_or(0) as u32
-        };
-        let next_position_bytes = if fires {
-            notification.offset_bytes
-        } else {
-            (u64::from(position) + u64::from(advanced_bytes))
-                .checked_rem(u64::from(byte_length))
-                .unwrap_or(0) as u32
-        };
+        let delay_milliseconds = until.min(u128::from(timeout_milliseconds)) as u32;
         Ok(Some(RuntimeAudioNotificationWaitPlan {
             buffer_id: buffer.id,
-            next_position_bytes,
-            next_cursor: if fires {
-                next_playable_notification(&buffer.notifications, notification_index)
-                    .unwrap_or(notification_index)
-            } else {
-                notification_index
-            },
             delay_milliseconds,
-            result_index: fires.then_some(notification_index as u32),
             timeout_milliseconds,
+            started_at_100ns: host_time_100ns,
         }))
     }
 
@@ -882,7 +871,7 @@ impl RuntimeAudio {
         if buffer.playback != RuntimeAudioPlaybackState::Stopped
             || handles.is_empty()
             || handles.len() > RUNTIME_AUDIO_NOTIFICATION_LIMIT
-            || active_payload.len() != (6 + handles.len()) * 4
+            || active_payload.len() != (8 + handles.len()) * 4
             || word(0) != Some(1)
             || payload_buffer_id != Some(buffer.id.0)
             || word(4) != Some(timeout_milliseconds)
@@ -899,13 +888,88 @@ impl RuntimeAudio {
         Ok(())
     }
 
-    pub(super) fn commit_notification_wait(&mut self, plan: RuntimeAudioNotificationWaitPlan) {
-        let buffer = self
-            .buffers
-            .get_mut(&plan.buffer_id)
-            .expect("validated audio notification buffer disappeared");
-        buffer.controls.current_position_bytes = plan.next_position_bytes;
-        buffer.notification_cursor = plan.next_cursor;
+    pub(super) fn progress_for_handles(
+        &self,
+        handles: &[RuntimeHandle],
+        now: u64,
+    ) -> Result<Option<AudioProgress>, RuntimeStateError> {
+        self.notification_buffer_for_handles(handles)
+            .map(|b| self.progress(b.com_object_id, now))
+            .transpose()
+    }
+
+    pub(super) fn notifications_before(
+        &self,
+        handles: &[RuntimeHandle],
+        cutoff: u64,
+    ) -> Result<Vec<RuntimeHandle>, RuntimeStateError> {
+        let Some(buffer) = self.notification_buffer_for_handles(handles) else {
+            return Ok(Vec::new());
+        };
+        if cutoff < buffer.timeline.host_time_100ns {
+            return Ok(Vec::new());
+        }
+        Ok(self.progress(buffer.com_object_id, cutoff)?.notifications)
+    }
+
+    pub(super) fn progress(
+        &self,
+        object_id: RuntimeComObjectId,
+        now: u64,
+    ) -> Result<AudioProgress, RuntimeStateError> {
+        let buffer = self.buffer_by_com_object(object_id)?;
+        let timeline = project_timeline(buffer, now)?;
+        let mut notifications = Vec::new();
+        if buffer.playback != RuntimeAudioPlaybackState::Stopped {
+            let format = buffer
+                .active_format
+                .ok_or_else(|| RuntimeStateError::new("playing audio has no PCM format"))?;
+            let frames = u64::from(buffer.descriptor.byte_length / u32::from(format.block_align));
+            if frames != 0 {
+                let old = buffer_position_frames(buffer, buffer.timeline);
+                let advanced = timeline.frames - buffer.timeline.frames;
+                for notification in &buffer.notifications {
+                    if notification.offset_bytes == u32::MAX {
+                        continue;
+                    }
+                    let offset =
+                        u64::from(notification.offset_bytes / u32::from(format.block_align));
+                    let distance = if offset > old {
+                        offset - old
+                    } else {
+                        frames - old + offset
+                    };
+                    if advanced >= distance {
+                        notifications.push(notification.event_handle);
+                    }
+                }
+            }
+        }
+        Ok(AudioProgress {
+            buffer_id: buffer.id,
+            timeline,
+            notifications,
+        })
+    }
+
+    pub(super) fn commit_progress(&mut self, progress: AudioProgress) {
+        self.buffers
+            .get_mut(&progress.buffer_id)
+            .expect("validated audio buffer")
+            .timeline = progress.timeline;
+    }
+
+    pub(super) fn position_bytes(
+        &self,
+        object_id: RuntimeComObjectId,
+        now: u64,
+    ) -> Result<u32, RuntimeStateError> {
+        let buffer = self.buffer_by_com_object(object_id)?;
+        let Some(format) = buffer.active_format else {
+            return Ok(buffer.controls.current_position_bytes);
+        };
+        let timeline = project_timeline(buffer, now)?;
+        Ok((buffer_position_frames(buffer, timeline) * u64::from(format.block_align)) as u32)
     }
 
     pub(super) fn validate_buffer_play(
@@ -974,12 +1038,30 @@ impl RuntimeAudio {
             .expect("validated audio buffer disappeared");
         let changed = buffer.playback != playback;
         if changed {
-            buffer.playback = playback;
-            if playback != RuntimeAudioPlaybackState::Stopped {
-                buffer.notification_cursor =
-                    first_notification_after(buffer, &buffer.notifications);
+            if playback == RuntimeAudioPlaybackState::Stopped {
+                if let Some(format) = buffer.active_format {
+                    buffer.controls.current_position_bytes =
+                        (buffer_position_frames(buffer, buffer.timeline)
+                            * u64::from(format.block_align)) as u32;
+                }
+                buffer.timeline.frames = 0;
+                buffer.timeline.remainder = 0;
             }
+            buffer.playback = playback;
         }
+    }
+
+    pub(super) fn finish_browser_end(&mut self, object_id: RuntimeComObjectId) {
+        let id = self.buffer_com_object_index[&object_id];
+        let buffer = self
+            .buffers
+            .get_mut(&id)
+            .expect("validated audio end buffer");
+        // The resource's actual EOF wins over a slightly earlier sampled host clock.
+        buffer.controls.current_position_bytes = 0;
+        buffer.timeline.frames = 0;
+        buffer.timeline.remainder = 0;
+        buffer.playback = RuntimeAudioPlaybackState::Stopped;
     }
 
     pub(super) fn set_buffer_control(
@@ -992,14 +1074,17 @@ impl RuntimeAudio {
         };
         let buffer = self.buffer_by_com_object(buffer_com_object_id)?;
         let id = buffer.id;
-        if buffer.controls == next {
+        if buffer.controls == next
+            && !matches!(update, RuntimeAudioBufferControlUpdate::CurrentPosition(_))
+        {
             return Ok(true);
         }
 
         let buffer = self.buffers.get_mut(&id).expect("checked audio buffer");
         buffer.controls = next;
         if matches!(update, RuntimeAudioBufferControlUpdate::CurrentPosition(_)) {
-            buffer.notification_cursor = first_notification_after(buffer, &buffer.notifications);
+            buffer.timeline.frames = 0;
+            buffer.timeline.remainder = 0;
         }
 
         Ok(true)
@@ -1355,46 +1440,57 @@ fn validate_notifications(
     Ok(true)
 }
 
-fn first_notification_after(
+fn project_timeline(
     buffer: &RuntimeAudioBuffer,
-    notifications: &[RuntimeAudioNotification],
-) -> usize {
-    notifications
-        .iter()
-        .position(|notification| {
-            notification.offset_bytes != u32::MAX
-                && notification.offset_bytes > buffer.controls.current_position_bytes
-        })
-        .or_else(|| {
-            notifications
-                .iter()
-                .position(|notification| notification.offset_bytes != u32::MAX)
-        })
-        .unwrap_or(0)
-}
-
-fn normalize_notification_cursor(buffer: &RuntimeAudioBuffer, cursor: usize) -> Option<usize> {
-    if buffer
-        .notifications
-        .get(cursor)
-        .is_some_and(|notification| notification.offset_bytes != u32::MAX)
+    now: u64,
+) -> Result<AudioTimeline, RuntimeStateError> {
+    let elapsed = now
+        .checked_sub(buffer.timeline.host_time_100ns)
+        .ok_or_else(|| RuntimeStateError::new("audio host clock cannot move backwards"))?;
+    let mut next = AudioTimeline {
+        host_time_100ns: now,
+        ..buffer.timeline
+    };
+    if buffer.playback == RuntimeAudioPlaybackState::Stopped
+        || buffer.descriptor.kind == RuntimeAudioBufferKind::Primary
     {
-        Some(cursor)
-    } else {
-        buffer
-            .notifications
-            .iter()
-            .position(|notification| notification.offset_bytes != u32::MAX)
+        return Ok(next);
     }
+    let format = buffer
+        .active_format
+        .ok_or_else(|| RuntimeStateError::new("playing audio has no PCM format"))?;
+    let frequency = buffer
+        .controls
+        .frequency_hz
+        .unwrap_or(format.samples_per_second);
+    let numerator = u128::from(elapsed) * u128::from(frequency) + u128::from(next.remainder);
+    next.frames = u64::try_from(u128::from(next.frames) + numerator / 10_000_000)
+        .map_err(|_| RuntimeStateError::new("audio playback frame counter exhausted"))?;
+    next.remainder = (numerator % 10_000_000) as u32;
+    if buffer.playback == RuntimeAudioPlaybackState::PlayingOnce {
+        let remaining = u64::from(
+            (buffer.descriptor.byte_length - buffer.controls.current_position_bytes)
+                / u32::from(format.block_align),
+        );
+        if next.frames >= remaining {
+            next.frames = remaining;
+            next.remainder = 0;
+        }
+    }
+    Ok(next)
 }
 
-fn next_playable_notification(
-    notifications: &[RuntimeAudioNotification],
-    current: usize,
-) -> Option<usize> {
-    (1..=notifications.len())
-        .map(|step| (current + step) % notifications.len())
-        .find(|&index| notifications[index].offset_bytes != u32::MAX)
+fn buffer_position_frames(buffer: &RuntimeAudioBuffer, timeline: AudioTimeline) -> u64 {
+    let Some(format) = buffer.active_format else {
+        return 0;
+    };
+    let frames = u64::from(buffer.descriptor.byte_length / u32::from(format.block_align));
+    if frames == 0 {
+        return 0;
+    }
+    (u64::from(buffer.controls.current_position_bytes / u32::from(format.block_align))
+        + timeline.frames % frames)
+        % frames
 }
 
 fn buffer_ready_for_play(buffer: &RuntimeAudioBuffer) -> Result<bool, RuntimeStateError> {
@@ -1988,133 +2084,127 @@ mod tests {
         let stopped = audio.clone();
         assert!(
             audio
-                .plan_notification_wait(&handles, 100)
+                .plan_notification_wait(&handles, 100, 0)
                 .unwrap()
                 .is_none()
         );
         assert_eq!(audio, stopped);
-        let other_handles = [handles[2], handles[1], handles[0]];
-        assert!(audio.plan_notification_wait(&other_handles, 100).is_err());
-        assert_eq!(audio, stopped);
+        assert!(
+            audio
+                .plan_notification_wait(&[handles[2], handles[1], handles[0]], 100, 0)
+                .is_err()
+        );
         audio
             .set_buffer_play(
                 RuntimeComObjectId(22),
                 RuntimeAudioPlaybackState::PlayingLooping,
             )
             .unwrap();
-        assert_eq!(
-            audio.buffer(RuntimeAudioBufferId(1)).unwrap().playback,
-            RuntimeAudioPlaybackState::PlayingLooping
-        );
         let pending_wait = audio
-            .plan_notification_wait(&handles, 100)
+            .plan_notification_wait(&handles, 100, 0)
             .unwrap()
             .unwrap();
         let pending_wait_payload = pending_wait.encode_host_payload(&handles);
+        assert_eq!(pending_wait.delay_milliseconds, 100);
+        // Timer lateness and CPU work between waits belong to the same real timeline.
+        let progress = audio.progress(RuntimeComObjectId(22), 1_200_000).unwrap();
+        assert!(progress.notifications.is_empty());
+        audio.commit_progress(progress);
+        assert_eq!(
+            audio
+                .position_bytes(RuntimeComObjectId(22), 1_200_000)
+                .unwrap(),
+            21_168
+        );
+        let later = audio
+            .plan_notification_wait(&handles, 100, 2_300_000)
+            .unwrap()
+            .unwrap();
+        assert_eq!(later.delay_milliseconds, 20);
+        assert!(later.matches_host_payload(&handles, &pending_wait_payload));
+        let progress = audio.progress(RuntimeComObjectId(22), 2_600_000).unwrap();
+        assert_eq!(progress.notifications, [handles[1]]);
+        audio.commit_progress(progress);
+        assert_eq!(
+            audio
+                .position_bytes(RuntimeComObjectId(22), 2_600_000)
+                .unwrap(),
+            45_864
+        );
+        assert!(
+            audio
+                .progress(RuntimeComObjectId(22), 2_600_000)
+                .unwrap()
+                .notifications
+                .is_empty()
+        );
+        // A full ring and late wake coalesce each auto-reset notification once.
+        let progress = audio.progress(RuntimeComObjectId(22), 12_600_000).unwrap();
+        assert_eq!(progress.notifications, [handles[0], handles[1]]);
+        audio.commit_progress(progress);
+        // Fractional frames survive sub-frame sampling rather than rounding each wait.
+        let progress = audio.progress(RuntimeComObjectId(22), 12_600_001).unwrap();
+        audio.commit_progress(progress);
+        let before = audio
+            .position_bytes(RuntimeComObjectId(22), 12_600_001)
+            .unwrap();
+        let progress = audio.progress(RuntimeComObjectId(22), 12_600_227).unwrap();
+        audio.commit_progress(progress);
+        assert_eq!(
+            audio
+                .position_bytes(RuntimeComObjectId(22), 12_600_227)
+                .unwrap(),
+            before + 4
+        );
+        // Frequency changes preserve the already played old-rate frames.
         audio
             .set_buffer_control(
                 RuntimeComObjectId(22),
-                RuntimeAudioBufferControlUpdate::Volume(-1_900),
+                RuntimeAudioBufferControlUpdate::Frequency(22_050),
             )
             .unwrap();
-        let rebased_wait = audio
-            .plan_notification_wait(&handles, 100)
-            .unwrap()
+        let before = audio
+            .position_bytes(RuntimeComObjectId(22), 12_600_227)
             .unwrap();
-        assert_eq!(
-            rebased_wait.encode_host_payload(&handles),
-            pending_wait_payload
-        );
-        assert!(rebased_wait.matches_host_payload(&handles, &pending_wait_payload));
-        assert_eq!(rebased_wait.result_index(), None);
-        audio.commit_notification_wait(rebased_wait);
+        let progress = audio.progress(RuntimeComObjectId(22), 13_600_227).unwrap();
+        audio.commit_progress(progress);
         assert_eq!(
             audio
-                .buffer(RuntimeAudioBufferId(1))
-                .unwrap()
-                .controls
-                .current_position_bytes,
-            17_640
+                .position_bytes(RuntimeComObjectId(22), 13_600_227)
+                .unwrap(),
+            before + 8_820
         );
-        let overlapped_wait = audio
-            .plan_notification_wait(&handles, 100)
-            .unwrap()
-            .unwrap();
-        assert!(overlapped_wait.matches_host_payload(&handles, &pending_wait_payload));
-        let mut changed_delay_payload = pending_wait_payload.clone();
-        changed_delay_payload[4..8].copy_from_slice(&99u32.to_le_bytes());
-        assert!(!overlapped_wait.matches_host_payload(&handles, &changed_delay_payload));
-        let mut changed_handle_payload = pending_wait_payload.clone();
-        changed_handle_payload[6 * 4..7 * 4].copy_from_slice(&0u32.to_le_bytes());
-        assert!(!overlapped_wait.matches_host_payload(&handles, &changed_handle_payload));
-        for length in 0..pending_wait_payload.len() {
-            assert!(
-                !overlapped_wait.matches_host_payload(&handles, &pending_wait_payload[..length])
-            );
-        }
-        for index in 0..9 {
-            let mut altered = pending_wait_payload.clone();
-            altered[index * 4] ^= 1;
-            assert!(!overlapped_wait.matches_host_payload(&handles, &altered));
-        }
-        let wait = audio
-            .plan_notification_wait(&handles, 100)
-            .unwrap()
-            .unwrap();
-        assert_eq!(wait.delay_milliseconds, 100);
-        assert_eq!(wait.result_index(), None);
-        // Another device's lifecycle/settings must not invalidate this buffer's wait.
-        audio.create_device(RuntimeComObjectId(33)).unwrap();
+        // Seek to the old base is still a real seek after natural progress.
         audio
-            .set_priority_cooperative_level(RuntimeComObjectId(33), target())
+            .set_buffer_control(
+                RuntimeComObjectId(22),
+                RuntimeAudioBufferControlUpdate::CurrentPosition(0),
+            )
             .unwrap();
         assert_eq!(
             audio
-                .plan_notification_wait(&handles, 100)
-                .unwrap()
-                .as_ref(),
-            Some(&wait)
+                .position_bytes(RuntimeComObjectId(22), 13_600_227)
+                .unwrap(),
+            0
         );
-        let unrelated = [RuntimeComObjectId(33)].into_iter().collect();
-        let retirement = audio
-            .validate_com_object_retirements(&unrelated)
-            .unwrap()
-            .unwrap();
-        audio.remove_validated_com_objects(retirement);
         assert_eq!(
             audio
-                .plan_notification_wait(&handles, 100)
+                .plan_notification_wait(&handles, 100, 13_600_227)
                 .unwrap()
-                .as_ref(),
-            Some(&wait)
-        );
-        audio.commit_notification_wait(wait);
-        assert_eq!(
-            audio
-                .buffer(RuntimeAudioBufferId(1))
                 .unwrap()
-                .controls
-                .current_position_bytes,
-            35_280
+                .delay_milliseconds,
+            100
         );
-        let wait = audio
-            .plan_notification_wait(&handles, 100)
-            .unwrap()
-            .unwrap();
-        assert_eq!(wait.delay_milliseconds, 50);
-        assert_eq!(wait.result_index(), Some(1));
-        audio.commit_notification_wait(wait);
-        assert_eq!(
-            audio
-                .buffer(RuntimeAudioBufferId(1))
-                .unwrap()
-                .controls
-                .current_position_bytes,
-            44_100
-        );
-
+        let mut invalid = pending_wait_payload.clone();
+        invalid[4..8].copy_from_slice(&0u32.to_le_bytes());
+        assert!(!later.matches_host_payload(&handles, &invalid));
+        invalid[4..8].copy_from_slice(&101u32.to_le_bytes());
+        assert!(!later.matches_host_payload(&handles, &invalid));
+        for length in 0..pending_wait_payload.len() {
+            assert!(!later.matches_host_payload(&handles, &pending_wait_payload[..length]));
+        }
         let stopped_wait_payload = audio
-            .plan_notification_wait(&handles, 100)
+            .plan_notification_wait(&handles, 100, 13_600_227)
             .unwrap()
             .unwrap()
             .encode_host_payload(&handles);

@@ -193,6 +193,10 @@ impl RuntimeProcessState {
         self.clock.synchronized_instruction_count()
     }
 
+    pub(super) fn host_elapsed_time_100ns(&self) -> u64 {
+        self.clock.host_elapsed_time_100ns()
+    }
+
     #[cfg(test)]
     pub(super) fn advance_clock(
         &mut self,

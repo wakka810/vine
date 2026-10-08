@@ -2013,6 +2013,62 @@ impl BrowserRuntime {
         );
         let completion = match outcome {
             DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Deferred(retry) => {
+                if previous_thread_id != owner_thread_id {
+                    self.runtime
+                        .select_thread(previous_thread_id)
+                        .map_err(error_string)?;
+                }
+                if retry.request.request_id != request_id
+                    || retry.request.service != RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE
+                    || retry.request.payload.len() < 7 * 4
+                    || retry.request.payload.len() > (8 + 32) * 4
+                    || !retry.request.payload.len().is_multiple_of(4)
+                    || self
+                        .runtime
+                        .scheduler_state_for_thread(owner_thread_id)
+                        .map_err(error_string)?
+                        != (SchedulerThreadState::WaitingHost { request_id })
+                {
+                    return Err("audio notification retry request identity is corrupt".to_owned());
+                }
+                let arguments = retry
+                    .request
+                    .payload
+                    .chunks_exact(4)
+                    .map(|word| u32::from_le_bytes(word.try_into().expect("DWORD audio wait")))
+                    .collect::<Vec<_>>();
+                let (count_index, timeout_index, fixed_words) = match arguments[0] {
+                    1 => (5, 4, 8),
+                    2 => (3, 2, 6),
+                    _ => return Err("audio notification retry mode is invalid".to_owned()),
+                };
+                let count = arguments[count_index] as usize;
+                let milliseconds = arguments[1];
+                let timeout = arguments[timeout_index];
+                if !(1..=32).contains(&count)
+                    || arguments.len() != fixed_words + count
+                    || !(1..=100).contains(&timeout)
+                    || !(1..=timeout).contains(&milliseconds)
+                {
+                    return Err("audio notification retry exceeds the browser transport".to_owned());
+                }
+                // Keep the suspended frame and original request identity; only the
+                // Rust-owned delay payload changes as its finite deadline approaches.
+                self.pending_host
+                    .get_mut(&request_id)
+                    .expect("validated pending audio notification request")
+                    .call
+                    .request
+                    .payload = retry.request.payload;
+                return Ok(json!({
+                    "kind": "host-retry",
+                    "threadId": owner_thread_id.0,
+                    "requestId": request_id.to_string(),
+                    "service": RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE,
+                    "arguments": arguments,
+                }));
+            }
             DispatchOutcome::Fault(fault) => {
                 restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
                 return Err(api_fault_string(fault));

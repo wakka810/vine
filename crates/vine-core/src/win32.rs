@@ -2640,6 +2640,23 @@ pub fn complete_kernel32_audio_notification_wait(
     let result = plan
         .result_index()
         .map_or(WAIT_TIMEOUT, |index| WAIT_OBJECT_0 + index);
+    if let Some(payload) = plan.retry_payload() {
+        if let Err(fault) =
+            dispatcher.validate_deferred_completion(call, call.request.request_id, runtime.memory())
+        {
+            return DispatchOutcome::Fault(fault);
+        }
+        let retry = ApiDeferredCall {
+            request: crate::api::HostRequest {
+                request_id: call.request.request_id,
+                service: RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE.to_owned(),
+                payload: payload.to_vec(),
+            },
+            frame: call.frame.clone(),
+        };
+        runtime.commit_audio_notification_wait_completion(plan);
+        return DispatchOutcome::Deferred(retry);
+    }
     let request_id = call.request.request_id;
     let outcome = dispatcher.complete_deferred(
         call,
@@ -2852,6 +2869,9 @@ fn handle_wait_for_multiple_objects(
                 ));
             }
         }
+        runtime
+            .refresh_audio_notifications_for_handles(&handles)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
         for (index, &handle) in handles.iter().enumerate() {
             let event = runtime
                 .event_for_handle(handle)

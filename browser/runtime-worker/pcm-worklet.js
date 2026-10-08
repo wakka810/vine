@@ -1,6 +1,11 @@
 const headerBytes = 48;
 const pcmLimit = 16 * 1024 * 1024;
 
+function pcmSample(voice, index) {
+  return voice.bits === 8 ? (voice.pcm.getUint8(index) - 128) / 128 :
+    voice.pcm.getInt16(index * 2, true) / 32768;
+}
+
 class VinePcmProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -104,23 +109,21 @@ class VinePcmProcessor extends AudioWorkletProcessor {
         looping > 1 || position % alignment !== 0) throw new Error("Invalid PCM format or controls");
     const previousId = operation === 4 && length === 8 ? view.getBigUint64(headerBytes, true).toString() : id;
     const previous = this.voices.get(previousId);
-    let samples, frames;
+    let pcm, frames;
     if (operation === 1 || operation === 2) {
       if (length === 0 || length % alignment !== 0) throw new Error("Unaligned PCM samples");
       frames = length / alignment;
-      samples = new Float32Array(frames * channels);
-      for (let index = 0; index < samples.length; index++) {
-        samples[index] = bits === 8 ? (view.getUint8(headerBytes + index) - 128) / 128 :
-          view.getInt16(headerBytes + index * 2, true) / 32768;
-      }
+      // The transferred packet belongs to this resource. Keep its PCM bytes;
+      // converting the full ring here blocks the real-time audio thread.
+      pcm = new DataView(bytes, headerBytes, length);
       if (operation === 2 && previous === undefined) throw new Error("PCM update has no playback resource");
     } else if (operation === 3 || operation === 4) {
       if (length !== (operation === 4 ? 8 : 0) || previous === undefined) throw new Error("Control has no playback resource");
-      samples = previous.samples;
+      pcm = previous.pcm;
       frames = previous.frames;
     } else throw new Error("Unknown PCM operation");
     if (position / alignment >= frames || (previous !== undefined &&
-        (previous.channels !== channels || previous.rate !== rate || previous.frames !== frames))) {
+        (previous.channels !== channels || previous.rate !== rate || previous.bits !== bits || previous.frames !== frames))) {
       throw new Error("PCM resource layout changed");
     }
     const gain = Math.pow(10, volume / 2000);
@@ -129,7 +132,7 @@ class VinePcmProcessor extends AudioWorkletProcessor {
     // The Chrome cursor belongs only to the audio resource. Windows position and
     // notification state remain in Rust; an explicit seek replaces this cursor.
     const cursor = operation === 4 || previous === undefined ? position / alignment : previous.cursor;
-    this.voices.set(id, { samples, frames, channels, rate, frequency, left, right,
+    this.voices.set(id, { pcm, frames, channels, rate, bits, frequency, left, right,
       cursor, looping: looping === 1, ended: operation === 1 || operation === 4 ? false : previous?.ended ?? false });
     if (operation === 4 && previousId !== id) this.voices.delete(previousId);
   }
@@ -153,11 +156,12 @@ class VinePcmProcessor extends AudioWorkletProcessor {
         }
         const index = Math.floor(voice.cursor), fraction = voice.cursor - index;
         const next = index + 1 < voice.frames ? index + 1 : voice.looping ? 0 : index;
-        const a = voice.samples[index * voice.channels];
-        const b = voice.samples[next * voice.channels];
+        const a = pcmSample(voice, index * voice.channels);
+        const b = pcmSample(voice, next * voice.channels);
         const l = a + (b - a) * fraction;
-        const r = voice.channels === 1 ? l : voice.samples[index * 2 + 1] +
-          (voice.samples[next * 2 + 1] - voice.samples[index * 2 + 1]) * fraction;
+        const rightSample = voice.channels === 1 ? l : pcmSample(voice, index * 2 + 1);
+        const r = voice.channels === 1 ? l : rightSample +
+          (pcmSample(voice, next * 2 + 1) - rightSample) * fraction;
         left[frame] += l * voice.left;
         if (right !== left) right[frame] += r * voice.right;
         voice.cursor += step;

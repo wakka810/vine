@@ -39,11 +39,11 @@ use super::address_space::{
     ProcessAddressSpaceAllocator, RuntimeAddressRange,
 };
 use super::audio::{
-    BrowserAudioAction, BrowserAudioBufferState, BrowserAudioPreparation, PreparedBrowserAudio,
-    RUNTIME_AUDIO_NOTIFICATION_LIMIT, RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RuntimeAudio,
-    RuntimeAudioBuffer, RuntimeAudioBufferBacking, RuntimeAudioBufferId, RuntimeAudioComRetirement,
-    RuntimeAudioCooperativeState, RuntimeAudioNotification, RuntimeAudioNotificationWaitPlan,
-    RuntimeAudioPlaybackState,
+    AudioProgress, BrowserAudioAction, BrowserAudioBufferState, BrowserAudioPreparation,
+    PreparedBrowserAudio, RUNTIME_AUDIO_NOTIFICATION_LIMIT,
+    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RuntimeAudio, RuntimeAudioBuffer,
+    RuntimeAudioBufferBacking, RuntimeAudioBufferId, RuntimeAudioComRetirement,
+    RuntimeAudioCooperativeState, RuntimeAudioNotification, RuntimeAudioPlaybackState,
 };
 use super::clock::RuntimeClockState;
 use super::com::{
@@ -190,20 +190,26 @@ pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
 
 pub(crate) struct RuntimeAudioNotificationWaitCompletionPlan {
     scheduler: RuntimeHostRequest,
-    audio: Option<RuntimeAudioNotificationWaitPlan>,
+    audio: Option<AudioProgress>,
     event_updates: Vec<(RuntimeObjectId, RuntimeWaitState)>,
     result_index: Option<u32>,
+    retry: Option<Vec<u8>>,
 }
 
 impl RuntimeAudioNotificationWaitCompletionPlan {
     pub(crate) const fn result_index(&self) -> Option<u32> {
         self.result_index
     }
+
+    pub(crate) fn retry_payload(&self) -> Option<&[u8]> {
+        self.retry.as_deref()
+    }
 }
 
 fn encode_inactive_audio_notification_wait_payload(
     handles: &[RuntimeHandle],
     timeout_milliseconds: u32,
+    host_time_100ns: u64,
 ) -> Vec<u8> {
     let words = [
         2,
@@ -218,6 +224,7 @@ fn encode_inactive_audio_notification_wait_payload(
     {
         payload.extend_from_slice(&word.to_le_bytes());
     }
+    payload.extend_from_slice(&host_time_100ns.to_le_bytes());
     payload
 }
 
@@ -230,7 +237,7 @@ fn decode_audio_notification_wait_handles(
             "audio notification wait payload is not DWORD aligned",
         ));
     }
-    if payload.len() > (6 + RUNTIME_AUDIO_NOTIFICATION_LIMIT) * 4 {
+    if payload.len() > (8 + RUNTIME_AUDIO_NOTIFICATION_LIMIT) * 4 {
         return Err(RuntimeStateError::new(
             "audio notification wait payload exceeds its bounded handle layout",
         ));
@@ -253,13 +260,13 @@ fn decode_audio_notification_wait_handles(
     if payload_timeout != Some(timeout_milliseconds)
         || handle_count == 0
         || handle_count > RUNTIME_AUDIO_NOTIFICATION_LIMIT
-        || payload.len() / 4 != handles_start + handle_count
+        || payload.len() / 4 != handles_start + handle_count + 2
     {
         return Err(RuntimeStateError::new(
             "audio notification wait payload has inconsistent timeout or handle bounds",
         ));
     }
-    Ok(payload[handles_start * 4..]
+    Ok(payload[handles_start * 4..payload.len() - 8]
         .chunks_exact(4)
         .map(|bytes| RuntimeHandle(u32::from_le_bytes(bytes.try_into().unwrap())))
         .collect())
@@ -3190,7 +3197,15 @@ impl Runtime {
         retired_instructions: u64,
         host_elapsed_time_100ns: u64,
     ) -> Result<u64, RuntimeStateError> {
-        self.require_timer_operation_state()?;
+        // A real browser completion also advances time when every guest thread
+        // is parked. This observation does not execute a guest timer operation.
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+        {
+            return Err(RuntimeStateError::new(
+                "host clock observation requires a running process and live current thread",
+            ));
+        }
         self.process
             .advance_scheduled_host_execution_clock(retired_instructions, host_elapsed_time_100ns)
     }
@@ -6833,20 +6848,32 @@ impl Runtime {
             ));
         }
         self.validate_audio_notification_wait_events(handles)?;
+        self.process
+            .host_elapsed_time_100ns()
+            .checked_add(u64::from(timeout_milliseconds) * 10_000)
+            .ok_or_else(|| RuntimeStateError::new("audio wait deadline overflowed"))?;
         if !handles.is_empty()
             && handles.len() <= RUNTIME_AUDIO_NOTIFICATION_LIMIT
             && !self.audio.matches_notification_wait_handles(handles)
         {
             return Ok(None);
         }
-        let audio = self
-            .audio
-            .plan_notification_wait(handles, timeout_milliseconds)?;
+        let audio = self.audio.plan_notification_wait(
+            handles,
+            timeout_milliseconds,
+            self.process.host_elapsed_time_100ns(),
+        )?;
         let scheduler = self
             .scheduler
             .checked_host_request(RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE.to_owned())?;
         let payload = audio.as_ref().map_or_else(
-            || encode_inactive_audio_notification_wait_payload(handles, timeout_milliseconds),
+            || {
+                encode_inactive_audio_notification_wait_payload(
+                    handles,
+                    timeout_milliseconds,
+                    self.process.host_elapsed_time_100ns(),
+                )
+            },
             |audio| audio.encode_host_payload(handles),
         );
         let request = self.scheduler.publish_host_request(scheduler);
@@ -6870,61 +6897,104 @@ impl Runtime {
                 "audio notification completion does not match its pacing service",
             ));
         }
-        let (audio, result_index) = if payload[..4] == 2u32.to_le_bytes() {
-            if payload[4..8] != timeout_milliseconds.to_le_bytes() {
-                return Err(RuntimeStateError::new(
-                    "inactive audio wait delay differs from its captured timeout",
-                ));
-            }
-            (None, None)
-        } else {
+        let delay = u32::from_le_bytes(payload[4..8].try_into().unwrap());
+        if !(1..=timeout_milliseconds).contains(&delay) {
+            return Err(RuntimeStateError::new(
+                "audio wait delay exceeds its captured timeout",
+            ));
+        }
+        let started_at = u64::from_le_bytes(payload[payload.len() - 8..].try_into().unwrap());
+        let now = self.process.host_elapsed_time_100ns();
+        let deadline = started_at
+            .checked_add(u64::from(timeout_milliseconds) * 10_000)
+            .ok_or_else(|| RuntimeStateError::new("audio wait deadline overflowed"))?;
+        if now < started_at {
+            return Err(RuntimeStateError::new("audio wait host clock regressed"));
+        }
+        if payload[..4] == 1u32.to_le_bytes() {
             match self
                 .audio
-                .plan_notification_wait(&handles, timeout_milliseconds)?
+                .plan_notification_wait(&handles, timeout_milliseconds, now)?
             {
-                Some(audio) => {
-                    if !audio.matches_host_payload(&handles, payload) {
-                        return Err(RuntimeStateError::new(
-                            "audio notification host payload differs from Rust audio authority",
-                        ));
-                    }
-                    let result_index = audio.result_index();
-                    (Some(audio), result_index)
+                Some(audio) if audio.matches_host_payload(&handles, payload) => (),
+                Some(_) => {
+                    return Err(RuntimeStateError::new(
+                        "audio wait differs from its captured buffer identity",
+                    ));
                 }
-                None => {
-                    self.audio.validate_stopped_notification_wait(
-                        &handles,
-                        timeout_milliseconds,
-                        payload,
-                    )?;
-                    (None, None)
-                }
+                None => self.audio.validate_stopped_notification_wait(
+                    &handles,
+                    timeout_milliseconds,
+                    payload,
+                )?,
             }
-        };
+        }
+        let audio = self.audio.progress_for_handles(&handles, now)?;
+        let eligible_crossed = self
+            .audio
+            .notifications_before(&handles, now.min(deadline))?;
         let mut plan = RuntimeAudioNotificationWaitCompletionPlan {
             scheduler,
             audio,
             event_updates: Vec::new(),
-            result_index,
+            result_index: None,
+            retry: None,
         };
         // A notification is an event, not a property of being stopped. In particular,
         // Stop may occur before a wait begins or while an inactive wait is pending.
         // Consume the same Rust-owned auto-reset signal as WaitForMultipleObjects.
         self.validate_audio_notification_wait_events(&handles)?;
+        let crossed = plan
+            .audio
+            .as_ref()
+            .map_or(&[][..], |audio| audio.notifications.as_slice());
+        let mut updates = Vec::new();
+        for &handle in crossed {
+            let record = self
+                .objects
+                .object_for_handle(handle, RuntimeObjectKind::Event)?;
+            updates.push((
+                record.key.clone(),
+                RuntimeWaitState::Signaled { exit_code: 0 },
+            ));
+        }
         for (index, &handle) in handles.iter().enumerate() {
             let event = self.event_for_handle(handle)?;
-            if matches!(event.wait_state, RuntimeWaitState::Signaled { .. }) {
+            if eligible_crossed.contains(&handle)
+                || matches!(event.wait_state, RuntimeWaitState::Signaled { .. })
+            {
                 let record = self
                     .objects
                     .object_for_handle(handle, RuntimeObjectKind::Event)?;
-                plan.event_updates = self.objects.plan_wait_state_updates(&[(
-                    record.key.clone(),
-                    RuntimeWaitState::Nonsignaled,
-                )])?;
-                plan.audio = None;
+                updates.retain(|(key, _)| key != &record.key);
+                updates.push((record.key.clone(), RuntimeWaitState::Nonsignaled));
                 plan.result_index = Some(index as u32);
                 break;
             }
+        }
+        plan.event_updates = self.objects.plan_wait_state_updates(&updates)?;
+        if plan.result_index.is_none() && now < deadline {
+            let remaining = (deadline - now).div_ceil(10_000) as u32;
+            let mut retry = self
+                .audio
+                .plan_notification_wait(&handles, timeout_milliseconds, now)?
+                .map_or_else(
+                    || {
+                        encode_inactive_audio_notification_wait_payload(
+                            &handles,
+                            timeout_milliseconds,
+                            started_at,
+                        )
+                    },
+                    |audio| audio.encode_host_payload(&handles),
+                );
+            let next_delay = u32::from_le_bytes(retry[4..8].try_into().unwrap())
+                .min(remaining)
+                .max(1);
+            retry[4..8].copy_from_slice(&next_delay.to_le_bytes());
+            let length = retry.len();
+            retry[length - 8..].copy_from_slice(&started_at.to_le_bytes());
+            plan.retry = Some(retry);
         }
         Ok(plan)
     }
@@ -6934,10 +7004,56 @@ impl Runtime {
         plan: RuntimeAudioNotificationWaitCompletionPlan,
     ) {
         if let Some(audio) = plan.audio {
-            self.audio.commit_notification_wait(audio);
+            self.audio.commit_progress(audio);
         }
         self.objects.commit_wait_state_updates(plan.event_updates);
-        self.scheduler.commit_host_completion(plan.scheduler);
+        if plan.retry.is_none() {
+            self.scheduler.commit_host_completion(plan.scheduler);
+        }
+    }
+
+    pub(crate) fn refresh_audio_notifications_for_handles(
+        &mut self,
+        handles: &[RuntimeHandle],
+    ) -> Result<(), RuntimeStateError> {
+        let Some(progress) = self
+            .audio
+            .progress_for_handles(handles, self.process.host_elapsed_time_100ns())?
+        else {
+            return Ok(());
+        };
+        self.commit_audio_progress(progress)
+    }
+
+    fn commit_audio_progress(&mut self, progress: AudioProgress) -> Result<(), RuntimeStateError> {
+        let mut updates = Vec::new();
+        for &handle in &progress.notifications {
+            let event = self.event_for_handle(handle)?;
+            if event.manual_reset {
+                return Err(RuntimeStateError::new(
+                    "audio notification requires an auto-reset event",
+                ));
+            }
+            let record = self
+                .objects
+                .object_for_handle(handle, RuntimeObjectKind::Event)?;
+            updates.push((
+                record.key.clone(),
+                RuntimeWaitState::Signaled { exit_code: 0 },
+            ));
+        }
+        let updates = self.objects.plan_wait_state_updates(&updates)?;
+        self.audio.commit_progress(progress);
+        self.objects.commit_wait_state_updates(updates);
+        Ok(())
+    }
+
+    pub(crate) fn audio_buffer_position(
+        &self,
+        object_id: RuntimeComObjectId,
+    ) -> Result<u32, RuntimeStateError> {
+        self.audio
+            .position_bytes(object_id, self.process.host_elapsed_time_100ns())
     }
 
     fn validate_audio_notification_wait_events(
@@ -7032,7 +7148,11 @@ impl Runtime {
             controls.volume_hundredths_db as u32,
             controls.pan_hundredths_db as u32,
             controls.frequency_hz.unwrap_or(format.samples_per_second),
-            controls.current_position_bytes,
+            if operation == 4 {
+                controls.current_position_bytes
+            } else {
+                self.audio_buffer_position(object_id)?
+            },
             u32::from(playback == RuntimeAudioPlaybackState::PlayingLooping),
             pcm.len() as u32,
         ];
@@ -7159,10 +7279,13 @@ impl Runtime {
             return Ok(BrowserAudioPreparation::Complete(false));
         };
         let buffer = self.audio.buffer_by_com_object(object_id)?;
-        let Some(resource_id) = buffer
-            .browser_resource_id
-            .filter(|_| next != buffer.controls)
-        else {
+        let Some(resource_id) = buffer.browser_resource_id.filter(|_| {
+            next != buffer.controls
+                || matches!(
+                    update,
+                    super::audio::RuntimeAudioBufferControlUpdate::CurrentPosition(_)
+                )
+        }) else {
             return self
                 .set_audio_buffer_control(object_id, update)
                 .map(BrowserAudioPreparation::Complete);
@@ -7366,14 +7489,24 @@ impl Runtime {
             .validate_buffer_play(object_id, RuntimeAudioPlaybackState::Stopped)?
             .ok_or_else(|| RuntimeStateError::new("live playing audio cannot stop"))?;
         if let Some(handle) = stop_event
+            && self.live_event_for_handle(handle)?.is_none()
+        {
+            return Err(RuntimeStateError::new(
+                "audio end notification event is not live",
+            ));
+        }
+        let progress = self
+            .audio
+            .progress(object_id, self.process.host_elapsed_time_100ns())?;
+        self.commit_audio_progress(progress)?;
+        if let Some(handle) = stop_event
             && !self.signal_event(handle)?
         {
             return Err(RuntimeStateError::new(
                 "audio end notification event is not live",
             ));
         }
-        self.audio
-            .finish_buffer_play(object_id, RuntimeAudioPlaybackState::Stopped);
+        self.audio.finish_browser_end(object_id);
         self.audio.set_browser_resource(object_id, None);
         Ok(true)
     }
@@ -7393,6 +7526,17 @@ impl Runtime {
         if playback != RuntimeAudioPlaybackState::Stopped {
             self.validate_audio_backing(buffer_com_object_id)?;
         }
+        if let Some(handle) = stop_event
+            && self.live_event_for_handle(handle)?.is_none()
+        {
+            return Err(RuntimeStateError::new(
+                "audio stop notification event is not live",
+            ));
+        }
+        let progress = self
+            .audio
+            .progress(buffer_com_object_id, self.process.host_elapsed_time_100ns())?;
+        self.commit_audio_progress(progress)?;
         if let Some(handle) = stop_event {
             // An invalid/retired event cannot partially change audio playback.
             if !self.set_event(handle)? {
@@ -7415,6 +7559,17 @@ impl Runtime {
         update: super::audio::RuntimeAudioBufferControlUpdate,
     ) -> Result<bool, RuntimeStateError> {
         self.require_audio_operation_state()?;
+        if self
+            .audio
+            .preview_buffer_control(buffer_com_object_id, update)?
+            .is_none()
+        {
+            return Ok(false);
+        }
+        let progress = self
+            .audio
+            .progress(buffer_com_object_id, self.process.host_elapsed_time_100ns())?;
+        self.commit_audio_progress(progress)?;
         self.audio.set_buffer_control(buffer_com_object_id, update)
     }
 
@@ -9551,7 +9706,7 @@ mod tests {
             RuntimeHandle::from_parts(RuntimeObjectKind::Event, 1, 1).unwrap(),
             RuntimeHandle::from_parts(RuntimeObjectKind::Event, 1, 2).unwrap(),
         ];
-        let inactive = encode_inactive_audio_notification_wait_payload(&handles, 100);
+        let inactive = encode_inactive_audio_notification_wait_payload(&handles, 100, 0);
         assert_eq!(
             decode_audio_notification_wait_handles(&inactive, 100).unwrap(),
             handles
@@ -9565,6 +9720,7 @@ mod tests {
         {
             active.extend_from_slice(&word.to_le_bytes());
         }
+        active.extend_from_slice(&0u64.to_le_bytes());
         assert_eq!(
             decode_audio_notification_wait_handles(&active, 100).unwrap(),
             handles
@@ -9577,7 +9733,7 @@ mod tests {
             assert!(decode_audio_notification_wait_handles(payload, 99).is_err());
         }
         let max_handles = vec![handles[0]; RUNTIME_AUDIO_NOTIFICATION_LIMIT];
-        let max_payload = encode_inactive_audio_notification_wait_payload(&max_handles, 100);
+        let max_payload = encode_inactive_audio_notification_wait_payload(&max_handles, 100, 0);
         assert_eq!(
             decode_audio_notification_wait_handles(&max_payload, 100).unwrap(),
             max_handles
@@ -11058,6 +11214,248 @@ mod tests {
                 notification_runtime.commit_audio_notification_wait_completion(completion);
                 assert!(!notification_runtime.try_wait_event(stopped).unwrap());
 
+                // A late completion preserves actual progress and the late signal,
+                // but does not report a notification that occurred after the timeout.
+                notification_runtime.select_thread(waiter).unwrap();
+                notification_runtime
+                    .set_audio_buffer_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::CurrentPosition(0),
+                    )
+                    .unwrap();
+                notification_runtime
+                    .set_audio_buffer_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::Frequency(8_000),
+                    )
+                    .unwrap();
+                notification_runtime
+                    .set_audio_buffer_notifications(
+                        object,
+                        vec![
+                            RuntimeAudioNotification {
+                                offset_bytes: 3_840,
+                                event_handle: position,
+                            },
+                            RuntimeAudioNotification {
+                                offset_bytes: u32::MAX,
+                                event_handle: stopped,
+                            },
+                        ],
+                    )
+                    .unwrap();
+                playback(
+                    &mut notification_runtime,
+                    RuntimeAudioPlaybackState::PlayingLooping,
+                );
+                let start = notification_runtime.process.host_elapsed_time_100ns();
+                let (request, payload) = notification_runtime
+                    .begin_audio_notification_wait(&handles, 100)
+                    .unwrap()
+                    .unwrap();
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(0, start + 1_300_000)
+                    .unwrap();
+                let completion = notification_runtime
+                    .plan_audio_notification_wait_completion(request.request_id, 100, &payload)
+                    .unwrap();
+                assert_eq!(completion.result_index(), None);
+                assert!(completion.retry_payload().is_none());
+                notification_runtime.commit_audio_notification_wait_completion(completion);
+                assert_eq!(
+                    notification_runtime.audio_buffer_position(object).unwrap(),
+                    4_160
+                );
+                assert!(notification_runtime.try_wait_event(position).unwrap());
+                playback(
+                    &mut notification_runtime,
+                    RuntimeAudioPlaybackState::Stopped,
+                );
+                assert!(notification_runtime.try_wait_event(stopped).unwrap());
+
+                // A slower frequency while waiting repaces the same request to
+                // its original deadline, without completing the API early.
+                notification_runtime
+                    .set_audio_buffer_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::CurrentPosition(0),
+                    )
+                    .unwrap();
+                notification_runtime
+                    .set_audio_buffer_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::Frequency(16_000),
+                    )
+                    .unwrap();
+                playback(
+                    &mut notification_runtime,
+                    RuntimeAudioPlaybackState::PlayingLooping,
+                );
+                let start = notification_runtime.process.host_elapsed_time_100ns();
+                let (request, payload) = notification_runtime
+                    .begin_audio_notification_wait(&handles, 100)
+                    .unwrap()
+                    .unwrap();
+                notification_runtime.select_thread(controller).unwrap();
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(0, start + 200_000)
+                    .unwrap();
+                notification_runtime
+                    .set_audio_buffer_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::Frequency(8_000),
+                    )
+                    .unwrap();
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(0, start + 600_000)
+                    .unwrap();
+                let completion = notification_runtime
+                    .plan_audio_notification_wait_completion(request.request_id, 100, &payload)
+                    .unwrap();
+                let retry = completion.retry_payload().unwrap().to_vec();
+                assert_eq!(u32::from_le_bytes(retry[4..8].try_into().unwrap()), 40);
+                notification_runtime.commit_audio_notification_wait_completion(completion);
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(0, start + 1_000_000)
+                    .unwrap();
+                let completion = notification_runtime
+                    .plan_audio_notification_wait_completion(request.request_id, 100, &retry)
+                    .unwrap();
+                assert_eq!(completion.result_index(), Some(0));
+                assert!(completion.retry_payload().is_none());
+                notification_runtime.commit_audio_notification_wait_completion(completion);
+                notification_runtime.select_thread(waiter).unwrap();
+
+                // Concurrent waits consume a crossed auto-reset notification once.
+                notification_runtime
+                    .set_audio_buffer_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::CurrentPosition(0),
+                    )
+                    .unwrap();
+                notification_runtime
+                    .set_audio_buffer_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::Frequency(16_000),
+                    )
+                    .unwrap();
+                let start = notification_runtime.process.host_elapsed_time_100ns();
+                let (first, first_payload) = notification_runtime
+                    .begin_audio_notification_wait(&handles, 100)
+                    .unwrap()
+                    .unwrap();
+                notification_runtime.select_thread(controller).unwrap();
+                let (second, second_payload) = notification_runtime
+                    .begin_audio_notification_wait(&handles, 100)
+                    .unwrap()
+                    .unwrap();
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(0, start + 800_000)
+                    .unwrap();
+                let first = notification_runtime
+                    .plan_audio_notification_wait_completion(first.request_id, 100, &first_payload)
+                    .unwrap();
+                assert_eq!(first.result_index(), Some(0));
+                notification_runtime.commit_audio_notification_wait_completion(first);
+                let second_completion = notification_runtime
+                    .plan_audio_notification_wait_completion(
+                        second.request_id,
+                        100,
+                        &second_payload,
+                    )
+                    .unwrap();
+                assert_eq!(second_completion.result_index(), None);
+                let retry = second_completion.retry_payload().unwrap().to_vec();
+                notification_runtime.commit_audio_notification_wait_completion(second_completion);
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(0, start + 1_000_000)
+                    .unwrap();
+                let second = notification_runtime
+                    .plan_audio_notification_wait_completion(second.request_id, 100, &retry)
+                    .unwrap();
+                assert_eq!(second.result_index(), None);
+                assert!(second.retry_payload().is_none());
+                notification_runtime.commit_audio_notification_wait_completion(second);
+                notification_runtime.select_thread(waiter).unwrap();
+
+                // Stop freezes the real phase. Restart uses that byte position,
+                // and an ACK rejection cannot publish a seek or alter the phase.
+                playback(
+                    &mut notification_runtime,
+                    RuntimeAudioPlaybackState::Stopped,
+                );
+                assert!(notification_runtime.try_wait_event(stopped).unwrap());
+                let frozen = notification_runtime.audio_buffer_position(object).unwrap();
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(0, start + 2_000_000)
+                    .unwrap();
+                assert_eq!(
+                    notification_runtime.audio_buffer_position(object).unwrap(),
+                    frozen
+                );
+                let BrowserAudioPreparation::Pending(play) = notification_runtime
+                    .prepare_browser_audio_play(object, RuntimeAudioPlaybackState::PlayingLooping)
+                    .unwrap()
+                else {
+                    panic!("restart needs Chrome ACK");
+                };
+                assert_eq!(
+                    u32::from_le_bytes(play.command[36..40].try_into().unwrap()),
+                    frozen
+                );
+                notification_runtime
+                    .complete_browser_audio(&play, true)
+                    .unwrap();
+                let BrowserAudioPreparation::Pending(seek) = notification_runtime
+                    .prepare_browser_audio_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::CurrentPosition(0),
+                    )
+                    .unwrap()
+                else {
+                    panic!("seek needs Chrome ACK");
+                };
+                let before = notification_runtime
+                    .audio_buffer_for_com_object(object)
+                    .unwrap()
+                    .clone();
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(0, start + 2_100_000)
+                    .unwrap();
+                assert_eq!(
+                    notification_runtime
+                        .complete_browser_audio(&seek, false)
+                        .unwrap(),
+                    0x8000_4005
+                );
+                assert_eq!(
+                    notification_runtime
+                        .audio_buffer_for_com_object(object)
+                        .unwrap(),
+                    &before
+                );
+                let BrowserAudioPreparation::Pending(seek) = notification_runtime
+                    .prepare_browser_audio_control(
+                        object,
+                        super::super::audio::RuntimeAudioBufferControlUpdate::CurrentPosition(0),
+                    )
+                    .unwrap()
+                else {
+                    panic!("retry seek needs Chrome ACK");
+                };
+                notification_runtime
+                    .complete_browser_audio(&seek, true)
+                    .unwrap();
+                assert_eq!(
+                    notification_runtime.audio_buffer_position(object).unwrap(),
+                    0
+                );
+                playback(
+                    &mut notification_runtime,
+                    RuntimeAudioPlaybackState::Stopped,
+                );
+                assert!(notification_runtime.try_wait_event(stopped).unwrap());
+
                 // No synthetic stop is replayed once the auto-reset event has been consumed.
                 notification_runtime.select_thread(waiter).unwrap();
                 let (request, payload) = notification_runtime
@@ -11069,7 +11467,7 @@ mod tests {
                     .unwrap()
                     .clone();
                 let mut wrong_delay = payload.clone();
-                wrong_delay[4..8].copy_from_slice(&99u32.to_le_bytes());
+                wrong_delay[4..8].copy_from_slice(&0u32.to_le_bytes());
                 assert!(
                     notification_runtime
                         .plan_audio_notification_wait_completion(
@@ -11100,6 +11498,12 @@ mod tests {
                         .wait_state,
                     RuntimeWaitState::Nonsignaled
                 );
+                notification_runtime
+                    .synchronize_scheduled_clock_for_host_execution(
+                        0,
+                        notification_runtime.process.host_elapsed_time_100ns() + 1_000_000,
+                    )
+                    .unwrap();
                 let completion = notification_runtime
                     .plan_audio_notification_wait_completion(request.request_id, 100, &payload)
                     .unwrap();

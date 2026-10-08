@@ -16,6 +16,7 @@ pub(super) struct RuntimeClock {
     state: RuntimeClockState,
     timer_time_100ns: u64,
     retired_instructions: u64,
+    host_elapsed_time_100ns: u64,
 }
 
 impl RuntimeClock {
@@ -26,6 +27,7 @@ impl RuntimeClock {
             state,
             timer_time_100ns: 0,
             retired_instructions: 0,
+            host_elapsed_time_100ns: 0,
         })
     }
 
@@ -39,6 +41,10 @@ impl RuntimeClock {
 
     pub(super) fn synchronized_instruction_count(&self) -> u64 {
         self.retired_instructions
+    }
+
+    pub(super) fn host_elapsed_time_100ns(&self) -> u64 {
+        self.host_elapsed_time_100ns
     }
 
     pub(super) fn project_advance(
@@ -71,9 +77,15 @@ impl RuntimeClock {
                 "retired guest instruction count cannot move backwards",
             ));
         }
+        if host_elapsed_time_100ns < self.host_elapsed_time_100ns {
+            return Err(RuntimeStateError::new(
+                "host elapsed clock cannot move backwards",
+            ));
+        }
         let target_time_100ns = host_elapsed_time_100ns.max(self.timer_time_100ns);
         let timer = self.advance(target_time_100ns)?;
         self.retired_instructions = retired_instructions;
+        self.host_elapsed_time_100ns = host_elapsed_time_100ns;
         Ok(timer)
     }
 
@@ -180,6 +192,23 @@ mod tests {
         clock.advance(3).unwrap();
         assert_eq!(clock.timer_time_100ns(), 3);
         assert_eq!(clock.state().performance_counter, 12_345_678_904);
+    }
+
+    #[test]
+    fn audio_observes_real_host_time_independently_of_timer_projection() {
+        let mut clock = clock();
+        clock.advance(2_000_000).unwrap();
+        clock
+            .advance_scheduled_host_execution(1, 1_000_000)
+            .unwrap();
+        assert_eq!(clock.timer_time_100ns(), 2_000_000);
+        assert_eq!(clock.host_elapsed_time_100ns(), 1_000_000);
+        assert!(clock.advance_scheduled_host_execution(2, 999_999).is_err());
+        assert_eq!(clock.host_elapsed_time_100ns(), 1_000_000);
+        assert_eq!(clock.synchronized_instruction_count(), 1);
+        assert!(clock.advance_scheduled_host_execution(2, u64::MAX).is_err());
+        assert_eq!(clock.host_elapsed_time_100ns(), 1_000_000);
+        assert_eq!(clock.synchronized_instruction_count(), 1);
     }
 
     #[test]

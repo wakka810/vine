@@ -382,7 +382,10 @@ fn handle_buffer_get_current_position(call: ComFrontendCall<'_>) -> ComDispatchO
     {
         return call.fault("bounded DirectSound cursor queries support stopped secondary buffers");
     }
-    let position = buffer.controls.current_position_bytes;
+    let position = match call.runtime.audio_buffer_position(call.frame().object_id) {
+        Ok(position) => position,
+        Err(error) => return call.runtime_fault(error),
+    };
     let outputs = [
         (GuestAddress(play_cursor_output), position),
         (GuestAddress(write_cursor_output), position),

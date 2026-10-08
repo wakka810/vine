@@ -21,9 +21,9 @@ function command(operation, id, pcm = new Uint8Array(0), options = {}) {
   new Uint8Array(bytes, 48).set(pcm);
   return bytes;
 }
-function render(frames = 4) {
+function render(frames = 4, target = processor) {
   const left = new Float32Array(frames), right = new Float32Array(frames);
-  processor.process([], [[left, right]]);
+  target.process([], [[left, right]]);
   return [left, right];
 }
 function closeEnough(actual, expected) {
@@ -117,4 +117,55 @@ closeEnough(quietLeft, Array.from(loudRight, value => value * 1e-5));
 const retired = new Uint8Array(8); new DataView(retired.buffer).setBigUint64(0, 4n, true);
 processor.command(command(6, 0, retired));
 assert.equal(processor.voices.size, 0);
-console.log("PCM worklet: real samples, controls, seek identity, one-shot end and atomic rejection passed");
+
+// A streaming replacement changes samples at the live playback position. The
+// Rust notification position in the packet is not a request to seek backwards.
+const streaming = new Processor();
+function signedPcm(values) {
+  const bytes = new Uint8Array(values.length * 2), view = new DataView(bytes.buffer);
+  values.forEach((value, index) => view.setInt16(index * 2, value, true));
+  return bytes;
+}
+const ramp = signedPcm([4096, 8192, 12288, 16384, 20480, 24576, 28672, -28672]);
+const updatedRamp = signedPcm([-4096, -8192, -12288, -16384, -20480, -24576, -28672, 28672]);
+streaming.command(command(1, 20, ramp, { looping: 1 }));
+closeEnough(render(2, streaming)[0], [0.125, 0.25]);
+streaming.command(command(2, 20, updatedRamp, { position: 0, looping: 1 }));
+closeEnough(render(2, streaming)[0], [-0.375, -0.5]);
+streaming.command(command(3, 20, undefined, {
+  frequency: 22050, volume: -2000, position: 0, looping: 1,
+}));
+closeEnough(render(3, streaming)[0], [-0.0625, -0.06875, -0.075]);
+const beforeBadEncoding = streaming.voices.get("20");
+assert.throws(() => streaming.command(command(2, 20, new Uint8Array(8), { bits: 8, looping: 1 })), /layout/);
+assert.throws(() => streaming.command(command(3, 20, undefined, { bits: 8, looping: 1 })), /layout/);
+assert.equal(streaming.voices.get("20"), beforeBadEncoding);
+// Rejection retains the fractional playback position and the existing controls.
+closeEnough(render(1, streaming)[0], [-0.08125]);
+
+const previousStreamingId = new Uint8Array(8);
+new DataView(previousStreamingId.buffer).setBigUint64(0, 20n, true);
+streaming.command(command(4, 21, previousStreamingId, {
+  position: 14, frequency: 22050, looping: 1,
+}));
+streaming.port.onmessage({ data: { type: "retire", resourceId: "20" } });
+assert.equal(streaming.voices.has("20"), false);
+closeEnough(render(3, streaming)[0], [0.875, 0.375, -0.125]);
+streaming.command(command(5, 21));
+
+// Unsigned PCM follows the same update and interpolation rules without a
+// whole-buffer conversion during command admission.
+streaming.command(command(1, 22, new Uint8Array([0, 64, 128, 192]), { bits: 8, looping: 1 }));
+closeEnough(render(1, streaming)[0], [-1]);
+streaming.command(command(2, 22, new Uint8Array([128, 192, 0, 64]), { bits: 8, looping: 1 }));
+closeEnough(render(3, streaming)[0], [0.5, -1, -0.5]);
+streaming.command(command(3, 22, undefined, { bits: 8, frequency: 22050, looping: 1 }));
+closeEnough(render(3, streaming)[0], [0, 0.25, 0.5]);
+streaming.command(command(5, 22));
+
+const stereo = signedPcm([4096, -8192, 12288, -16384, 20480, -24576]);
+streaming.command(command(1, 23, stereo, { channels: 2 }));
+const stereoOutput = render(3, streaming);
+closeEnough(stereoOutput[0], [0.125, 0.375, 0.625]);
+closeEnough(stereoOutput[1], [-0.25, -0.5, -0.75]);
+console.log("PCM worklet: real samples, streaming updates, controls, seek identity, one-shot end and atomic rejection passed");
