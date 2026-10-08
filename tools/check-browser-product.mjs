@@ -592,6 +592,52 @@ if (serve) {
           catch { rejected = true; }
           if (!rejected || sample(4,6) !== '255,0,0,255') throw Error('Malformed binary range changed the frame');
         }
+        // Exercise byte-offset views and padded rows through the real WebGL upload.
+        // The aligned pitch supports raw upload; the odd pitch uses converted pixels.
+        for (const [pitch, byteOffset, pixelOffset] of [[20,3,2], [19,5,0]]) {
+          const storage = new Uint8Array(byteOffset + pixelOffset + pitch * 4 + 2);
+          storage.fill(0x6d);
+          const payload = storage.subarray(byteOffset);
+          for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+            payload.set(y < 2 ? [0,0,255,[0,1,127,255][x]] : [0,255,0,[255,127,1,0][x]],
+              pixelOffset + y * pitch + x * 4);
+          }
+          const originalPixels = storage.slice();
+          const upload = {...pixelDraw, texture:{...pixelDraw.texture,
+            pixels:{offset:pixelOffset,length:pitch * 4,pitch}}};
+          surface.present({...valid,draws:[upload]}, payload);
+          if (sample(4,6) !== '255,0,0,255' || sample(4,1) !== '0,255,0,255' ||
+              gl.getParameter(gl.UNPACK_ROW_LENGTH) !== 0 ||
+              !storage.every((byte, index) => byte === originalPixels[index])) {
+            throw Error('Offset BGRX upload changed source bytes, pitch, opacity or unpack state');
+          }
+          for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+            payload.set([255,0,0,0], pixelOffset + y * pitch + x * 4);
+          }
+          if (sample(4,6) !== '255,0,0,255') throw Error('Source mutation changed an already uploaded texture');
+          surface.present({...valid,draws:[upload]}, payload);
+          if (sample(4,6) !== '0,0,255,255' || sample(4,1) !== '0,0,255,255') {
+            throw Error('A later upload reused stale source pixels');
+          }
+          const filled = {...upload, texture:{...upload.texture,fills:[
+            {left:0,top:0,right:4,bottom:4,colorRef:0x332211}]}};
+          const beforeFill = storage.slice();
+          surface.present({...valid,draws:[filled]}, payload);
+          if (sample(4,6) !== '17,34,51,255' || sample(4,1) !== '17,34,51,255' ||
+              gl.getParameter(gl.UNPACK_ROW_LENGTH) !== 0 ||
+              !storage.every((byte, index) => byte === beforeFill[index])) {
+            throw Error('Fill after BGRX upload retained swizzle/unpack state or changed source bytes');
+          }
+          const invalidLaterDraw = {...upload, texture:{...upload.texture,
+            pixels:{offset:pixelOffset,length:pitch * 4 - 1,pitch}}};
+          let rejected = false;
+          try { surface.present({...valid,width:32,height:16,colorArgb:0xffabcdef,
+            draws:[upload,invalidLaterDraw]}, payload); } catch { rejected = true; }
+          if (!rejected || surfaceCanvas.width !== 16 || surfaceCanvas.height !== 8 ||
+              sample(4,6) !== '17,34,51,255' || gl.getParameter(gl.UNPACK_ROW_LENGTH) !== 0) {
+            throw Error('Invalid later draw changed the frame before full preflight');
+          }
+        }
         const loss = gl.getExtension('WEBGL_lose_context');
         if (!loss) throw Error('Chrome lacks the context-loss test extension');
         loss.loseContext();

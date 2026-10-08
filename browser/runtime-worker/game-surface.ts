@@ -36,6 +36,7 @@ class WebGLGameSurface {
   readonly #vertices: WebGLBuffer;
   readonly #layout: WebGLVertexArrayObject;
   readonly #resolution: WebGLUniformLocation;
+  readonly #bgrx: WebGLUniformLocation;
 
   constructor(canvas: OffscreenCanvas, gl: WebGL2RenderingContext) {
     this.#canvas = canvas;
@@ -68,12 +69,13 @@ class WebGLGameSurface {
     const fragment = shader(gl.FRAGMENT_SHADER, `#version 300 es
       precision highp float;
       uniform sampler2D image;
+      uniform bool bgrx;
       in vec2 uv;
       in vec4 tint;
       out vec4 pixel;
       void main() {
         vec4 sampled = texture(image, uv);
-        pixel = vec4(sampled.rgb * tint.rgb, sampled.a);
+        pixel = vec4((bgrx ? sampled.bgr : sampled.rgb) * tint.rgb, 1.0);
       }`);
     const program = gl.createProgram();
     if (program === null) throw new Error("WebGL2 program allocation failed");
@@ -84,11 +86,13 @@ class WebGLGameSurface {
     }
     const vertices = gl.createBuffer(), layout = gl.createVertexArray();
     const resolution = gl.getUniformLocation(program, "resolution");
-    if (vertices === null || layout === null || resolution === null) {
+    const bgrx = gl.getUniformLocation(program, "bgrx");
+    if (vertices === null || layout === null || resolution === null || bgrx === null) {
       throw new Error("WebGL2 quad resources are unavailable");
     }
     this.#program = program; this.#vertices = vertices;
     this.#layout = layout; this.#resolution = resolution;
+    this.#bgrx = bgrx;
     gl.bindVertexArray(layout); gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
     for (const [index, size, offset] of [[0, 4, 0], [1, 2, 16], [2, 4, 24]]) {
       gl.enableVertexAttribArray(index!);
@@ -116,7 +120,11 @@ class WebGLGameSurface {
     gl.activeTexture(gl.TEXTURE0);
     for (let index = 0; index < frame.draws.length; index++) {
       const source = frame.draws[index]!.texture;
-      const pixels = texturePixels(source, payload);
+      const snapshot = source.pixels;
+      const direct = snapshot !== null && source.fills.length === 0 && snapshot.pitch % 4 === 0;
+      // Upload consumes this validated, borrowed snapshot synchronously before the Wasm acknowledgement.
+      // X8R8G8B8 channel order and opacity are applied after filtering in the shader.
+      const pixels = direct ? payload.subarray(snapshot.offset, snapshot.offset + snapshot.length) : texturePixels(source, payload);
       const texture = gl.createTexture();
       if (texture === null) throw new Error("WebGL2 texture allocation failed");
       try {
@@ -125,11 +133,18 @@ class WebGLGameSurface {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, direct ? snapshot.pitch / 4 : 0);
+        gl.uniform1i(this.#bgrx, direct ? 1 : 0);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, source.width, source.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.#vertices);
         gl.bufferData(gl.ARRAY_BUFFER, vertices[index]!, gl.STREAM_DRAW);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      } finally { gl.deleteTexture(texture); }
+      } finally {
+        gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+        gl.deleteTexture(texture);
+      }
     }
     if (gl.getError() !== gl.NO_ERROR) throw new Error("WebGL2 game presentation failed");
   }
