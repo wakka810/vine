@@ -12,7 +12,7 @@ const localModes = fs.existsSync(modesPath) ? JSON.parse(fs.readFileSync(modesPa
 const developmentSource = process.env.VINE_V86_SOURCE ?? process.env.VINE_V86_FAST_SOURCE ?? localModes.fastSource;
 const source = path.resolve(root, developmentSource ?? ".work/vine-v86");
 const repository = "https://github.com/wakka810/vine-v86.git";
-const revision = "ae701c198cd5712858dc50ebfd2a3f6752ebfd37";
+const revision = "abf4739544ffb8118e008aafd2d8e6cb0df9134a";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
