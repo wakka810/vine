@@ -108,7 +108,19 @@ fn scale_matches_native_exact_values_rounding_range_and_pre_exception_priority()
                                 continue;
                             }
                             let actual = computed.unwrap();
-                            let expected = native(7, a, b, cw);
+                            let expected = if a.is_denormal()
+                                && a.significand >> 63 == 0
+                                && !b.is_unsupported()
+                                && b.exponent() < 0x3fff
+                                && cw & (DENORMAL | UNDERFLOW) == DENORMAL
+                            {
+                                // Host FSCALE can shortcut a zero integral scale and omit
+                                // UE for an exact subnormal. Check the uniform unmasked
+                                // underflow contract with equivalent full64 x * 1 instead.
+                                native(2, a, Ext80::ONE, cw | 0x300)
+                            } else {
+                                native(7, a, b, cw)
+                            };
                             assert_eq!(
                                 (actual.exceptions, actual.round_up),
                                 (expected.exceptions, expected.round_up),
@@ -120,6 +132,44 @@ fn scale_matches_native_exact_values_rounding_range_and_pre_exception_priority()
                                     "a={a:?} b={b:?} cw={cw:x}"
                                 );
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn scale_zero_integral_exponent_preserves_exact_underflow_semantics() {
+    // Intel SDM Vol. 1, 8.5.5: an unmasked tiny result is normalized and its
+    // exponent biased by 24576, even when the result is exact. These expected
+    // encodings are fixed independently of the host FSCALE implementation.
+    for (sig, biased_sig, biased_exp) in [
+        (1, 1 << 63, 0x5fc2),
+        (2, 1 << 63, 0x5fc3),
+        (1 << 62, 1 << 63, 0x6000),
+        ((1 << 63) - 1, u64::MAX - 1, 0x6000),
+    ] {
+        for pc in [0, 2, 3] {
+            for rc in 0..4 {
+                let cw = 0x7f | pc << 8 | rc << 10;
+                for sign in [0, 0x8000] {
+                    let x = raw(sig, sign);
+                    for y in [
+                        Ext80::ZERO,
+                        raw(1, 0),
+                        raw(1 << 63, 0),
+                        raw(0xc000_0000_0000_0000, 0x3ffe),
+                        raw(u64::MAX, 0x3ffe),
+                    ] {
+                        for y_sign in [0, 0x8000] {
+                            let y = raw(y.significand, y.sign_exponent | y_sign);
+                            assert_eq!(scale(x, y, cw).unwrap(), result(x, DENORMAL));
+                            assert_eq!(
+                                scale(x, y, cw & !UNDERFLOW).unwrap(),
+                                result(raw(biased_sig, biased_exp | sign), DENORMAL | UNDERFLOW)
+                            );
                         }
                     }
                 }
