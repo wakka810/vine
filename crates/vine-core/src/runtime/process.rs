@@ -197,6 +197,10 @@ impl RuntimeProcessState {
         self.clock.host_elapsed_time_100ns()
     }
 
+    pub(super) fn timestamp_counter(&self) -> u64 {
+        self.clock.timestamp_counter()
+    }
+
     #[cfg(test)]
     pub(super) fn advance_clock(
         &mut self,

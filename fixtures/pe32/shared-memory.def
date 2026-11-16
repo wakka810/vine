@@ -1,0 +1,6 @@
+LIBRARY kernel32.dll
+EXPORTS
+VirtualAlloc@16
+VirtualFree@12
+SetLastError@4
+GetLastError@0

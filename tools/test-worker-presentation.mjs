@@ -33,7 +33,7 @@ const dependencies = {
 const bundle = await build({
   entryPoints: [workerSource], bundle: true, write: false,
   platform: 'node', format: 'esm',
-  define: { 'import.meta.url': JSON.stringify(pathToFileURL(workerSource).href) },
+  define: { 'import.meta.url': JSON.stringify(pathToFileURL(workerSource).href + "?executionMode=strict") },
   plugins: [{ name: 'worker-presentation-resources', setup(plugin) {
     plugin.onResolve({ filter: /^\./ }, args => Object.hasOwn(dependencies, args.path)
       ? { path: args.path, namespace: 'worker-resource' } : undefined);
@@ -96,6 +96,7 @@ const scenarios = [
   { name: 'render-failure', events: ['delta', 'present'], error: 'Original render failure' },
   { name: 'ack-failure', events: ['delta', 'present', 'ack'], error: 'Original ACK failure' },
   { name: 'created-thread-owned', events: ['delta', 'ack', 'created', 'present', 'resume'] },
+  { name: 'owner-switch-borrowed', events: ['delta', 'present'], error: 'Owner-switch rendered' },
 ];
 const savedGlobals = Object.fromEntries(['self', 'OffscreenCanvas', 'workerDiagnostics'].map(key =>
   [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -114,6 +115,7 @@ try {
     if (scenario.name === 'from-generation-mismatch') new DataView(control.buffer).setBigUint64(12, 99n, true);
     if (scenario.name === 'unpaired-payload') { control = empty; payload = Uint8Array.of(1); }
     const owned = scenario.name === 'created-thread-owned';
+    const ownerSwitch = scenario.name === 'owner-switch-borrowed';
     const rawPresentation = new Uint8Array(runtimeMemory.buffer, presentationOffset, bgrx.length);
     const presentationFrame = scenario.name === 'malformed-later-draw' ? {
       ...frame, draws: [frame.draws[0], { ...frame.draws[0], texture: {
@@ -121,7 +123,7 @@ try {
       } }],
     } : frame;
     const output = {
-      metadata: { kind: 'com-complete', threadId: 8192, completion, presentation: presentationFrame,
+      metadata: { kind: 'com-complete', threadId: ownerSwitch ? 8193 : 8192, completion, presentation: presentationFrame,
         ...(owned ? { createdThread: { threadId: 8193, entryPoint: 0x401000,
           initialStackPointer: 0x8000, fsBase: 0x9000, returnSentinel: entrySentinel } } : {}) },
       control, payload, presentation: owned ? Uint8Array.from(rawPresentation) : rawPresentation,
@@ -130,6 +132,11 @@ try {
     let listener, resolveTerminal, startupAcks = 0, dispatches = 0, executions = 0;
     let resumes = 0, presentations = 0, diagnosticReads = 0, decodedPixels = null;
     let currentContext = { ...initialContext };
+    const snapshotRevisions = new Map(ownerSwitch ? [[8193, 1n]] : []);
+    const cpuContext = value => {
+      const words = new Uint32Array(128); words.set([value.instructionPointer, value.eax, value.esp]);
+      return {...value, snapshot:{backend:'recompiler',abiVersion:2,words}};
+    };
     const terminal = new Promise(resolveTerminalValue => { resolveTerminal = resolveTerminalValue; });
     const sha256 = 'a'.repeat(64);
     globalThis.self = {
@@ -144,18 +151,33 @@ try {
         events.push('present'); presentations++;
         assert.deepEqual(actualFrame, frame);
         assert.deepEqual([...bytes], bgrx, 'presentation consumes bytes before any Runtime mutation');
-        assert.equal(bytes.buffer === runtimeMemory.buffer, !owned, 'only the selected initial receipt borrows');
+        assert.equal(bytes.buffer === runtimeMemory.buffer, !owned && !ownerSwitch, 'only a receipt without intervening Runtime handoff borrows');
         assert.equal(decoded.length, 1);
         assert.deepEqual([...decoded[0]], rgba);
         assert.notEqual(decoded[0].buffer, bytes.buffer, 'decoded renderer pixels own their buffer');
         decodedPixels = decoded[0];
         if (scenario.name === 'render-failure') throw new Error('Original render failure');
+        if (ownerSwitch) throw new Error('Owner-switch rendered');
       },
       bridge: {
         inspectExecutable: () => ({ sha256, guestImports: [] }),
         prepareExecutable: () => ({ metadata: { maximumPhysicalPages: 1, runtime: { threadId: 8192 },
           entrySentinel, callbackSentinel }, control: reflection(), payload: empty }),
         synchronizeForwardClock() {},
+        storeCpuSnapshot(threadId, revision, snapshot) {
+          assert.equal(revision, snapshotRevisions.get(threadId) ?? 0n);
+          assert.equal(snapshot.abiVersion, 2);
+          snapshotRevisions.set(threadId, revision+1n);
+          return revision+1n;
+        },
+        loadCpuSnapshot(threadId) {
+          assert(ownerSwitch); assert.equal(threadId,8193);
+          // A Rust call may overwrite and grow its output before the new CPU
+          // is restored. The pending borrowed Present must already be owned.
+          new Uint8Array(runtimeMemory.buffer,presentationOffset,bgrx.length).fill(0);
+          runtimeMemory.grow(1);
+          return {snapshot:cpuContext(initialContext).snapshot,revision:1n};
+        },
         acknowledgeFast(generation) {
           if (generation === 1n) { startupAcks++; return; }
           assert.equal(generation, 2n);
@@ -180,7 +202,11 @@ try {
           assert.equal(reflectionValue.generation, 1n);
           assert.deepEqual(reflectionValue.pages, []);
         },
-        saveCpuContext: () => currentContext,
+        saveCpuContext: () => cpuContext(currentContext),
+        restoreCpuContext(value) {
+          const [instructionPointer,eax,esp]=value.snapshot.words;
+          currentContext={instructionPointer,eax,esp};
+        },
         executeBudget() {
           assert(++executions <= 2, 'the fixture must stop after its one COM receipt');
           return { stop: executions === 1 ? { kind: 'runtime-dispatch' }
@@ -199,14 +225,16 @@ try {
           cpuMemory.grow(1);
           new Uint8Array(cpuMemory.buffer, 0x2000, 4096).set(value.pages[0].bytes);
           assert.notEqual(cpuMemory.buffer, runtimeMemory.buffer);
-          assert.equal(runtimeMemory.buffer, runtimeBufferBefore, 'CPU growth leaves the Runtime borrow live');
-          assert.deepEqual([...rawPresentation], bgrx);
+          if (!ownerSwitch) {
+            assert.equal(runtimeMemory.buffer, runtimeBufferBefore, 'CPU growth leaves the Runtime borrow live');
+            assert.deepEqual([...rawPresentation], bgrx);
+          } else assert.equal(rawPresentation.byteLength,0,'thread handoff expired the old Runtime borrow');
         },
         createCpuContext(created) {
           events.push('created'); assert.equal(created.threadId, 8193);
           assert.equal(created.returnSentinel, entrySentinel);
-          return { ...initialContext, instructionPointer: created.entryPoint,
-            esp: created.initialStackPointer };
+          return cpuContext({ ...initialContext, instructionPointer: created.entryPoint,
+            esp: created.initialStackPointer });
         },
         applyCpuResume(actualCompletion) {
           events.push('resume'); resumes++;

@@ -6,9 +6,10 @@ import { rasterizeGdiText } from "./gdi-text-raster.js";
 import { GameSurface, type GamePresentation } from "./game-surface.js";
 import { decodeHostDelta, decodeReflection } from "./memory-transport.js";
 import { RuntimeBridge } from "./runtime-bridge.js";
+import { V86Mirror } from "./v86-mirror.js";
 import type { BridgeOutput, RuntimeStopContext } from "./runtime-bridge.js";
 import { MediaDecoder, UnsupportedMediaFormat, type DecodedMediaSample } from "./media-decoder.js";
-import type { CpuResume } from "./execution-engine-contract.js";
+import type { CpuResume, ExecutionEngine } from "./execution-engine-contract.js";
 import type { MessageBoxPresentation, RuntimeKeyboardInputEvent, RuntimePointerInputEvent } from "./protocol.js";
 import { browseSourceDirectory, inspectSourcePath, listSourceDirectory, openSourceDll, openSourceExecutable, readSourceRange, type VerifiedSourceFile } from "./source-explorer.js";
 import { openWritableTree } from "./writable-tree.js";
@@ -19,6 +20,10 @@ type GameCompletion = CpuResume & {
 type BrowserHostCompletion =
   | { kind: "host-complete"; threadId: number; completion: GameCompletion }
   | { kind: "host-retry"; threadId: number; requestId: string; service: string; arguments: number[] };
+type PendingBrowserCompletion = {
+  requestId: bigint; threadId: number; service: string; acknowledgement: number;
+  done: boolean; promise: Promise<void>; cancelTimer?: (() => void) | null;
+};
 type CreatedThread = {
   threadId: number; entryPoint: number; initialStackPointer: number; fsBase: number; returnSentinel: number;
 };
@@ -209,7 +214,16 @@ async function launch(request: LaunchRequest): Promise<void> {
   if (executable.length !== file.size || after.size !== file.size ||
       after.lastModified !== file.lastModified ||
       after.sourceVersion !== file.sourceVersion) throw new Error("Executable changed while reading");
-  const bridge = await RuntimeBridge.instantiate(new URL("./runtime-core.wasm", import.meta.url));
+  const executionMode = new URL(import.meta.url).searchParams.get("executionMode") ?? "fast";
+  if (executionMode !== "strict" && executionMode !== "fast") throw new Error("Unknown execution mode");
+  let sharedRuntime;
+  if (executionMode === "fast") {
+    const response = await fetch(new URL("./runtime-cpu.wasm", import.meta.url));
+    if (!response.ok) throw new Error(`Fast Runtime fetch failed: ${response.status}`);
+    sharedRuntime = await V86Mirror.instantiateSharedRuntime(await response.arrayBuffer());
+  }
+  const bridge = sharedRuntime ? RuntimeBridge.fromExports(sharedRuntime.exports)
+    : await RuntimeBridge.instantiate(new URL("./runtime-core.wasm", import.meta.url));
   const path = [...request.segments, request.name].join("/");
   const inspected = bridge.inspectExecutable(executable, path);
   if (inspected.sha256 !== request.sha256) throw new Error("Executable changed since inspection");
@@ -281,14 +295,23 @@ async function launch(request: LaunchRequest): Promise<void> {
       symbol: instructionPointer === null ? null : diagnosticText(native?.symbol) };
   };
   readStopContext = () => readRuntimeStopContext(null, null);
+  const engineOptions = {
+    maximumPhysicalPages: prepared.metadata.maximumPhysicalPages,
+  };
+  const engine: ExecutionEngine = sharedRuntime ? V86Mirror.attachSharedRuntime(sharedRuntime, engineOptions)
+    : await instantiateExecutionEngine(new URL(import.meta.url), engineOptions);
+  const sharedMemory = sharedRuntime ? bridge.sharedGuestMemory() : undefined;
+  const reflection = decodeReflection(prepared.control, prepared.payload, sharedMemory);
+  engine.initialize(reflection, prepared.metadata);
+  if (engine.prepareExecution) {
+    worker.postMessage({ type: "game-status", detail: "Preparing executable for launch" });
+    const preparation = await engine.prepareExecution(prepared.metadata.codeEntries);
+    preparation.limited ||= prepared.metadata.codeEntriesLimited;
+    console.info("Independent code preparation", preparation);
+  }
   worker.postMessage({ type: "game-status", detail: surface.backend === "software"
     ? "Running guest instructions (development software rendering; unsupported imports stop explicitly)"
     : "Running guest instructions (unsupported imports stop explicitly)" });
-  const engine = await instantiateExecutionEngine(new URL(import.meta.url), {
-    maximumPhysicalPages: prepared.metadata.maximumPhysicalPages,
-  });
-  const reflection = decodeReflection(prepared.control, prepared.payload);
-  engine.initialize(reflection, prepared.metadata);
   const entryContext = prepared.metadata.dllAttach ? engine.saveCpuContext() : null;
   if (prepared.metadata.dllAttach) {
     engine.enterGuestCallback(prepared.metadata.dllAttach.target,
@@ -306,16 +329,32 @@ async function launch(request: LaunchRequest): Promise<void> {
     } catch { /* An uninitialized or failed CPU may have no readable context. */ }
     return readRuntimeStopContext(instructionPointer, eax, currentThreadId);
   };
-  const threadContexts = new Map<number, ReturnType<typeof engine.saveCpuContext>>();
-  threadContexts.set(currentThreadId, engine.saveCpuContext());
-  const pendingBrowserCompletions: Array<{
-    requestId: bigint; threadId: number; service: string; acknowledgement: number;
-    done: boolean; promise: Promise<void>;
-  }> = [];
+  let currentSnapshotRevision = bridge.storeCpuSnapshot(currentThreadId, 0n, engine.saveCpuContext().snapshot);
+  const parkCurrentCpu = () => {
+    currentSnapshotRevision = bridge.storeCpuSnapshot(currentThreadId, currentSnapshotRevision,
+      engine.saveCpuContext().snapshot);
+  };
+  const pendingBrowserCompletions: PendingBrowserCompletion[] = [];
+  const armBrowserDelay = (delay: PendingBrowserCompletion, milliseconds: number) => {
+    delay.cancelTimer?.();
+    delay.done = false;
+    delay.promise = new Promise<void>(resolve => {
+      const timer = setTimeout(() => {
+        delay.cancelTimer = null;
+        delay.done = true;
+        resolve();
+      }, milliseconds);
+      delay.cancelTimer = () => {
+        clearTimeout(timer);
+        delay.cancelTimer = null;
+        resolve();
+      };
+    });
+  };
   const applyDelta = (output: { control: Uint8Array; payload: Uint8Array }, label: string,
     deferAcknowledgement = false): bigint | null => {
     if (output.control.length > 0) {
-      const delta = decodeHostDelta(output.control, output.payload);
+      const delta = decodeHostDelta(output.control, output.payload, sharedMemory);
       if (delta.fromGeneration !== generation) throw new Error(`Memory generation mismatch after ${label}`);
       engine.applyMemoryDelta(delta);
       if (!deferAcknowledgement) {
@@ -330,20 +369,20 @@ async function launch(request: LaunchRequest): Promise<void> {
   };
   const switchThread = (threadId: number, saveCurrent = true) => {
     if (threadId === currentThreadId) return;
-    const next = threadContexts.get(threadId);
-    if (next === undefined) throw new Error(`Rust selected unknown guest thread ${threadId}`);
-    if (saveCurrent) threadContexts.set(currentThreadId, engine.saveCpuContext());
+    const next = bridge.loadCpuSnapshot(threadId);
+    if (saveCurrent) parkCurrentCpu();
     engine.restoreCpuContext(next);
     currentThreadId = threadId;
-    recordRecentEvent("thread-switch", currentThreadId, next.instructionPointer);
+    currentSnapshotRevision = next.revision;
+    recordRecentEvent("thread-switch", currentThreadId, engine.saveCpuContext().instructionPointer);
   };
   const installCreatedThread = (created: CreatedThread | undefined) => {
     if (created === undefined) return;
-    if (created.threadId === currentThreadId || threadContexts.has(created.threadId) ||
+    if (created.threadId === currentThreadId ||
         created.returnSentinel !== prepared.metadata.entrySentinel) {
       throw new Error("Created thread has an invalid CPU bootstrap");
     }
-    threadContexts.set(created.threadId, engine.createCpuContext(created));
+    bridge.storeCpuSnapshot(created.threadId, 0n, engine.createCpuContext(created).snapshot);
   };
   type MediaRead = { offset: number; length: number; sent: boolean; resolve: (bytes: Uint8Array) => void; reject: (error: Error) => void };
   type MediaTask = { request: MediaRequest; bytes: Uint8Array; read: MediaRead | null;
@@ -539,7 +578,7 @@ async function launch(request: LaunchRequest): Promise<void> {
       if (task.cancelled) task.result = { metadata: { kind: "stopped", resourceId: native.resourceId } };
       wakeMediaWork();
     });
-    threadContexts.set(currentThreadId, engine.saveCpuContext());
+    parkCurrentCpu();
   };
   // A native operation may suspend while FFmpeg requests encoded bytes. Only
   // Rust can turn that demand into an original guest IAsyncReader callback.
@@ -552,6 +591,12 @@ async function launch(request: LaunchRequest): Promise<void> {
         native.kind === "media-request" || native.kind === "media-data")) {
       throw new Error("Media returned an unsupported guest continuation");
     }
+    // Initial COM presentation may borrow Runtime output. Parking/restoring a
+    // different CPU now calls Runtime, ending that view's lifetime before Present.
+    const presentation = initialDispatch && native.kind === "com-complete" &&
+      native.presentation !== undefined && native.createdThread === undefined &&
+      native.threadId !== undefined && native.threadId !== currentThreadId
+      ? Uint8Array.from(output.presentation) : output.presentation;
     if (native.threadId !== undefined) switchThread(native.threadId, !cpuRetired);
     const deferAcknowledgement = initialDispatch && native.kind === "com-complete" &&
       native.presentation !== undefined && native.createdThread === undefined;
@@ -564,7 +609,7 @@ async function launch(request: LaunchRequest): Promise<void> {
     }
     if (native.kind === "com-complete") {
       installCreatedThread(native.createdThread);
-      if (native.presentation !== undefined) surface.present(native.presentation, output.presentation);
+      if (native.presentation !== undefined) surface.present(native.presentation, presentation);
       if (deferAcknowledgement && deltaGeneration !== null) {
         bridge.acknowledgeFast(deltaGeneration);
         generation = deltaGeneration;
@@ -583,7 +628,7 @@ async function launch(request: LaunchRequest): Promise<void> {
       }
       task!.read = null;
       read.resolve(output.mediaBytes);
-      threadContexts.set(currentThreadId, engine.saveCpuContext());
+      parkCurrentCpu();
     }
     return false;
   };
@@ -592,7 +637,10 @@ async function launch(request: LaunchRequest): Promise<void> {
     if (task === undefined) return null;
     if (task.fault !== null) throw task.fault;
     const changed = engine.collectChangedPageViews();
-    if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
+    if (changed.length > 0) {
+      generation = bridge.reconcileWritebackPages(generation, changed);
+      engine.acknowledgeWriteback?.(generation);
+    }
     let output: BridgeOutput<GameDispatch>;
     if (task.result !== null) {
       mediaTasks.delete(task.request.requestId);
@@ -610,7 +658,10 @@ async function launch(request: LaunchRequest): Promise<void> {
   const observeAudioEnds = () => {
     if (audioEnds.length === 0) return false;
     const changed = engine.collectChangedPageViews();
-    if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
+    if (changed.length > 0) {
+      generation = bridge.reconcileWritebackPages(generation, changed);
+      engine.acknowledgeWriteback?.(generation);
+    }
     bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
     let woke = false;
     while (audioEnds.length > 0) {
@@ -623,13 +674,27 @@ async function launch(request: LaunchRequest): Promise<void> {
     return woke;
   };
   const completeReadyBrowserWork = () => {
+    if (pendingBrowserCompletions.some(delay => delay.service === "browser.object-wait")) {
+      const requestId = bridge.readyObjectWaitRequestId();
+      if (requestId !== 0n) {
+        const readyObject = pendingBrowserCompletions.find(delay =>
+          delay.service === "browser.object-wait" && delay.requestId === requestId);
+        if (readyObject === undefined) throw new Error("Ready object wait has no pending browser request");
+        readyObject.acknowledgement = 0;
+        readyObject.done = true;
+        readyObject.cancelTimer?.();
+      }
+    }
     const ready = pendingBrowserCompletions.findIndex(delay => delay.done);
     if (ready === -1) return false;
     const delay = pendingBrowserCompletions[ready]!;
     const changed = engine.collectChangedPageViews();
-    if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
+    if (changed.length > 0) {
+      generation = bridge.reconcileWritebackPages(generation, changed);
+      engine.acknowledgeWriteback?.(generation);
+    }
     recordRecentEvent("host-completion", delay.threadId, null, delay.service);
-    if (delay.service === "browser.audio-delay") {
+    if (delay.service === "browser.audio-delay" || delay.service === "browser.object-wait") {
       bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
     }
     const completed = bridge.completeHost<BrowserHostCompletion>(delay.requestId, delay.acknowledgement);
@@ -638,7 +703,8 @@ async function launch(request: LaunchRequest): Promise<void> {
     }
     if (completed.metadata.kind === "host-retry") {
       const retry = completed.metadata;
-      if ((delay.service !== "browser.timer-delay" && delay.service !== "browser.audio-delay") ||
+      if ((delay.service !== "browser.timer-delay" && delay.service !== "browser.audio-delay" &&
+          delay.service !== "browser.object-wait") ||
           retry.service !== delay.service ||
           retry.requestId !== delay.requestId.toString() || !Array.isArray(retry.arguments) ||
           "completion" in retry ||
@@ -648,11 +714,8 @@ async function launch(request: LaunchRequest): Promise<void> {
         throw new Error("Browser timer retry disagrees with its pending request");
       }
       const milliseconds = browserDelayMilliseconds(retry.service, retry.arguments);
-      delay.done = false;
-      delay.promise = new Promise<void>(resolve => setTimeout(() => {
-        delay.done = true;
-        resolve();
-      }, milliseconds));
+      if (delay.service === "browser.object-wait") delay.acknowledgement = 1;
+      armBrowserDelay(delay, milliseconds);
       return true;
     }
     if (completed.metadata.kind !== "host-complete" ||
@@ -664,13 +727,15 @@ async function launch(request: LaunchRequest): Promise<void> {
     if (delay.threadId === currentThreadId) {
       engine.applyCpuResume(completed.metadata.completion);
     } else {
-      const parked = threadContexts.get(delay.threadId);
-      if (parked === undefined) throw new Error("Browser request owner has no parked CPU context");
+      const parked = bridge.loadCpuSnapshot(delay.threadId);
       const active = engine.saveCpuContext();
-      engine.restoreCpuContext(parked);
-      engine.applyCpuResume(completed.metadata.completion);
-      threadContexts.set(delay.threadId, engine.saveCpuContext());
-      engine.restoreCpuContext(active);
+      try {
+        engine.restoreCpuContext(parked);
+        engine.applyCpuResume(completed.metadata.completion);
+        bridge.storeCpuSnapshot(delay.threadId, parked.revision, engine.saveCpuContext().snapshot);
+      } finally {
+        engine.restoreCpuContext(active);
+      }
     }
     return true;
   };
@@ -707,8 +772,9 @@ async function launch(request: LaunchRequest): Promise<void> {
     if (currentThreadId === prepared.metadata.runtime.threadId) {
       throw new Error("The initial guest thread cannot retire through a worker-thread exit");
     }
+    bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
     applyDelta(bridge.finishThread(exitCode), "thread exit");
-    threadContexts.delete(currentThreadId);
+    // Rust retires the parked CPU snapshot with the owning thread.
     cpuRetired = true;
   };
   const browserTasks = new MessageChannel();
@@ -761,9 +827,26 @@ async function launch(request: LaunchRequest): Promise<void> {
           bridge.ingestPointerEvent(event.input);
         }
       }
+      engine.setRuntimeClock?.(instructions, performance.now() - startedAt);
       const slice = engine.executeBudget(131072);
+      generation = engine.memoryGeneration?.() ?? generation;
       instructions += slice.instructions;
       if (slice.stop.kind !== "budget-yield") {
+        if (slice.stop.kind === "timestamp-counter") {
+          if (!engine.completeTimestampCounter) throw new Error("CPU timestamp completion is unavailable");
+          const changed = engine.collectChangedPageViews();
+          if (changed.length > 0) {
+            generation = bridge.reconcileWritebackPages(generation, changed);
+            engine.acknowledgeWriteback?.(generation);
+          }
+          const counter = bridge.readTimestampCounter(instructions, performance.now() - startedAt);
+          engine.completeTimestampCounter(slice.context.instructionPointer, counter.low, counter.high);
+          instructions += 1;
+          // A loop of timestamp requests must still allow Rust to select
+          // another runnable thread even without a whole-budget CPU yield.
+          await schedule();
+          continue;
+        }
         if (slice.stop.kind === "fault") {
           recordRecentEvent("cpu-stop", currentThreadId, slice.context.instructionPointer, slice.stop.fault, slice.context.eax);
         }
@@ -772,7 +855,10 @@ async function launch(request: LaunchRequest): Promise<void> {
             throw new Error("Guest page fault has no address");
           }
           const changed = engine.collectChangedPageViews();
-          if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
+          if (changed.length > 0) {
+            generation = bridge.reconcileWritebackPages(generation, changed);
+            engine.acknowledgeWriteback?.(generation);
+          }
           const output = bridge.servicePageFault<{ kind: string }>(
             slice.stop.faultAddress, slice.stop.errorCode,
           );
@@ -784,12 +870,15 @@ async function launch(request: LaunchRequest): Promise<void> {
         }
         if (slice.stop.kind === "trap" && slice.stop.trap === "invalid-opcode" &&
             slice.context.instructionPointer === prepared.metadata.entrySentinel) {
+          const changed = engine.collectChangedPageViews();
+          if (changed.length > 0) {
+            generation = bridge.reconcileWritebackPages(generation, changed);
+            engine.acknowledgeWriteback?.(generation);
+          }
           if (currentThreadId === prepared.metadata.runtime.threadId) {
             worker.postMessage({ type: "game-exit", exitCode: slice.context.eax >>> 0, detail: `Guest exited with code ${slice.context.eax >>> 0}` });
             return;
           }
-          const changed = engine.collectChangedPageViews();
-          if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
           retireThread(slice.context.eax >>> 0);
           await schedule();
           continue;
@@ -798,7 +887,10 @@ async function launch(request: LaunchRequest): Promise<void> {
             slice.context.instructionPointer === prepared.metadata.callbackSentinel) {
           recordRecentEvent("callback-return", currentThreadId, slice.context.instructionPointer, null, slice.context.eax);
           const changed = engine.collectChangedPageViews();
-          if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
+          if (changed.length > 0) {
+            generation = bridge.reconcileWritebackPages(generation, changed);
+            engine.acknowledgeWriteback?.(generation);
+          }
           const output = bridge.completeCallback<
             | { kind: "callback-complete"; completion: GameCompletion }
             | { kind: "guest-callback"; target: number; stackPointer: number; returnSentinel: number }
@@ -824,25 +916,41 @@ async function launch(request: LaunchRequest): Promise<void> {
           }
           continue;
         }
-        const dispatchTrap = slice.stop.kind === "runtime-dispatch" ||
+        const dispatchTrap = slice.stop.kind === "runtime-output" || slice.stop.kind === "runtime-dispatch" ||
           (slice.stop.kind === "trap" && slice.stop.trap === "invalid-opcode");
         if (!dispatchTrap) {
-          throw new Error(`Guest stopped at 0x${slice.context.instructionPointer.toString(16)}: ${JSON.stringify(slice.stop)}`);
+          const fault = `Guest stopped at 0x${slice.context.instructionPointer.toString(16)}: ${JSON.stringify(slice.stop)}`;
+          try {
+            const changed = engine.collectChangedPageViews();
+            if (changed.length > 0) {
+              generation = bridge.reconcileWritebackPages(generation, changed);
+              engine.acknowledgeWriteback?.(generation);
+            }
+          } catch (error) {
+            throw new Error(`${fault}; completed CPU writeback failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          throw new Error(fault);
         }
         const label = `guest trap 0x${slice.context.instructionPointer.toString(16)}`;
         recordRecentEvent("dispatch", currentThreadId, slice.context.instructionPointer);
         // The CPU mirror is not the authority: reconcile guest writes before Rust decodes
         // pointers or arguments from this call frame.
         const changed = engine.collectChangedPageViews();
-        if (changed.length > 0) generation = bridge.reconcileWritebackPages(generation, changed);
+        if (changed.length > 0) {
+          generation = bridge.reconcileWritebackPages(generation, changed);
+          engine.acknowledgeWriteback?.(generation);
+        }
         const returnAddress = engine.readGuestU32(slice.context.esp);
-        bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
+        const alreadyDispatched = slice.stop.kind === "runtime-output";
+        let nativeOutput = alreadyDispatched ? bridge.readPendingDispatch<GameDispatch>() : undefined;
+        if (!alreadyDispatched) bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
         let output;
         for (;;) {
           try {
-            output = bridge.dispatch<GameDispatch>(
+            output = nativeOutput ?? bridge.dispatch<GameDispatch>(
               slice.context.instructionPointer, slice.context.esp, returnAddress, instructions, slice.context,
             );
+            nativeOutput = undefined;
           } catch (error) {
             throw new Error(`${label} stopped: ${error instanceof Error ? error.message : String(error)}`);
           }
@@ -1139,7 +1247,7 @@ async function launch(request: LaunchRequest): Promise<void> {
             continue;
           }
           if (host.service === "browser.timer-delay" || host.service === "browser.sleep" ||
-              host.service === "browser.audio-delay") {
+              host.service === "browser.audio-delay" || host.service === "browser.object-wait") {
             const wait = host.service === "browser.timer-delay";
             const audio = host.service === "browser.audio-delay";
             const milliseconds = browserDelayMilliseconds(host.service, host.arguments);
@@ -1149,13 +1257,10 @@ async function launch(request: LaunchRequest): Promise<void> {
             const delay = {
               requestId: BigInt(host.requestId), threadId: currentThreadId,
               service: host.service,
-              acknowledgement: wait || audio ? 1 : 0, done: false,
+              acknowledgement: wait || audio || host.service === "browser.object-wait" ? 1 : 0, done: false,
               promise: Promise.resolve(),
             };
-            delay.promise = new Promise<void>(resolve => setTimeout(() => {
-              delay.done = true;
-              resolve();
-            }, milliseconds));
+            armBrowserDelay(delay, milliseconds);
             pendingBrowserCompletions.push(delay);
             await schedule();
             continue;
@@ -1241,7 +1346,7 @@ async function launch(request: LaunchRequest): Promise<void> {
         if (output.metadata.threadSelection !== undefined) {
           switchThread(output.metadata.threadSelection.threadId);
         } else if (boundary === "block-current-thread") {
-          threadContexts.set(currentThreadId, engine.saveCpuContext());
+          parkCurrentCpu();
           await schedule();
         }
         continue;
@@ -1250,6 +1355,7 @@ async function launch(request: LaunchRequest): Promise<void> {
       await schedule();
     }
   } finally {
+    for (const delay of pendingBrowserCompletions) delay.cancelTimer?.();
     mediaClosed = true;
     for (const resolve of pendingMediaAudio.values()) resolve(false);
     pendingMediaAudio.clear();

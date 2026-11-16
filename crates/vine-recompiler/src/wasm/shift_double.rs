@@ -1,0 +1,125 @@
+//! Reached 32-bit double shifts, with runtime count and flag validity.
+use super::*;
+
+impl Emitter {
+    pub(super) fn shift_double_right(&mut self, instruction: &Instruction) {
+        // All register inputs, including CL/source/destination aliases, are
+        // captured before the destination or any architectural flags change.
+        self.operand(instruction.operands[1]);
+        self.set(B);
+        self.operand(instruction.operands[2]);
+        self.num(31);
+        self.op(0x71);
+        self.set(CARRY);
+        self.rmw_operand(instruction.operands[0]);
+        self.set(A);
+        self.get(CARRY);
+        self.if_();
+        self.prepare_rmw_store(instruction.operands[0]);
+        self.get(A);
+        self.get(CARRY);
+        self.op(0x76);
+        self.get(B);
+        self.num(32);
+        self.get(CARRY);
+        self.op(0x6b);
+        self.op(0x74);
+        self.op(0x72);
+        self.set(R);
+        self.get(FLAGS);
+        self.num(!ARITH);
+        self.op(0x71);
+        self.set(FLAGS);
+        self.common_flags(Width::W32, PF | ZF | SF);
+        self.get(A);
+        self.get(CARRY);
+        self.num(1);
+        self.op(0x6b);
+        self.op(0x76);
+        self.num(1);
+        self.op(0x71);
+        self.add_flag(CF);
+        self.get(DEFINED);
+        self.num(!ARITH);
+        self.op(0x71);
+        self.num(CF | PF | ZF | SF);
+        self.op(0x72);
+        self.set(DEFINED);
+        self.get(CARRY);
+        self.num(1);
+        self.op(0x46);
+        self.if_();
+        self.get(A);
+        self.get(R);
+        self.op(0x73);
+        self.num(31);
+        self.op(0x76);
+        self.add_flag(OF);
+        self.get(DEFINED);
+        self.num(OF);
+        self.op(0x72);
+        self.set(DEFINED);
+        self.end();
+        self.assign(instruction.operands[0]);
+        self.end();
+    }
+
+    pub(super) fn shift_double_left(&mut self, instruction: &Instruction) {
+        self.operand(instruction.operands[0]);
+        self.set(A);
+        self.operand(instruction.operands[1]);
+        self.set(B);
+        self.operand(instruction.operands[2]);
+        self.num(31);
+        self.op(0x71);
+        self.set(TMP);
+        self.get(TMP);
+        self.if_();
+        self.get(A);
+        self.get(TMP);
+        self.op(0x74);
+        self.get(B);
+        self.num(32);
+        self.get(TMP);
+        self.op(0x6b);
+        self.op(0x76);
+        self.op(0x72);
+        self.set(R);
+        self.get(FLAGS);
+        self.num(!ARITH);
+        self.op(0x71);
+        self.set(FLAGS);
+        self.common_flags(Width::W32, PF | ZF | SF);
+        self.get(A);
+        self.num(32);
+        self.get(TMP);
+        self.op(0x6b);
+        self.op(0x76);
+        self.num(1);
+        self.op(0x71);
+        self.add_flag(CF);
+        self.get(DEFINED);
+        self.num(!ARITH);
+        self.op(0x71);
+        self.num(CF | PF | ZF | SF);
+        self.op(0x72);
+        self.set(DEFINED);
+        self.get(TMP);
+        self.num(1);
+        self.op(0x46);
+        self.if_();
+        self.get(A);
+        self.get(R);
+        self.op(0x73);
+        self.num(31);
+        self.op(0x76);
+        self.add_flag(OF);
+        self.get(DEFINED);
+        self.num(OF);
+        self.op(0x72);
+        self.set(DEFINED);
+        self.end();
+        self.assign(instruction.operands[0]);
+        self.end();
+    }
+}

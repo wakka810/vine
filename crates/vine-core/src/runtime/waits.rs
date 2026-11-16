@@ -6,6 +6,7 @@ use super::{
 };
 
 pub const RUNTIME_WAITABLE_TIMER_PACING_SERVICE: &str = "browser.timer-delay";
+pub const RUNTIME_OBJECT_WAIT_SERVICE: &str = "browser.object-wait";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeWaitRegistrationId(pub u64);
@@ -19,6 +20,15 @@ pub struct RuntimeWaitRegistration {
     pub timeout_deadline_time_100ns: Option<u64>,
     pub alertable: bool,
     pub waitable_timer_pacing: Option<RuntimeWaitableTimerPacing>,
+    pub object_wait_pacing: Option<RuntimeObjectWaitPacing>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeObjectWaitPacing {
+    pub request_id: u64,
+    pub delay_milliseconds: u32,
+    pub started_at_time_100ns: u64,
+    pub signaled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +150,7 @@ impl RuntimeWaits {
             timeout_deadline_time_100ns,
             alertable,
             waitable_timer_pacing,
+            object_wait_pacing: None,
         };
         if self.wait_registrations.contains_key(&registration.id) {
             return Err(RuntimeStateError::new(
@@ -195,6 +206,19 @@ impl RuntimeWaits {
             .expect("validated timer wait registration");
         debug_assert_eq!(*live, registration);
         live.waitable_timer_pacing = Some(pacing);
+    }
+
+    pub(super) fn replace_object_pacing(
+        &mut self,
+        registration: RuntimeWaitRegistration,
+        pacing: RuntimeObjectWaitPacing,
+    ) {
+        let live = self
+            .wait_registrations
+            .get_mut(&registration.id)
+            .expect("validated object wait registration");
+        debug_assert_eq!(*live, registration);
+        live.object_wait_pacing = Some(pacing);
     }
 
     pub(super) fn signal_timer_waiters(

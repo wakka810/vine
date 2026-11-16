@@ -10,6 +10,7 @@ pub const FLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const RUNTIME_TLS_MINIMUM_AVAILABLE: u32 = 64;
 pub const RUNTIME_FLS_INDEX_LIMIT: u32 = 128;
 pub const RUNTIME_GUEST_THREAD_LIMIT: usize = 256;
+const CPU_SNAPSHOT_MAX_BYTES: usize = 4096;
 pub const RUNTIME_GUEST_THREAD_STACK_ARENA_BASE: GuestAddress = GuestAddress(0x5000_0000);
 pub const RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE: u64 = 0x1000_0000;
 pub const RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE: GuestAddress = GuestAddress(0x7f03_0000);
@@ -125,6 +126,17 @@ pub struct RuntimeThreadState {
     pub stack: Option<RuntimeThreadStack>,
     pub environment: Option<RuntimeThreadEnvironment>,
     pub guest_bootstrap: Option<RuntimeGuestThreadBootstrap>,
+    // CPU representation is opaque to Windows state. The backend validates its
+    // private layout when restoring; Runtime owns the parked bytes and lifetime.
+    cpu_snapshot: Option<RuntimeCpuSnapshot>,
+    cpu_snapshot_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeCpuSnapshot {
+    backend_tag: u32,
+    abi_version: u32,
+    bytes: Box<[u8]>,
 }
 
 #[derive(Debug)]
@@ -183,6 +195,7 @@ pub(super) struct RuntimeThreads {
     next_fls_index: u32,
     next_callback_frame_id: u64,
     next_thread_id: u64,
+    cpu_snapshot_format: Option<(u32, u32)>,
 }
 
 impl RuntimeThreads {
@@ -201,6 +214,8 @@ impl RuntimeThreads {
             stack: None,
             environment: None,
             guest_bootstrap: None,
+            cpu_snapshot: None,
+            cpu_snapshot_revision: 0,
         };
         Self {
             states: BTreeMap::from([(initial_thread_id, initial)]),
@@ -210,6 +225,7 @@ impl RuntimeThreads {
             next_fls_index: 0,
             next_callback_frame_id: 1,
             next_thread_id: u64::from(initial_thread_id.0) + 1,
+            cpu_snapshot_format: None,
         }
     }
 
@@ -331,6 +347,12 @@ impl RuntimeThreads {
         self.states.contains_key(&thread_id)
     }
 
+    pub(super) fn has_running_thread(&self) -> bool {
+        self.states
+            .values()
+            .any(|thread| thread.lifecycle == RuntimeThreadLifecycleState::Running)
+    }
+
     pub(super) fn state(
         &self,
         thread_id: RuntimeThreadId,
@@ -350,6 +372,99 @@ impl RuntimeThreads {
         self.states.get(&thread_id).ok_or_else(|| {
             RuntimeStateError::new("scheduler current thread has no runtime thread state")
         })
+    }
+
+    pub(super) fn put_cpu_snapshot(
+        &mut self,
+        thread_id: RuntimeThreadId,
+        expected_revision: u64,
+        backend_tag: u32,
+        abi_version: u32,
+        bytes: &[u8],
+    ) -> Result<u64, RuntimeStateError> {
+        let valid_format = match (backend_tag, abi_version) {
+            (1, 1) => bytes.len() == 612,
+            (2, 2) => bytes.len() == 512,
+            _ => false,
+        };
+        if !valid_format || bytes.len() > CPU_SNAPSHOT_MAX_BYTES {
+            return Err(RuntimeStateError::new(
+                "invalid CPU snapshot tag, version or byte length",
+            ));
+        }
+        let thread = self.state(thread_id)?;
+        if thread.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::new(
+                "CPU snapshot requires a live thread",
+            ));
+        }
+        if thread.cpu_snapshot_revision != expected_revision {
+            return Err(RuntimeStateError::new("stale parked CPU snapshot revision"));
+        }
+        if self
+            .cpu_snapshot_format
+            .is_some_and(|format| format != (backend_tag, abi_version))
+        {
+            return Err(RuntimeStateError::new(
+                "CPU snapshot backend differs from this process",
+            ));
+        }
+        if thread.cpu_snapshot.is_none()
+            && self
+                .states
+                .values()
+                .filter(|state| state.cpu_snapshot.is_some())
+                .count()
+                >= RUNTIME_GUEST_THREAD_LIMIT
+        {
+            return Err(RuntimeStateError::new(
+                "parked CPU snapshot count exceeds the thread limit",
+            ));
+        }
+        let revision = expected_revision.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::new("parked CPU snapshot revision space is exhausted")
+        })?;
+        let mut owned = Vec::new();
+        owned
+            .try_reserve_exact(bytes.len())
+            .map_err(|_| RuntimeStateError::new("parked CPU snapshot allocation failed"))?;
+        owned.extend_from_slice(bytes);
+        let snapshot = RuntimeCpuSnapshot {
+            backend_tag,
+            abi_version,
+            bytes: owned.into_boxed_slice(),
+        };
+        let format = (snapshot.backend_tag, snapshot.abi_version);
+        let thread = self
+            .states
+            .get_mut(&thread_id)
+            .expect("validated CPU thread");
+        thread.cpu_snapshot = Some(snapshot);
+        thread.cpu_snapshot_revision = revision;
+        self.cpu_snapshot_format = Some(format);
+        Ok(revision)
+    }
+
+    pub(super) fn cpu_snapshot(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<(u32, u32, u64, &[u8]), RuntimeStateError> {
+        let thread = self.state(thread_id)?;
+        if thread.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::new(
+                "CPU snapshot requires a live thread",
+            ));
+        }
+        let snapshot = thread
+            .cpu_snapshot
+            .as_ref()
+            .ok_or_else(|| RuntimeStateError::new("live thread has no parked CPU snapshot"))?;
+        Ok((
+            snapshot.backend_tag,
+            snapshot.abi_version,
+            thread.cpu_snapshot_revision,
+            &snapshot.bytes,
+        ))
     }
 
     pub(super) fn validate_registration(
@@ -394,6 +509,8 @@ impl RuntimeThreads {
             stack: None,
             environment: None,
             guest_bootstrap: None,
+            cpu_snapshot: None,
+            cpu_snapshot_revision: 0,
         }
     }
 
@@ -819,6 +936,7 @@ impl RuntimeThreads {
             .get_mut(&thread_id)
             .expect("validated thread disappeared");
         thread.callback_frames.clear();
+        thread.cpu_snapshot = None;
         thread.lifecycle = RuntimeThreadLifecycleState::ExitRequested { exit_code };
         Ok(())
     }
@@ -845,6 +963,7 @@ impl RuntimeThreads {
             .get_mut(&thread_id)
             .expect("validated thread disappeared");
         thread.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
+        thread.cpu_snapshot = None;
         thread.com_apartment = None;
         thread.cursor_display_count = 0;
         Ok(exit_code)
@@ -859,6 +978,92 @@ mod tests {
 
     const INITIAL: RuntimeThreadId = RuntimeThreadId(0x2000);
     const SECOND: RuntimeThreadId = RuntimeThreadId(0x1001);
+
+    #[test]
+    fn cpu_snapshots_preserve_opaque_bytes_and_reject_stale_or_malformed_replacement() {
+        let mut threads = RuntimeThreads::new(INITIAL, 11);
+        threads.start(INITIAL).unwrap();
+        threads.register(SECOND, 33);
+        let mut input = vec![0xa5; 512];
+        assert_eq!(threads.put_cpu_snapshot(INITIAL, 0, 2, 2, &input), Ok(1));
+        input[430] = 0x5a;
+        let saved = threads.cpu_snapshot(INITIAL).unwrap();
+        assert_eq!((saved.0, saved.1, saved.2), (2, 2, 1));
+        assert_eq!(saved.3, vec![0xa5; 512]);
+        assert_eq!(threads.put_cpu_snapshot(SECOND, 0, 2, 2, &input), Ok(1));
+        assert_eq!(threads.cpu_snapshot(SECOND).unwrap().3[430], 0x5a);
+        let before = threads.clone();
+        for (revision, tag, version, length) in [
+            (0, 2, 2, 512),
+            (1, 3, 2, 512),
+            (1, 2, 1, 512),
+            (1, 2, 2, 420),
+            (1, 2, 2, 511),
+            (1, 2, 2, 513),
+            (1, 1, 1, 612),
+            (1, 2, 2, 4097),
+        ] {
+            assert!(
+                threads
+                    .put_cpu_snapshot(INITIAL, revision, tag, version, &vec![0; length])
+                    .is_err()
+            );
+            assert_eq!(threads, before);
+        }
+        assert!(
+            threads
+                .put_cpu_snapshot(RuntimeThreadId(0), 0, 2, 2, &input)
+                .is_err()
+        );
+        assert_eq!(threads, before);
+        assert_eq!(threads.put_cpu_snapshot(INITIAL, 1, 2, 2, &input), Ok(2));
+        threads
+            .states
+            .get_mut(&INITIAL)
+            .unwrap()
+            .cpu_snapshot_revision = u64::MAX;
+        let before = threads.clone();
+        assert!(
+            threads
+                .put_cpu_snapshot(INITIAL, u64::MAX, 2, 2, &input)
+                .is_err()
+        );
+        assert_eq!(threads, before);
+        threads.request_exit(INITIAL, 7).unwrap();
+        assert!(threads.states[&INITIAL].cpu_snapshot.is_none());
+        assert!(threads.cpu_snapshot(INITIAL).is_err());
+        assert!(
+            threads
+                .put_cpu_snapshot(INITIAL, u64::MAX, 2, 2, &input)
+                .is_err()
+        );
+        threads.complete_exit(INITIAL).unwrap();
+        assert_eq!(threads.cpu_snapshot(SECOND).unwrap().2, 1);
+    }
+
+    #[test]
+    fn cpu_snapshot_count_is_bounded_and_backend_format_cannot_change_on_another_thread() {
+        let mut threads = RuntimeThreads::new(INITIAL, 11);
+        threads.start(INITIAL).unwrap();
+        let bytes = vec![0x55; 612];
+        threads.put_cpu_snapshot(INITIAL, 0, 1, 1, &bytes).unwrap();
+        for id in 1..RUNTIME_GUEST_THREAD_LIMIT as u32 {
+            let thread = RuntimeThreadId(INITIAL.0 + id);
+            threads.register(thread, 0);
+            threads.put_cpu_snapshot(thread, 0, 1, 1, &bytes).unwrap();
+        }
+        let extra = RuntimeThreadId(INITIAL.0 + RUNTIME_GUEST_THREAD_LIMIT as u32);
+        threads.register(extra, 0);
+        let before = threads.clone();
+        assert!(threads.put_cpu_snapshot(extra, 0, 1, 1, &bytes).is_err());
+        assert_eq!(threads, before);
+        threads.request_exit(INITIAL, 0).unwrap();
+        threads.complete_exit(INITIAL).unwrap();
+        let before = threads.clone();
+        assert!(threads.put_cpu_snapshot(extra, 0, 2, 2, &[0; 512]).is_err());
+        assert_eq!(threads, before);
+        assert_eq!(threads.put_cpu_snapshot(extra, 0, 1, 1, &bytes), Ok(1));
+    }
 
     #[test]
     fn com_apartment_initialization_is_counted_thread_local_and_failure_atomic() {

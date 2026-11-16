@@ -183,6 +183,7 @@ const keyboardFixtureDirectory = path.join(root, "fixtures", "pe32", "keyboard-i
 const keyboardObject = path.join(outputDirectory, "fixture-keyboard.obj");
 const keyboardExe = path.join(outputDirectory, "keyboard-input.exe");
 const keyboardLibrary = path.join(outputDirectory, "keyboard-user32.lib");
+const keyboardKernel32Library = path.join(outputDirectory, "keyboard-kernel32.lib");
 const messageBoxFixtureDirectory = path.join(root, "fixtures", "pe32", "message-box");
 const messageBoxObject = path.join(outputDirectory, "fixture-message-box.obj");
 const messageBoxExe = path.join(outputDirectory, "message-box.exe");
@@ -484,6 +485,10 @@ run("llvm-dlltool", [
 ]);
 run("llvm-dlltool", [
   "-m", "i386", "-k", "-d",
+  path.join(keyboardFixtureDirectory, "kernel32.def"), "-l", keyboardKernel32Library,
+]);
+run("llvm-dlltool", [
+  "-m", "i386", "-k", "-d",
   path.join(root, "fixtures", "pe32", "heap-growth.def"), "-l", heapGrowthLibrary,
 ]);
 run("lld-link", [
@@ -686,7 +691,7 @@ run("llvm-rc", ["/nologo", `/fo${iconResource}`, iconResourceScript]);
 run("lld-link", [
   "/nodefaultlib", "/machine:x86", "/subsystem:windows,6.0",
   "/entry:fixture_entry", "/dynamicbase", "/nxcompat", "/timestamp:0",
-  `/out:${keyboardExe}`, keyboardObject, keyboardLibrary, iconResource,
+  `/out:${keyboardExe}`, keyboardObject, keyboardLibrary, keyboardKernel32Library, iconResource,
 ]);
 run("lld-link", [
   "/nodefaultlib",
@@ -993,6 +998,7 @@ for (const expected of [
 
 for (const expected of [
   "Format: COFF-i386", "Name: user32.dll", "Symbol: GetAsyncKeyState",
+  "Name: kernel32.dll", "Symbol: CreateFileA", "Symbol: WriteFile", "Symbol: CloseHandle",
 ]) {
   if (!keyboardInspection.includes(expected)) {
     throw new Error(`keyboard input PE32 inspection is missing: ${expected}`);

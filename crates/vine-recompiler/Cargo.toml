@@ -1,0 +1,17 @@
+[package]
+name = "vine-recompiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+iced-x86 = { version = "=1.21.0", default-features = false, features = ["std", "decoder", "instr_info"] }
+vine-x87 = { path = "../vine-x87" }
+vine-cpu-profile = { path = "../vine-cpu-profile" }
+
+[dev-dependencies]
+vine-core = { path = "../vine-core" }

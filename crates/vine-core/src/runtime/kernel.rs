@@ -134,8 +134,8 @@ use super::user32::{
     RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
 };
 use super::waits::{
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitDisposition,
-    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RUNTIME_OBJECT_WAIT_SERVICE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeObjectWaitPacing,
+    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitRegistration, RuntimeWaitableTimerPacing,
 };
 
@@ -186,6 +186,25 @@ pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
     wait_updates: Option<Vec<(RuntimeObjectId, RuntimeWaitState)>>,
     outcome: RuntimeWaitForSingleObjectExOutcome,
     repace: Option<RuntimeWaitableTimerPacing>,
+}
+
+pub(crate) struct RuntimeObjectWaitCompletionPlan {
+    scheduler: RuntimeHostRequest,
+    registration: RuntimeWaitRegistration,
+    outcome: RuntimeWaitForSingleObjectExOutcome,
+    retry: Option<RuntimeObjectWaitPacing>,
+}
+
+impl RuntimeObjectWaitCompletionPlan {
+    pub(crate) const fn registration(&self) -> RuntimeWaitRegistration {
+        self.registration
+    }
+    pub(crate) const fn outcome(&self) -> RuntimeWaitForSingleObjectExOutcome {
+        self.outcome
+    }
+    pub(crate) const fn retry(&self) -> Option<RuntimeObjectWaitPacing> {
+        self.retry
+    }
 }
 
 pub(crate) struct RuntimeAudioNotificationWaitCompletionPlan {
@@ -2832,6 +2851,63 @@ impl Runtime {
         self.threads.state(thread_id)
     }
 
+    fn validate_cpu_snapshot_thread(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.thread_state(thread_id)?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state_for_thread(thread_id)?,
+                SchedulerThreadState::Suspended { .. }
+                    | SchedulerThreadState::Runnable
+                    | SchedulerThreadState::WaitingHost { .. }
+                    | SchedulerThreadState::WaitingObject { .. }
+                    | SchedulerThreadState::WaitingCriticalSection { .. }
+                    | SchedulerThreadState::WaitingMessage
+                    | SchedulerThreadState::InCallback { .. }
+            )
+            || !self.objects.contains_identity(&RuntimeObjectKey::Thread {
+                thread_id: thread_id.0,
+            })
+        {
+            return Err(RuntimeStateError::new(
+                "CPU snapshot requires matching live process, thread, object and scheduler identity",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Park backend-owned bytes on the existing Windows thread identity. A
+    /// revision belongs to this CPU handoff, not the mutable GuestMemory epoch.
+    pub fn put_thread_cpu_snapshot(
+        &mut self,
+        thread_id: RuntimeThreadId,
+        expected_revision: u64,
+        backend_tag: u32,
+        abi_version: u32,
+        bytes: &[u8],
+    ) -> Result<u64, RuntimeStateError> {
+        self.validate_cpu_snapshot_thread(thread_id)?;
+        self.threads.put_cpu_snapshot(
+            thread_id,
+            expected_revision,
+            backend_tag,
+            abi_version,
+            bytes,
+        )
+    }
+
+    /// Non-destructive read: a failed backend restore must not consume the only
+    /// parked copy. Thread retirement discards it through its existing owner.
+    pub fn thread_cpu_snapshot(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<(u32, u32, u64, &[u8]), RuntimeStateError> {
+        self.validate_cpu_snapshot_thread(thread_id)?;
+        self.threads.cpu_snapshot(thread_id)
+    }
+
     pub fn scheduler(&self) -> &RuntimeScheduler {
         &self.scheduler
     }
@@ -3154,8 +3230,24 @@ impl Runtime {
                 }
                 Ok(())
             }
+            RuntimeObjectKind::Thread => {
+                self.objects
+                    .object_for_handle(handle, RuntimeObjectKind::Thread)?;
+                if self
+                    .scheduler
+                    .wait_registrations()
+                    .values()
+                    .any(|registration| {
+                        registration.handle == handle && registration.object_wait_pacing.is_some()
+                    })
+                {
+                    return Err(RuntimeStateError::new(
+                        "finite thread wait retains its live handle until completion",
+                    ));
+                }
+                self.objects.close_handle(handle)
+            }
             RuntimeObjectKind::Process
-            | RuntimeObjectKind::Thread
             | RuntimeObjectKind::FileSearch
             | RuntimeObjectKind::PrivateHeap
             | RuntimeObjectKind::Module => self.objects.close_handle(handle),
@@ -3197,17 +3289,46 @@ impl Runtime {
         retired_instructions: u64,
         host_elapsed_time_100ns: u64,
     ) -> Result<u64, RuntimeStateError> {
-        // A real browser completion also advances time when every guest thread
-        // is parked. This observation does not execute a guest timer operation.
+        // Host time is process-wide, including when all live threads are parked
+        // or the selected thread just exited and made another owner's wait ready.
+        // This observation neither executes nor revives the selected thread.
         if !self.process.is_running()
-            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || (self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+                && !self.threads.has_running_thread())
         {
             return Err(RuntimeStateError::new(
-                "host clock observation requires a running process and live current thread",
+                "host clock observation requires a running process with a live thread",
             ));
         }
         self.process
             .advance_scheduled_host_execution_clock(retired_instructions, host_elapsed_time_100ns)
+    }
+
+    /// Observe the real process-wide host clock and read the fixed-profile TSC.
+    /// The retirement cursor validates ordering only; it never advances time.
+    /// A CPU must stop before RDTSC and reconcile its preceding guest writes
+    /// before this boundary, then commit its architectural result separately.
+    pub fn read_timestamp_counter(
+        &mut self,
+        retired_instructions: u64,
+        host_elapsed_time_100ns: u64,
+    ) -> Result<u64, RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::new(
+                "timestamp counter requires a running process and active current thread",
+            ));
+        }
+        self.process.advance_scheduled_host_execution_clock(
+            retired_instructions,
+            host_elapsed_time_100ns,
+        )?;
+        Ok(self.process.timestamp_counter())
     }
 
     pub(crate) fn sample_tick_count(&self) -> Result<u32, RuntimeStateError> {
@@ -4018,6 +4139,172 @@ impl Runtime {
             },
         );
         Ok(RuntimeWaitDisposition::Pending { registration })
+    }
+
+    pub(crate) fn begin_finite_object_wait(
+        &mut self,
+        handle: RuntimeHandle,
+        timeout_milliseconds: u32,
+    ) -> Result<RuntimeWaitForSingleObjectExBegin, RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !self.scheduler_state()?.is_executable()
+            || timeout_milliseconds == 0
+            || timeout_milliseconds == u32::MAX
+        {
+            return Err(RuntimeStateError::new(
+                "finite object wait requires an executable owner and finite positive timeout",
+            ));
+        }
+        let kind = handle.kind()?;
+        if !matches!(kind, RuntimeObjectKind::Event | RuntimeObjectKind::Thread) {
+            return Err(RuntimeStateError::new(
+                "finite object wait requires an event or thread",
+            ));
+        }
+        let object = self.objects.object_for_handle(handle, kind)?;
+        if matches!(object.wait_state, Some(RuntimeWaitState::Signaled { .. })) {
+            self.wait_current_thread_on(handle)?;
+            return Ok(RuntimeWaitForSingleObjectExBegin::Immediate {
+                outcome: RuntimeWaitForSingleObjectExOutcome::ObjectSignaled,
+            });
+        }
+        if object.wait_state != Some(RuntimeWaitState::Nonsignaled) {
+            return Err(RuntimeStateError::new(
+                "finite wait object has no valid wait state",
+            ));
+        }
+        let started = self.process.timer_time_100ns();
+        let deadline = started
+            .checked_add(u64::from(timeout_milliseconds) * 10_000)
+            .ok_or_else(|| {
+                RuntimeStateError::new("finite object wait deadline exceeds the timer clock")
+            })?;
+        let request = self
+            .scheduler
+            .checked_host_request(RUNTIME_OBJECT_WAIT_SERVICE.to_owned())?;
+        let pacing = RuntimeObjectWaitPacing {
+            request_id: request.request_id,
+            delay_milliseconds: timeout_milliseconds.min(i32::MAX as u32),
+            started_at_time_100ns: started,
+            signaled: false,
+        };
+        let registration = self
+            .scheduler
+            .checked_object_wait_registration(object.id, handle, deadline, pacing)?;
+        self.scheduler.publish_wait_registration(registration);
+        self.scheduler.publish_host_request(request);
+        Ok(RuntimeWaitForSingleObjectExBegin::Deferred { registration })
+    }
+
+    /// Read-only readiness for the browser's outstanding object-wait resources.
+    /// The latch was committed by SetEvent/thread exit while the wait was live.
+    pub fn ready_object_wait_request_id(&self) -> u64 {
+        self.scheduler
+            .wait_registrations()
+            .values()
+            .find_map(|registration| {
+                registration
+                    .object_wait_pacing
+                    .filter(|pacing| pacing.signaled)
+                    .map(|pacing| pacing.request_id)
+            })
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn plan_object_wait_completion(
+        &self,
+        request_id: u64,
+        acknowledgement: u32,
+    ) -> Result<RuntimeObjectWaitCompletionPlan, RuntimeStateError> {
+        if acknowledgement > 1 {
+            return Err(RuntimeStateError::new(
+                "object wait acknowledgement must be signal or timer",
+            ));
+        }
+        let scheduler = self.scheduler.validate_host_completion(request_id)?;
+        if scheduler.service != RUNTIME_OBJECT_WAIT_SERVICE
+            || scheduler.thread_id != self.current_thread_id()
+        {
+            return Err(RuntimeStateError::new(
+                "object wait completion does not own the selected host request",
+            ));
+        }
+        let registration = self
+            .scheduler
+            .wait_registration_for_thread(scheduler.thread_id)?
+            .ok_or_else(|| {
+                RuntimeStateError::new("object wait host request lost its registration")
+            })?;
+        let pacing = registration.object_wait_pacing.ok_or_else(|| {
+            RuntimeStateError::new("object wait registration lost its pacing identity")
+        })?;
+        if pacing.request_id != request_id
+            || registration.waitable_timer_pacing.is_some()
+            || pacing.delay_milliseconds == 0
+            || pacing.delay_milliseconds > i32::MAX as u32
+        {
+            return Err(RuntimeStateError::new(
+                "object wait request/pacing identity is inconsistent",
+            ));
+        }
+        let kind = registration.handle.kind()?;
+        if !matches!(kind, RuntimeObjectKind::Event | RuntimeObjectKind::Thread) {
+            return Err(RuntimeStateError::new(
+                "object wait completion has an invalid object kind",
+            ));
+        }
+        let object = self.objects.object_for_handle(registration.handle, kind)?;
+        if object.id != registration.object_id || object.wait_state.is_none() {
+            return Err(RuntimeStateError::new(
+                "object wait completion lost its live object identity",
+            ));
+        }
+        let now = self.process.timer_time_100ns();
+        let deadline = registration
+            .timeout_deadline_time_100ns
+            .ok_or_else(|| RuntimeStateError::new("finite object wait has no deadline"))?;
+        if now < pacing.started_at_time_100ns || deadline <= pacing.started_at_time_100ns {
+            return Err(RuntimeStateError::new(
+                "object wait clock or deadline is inconsistent",
+            ));
+        }
+        if acknowledgement == 0 && !pacing.signaled {
+            return Err(RuntimeStateError::new(
+                "object wait signal acknowledgement has no Rust signal latch",
+            ));
+        }
+        let retry = if !pacing.signaled && now < deadline {
+            Some(RuntimeObjectWaitPacing {
+                request_id,
+                delay_milliseconds: ((deadline - now).div_ceil(10_000)).min(i32::MAX as u64) as u32,
+                started_at_time_100ns: now,
+                signaled: false,
+            })
+        } else {
+            None
+        };
+        Ok(RuntimeObjectWaitCompletionPlan {
+            scheduler,
+            registration,
+            retry,
+            outcome: if pacing.signaled {
+                RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+            } else {
+                RuntimeWaitForSingleObjectExOutcome::TimedOut
+            },
+        })
+    }
+
+    pub(crate) fn commit_object_wait_completion(&mut self, plan: RuntimeObjectWaitCompletionPlan) {
+        if let Some(retry) = plan.retry {
+            self.scheduler
+                .replace_object_wait_pacing(plan.registration, retry);
+            return;
+        }
+        self.scheduler
+            .commit_remove_wait_registration(plan.registration);
+        self.scheduler.commit_host_completion(plan.scheduler);
     }
 
     pub(crate) fn post_thread_message(
@@ -4989,6 +5276,7 @@ impl Runtime {
             RuntimeWaitState::Signaled { exit_code: 0 },
             &[],
             if manual_reset { usize::MAX } else { 1 },
+            self.process.timer_time_100ns(),
         )?;
         *wait_state = if !manual_reset && wakes != 0 {
             RuntimeWaitState::Nonsignaled
@@ -9286,6 +9574,7 @@ impl Runtime {
             RuntimeWaitState::Signaled { exit_code },
             &[thread_id],
             usize::MAX,
+            self.process.timer_time_100ns(),
         )?;
         *wait_state = RuntimeWaitState::Signaled { exit_code };
         self.publish_thread_exit_completion(thread_id, exit_code);
@@ -9340,6 +9629,7 @@ impl Runtime {
             RuntimeWaitState::Signaled { exit_code },
             &[thread_id],
             usize::MAX,
+            self.process.timer_time_100ns(),
         )?;
         transaction.commit_transaction();
         *wait_state = RuntimeWaitState::Signaled { exit_code };
@@ -9569,6 +9859,105 @@ mod tests {
     const D3D9_FIXTURE_SURFACE_OUTPUT: GuestAddress =
         GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x908);
     const D3D9_FIXTURE_CALL_SITE: GuestAddress = GuestAddress(0x1005_aca5);
+
+    #[test]
+    fn parked_cpu_snapshots_follow_live_threads_without_changing_scheduler_or_guest_memory() {
+        let mut runtime = d3d9_fixture_runtime(d3d9_fixture_memory());
+        let initial = runtime.current_thread_id();
+        let second = RuntimeThreadId(initial.0 + 1);
+        runtime.register_thread(second, 0x22).unwrap();
+        let first_bytes = vec![0xa5; 512];
+        let second_bytes = vec![0x5a; 512];
+        let memory_before = runtime.memory.stats();
+        let clock_before = runtime.clock().clone();
+        assert!(runtime.thread_cpu_snapshot(initial).is_err());
+        assert_eq!(
+            runtime.put_thread_cpu_snapshot(initial, 0, 2, 2, &first_bytes),
+            Ok(1)
+        );
+        assert_eq!(
+            runtime.put_thread_cpu_snapshot(second, 0, 2, 2, &second_bytes),
+            Ok(1)
+        );
+        let waiting = runtime.begin_host_request("fixture.parked-cpu").unwrap();
+        runtime.select_thread(second).unwrap();
+        // A deferred completion may patch another live owner's parked context;
+        // the CPU handoff revision does not select that owner as the guest thread.
+        let scheduler_before = runtime.scheduler.clone();
+        assert_eq!(runtime.thread_cpu_snapshot(initial).unwrap().3, first_bytes);
+        assert_eq!(
+            runtime.put_thread_cpu_snapshot(initial, 1, 2, 2, &second_bytes),
+            Ok(2)
+        );
+        assert_eq!(runtime.current_thread_id(), second);
+        assert_eq!(runtime.scheduler, scheduler_before);
+        assert_eq!(runtime.current_last_error().unwrap(), 0x22);
+        assert_eq!(runtime.memory.stats(), memory_before);
+        assert_eq!(*runtime.clock(), clock_before);
+        assert!(
+            runtime
+                .put_thread_cpu_snapshot(initial, 1, 2, 2, &first_bytes)
+                .is_err()
+        );
+        assert_eq!(
+            runtime.thread_cpu_snapshot(initial).unwrap().3,
+            second_bytes
+        );
+        assert!(runtime.thread_cpu_snapshot(RuntimeThreadId(0)).is_err());
+        assert!(
+            runtime
+                .put_thread_cpu_snapshot(RuntimeThreadId(0), 0, 2, 2, &first_bytes)
+                .is_err()
+        );
+        runtime.request_current_thread_exit(0).unwrap();
+        assert!(runtime.thread_cpu_snapshot(second).is_err());
+        assert!(
+            runtime
+                .put_thread_cpu_snapshot(second, 1, 2, 2, &first_bytes)
+                .is_err()
+        );
+        runtime.complete_current_thread_exit().unwrap();
+        assert!(runtime.thread_cpu_snapshot(second).is_err());
+        runtime.select_thread(initial).unwrap();
+        runtime.complete_host_request(waiting.request_id).unwrap();
+        assert_eq!(runtime.thread_cpu_snapshot(initial).unwrap().2, 2);
+        assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+    }
+
+    #[test]
+    fn timestamp_counter_is_process_wide_and_rejects_inactive_thread_reads() {
+        let mut runtime = d3d9_fixture_runtime(d3d9_fixture_memory());
+        let initial = runtime.current_thread_id();
+        let second = RuntimeThreadId(initial.0 + 1);
+        runtime.register_thread(second, 0x22).unwrap();
+        let memory_before = runtime.memory.stats();
+        assert_eq!(runtime.read_timestamp_counter(0, 10).unwrap(), 1000);
+        runtime.select_thread(second).unwrap();
+        assert_eq!(runtime.read_timestamp_counter(1, 20).unwrap(), 2000);
+        assert_eq!(runtime.current_last_error().unwrap(), 0x22);
+        runtime.select_thread(initial).unwrap();
+        assert_eq!(runtime.read_timestamp_counter(2, 20).unwrap(), 2000);
+        assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+        let before = runtime.clock().clone();
+        assert!(runtime.read_timestamp_counter(3, 19).is_err());
+        assert_eq!(*runtime.clock(), before);
+        assert_eq!(runtime.synchronized_instruction_count(), 2);
+        let waiting = runtime
+            .begin_host_request("fixture.timestamp-wait")
+            .unwrap();
+        assert!(runtime.read_timestamp_counter(3, 30).is_err());
+        assert_eq!(*runtime.clock(), before);
+        assert_eq!(runtime.synchronized_instruction_count(), 2);
+        runtime.complete_host_request(waiting.request_id).unwrap();
+        assert_eq!(runtime.read_timestamp_counter(3, 30).unwrap(), 3000);
+        runtime.select_thread(second).unwrap();
+        runtime.request_current_thread_exit(0).unwrap();
+        runtime.complete_current_thread_exit().unwrap();
+        assert!(runtime.read_timestamp_counter(4, 40).is_err());
+        runtime.select_thread(initial).unwrap();
+        assert_eq!(runtime.read_timestamp_counter(4, 40).unwrap(), 4000);
+        assert_eq!(runtime.memory.stats(), memory_before);
+    }
 
     #[test]
     fn diagnostic_location_reads_live_com_without_acknowledging_or_retaining_it() {

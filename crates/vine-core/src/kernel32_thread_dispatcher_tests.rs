@@ -839,19 +839,104 @@ fn wait_for_single_object_joins_live_threads_and_keeps_event_reset_semantics() {
         None,
         dispatch_kernel32_api,
     );
-    assert!(matches!(pending_finite_wait, DispatchOutcome::Fault(_)));
+    let DispatchOutcome::Deferred(pending_finite_wait) = pending_finite_wait else {
+        panic!("finite thread wait must defer: {pending_finite_wait:?}");
+    };
+    assert_eq!(
+        pending_finite_wait.request.service,
+        crate::RUNTIME_OBJECT_WAIT_SERVICE
+    );
+    assert_eq!(pending_finite_wait.request.payload, 5000_u32.to_le_bytes());
     assert_eq!(runtime.current_last_error().unwrap(), 0x5a5a);
     assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
     assert_eq!(
         runtime.scheduler_state().unwrap(),
-        SchedulerThreadState::Runnable
+        SchedulerThreadState::WaitingHost {
+            request_id: pending_finite_wait.request.request_id
+        }
     );
-    assert!(runtime.scheduler().wait_registrations().is_empty());
-    assert!(runtime.scheduler().object_waiters().is_empty());
-    assert!(runtime.scheduler().host_requests().is_empty());
-    assert!(runtime.scheduler().events().is_empty());
     assert_eq!(runtime.clock(), &clock_before_finite_wait);
     assert_eq!(runtime.memory.stats(), memory_before_finite_wait);
+    let reject_invalid_completion = |runtime: &mut Runtime, pending: &crate::ApiDeferredCall| {
+        let malformed = crate::ApiDeferredCall {
+            frame: pending.frame.clone(),
+            request: crate::api::HostRequest {
+                request_id: pending.request.request_id,
+                service: pending.request.service.clone(),
+                payload: 1_u32.to_le_bytes().to_vec(),
+            },
+        };
+        let before = runtime.scheduler().clone();
+        assert!(matches!(
+            crate::complete_kernel32_object_wait(&dispatcher, &malformed, 1, runtime),
+            DispatchOutcome::Fault(_)
+        ));
+        assert_eq!(runtime.scheduler(), &before);
+        {
+            let address = wait.iat_address.unwrap();
+            let original = read_u32(&runtime.memory, address);
+            write_runtime_u32(&mut runtime.memory, address, 0xdead_beef);
+            let before = runtime.scheduler().clone();
+            let memory_before = runtime.memory.stats();
+            assert!(matches!(
+                crate::complete_kernel32_object_wait(&dispatcher, pending, 1, runtime),
+                DispatchOutcome::Fault(_)
+            ));
+            assert_eq!(runtime.scheduler(), &before);
+            assert_eq!(runtime.memory.stats(), memory_before);
+            assert_eq!(runtime.current_last_error().unwrap(), 0x5a5a);
+            write_runtime_u32(&mut runtime.memory, address, original);
+        }
+    };
+    reject_invalid_completion(&mut runtime, &pending_finite_wait);
+    for ack in [0, 2] {
+        let before = runtime.scheduler().clone();
+        assert!(matches!(
+            crate::complete_kernel32_object_wait(
+                &dispatcher,
+                &pending_finite_wait,
+                ack,
+                &mut runtime
+            ),
+            DispatchOutcome::Fault(_)
+        ));
+        assert_eq!(runtime.scheduler(), &before);
+    }
+    let DispatchOutcome::Deferred(retry) =
+        crate::complete_kernel32_object_wait(&dispatcher, &pending_finite_wait, 1, &mut runtime)
+    else {
+        panic!("early retry");
+    };
+    assert_eq!(
+        retry.request.request_id,
+        pending_finite_wait.request.request_id
+    );
+    assert_eq!(retry.request.service, pending_finite_wait.request.service);
+    assert_eq!(retry.request.payload, pending_finite_wait.request.payload);
+    assert_eq!(
+        retry.frame.stack_pointer,
+        pending_finite_wait.frame.stack_pointer
+    );
+    runtime
+        .synchronize_scheduled_clock_for_host_execution(0, 50_000_000)
+        .unwrap();
+    reject_invalid_completion(&mut runtime, &retry);
+    let DispatchOutcome::Immediate(timeout) =
+        crate::complete_kernel32_object_wait(&dispatcher, &retry, 1, &mut runtime)
+    else {
+        panic!("completed timeout");
+    };
+    assert_eq!(timeout.eax, Some(258));
+    assert_eq!(timeout.stack_pointer, GuestAddress(CREATE_STACK.0 + 12));
+    assert_eq!(runtime.current_last_error().unwrap(), 0x5a5a);
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    assert!(runtime.scheduler().host_requests().is_empty());
+    let before = runtime.scheduler().clone();
+    assert!(matches!(
+        crate::complete_kernel32_object_wait(&dispatcher, &retry, 1, &mut runtime),
+        DispatchOutcome::Fault(_)
+    ));
+    assert_eq!(runtime.scheduler(), &before);
     write_runtime_u32(&mut runtime.memory, GuestAddress(CREATE_STACK.0 + 8), 0);
     let join = dispatch(&dispatcher, &mut runtime, &wait, RESUME_STACK);
     assert_eq!(join.eax, Some(0));

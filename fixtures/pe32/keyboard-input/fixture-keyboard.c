@@ -28,6 +28,9 @@ __declspec(dllimport) int __stdcall TranslateMessage(const Message *);
 __declspec(dllimport) long __stdcall DispatchMessageA(const Message *);
 __declspec(dllimport) short __stdcall GetAsyncKeyState(int);
 __declspec(dllimport) U32 __stdcall GetQueueStatus(U32);
+__declspec(dllimport) void * __stdcall CreateFileA(const char *, U32, U32, void *, U32, U32, void *);
+__declspec(dllimport) int __stdcall WriteFile(void *, const void *, U32, U32 *, void *);
+__declspec(dllimport) int __stdcall CloseHandle(void *);
 
 _Static_assert(sizeof(WindowClass) == 48, "fixture requires WNDCLASSEXA32");
 _Static_assert(sizeof(Message) == 28, "fixture requires MSG32");
@@ -94,6 +97,17 @@ int __cdecl fixture_entry(void) {
   if (app_received != 2) return 23;
   /* Native key ingress is separate from the posted-message queue class. */
   if (GetQueueStatus(0x0008) != 0) return 24;
+
+  /* Publish readiness through the same durable Win32 file path as a save.
+     The browser test sends one triplet only after observing this byte. */
+  void *ready = CreateFileA("keyboard-ready.dat", 0x40000000u, 0u, 0, 2u, 0x08000020u, 0);
+  if (ready == (void *)~0u) return 30;
+  const unsigned char ready_byte = 0x4b;
+  U32 ready_written = 0;
+  int ready_ok = WriteFile(ready, &ready_byte, 1u, &ready_written, 0);
+  int ready_closed = CloseHandle(ready);
+  if (!ready_ok || ready_written != 1u) return 31;
+  if (!ready_closed) return 32;
 
   U32 drained = 0;
   for (U32 attempts = 0; attempts < 1000000u; attempts++) {

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use super::{
     ProcessAddressAllocationId, RuntimeComObjectId, RuntimeRect, RuntimeStateError,
@@ -491,7 +492,7 @@ pub struct RuntimeGraphicsTextureContent {
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub struct RuntimeGraphicsDrawSubmission {
     pub vertex_data: Vec<u8>,
-    pub texture_data: Vec<u8>,
+    pub texture_data: Arc<Vec<u8>>,
 
     pub texture_width: u32,
     pub texture_height: u32,
@@ -1057,7 +1058,9 @@ impl RuntimeGraphics {
             .unwrap_or_default();
         let submission = RuntimeGraphicsDrawSubmission {
             vertex_data,
-            texture_data,
+            // Keep the draw-time snapshot independent of subsequent resource
+            // writes, while allowing the presentation transport to share it.
+            texture_data: Arc::new(texture_data),
 
             texture_width: resolved.texture.descriptor.width,
             texture_height: resolved.texture.descriptor.height,
@@ -3793,6 +3796,172 @@ mod tests {
         assert_eq!((draw.texture_width, draw.texture_height), (2048, 1024));
         assert_eq!(draw.texture_pitch, None);
         assert!(draw.texture_data.is_empty());
+    }
+
+    #[test]
+    fn shared_pixel_snapshots_survive_source_writes_present_and_retirement() {
+        use crate::memory::{MemoryOwnerKind, MemoryRegionKind, PageProtection};
+
+        let (mut graphics, device_id, texture_id, _, _) = prepared_draw_graphics();
+        let mut memory = draw_memory(&[0x5a; 112]);
+        let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+        let range = memory
+            .reserve_fixed(
+                owner,
+                MemoryRegionKind::GraphicsResource,
+                GuestAddress(0x5000_0000),
+                4096,
+            )
+            .unwrap();
+        memory
+            .commit(
+                owner,
+                range,
+                PageProtection {
+                    read: true,
+                    write: true,
+                    execute: false,
+                },
+            )
+            .unwrap();
+        memory.write(range.start(), &[0x12; 16]).unwrap();
+        memory.seal_owner(owner).unwrap();
+        let delta = memory.pending_delta().unwrap();
+        memory.acknowledge_delta(delta.generation).unwrap();
+        let pixels = RuntimeGraphicsTexturePixelSource {
+            source_texture_id: texture_id,
+            source_content_generation: 1,
+            range,
+            row_pitch: 8,
+        };
+        let texture = graphics.textures.get_mut(&texture_id).unwrap();
+        texture.descriptor.width = 2;
+        texture.descriptor.height = 2;
+        texture.backing = Some(RuntimeGraphicsTextureBacking {
+            address_allocation_id: ProcessAddressAllocationId(42),
+            memory_owner: owner,
+            range,
+            row_pitch: 8,
+        });
+        texture.content.pixel_source = Some(pixels);
+        assert!(
+            graphics
+                .submit_draw(RuntimeComObjectId(7), 0, 2, &memory)
+                .unwrap()
+        );
+        let first = Arc::clone(
+            &graphics
+                .device(device_id)
+                .unwrap()
+                .back_buffer
+                .draw_submissions[0]
+                .texture_data,
+        );
+
+        memory.write(range.start(), &[0x34; 16]).unwrap();
+        let delta = memory.pending_delta().unwrap();
+        memory.acknowledge_delta(delta.generation).unwrap();
+        assert!(
+            graphics
+                .submit_draw(RuntimeComObjectId(7), 0, 2, &memory)
+                .unwrap()
+        );
+        let second = Arc::clone(
+            &graphics
+                .device(device_id)
+                .unwrap()
+                .back_buffer
+                .draw_submissions[1]
+                .texture_data,
+        );
+        assert_eq!(first.as_slice(), &[0x12; 16]);
+        assert_eq!(second.as_slice(), &[0x34; 16]);
+        assert!(!Arc::ptr_eq(&first, &second));
+
+        // Sharing does not bypass the source owner check or partially append a draw.
+        graphics
+            .textures
+            .get_mut(&texture_id)
+            .unwrap()
+            .backing
+            .as_mut()
+            .unwrap()
+            .memory_owner = MemoryOwnerId(0);
+        let before = graphics.clone();
+        assert!(
+            graphics
+                .submit_draw(RuntimeComObjectId(7), 0, 2, &memory)
+                .is_err()
+        );
+        assert_eq!(graphics, before);
+        drop(before);
+        graphics
+            .textures
+            .get_mut(&texture_id)
+            .unwrap()
+            .backing
+            .as_mut()
+            .unwrap()
+            .memory_owner = owner;
+
+        {
+            let mut limited = graphics.clone();
+            limited
+                .devices
+                .get_mut(&device_id)
+                .unwrap()
+                .back_buffer
+                .draw_submissions[0]
+                .texture_data = Arc::new(vec![0; 16 * 1024 * 1024 - 32]);
+            assert!(
+                limited
+                    .submit_draw(RuntimeComObjectId(7), 0, 2, &memory)
+                    .unwrap()
+            );
+            let before = limited.clone();
+            assert!(
+                limited
+                    .submit_draw(RuntimeComObjectId(7), 0, 2, &memory)
+                    .is_err()
+            );
+            assert_eq!(limited, before);
+        }
+
+        graphics.end_scene(RuntimeComObjectId(7)).unwrap();
+        graphics.present(RuntimeComObjectId(7)).unwrap();
+        let frame = graphics
+            .device(device_id)
+            .unwrap()
+            .presented_frame
+            .as_ref()
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &frame.draw_submissions[0].texture_data));
+        assert!(Arc::ptr_eq(
+            &second,
+            &frame.draw_submissions[1].texture_data
+        ));
+        graphics
+            .clear_back_buffer(RuntimeComObjectId(7), 0xff00_0000)
+            .unwrap();
+        graphics.present(RuntimeComObjectId(7)).unwrap();
+        let retirement = graphics
+            .validate_com_object_retirements(
+                &[
+                    RuntimeComObjectId(7),
+                    RuntimeComObjectId(8),
+                    RuntimeComObjectId(9),
+                ]
+                .into_iter()
+                .collect(),
+            )
+            .unwrap()
+            .unwrap();
+        graphics.remove_validated_com_objects(retirement);
+        assert!(graphics.device(device_id).is_err());
+        assert_eq!(Arc::strong_count(&first), 1);
+        assert_eq!(Arc::strong_count(&second), 1);
+        assert_eq!(first.as_slice(), &[0x12; 16]);
+        assert_eq!(second.as_slice(), &[0x34; 16]);
     }
 
     #[test]

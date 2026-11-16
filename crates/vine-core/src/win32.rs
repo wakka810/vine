@@ -906,18 +906,19 @@ fn handle_get_system_info_basic(
     frame: &ApiCallFrame,
 ) -> Result<ApiImmediate, ApiFault> {
     let output = GuestAddress(required_argument(endpoint, frame, 0, "SYSTEM_INFO output")?);
+    let processor = vine_cpu_profile::WINDOWS_PROCESSOR;
     let mut info = Vec::with_capacity(36);
-    info.extend_from_slice(&0_u16.to_le_bytes()); // PROCESSOR_ARCHITECTURE_INTEL
+    info.extend_from_slice(&processor.architecture.to_le_bytes());
     info.extend_from_slice(&0_u16.to_le_bytes()); // reserved
     info.extend_from_slice(&4096_u32.to_le_bytes());
     info.extend_from_slice(&0x0001_0000_u32.to_le_bytes());
     info.extend_from_slice(&0x7ffe_ffff_u32.to_le_bytes());
-    info.extend_from_slice(&1_u32.to_le_bytes()); // one virtual processor and affinity mask
-    info.extend_from_slice(&1_u32.to_le_bytes());
-    info.extend_from_slice(&586_u32.to_le_bytes()); // PROCESSOR_INTEL_PENTIUM
+    info.extend_from_slice(&processor.affinity_mask.to_le_bytes());
+    info.extend_from_slice(&processor.logical_processors.to_le_bytes());
+    info.extend_from_slice(&processor.processor_type.to_le_bytes());
     info.extend_from_slice(&65536_u32.to_le_bytes());
-    info.extend_from_slice(&6_u16.to_le_bytes());
-    info.extend_from_slice(&0_u16.to_le_bytes());
+    info.extend_from_slice(&processor.level.to_le_bytes());
+    info.extend_from_slice(&processor.revision.to_le_bytes());
     Ok(ApiImmediate::new(None).with_guest_write(output, info))
 }
 
@@ -1113,11 +1114,11 @@ fn handle_is_processor_feature_present_basic(
     frame: &ApiCallFrame,
 ) -> Result<ApiImmediate, ApiFault> {
     let index = required_argument(endpoint, frame, 0, "processor feature index")?;
-    // The pinned i386 CPU implements SSE2. Do not advertise other CPU capabilities
-    // without verifying that the executing engine provides them.
-    // Unadvertised and unknown feature selectors return FALSE, as this query
-    // describes supported capabilities rather than requesting their execution.
-    Ok(ApiImmediate::new(Some(u32::from(index == 10))))
+    // Preserve the existing HAL answers independently of backend instruction
+    // coverage. The shared profile also records the guest CPUID capabilities.
+    Ok(ApiImmediate::new(Some(u32::from(
+        vine_cpu_profile::windows_processor_feature_present(index),
+    ))))
 }
 
 fn handle_set_unhandled_exception_filter(
@@ -2607,6 +2608,70 @@ pub fn complete_kernel32_waitable_timer_pacing(
     outcome
 }
 
+pub fn complete_kernel32_object_wait(
+    dispatcher: &ApiDispatcher,
+    call: &ApiDeferredCall,
+    acknowledgement: u32,
+    runtime: &mut crate::runtime::Runtime,
+) -> DispatchOutcome {
+    if !call
+        .frame
+        .endpoint
+        .module
+        .eq_ignore_ascii_case("kernel32.dll")
+        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "WaitForSingleObject")
+        || call.request.service != crate::RUNTIME_OBJECT_WAIT_SERVICE
+    {
+        return DispatchOutcome::Fault(ApiFault::new(
+            "object wait completion does not match its suspended API",
+        ));
+    }
+    let plan = match runtime.plan_object_wait_completion(call.request.request_id, acknowledgement) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.frame.endpoint));
+        }
+    };
+    let pacing = plan
+        .registration()
+        .object_wait_pacing
+        .expect("validated object wait pacing");
+    if call.request.payload != pacing.delay_milliseconds.to_le_bytes() {
+        return DispatchOutcome::Fault(ApiFault::new(
+            "object wait delay payload differs from Rust authority",
+        ));
+    }
+    if let Some(retry) = plan.retry() {
+        if let Err(fault) =
+            dispatcher.validate_deferred_completion(call, call.request.request_id, runtime.memory())
+        {
+            return DispatchOutcome::Fault(fault);
+        }
+        let call = ApiDeferredCall {
+            frame: call.frame.clone(),
+            request: crate::api::HostRequest {
+                request_id: retry.request_id,
+                service: crate::RUNTIME_OBJECT_WAIT_SERVICE.to_owned(),
+                payload: retry.delay_milliseconds.to_le_bytes().to_vec(),
+            },
+        };
+        runtime.commit_object_wait_completion(plan);
+        return DispatchOutcome::Deferred(call);
+    }
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id: call.request.request_id,
+            result: wait_result_immediate(plan.outcome()),
+        },
+        runtime,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        runtime.commit_object_wait_completion(plan);
+    }
+    outcome
+}
+
 pub fn complete_kernel32_audio_notification_wait(
     dispatcher: &ApiDispatcher,
     call: &ApiDeferredCall,
@@ -2793,6 +2858,59 @@ fn handle_wait_for_single_object(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "wait handle")?);
+        let timeout = required_argument(endpoint, frame, 1, "timeout")?;
+        if timeout == 0 || timeout == u32::MAX {
+            return handle_wait_for_single_object_immediate(endpoint, frame, runtime)
+                .map(ApiHandlerResult::Immediate);
+        }
+        let kind = match handle.kind() {
+            Ok(kind @ (RuntimeObjectKind::Event | RuntimeObjectKind::Thread)) => kind,
+            _ => {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(Some(WAIT_FAILED)).with_last_error(ERROR_INVALID_HANDLE),
+                ));
+            }
+        };
+        if !runtime
+            .is_live_object_handle(handle, kind)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(WAIT_FAILED)).with_last_error(ERROR_INVALID_HANDLE),
+            ));
+        }
+        match runtime
+            .begin_finite_object_wait(handle, timeout)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        {
+            RuntimeWaitForSingleObjectExBegin::Immediate { outcome } => {
+                Ok(ApiHandlerResult::Immediate(wait_result_immediate(outcome)))
+            }
+            RuntimeWaitForSingleObjectExBegin::Deferred { registration } => {
+                let pacing = registration
+                    .object_wait_pacing
+                    .expect("finite object wait has a pacing request");
+                Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+                    request_id: pacing.request_id,
+                    service: crate::RUNTIME_OBJECT_WAIT_SERVICE.to_owned(),
+                    payload: pacing.delay_milliseconds.to_le_bytes().to_vec(),
+                }))
+            }
+        }
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn handle_wait_for_single_object_immediate(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
     let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "wait handle")?);
     let timeout = required_argument(endpoint, frame, 1, "timeout")?;
@@ -2824,11 +2942,6 @@ fn handle_wait_for_single_object(
         } else {
             WAIT_TIMEOUT
         })));
-    }
-    if timeout != u32::MAX && !matches!(wait_state, RuntimeWaitState::Signaled { .. }) {
-        return Err(ApiFault::new(
-            "unsignaled finite event/thread waits require timeout scheduling",
-        ));
     }
     let wait = runtime
         .wait_current_thread_on(handle)
@@ -3970,7 +4083,9 @@ pub(crate) fn dispatch_kernel32_api(
                 "ResumeThread" => handle_resume_thread(endpoint, frame, runtime),
                 "SetThreadPriority" => set_thread_priority_basic(endpoint, frame, runtime),
                 "ExitThread" => handle_exit_thread(endpoint, frame, runtime),
-                "WaitForSingleObject" => handle_wait_for_single_object(endpoint, frame, runtime),
+                "WaitForSingleObject" => {
+                    return handle_wait_for_single_object(endpoint, frame, runtime);
+                }
                 "WaitForSingleObjectEx" => {
                     return handle_wait_for_single_object_ex_basic(endpoint, frame, runtime);
                 }

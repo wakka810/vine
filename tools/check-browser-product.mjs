@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { createDevSourceHandler } from "./dev-source-server.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const assets = path.join(root, ".work", "browser-runtime");
+let assets = path.join(root, ".work", "browser-runtime");
 const serve = process.argv.includes("--serve");
 const arguments_ = process.argv.slice(2);
 let gameRoot;
@@ -20,16 +20,21 @@ for (let index = 0; index < arguments_.length; index += 1) {
   if (seen.has(argument)) throw Error(`Duplicate option: ${argument}`);
   seen.add(argument);
   if (["--serve", "--scheduler-only", "--keyboard-only"].includes(argument)) continue;
-  if (!["--dev-game-root", "--port"].includes(argument)) throw Error(`Unknown option: ${argument}`);
-  if (!serve) throw Error(`${argument} requires --serve`);
+  if (!["--dev-game-root", "--port", "--assets"].includes(argument)) throw Error(`Unknown option: ${argument}`);
+  if (!serve && argument !== "--assets") throw Error(`${argument} requires --serve`);
   const value = arguments_[++index];
   if (!value || value.startsWith("--")) throw Error(`${argument} requires a value`);
-  if (argument === "--dev-game-root") gameRoot = value;
+  if (argument === "--assets") assets = path.resolve(value);
+  else if (argument === "--dev-game-root") gameRoot = value;
   else {
     if (!/^(?:0|[1-9][0-9]*)$/u.test(value) || Number(value) > 65535) throw Error("Invalid --port");
     servePort = Number(value);
   }
 }
+const executionModes = JSON.parse(await readFile(path.join(assets, "execution-modes.json"), "utf8"));
+const executionMode = process.env.VINE_EXECUTION_MODE ?? executionModes.default;
+if (!["strict", "fast"].includes(executionMode)) throw Error("Invalid VINE_EXECUTION_MODE");
+if (executionMode === "fast" && !executionModes.fast) throw Error("This build does not include Fast execution");
 const devSource = gameRoot === undefined ? null : await createDevSourceHandler(gameRoot);
 const schedulerOnly = process.argv.includes("--scheduler-only");
 const keyboardOnly = process.argv.includes("--keyboard-only");
@@ -62,7 +67,8 @@ await new Promise((resolve, reject) => {
   server.once("error", reject);
   server.listen(serve ? servePort : 0, "127.0.0.1", resolve);
 });
-const url = `http://127.0.0.1:${server.address().port}/`;
+const modeQuery = process.env.VINE_EXECUTION_MODE === undefined ? "" : `?executionMode=${executionMode}`;
+const url = `http://127.0.0.1:${server.address().port}/${modeQuery}`;
 if (serve) {
   console.log(`Vine game selector: ${url}`);
   if (devSource) console.log("Read-only development source enabled (Linux descriptor-relative reads; saves remain in OPFS)");
@@ -151,6 +157,10 @@ if (serve) {
       if (attempt === 59) throw Error("Chrome game tab did not finish loading");
       await new Promise(resolve => setTimeout(resolve, 50));
     }
+    const selectedMode = await send("Runtime.evaluate", {
+      expression: `document.querySelector("#execution-mode").value`, returnByValue: true,
+    });
+    assert.equal(selectedMode.result?.value, executionMode, "launch selector honors the build default or explicit mode");
     const audio = keyboardOnly ? null : await send("Runtime.evaluate", {
       expression: `(async () => {
         const context = new AudioContext({latencyHint:'interactive'});
@@ -247,6 +257,10 @@ if (serve) {
         };
         const runKeyboardFixture = async () => {
           const fingerprint = await inspect('keyboard-input.exe', 'keyboard inspection');
+          const {openWritableTree} = await import('./writable-tree.js');
+          const saves = await openWritableTree(fingerprint);
+          const readyPath = 'keyboard-ready.dat';
+          if (await saves.stat(readyPath) !== null) await saves.removeFile(readyPath);
           document.querySelector('#launch').click();
           // Launch awaits its real audio resource. Releasing the activation key
           // and changing focus in that interval must not consume guest input IDs.
@@ -255,17 +269,27 @@ if (serve) {
           window.dispatchEvent(new Event('focus'));
           const status = document.querySelector('#status');
           const deadline = Date.now() + 15000;
+          let sent = false;
           while (Date.now() < deadline) {
             const detail = status.textContent;
             if (status.getAttribute('role') === 'alert') throw Error('Keyboard fixture failed: ' + detail);
-            if (detail === 'Guest exited with code 0') return fingerprint;
+            if (detail === 'Guest exited with code 0') {
+              if (!sent) throw Error('Keyboard fixture exited before its input was sent');
+              return fingerprint;
+            }
             if (detail.startsWith('Guest exited with code ')) throw Error('Keyboard fixture failed: ' + detail);
-            if (detail.includes('Running guest instructions')) {
-              if (!document.hasFocus()) throw Error('Browser game tab is not focused for keyboard input');
-              // Running precedes window creation; retry through the actual browser input path.
-              window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyA', key:'a', repeat:false, bubbles:true}));
-              window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyA', key:'a', repeat:true, bubbles:true}));
-              window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyA', key:'a', repeat:false, bubbles:true}));
+            if (!sent) {
+              const ready = await saves.read(readyPath, 0, 2);
+              if (ready !== null && ready.length > 0) {
+                if (ready.length !== 1 || ready[0] !== 0x4b) throw Error('Invalid keyboard readiness file');
+                if (!document.hasFocus()) throw Error('Browser game tab is not focused for keyboard input');
+                // Guest window setup and its preliminary Win32 checks are complete.
+                // A slow first compilation must not create additional key input.
+                sent = true;
+                window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyA', key:'a', repeat:false, bubbles:true}));
+                window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyA', key:'a', repeat:true, bubbles:true}));
+                window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyA', key:'a', repeat:false, bubbles:true}));
+              }
             }
             await new Promise(resolve => setTimeout(resolve, 100));
           }

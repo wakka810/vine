@@ -15,6 +15,42 @@ static volatile unsigned long started, main_ran, completed, worker_error, phase;
 static HANDLE timer;
 static volatile unsigned long idle_started, idle_completed;
 static HANDLE idle_event;
+static HANDLE finite_event, finite_gate;
+static volatile unsigned long finite_started;
+
+static unsigned long __stdcall finite_worker(void *unused) {
+  (void)unused;
+  finite_started = 1;
+  if (WaitForSingleObject(finite_gate, ~0ul) != 0) return 41;
+  Sleep(5);
+  if (!SetEvent(finite_event)) return 42;
+  Sleep(5);
+  return 0;
+}
+
+static int finite_object_waits(int manual) {
+  unsigned long id, attempts = 0;
+  finite_started = 0;
+  finite_event = CreateEventA(0, manual, 0, 0);
+  finite_gate = CreateEventA(0, 1, 0, 0);
+  if (!finite_event || !finite_gate) return 40;
+  /* No signal exists: this tests a real browser timeout without consuming an
+     event or reporting success merely because the host timer completed. */
+  if (WaitForSingleObject(finite_event, 1) != 258u) return 43;
+  HANDLE thread = CreateThread(0, 0, finite_worker, 0, 0, &id);
+  if (!thread || !id) return 44;
+  while (!finite_started && ++attempts < 100000) Sleep(0);
+  if (!finite_started) return 45;
+  /* The gate keeps the thread alive regardless of browser scheduling speed. */
+  if (WaitForSingleObject(thread, 1) != 258u) return 46;
+  if (!SetEvent(finite_gate)) return 47;
+  if (WaitForSingleObject(finite_event, 1000) != 0) return 48;
+  if (WaitForSingleObject(finite_event, 0) != (manual ? 0u : 258u)) return 49;
+  if (WaitForSingleObject(thread, 1000) != 0 ||
+      WaitForSingleObject(thread, 1) != 0) return 50;
+  if (!CloseHandle(thread) || !CloseHandle(finite_event) || !CloseHandle(finite_gate)) return 51;
+  return 0;
+}
 
 static unsigned long __stdcall idle_worker(void *parameter) {
   const unsigned long bit = (unsigned long)parameter;
@@ -100,5 +136,9 @@ int __cdecl fixture_entry(void) {
   if (join_result) return join_result;
   const int event_result = wait_with_idle_workers(1);
   if (event_result) return event_result;
+  const int finite_auto = finite_object_waits(0);
+  if (finite_auto) return finite_auto;
+  const int finite_manual = finite_object_waits(1);
+  if (finite_manual) return finite_manual;
   return 0;
 }

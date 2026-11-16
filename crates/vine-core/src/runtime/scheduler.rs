@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 use super::thread::{RuntimeThreadLifecycleState, RuntimeThreads};
 use super::waits::{
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitableTimerPacing, RuntimeWaits,
+    RUNTIME_OBJECT_WAIT_SERVICE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeObjectWaitPacing,
+    RuntimeWaitableTimerPacing, RuntimeWaits,
 };
 use super::{
     RuntimeHandle, RuntimeObjectId, RuntimeStateError, RuntimeThreadId, RuntimeWaitCompletion,
@@ -476,6 +477,33 @@ impl RuntimeScheduler {
         self.waits.replace_timer_pacing(registration, pacing);
     }
 
+    pub(super) fn checked_object_wait_registration(
+        &self,
+        object_id: RuntimeObjectId,
+        handle: RuntimeHandle,
+        deadline: u64,
+        pacing: RuntimeObjectWaitPacing,
+    ) -> Result<RuntimeWaitRegistration, RuntimeStateError> {
+        let mut registration = self.waits.checked_registration(
+            self.current_thread_id,
+            object_id,
+            handle,
+            Some(deadline),
+            false,
+            None,
+        )?;
+        registration.object_wait_pacing = Some(pacing);
+        Ok(registration)
+    }
+
+    pub(super) fn replace_object_wait_pacing(
+        &mut self,
+        registration: RuntimeWaitRegistration,
+        pacing: RuntimeObjectWaitPacing,
+    ) {
+        self.waits.replace_object_pacing(registration, pacing);
+    }
+
     pub(super) fn signal_timer_waiters(
         &mut self,
         object_id: RuntimeObjectId,
@@ -522,19 +550,28 @@ impl RuntimeScheduler {
                 ));
             }
             (SchedulerThreadState::WaitingHost { request_id }, Some(registration)) => {
-                let pacing = registration.waitable_timer_pacing.ok_or_else(|| {
-                    RuntimeStateError::new(
-                        "host-waiting thread registration has no timer pacing contract",
-                    )
-                })?;
+                let (pacing_id, service) = match (
+                    registration.waitable_timer_pacing,
+                    registration.object_wait_pacing,
+                ) {
+                    (Some(pacing), None) => {
+                        (pacing.request_id, RUNTIME_WAITABLE_TIMER_PACING_SERVICE)
+                    }
+                    (None, Some(pacing)) => (pacing.request_id, RUNTIME_OBJECT_WAIT_SERVICE),
+                    _ => {
+                        return Err(RuntimeStateError::new(
+                            "host-waiting registration has no unique pacing contract",
+                        ));
+                    }
+                };
                 let request = self.host_requests.get(&request_id).ok_or_else(|| {
                     RuntimeStateError::new(
                         "host-waiting timer registration has no scheduler request",
                     )
                 })?;
-                if pacing.request_id != request_id
+                if pacing_id != request_id
                     || request.thread_id != thread_id
-                    || request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+                    || request.service != service
                 {
                     return Err(RuntimeStateError::new(
                         "timer pacing wait registration does not match its scheduler request",
@@ -569,19 +606,36 @@ impl RuntimeScheduler {
         wait_state: RuntimeWaitState,
         excluded_threads: &[RuntimeThreadId],
         maximum_wakes: usize,
+        now: u64,
     ) -> Result<usize, RuntimeStateError> {
         let mut candidates = self
             .waits
             .plan_wakes(&[(object_id, wait_state)], excluded_threads)?;
         for candidate in &candidates {
             let registration = candidate.completion.registration;
+            let expected = if let Some(pacing) = registration.object_wait_pacing {
+                let request = self.validate_host_completion(pacing.request_id)?;
+                if request.thread_id != registration.thread_id
+                    || request.service != RUNTIME_OBJECT_WAIT_SERVICE
+                    || registration.waitable_timer_pacing.is_some()
+                    || registration.timeout_deadline_time_100ns.is_none()
+                {
+                    return Err(RuntimeStateError::new(
+                        "object signal lost its finite host wait identity",
+                    ));
+                }
+                SchedulerThreadState::WaitingHost {
+                    request_id: pacing.request_id,
+                }
+            } else {
+                SchedulerThreadState::WaitingObject {
+                    registration_id: registration.id,
+                    object_id: registration.object_id,
+                }
+            };
             if threads.state(registration.thread_id)?.lifecycle
                 != RuntimeThreadLifecycleState::Running
-                || self.state(registration.thread_id)?
-                    != (SchedulerThreadState::WaitingObject {
-                        registration_id: registration.id,
-                        object_id: registration.object_id,
-                    })
+                || self.state(registration.thread_id)? != expected
             {
                 return Err(RuntimeStateError::new(
                     "wait registration does not match a running waiting thread",
@@ -591,11 +645,31 @@ impl RuntimeScheduler {
                 threads.callback_depth(registration.thread_id)?;
             }
         }
-        candidates.retain(|candidate| !candidate.excluded);
+        candidates.retain(|candidate| {
+            !candidate.excluded
+                && candidate
+                    .completion
+                    .registration
+                    .object_wait_pacing
+                    .is_none_or(|pacing| {
+                        !pacing.signaled
+                            && candidate
+                                .completion
+                                .registration
+                                .timeout_deadline_time_100ns
+                                .is_some_and(|deadline| now < deadline)
+                    })
+        });
         candidates.truncate(maximum_wakes);
         let count = candidates.len();
         for candidate in candidates {
             let completion = candidate.completion;
+            if let Some(mut pacing) = completion.registration.object_wait_pacing {
+                pacing.signaled = true;
+                self.waits
+                    .replace_object_pacing(completion.registration, pacing);
+                continue;
+            }
             let depth = threads
                 .callback_depth(completion.registration.thread_id)
                 .expect("validated waiting thread");

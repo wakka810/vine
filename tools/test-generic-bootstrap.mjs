@@ -6,6 +6,7 @@ import { build } from "esbuild";
 // Exercise the actual worker error boundary without a browser or a guest fixture.
 // Dependencies supply only the resources needed to reach that boundary.
 const workerDependencies = {
+  "./v86-mirror.js": "export class V86Mirror {}",
   "../storage/source-directory.js": "export const gameStorageFingerprint = async () => 'storage';",
   "./execution-engine.js": `export const instantiateExecutionEngine = async () => {
     if (globalThis.workerDiagnostics.engineLoadFailure) throw new Error('Original CPU load failure');
@@ -25,7 +26,7 @@ const workerDependencies = {
 const workerBundle = await build({
   entryPoints: ["browser/runtime-worker/game-worker.ts"], bundle: true, write: false,
   platform: "node", format: "esm",
-  define: { "import.meta.url": JSON.stringify(pathToFileURL(`${process.cwd()}/browser/runtime-worker/game-worker.ts`).href) },
+  define: { "import.meta.url": JSON.stringify(pathToFileURL(`${process.cwd()}/browser/runtime-worker/game-worker.ts`).href + "?executionMode=strict") },
   plugins: [{ name: "worker-error-resources", setup(plugin) {
     plugin.onResolve({ filter: /^\./ }, args => args.path in workerDependencies
       ? { path: args.path, namespace: "worker-error-resource" } : undefined);
@@ -40,7 +41,8 @@ const previousGlobals = Object.fromEntries(["self", "OffscreenCanvas", "workerDi
 try {
   for (const failure of ["dispatch", "diagnostic", "cpu-context", "engine-load", "engine-initialize", "prelaunch"]) {
     let listener, dispatches = 0, diagnosticReads = 0;
-    const cpuContext = { instructionPointer: 0x70000123, eax: 0x80004005, esp: 0x1000 };
+    const cpuContext = { instructionPointer: 0x70000123, eax: 0x80004005, esp: 0x1000,
+      snapshot: { backend: "recompiler", abiVersion: 2, words: new Uint32Array(128) } };
     const sha256 = "a".repeat(64);
     let resolveError;
     const errorMessage = new Promise(resolve => { resolveError = resolve; });
@@ -56,6 +58,10 @@ try {
         prepareExecutable: () => ({ metadata: { maximumPhysicalPages: 1, runtime: { threadId: 8192 } },
           control: new Uint8Array(), payload: new Uint8Array() }),
         acknowledgeFast() {}, synchronizeForwardClock() {},
+        storeCpuSnapshot(threadId, revision, snapshot) {
+          assert.equal(threadId,8192); assert.equal(revision,0n); assert.equal(snapshot,cpuContext.snapshot);
+          return 1n;
+        },
         dispatch() {
           if (++dispatches === 22) throw new Error("Original unsupported operation");
           return { metadata: { kind: "api-complete", completion: { eax: 0 } },
@@ -131,6 +137,61 @@ try {
       assert.equal(diagnosticReads, 1);
     }
   }
+  for (const rejectWriteback of [false, true]) {
+    let listener, committed = false, acknowledged = false, reconciled = false;
+    const context = { instructionPointer: 0x401123, eax: 7, esp: 0x1000,
+      snapshot: { backend: "recompiler", abiVersion: 2, words: new Uint32Array(128) } };
+    let resolveError;
+    const reported = new Promise(resolve => { resolveError = resolve; });
+    globalThis.self = {
+      addEventListener(_type, callback) { listener = callback; },
+      postMessage(message) { if (message.type === "game-error") resolveError(message); },
+    };
+    globalThis.OffscreenCanvas = class OffscreenCanvas {};
+    globalThis.workerDiagnostics = {
+      bridge: {
+        inspectExecutable: () => ({ sha256: "a".repeat(64), guestImports: [] }),
+        prepareExecutable: () => ({ metadata: { maximumPhysicalPages: 1, runtime: { threadId: 8192 } },
+          control: new Uint8Array(), payload: new Uint8Array() }),
+        acknowledgeFast() {},
+        storeCpuSnapshot(threadId, revision, snapshot) {
+          assert.equal(threadId,8192); assert.equal(revision,0n); assert.equal(snapshot,context.snapshot);
+          return 1n;
+        },
+        reconcileWritebackPages(generation, pages) {
+          reconciled = true;
+          assert.equal(generation, 1n); assert.equal(pages[0].bytes[0], 0x42);
+          if (rejectWriteback) throw new Error("authoritative writeback rejected");
+          committed = true; return 2n;
+        },
+        stopContext() {
+          assert(reconciled, "completed guest stores must be handed off before terminal diagnostics");
+          assert.equal(committed, !rejectWriteback);
+          return { kind: "stop-context", threadId: 8192, instructionPointer: context.instructionPointer,
+            lastError: 0, module: null, symbol: null };
+        },
+      },
+      engine: {
+        initialize() {}, saveCpuContext: () => context,
+        executeBudget: () => ({ context, instructions: 1,
+          stop: { kind: "fault", fault: "engine-stop", engineReason: 3, errorCode: 0 } }),
+        collectChangedPageViews: () => [{address: 0x1000, owner: 1, bytes: Uint8Array.of(0x42)}],
+        acknowledgeWriteback(generation) {
+          assert(committed); assert.equal(generation, 2n); acknowledged = true;
+        },
+      },
+    };
+    await import(`${workerModule}#terminal-writeback-${rejectWriteback}`);
+    listener({ data: { type: "launch-executable", canvas: new OffscreenCanvas(), root: { kind: "directory" },
+      segments: [], name: "fixture.exe", sha256: "a".repeat(64), storageFingerprint: "storage" } });
+    let timer;
+    const message = await Promise.race([reported, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Terminal fault was not reported")), 2000);
+    })]).finally(() => clearTimeout(timer));
+    assert(message.detail.startsWith("Guest stopped at 0x401123"), message.detail);
+    assert.equal(acknowledged, !rejectWriteback, "failed authoritative writeback must retain dirty state");
+    assert.equal(message.detail.includes("completed CPU writeback failed: authoritative writeback rejected"), rejectWriteback);
+  }
 } finally {
   for (const [key, descriptor] of Object.entries(previousGlobals)) {
     if (descriptor === undefined) delete globalThis[key];
@@ -178,16 +239,16 @@ const engine = await instantiateExecutionEngineBytes(cpuBytes,
 engine.initialize(decodeReflection(prepared.control, prepared.payload), prepared.metadata);
 const initialContext = engine.saveCpuContext();
 for (const invalid of [
-  { ...initialContext, byteLength: initialContext.byteLength - 4 },
-  { ...initialContext, opaqueWords: new Uint32Array(initialContext.opaqueWords.length - 1) },
+  { ...initialContext, snapshot: { ...initialContext.snapshot, backend: "recompiler" } },
+  { ...initialContext, snapshot: { ...initialContext.snapshot, words: new Uint32Array(initialContext.snapshot.words.length - 1) } },
 ]) {
   assert.throws(() => engine.restoreCpuContext(invalid), /CPU context ABI mismatch/u);
   assert.deepEqual(engine.saveCpuContext(), initialContext, "rejected context must preserve CPU state");
 }
 for (const index of [0, 1]) {
-  const opaqueWords = Uint32Array.from(initialContext.opaqueWords);
-  opaqueWords[index] = 0;
-  assert.throws(() => engine.restoreCpuContext({ ...initialContext, opaqueWords }),
+  const words = Uint32Array.from(initialContext.snapshot.words);
+  words[index] = 0;
+  assert.throws(() => engine.restoreCpuContext({ ...initialContext, snapshot: { ...initialContext.snapshot, words } }),
     /v86 rejected a resumed CPU state/u);
   assert.deepEqual(engine.saveCpuContext(), initialContext, "invalid header must preserve CPU state");
 }

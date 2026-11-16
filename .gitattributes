@@ -1,2 +1,4 @@
 * text=auto eol=lf
 *.patch text eol=lf -whitespace
+# Keep the vendored SoftFloat sources in their upstream format.
+crates/vine-x87/vendor/** -whitespace

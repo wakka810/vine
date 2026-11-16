@@ -265,6 +265,7 @@ impl MemoryDelta {
             &self.mapping_operations,
             self.cache_effects,
             self.dirty_pages.len(),
+            0,
         )?;
         for page in &self.dirty_pages {
             buffers.push_page(
@@ -285,6 +286,7 @@ impl MemoryDeltaBuffers {
         mapping_operations: &[MappingOperation],
         cache_effects: CacheEffects,
         page_count: usize,
+        shared_guest_base: u32,
     ) -> Result<Self, GuestMemoryError> {
         let mapping_count = u32::try_from(mapping_operations.len()).map_err(|_| {
             GuestMemoryError::resource_limit(
@@ -339,7 +341,7 @@ impl MemoryDeltaBuffers {
             | u32::from(cache_effects.invalidate_instruction_fetch) << 1
             | u32::from(cache_effects.invalidate_generated_code) << 2;
         control.extend_from_slice(&cache_flags.to_le_bytes());
-        control.extend_from_slice(&0u32.to_le_bytes());
+        control.extend_from_slice(&shared_guest_base.to_le_bytes());
 
         for operation in mapping_operations {
             let (operation_code, address_allocation_id, owner, kind, range, protection) =
@@ -407,7 +409,11 @@ impl MemoryDeltaBuffers {
 
         Ok(Self {
             control,
-            page_bytes: Vec::with_capacity(payload_bytes),
+            page_bytes: Vec::with_capacity(if shared_guest_base == 0 {
+                payload_bytes
+            } else {
+                0
+            }),
         })
     }
 
@@ -427,7 +433,9 @@ impl MemoryDeltaBuffers {
         self.control.extend_from_slice(&owner.0.to_le_bytes());
         self.control.extend_from_slice(&flags.to_le_bytes());
         self.control.extend_from_slice(&0u32.to_le_bytes());
-        self.page_bytes.extend_from_slice(bytes);
+        if self.control[48..52] == [0; 4] {
+            self.page_bytes.extend_from_slice(bytes);
+        }
         Ok(())
     }
 }
@@ -459,10 +467,10 @@ pub(crate) struct CpuWritebackBuffers {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct CpuWritebackPageView<'a> {
-    address: GuestAddress,
-    owner: MemoryOwnerId,
-    bytes: &'a [u8],
+pub(crate) struct CpuWritebackPageView<'a> {
+    pub address: GuestAddress,
+    pub owner: MemoryOwnerId,
+    pub bytes: &'a [u8],
 }
 
 #[derive(Debug)]
@@ -861,9 +869,43 @@ struct PageState {
 #[derive(Debug)]
 struct PhysicalFrames {
     limit: usize,
-    frames: Vec<Option<Box<[u8; GUEST_PAGE_SIZE_USIZE]>>>,
+    frames: Vec<Option<FrameBytes>>,
     free: BTreeSet<usize>,
     in_use: usize,
+    #[cfg(feature = "shared-guest-memory")]
+    arena: Option<vine_shared_memory::Arena>,
+}
+
+#[derive(Debug)]
+enum FrameBytes {
+    Owned(Box<[u8; GUEST_PAGE_SIZE_USIZE]>),
+    #[cfg(feature = "shared-guest-memory")]
+    Shared(vine_shared_memory::Page),
+    #[cfg(feature = "shared-guest-memory")]
+    Released(u32, Box<[u8; GUEST_PAGE_SIZE_USIZE]>),
+}
+impl Deref for FrameBytes {
+    type Target = [u8; GUEST_PAGE_SIZE_USIZE];
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(bytes) => bytes,
+            #[cfg(feature = "shared-guest-memory")]
+            Self::Shared(page) => page,
+            #[cfg(feature = "shared-guest-memory")]
+            Self::Released(_, bytes) => bytes,
+        }
+    }
+}
+impl DerefMut for FrameBytes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Owned(bytes) => bytes,
+            #[cfg(feature = "shared-guest-memory")]
+            Self::Shared(page) => page,
+            #[cfg(feature = "shared-guest-memory")]
+            Self::Released(_, bytes) => bytes,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -881,14 +923,8 @@ struct FrameAllocation {
 #[derive(Debug)]
 enum FrameUndo {
     Allocation(FrameAllocation),
-    Release {
-        frame: FrameId,
-        bytes: Box<[u8; GUEST_PAGE_SIZE_USIZE]>,
-    },
-    Bytes {
-        frame: FrameId,
-        image: usize,
-    },
+    Release { frame: FrameId, bytes: FrameBytes },
+    Bytes { frame: FrameId, image: usize },
 }
 
 #[derive(Debug)]
@@ -942,6 +978,8 @@ impl PhysicalFrames {
             frames: Vec::new(),
             free: BTreeSet::new(),
             in_use: 0,
+            #[cfg(feature = "shared-guest-memory")]
+            arena: None,
         }
     }
 
@@ -949,14 +987,24 @@ impl PhysicalFrames {
         self.limit.saturating_sub(self.in_use)
     }
 
-    fn allocate_zeroed(&mut self) -> Result<FrameAllocation, GuestMemoryError> {
+    fn allocate_zeroed(&mut self, _virtual_page: u32) -> Result<FrameAllocation, GuestMemoryError> {
         if self.in_use >= self.limit {
             return Err(GuestMemoryError::resource_limit(format!(
                 "physical page quota {} was reached",
                 self.limit
             )));
         }
-        let bytes = Box::new([0; GUEST_PAGE_SIZE_USIZE]);
+        #[cfg(feature = "shared-guest-memory")]
+        let bytes = match self.arena.as_mut() {
+            Some(arena) => FrameBytes::Shared(
+                arena
+                    .allocate(_virtual_page * 4096)
+                    .map_err(GuestMemoryError::resource_limit)?,
+            ),
+            None => FrameBytes::Owned(Box::new([0; GUEST_PAGE_SIZE_USIZE])),
+        };
+        #[cfg(not(feature = "shared-guest-memory"))]
+        let bytes = FrameBytes::Owned(Box::new([0; GUEST_PAGE_SIZE_USIZE]));
         let (index, source) = if let Some(index) = self.free.pop_first() {
             let slot = self.frames.get_mut(index).ok_or_else(|| {
                 GuestMemoryError::runtime_defect("free frame index is outside the allocator table")
@@ -979,16 +1027,23 @@ impl PhysicalFrames {
         })
     }
 
-    fn release(
-        &mut self,
-        frame: FrameId,
-    ) -> Result<Box<[u8; GUEST_PAGE_SIZE_USIZE]>, GuestMemoryError> {
+    fn release(&mut self, frame: FrameId, _retain: bool) -> Result<FrameBytes, GuestMemoryError> {
         let slot = self.frames.get_mut(frame.0).ok_or_else(|| {
             GuestMemoryError::runtime_defect("released frame index is outside the allocator table")
         })?;
         let bytes = slot.take().ok_or_else(|| {
             GuestMemoryError::runtime_defect("physical frame was released more than once")
         })?;
+        // A released linear page can be recommitted at the same guest address.
+        // Retain its old contents for transaction rollback before relinquishing
+        // the unique arena page, exactly as the owned backing retained its Box.
+        #[cfg(feature = "shared-guest-memory")]
+        let bytes = match bytes {
+            FrameBytes::Shared(page) if _retain => {
+                FrameBytes::Released(page.address(), Box::new(*page))
+            }
+            bytes => bytes,
+        };
         self.free.insert(frame.0);
         self.in_use = self.in_use.checked_sub(1).ok_or_else(|| {
             GuestMemoryError::runtime_defect("physical page usage underflowed during release")
@@ -1011,6 +1066,20 @@ impl PhysicalFrames {
                 self.bytes_mut(frame)?.copy_from_slice(bytes);
             }
             FrameUndo::Release { frame, bytes } => {
+                #[cfg(feature = "shared-guest-memory")]
+                let bytes = match bytes {
+                    FrameBytes::Released(address, image) => {
+                        let mut page = self
+                            .arena
+                            .as_mut()
+                            .expect("released shared page has an arena")
+                            .allocate(address)
+                            .map_err(GuestMemoryError::runtime_defect)?;
+                        page.copy_from_slice(image.as_slice());
+                        FrameBytes::Shared(page)
+                    }
+                    bytes => bytes,
+                };
                 if !self.free.remove(&frame.0) {
                     return Err(GuestMemoryError::runtime_defect(
                         "released frame was missing from the allocator free set",
@@ -1152,6 +1221,27 @@ impl Drop for GuestMemoryTransaction<'_> {
 }
 
 impl GuestMemory {
+    /// Use one address-stable guest byte range for the Runtime and trusted CPU.
+    /// Mapping/owner/protection authority remains in this object.
+    #[cfg(feature = "shared-guest-memory")]
+    pub fn new_shared(limits: MemoryLimits) -> Result<Self, GuestMemoryError> {
+        let mut memory = Self::new(limits)?;
+        memory.frames.arena =
+            Some(vine_shared_memory::Arena::reserve().map_err(GuestMemoryError::resource_limit)?);
+        Ok(memory)
+    }
+
+    #[cfg(feature = "shared-guest-memory")]
+    pub fn shared_arena_descriptor(&self) -> Option<(u32, u32, u32)> {
+        self.frames.arena.as_ref().map(|arena| {
+            (
+                arena.physical_base(),
+                vine_shared_memory::PHYSICAL_BYTES,
+                vine_shared_memory::GUEST_OFFSET,
+            )
+        })
+    }
+
     pub fn new(limits: MemoryLimits) -> Result<Self, GuestMemoryError> {
         if limits.max_physical_pages == 0
             || limits.max_regions == 0
@@ -1203,6 +1293,12 @@ impl GuestMemory {
             .transaction
             .take()
             .expect("active GuestMemoryTransaction lost its journal");
+        #[cfg(feature = "shared-guest-memory")]
+        let shared_changed_pages: Vec<_> = if self.frames.arena.is_some() {
+            journal.pages.keys().copied().collect()
+        } else {
+            Vec::new()
+        };
 
         for undo in journal.frame_undo.into_iter().rev() {
             self.frames
@@ -1254,6 +1350,18 @@ impl GuestMemory {
         }
         for generation in journal.offered_full_reflections {
             self.offered_full_reflections.remove(&generation);
+        }
+        #[cfg(feature = "shared-guest-memory")]
+        if let Some(arena) = self.frames.arena.as_mut() {
+            // A transaction may have offered metadata before it failed. Restore
+            // its permission entries along with the authoritative page states.
+            for page in shared_changed_pages {
+                let flags = self.pages.get(&page).map_or(0, |p| {
+                    u8::from(p.protection.read)
+                        | u8::from(p.protection.write && !p.protection.execute) << 1
+                });
+                arena.set_permissions(page, flags);
+            }
         }
     }
 
@@ -1322,8 +1430,8 @@ impl GuestMemory {
         Ok(())
     }
 
-    fn allocate_frame_zeroed(&mut self) -> Result<FrameId, GuestMemoryError> {
-        let allocation = self.frames.allocate_zeroed()?;
+    fn allocate_frame_zeroed(&mut self, virtual_page: u32) -> Result<FrameId, GuestMemoryError> {
+        let allocation = self.frames.allocate_zeroed(virtual_page)?;
         if let Some(journal) = self.transaction.as_mut() {
             journal.allocated_frames.insert(allocation.frame.0);
             journal.frame_undo.push(FrameUndo::Allocation(allocation));
@@ -1332,7 +1440,7 @@ impl GuestMemory {
     }
 
     fn release_frame(&mut self, frame: FrameId) -> Result<(), GuestMemoryError> {
-        let bytes = self.frames.release(frame)?;
+        let bytes = self.frames.release(frame, self.transaction.is_some())?;
         if let Some(journal) = self.transaction.as_mut() {
             journal.frame_undo.push(FrameUndo::Release { frame, bytes });
         }
@@ -1534,6 +1642,12 @@ impl GuestMemory {
     ) -> Result<GuestRange, GuestMemoryError> {
         let range = GuestRange::new(start, byte_length)?;
         require_page_aligned(range)?;
+        #[cfg(feature = "shared-guest-memory")]
+        if self.frames.arena.is_some() && range.end() > u64::from(vine_shared_memory::GUEST_BYTES) {
+            return Err(GuestMemoryError::resource_limit(
+                "Fast memory supports guest addresses below 2 GiB",
+            ));
+        }
         if self
             .regions
             .values()
@@ -1616,6 +1730,12 @@ impl GuestMemory {
         }
         let range = GuestRange::new(start, byte_length)?;
         require_page_aligned(range)?;
+        #[cfg(feature = "shared-guest-memory")]
+        if self.frames.arena.is_some() && range.end() > u64::from(vine_shared_memory::GUEST_BYTES) {
+            return Err(GuestMemoryError::resource_limit(
+                "Fast memory supports guest addresses below 2 GiB",
+            ));
+        }
         if self
             .regions
             .values()
@@ -1697,7 +1817,7 @@ impl GuestMemory {
 
         let mut allocated = Vec::with_capacity(page_count);
         for virtual_page in pages {
-            match self.allocate_frame_zeroed() {
+            match self.allocate_frame_zeroed(virtual_page) {
                 Ok(frame) => allocated.push((virtual_page, frame)),
                 Err(error) => {
                     for (_, frame) in allocated {
@@ -1928,7 +2048,7 @@ impl GuestMemory {
 
         let mut allocated = Vec::with_capacity(page_specs.len());
         for (virtual_page, protection) in page_specs {
-            match self.allocate_frame_zeroed() {
+            match self.allocate_frame_zeroed(virtual_page) {
                 Ok(frame) => allocated.push((virtual_page, protection, frame)),
                 Err(error) => {
                     for (_, _, frame) in allocated {
@@ -2208,12 +2328,15 @@ impl GuestMemory {
 
     pub fn pending_delta_binary(&mut self) -> Result<MemoryDeltaBuffers, GuestMemoryError> {
         let invalidation = self.require_pending_delta()?;
+        self.synchronize_shared_permissions();
+        let shared_guest_base = self.shared_guest_base();
         let mut buffers = MemoryDeltaBuffers::new(
             self.acknowledged_generation,
             invalidation.generation,
             &self.pending_mapping_operations(),
             invalidation.into(),
             self.dirty_pages.len(),
+            shared_guest_base,
         )?;
         // Encode directly from authoritative frames: no per-page allocation or intermediate copy.
         for &virtual_page in &self.dirty_pages {
@@ -2402,6 +2525,11 @@ impl GuestMemory {
         control: &[u8],
         page_bytes: &[u8],
     ) -> Result<u64, GuestMemoryError> {
+        if self.shared_guest_base() != 0 {
+            return Err(GuestMemoryError::invalid_request(
+                "shared guest memory has no CPU writeback transport",
+            ));
+        }
         let batch = decode_cpu_writeback_view(control, page_bytes, self.limits.max_physical_pages)?;
         self.reconcile_cpu_writeback_view(batch.base_generation, &batch.pages)
     }
@@ -2616,6 +2744,154 @@ impl GuestMemory {
         let reflection = self.build_reflection(invalidation, false)?;
         self.record_offered_generation(invalidation.generation, true);
         Ok(reflection)
+    }
+
+    /// The common-memory CPU consumes mapping metadata, never a second copy of
+    /// guest bytes. The zero-copy form is emitted only by an arena-backed owner.
+    pub fn pending_reflection_binary(
+        &mut self,
+    ) -> Result<MemoryReflectionBuffers, GuestMemoryError> {
+        let base = self.shared_guest_base();
+        if base == 0 {
+            return self.pending_reflection()?.encode_binary();
+        }
+        if self.initial_reflection_acknowledged {
+            return Err(GuestMemoryError::conflict(
+                "initial memory reflection already acknowledged",
+            ));
+        }
+        self.synchronize_shared_permissions();
+        let invalidation = self.pending_invalidation().ok_or_else(|| {
+            GuestMemoryError::invalid_request("shared reflection has no pending generation")
+        })?;
+        let count = u32::try_from(self.pages.len()).map_err(|_| {
+            GuestMemoryError::resource_limit("shared reflection page count overflow")
+        })?;
+        let mut control =
+            Vec::with_capacity(MEMORY_REFLECTION_CONTROL_HEADER_BYTES + self.pages.len() * 16);
+        control.extend_from_slice(MEMORY_REFLECTION_CONTROL_MAGIC);
+        control.extend_from_slice(&(GUEST_PAGE_SIZE as u32).to_le_bytes());
+        control.extend_from_slice(&invalidation.generation.to_le_bytes());
+        control.extend_from_slice(&count.to_le_bytes());
+        control.extend_from_slice(&16u32.to_le_bytes());
+        let cache = u32::from(invalidation.data_tlb)
+            | u32::from(invalidation.instruction_fetch) << 1
+            | u32::from(invalidation.generated_code) << 2;
+        control.extend_from_slice(&cache.to_le_bytes());
+        control.extend_from_slice(&base.to_le_bytes());
+        for (&virtual_page, page) in &self.pages {
+            let owner = self.require_owner(page.owner)?;
+            if page.protection.execute && !owner.sealed {
+                return Err(GuestMemoryError::conflict(
+                    "unsealed executable shared page",
+                ));
+            }
+            let flags = page_protection_flags(page.protection)
+                | u32::from(owner.sealed) << 3
+                | u32::from(page.dirty_generation.is_some()) << 4;
+            control.extend_from_slice(&virtual_page_address(virtual_page)?.0.to_le_bytes());
+            control.extend_from_slice(&page.owner.0.to_le_bytes());
+            control.extend_from_slice(&flags.to_le_bytes());
+            control.extend_from_slice(&0u32.to_le_bytes());
+        }
+        self.record_offered_generation(invalidation.generation, true);
+        Ok(MemoryReflectionBuffers {
+            control,
+            page_bytes: Vec::new(),
+        })
+    }
+
+    fn shared_guest_base(&self) -> u32 {
+        #[cfg(feature = "shared-guest-memory")]
+        if let Some(arena) = &self.frames.arena {
+            return arena.guest_base();
+        }
+        0
+    }
+
+    #[cfg(feature = "shared-guest-memory")]
+    pub fn shared_permissions_pointer(&self) -> Option<u32> {
+        self.frames
+            .arena
+            .as_ref()
+            .map(|arena| arena.permissions_pointer())
+    }
+
+    #[cfg(feature = "shared-guest-memory")]
+    pub fn shared_data_changes(&self) -> Option<(u64, Vec<u32>)> {
+        if self.frames.arena.is_none()
+            || self
+                .pending_changes
+                .iter()
+                .any(|change| !change.mapping_operations.is_empty())
+        {
+            return None;
+        }
+        let pending = self.pending_invalidation()?;
+        Some((
+            pending.generation,
+            self.dirty_pages.iter().map(|page| page * 4096).collect(),
+        ))
+    }
+
+    fn synchronize_shared_permissions(&mut self) {
+        #[cfg(feature = "shared-guest-memory")]
+        {
+            if self.frames.arena.is_none() {
+                return;
+            }
+            let mut ranges = Vec::new();
+            if self.initial_reflection_acknowledged {
+                for operation in self.pending_mapping_operations() {
+                    match operation {
+                        MappingOperation::Reserve { .. } => {}
+                        MappingOperation::Commit { range, .. }
+                        | MappingOperation::Protect { range, .. }
+                        | MappingOperation::Decommit { range, .. }
+                        | MappingOperation::Release { range, .. } => ranges.push(range),
+                    }
+                }
+            }
+            let arena = self.frames.arena.as_mut().expect("shared arena is present");
+            let flags = |page: &PageState| {
+                u8::from(page.protection.read)
+                    | u8::from(page.protection.write && !page.protection.execute) << 1
+            };
+            if !self.initial_reflection_acknowledged {
+                for (&virtual_page, page) in &self.pages {
+                    arena.set_permissions(virtual_page, flags(page));
+                }
+            } else {
+                for range in ranges {
+                    for address in
+                        (u64::from(range.start.0)..range.end()).step_by(GUEST_PAGE_SIZE_USIZE)
+                    {
+                        if address >= u64::from(vine_shared_memory::GUEST_BYTES) {
+                            continue;
+                        }
+                        let page = (address / GUEST_PAGE_SIZE) as u32;
+                        arena.set_permissions(page, self.pages.get(&page).map_or(0, flags));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Called with the Runtime exclusively borrowed for the entire CPU call.
+    /// No Page reference survives this boundary. CPU data stores are already
+    /// authoritative; this mode's generation tracks host mapping/byte changes.
+    #[cfg(feature = "shared-guest-memory")]
+    pub fn validate_shared_execution(&self, generation: u64) -> Result<(), GuestMemoryError> {
+        self.ensure_synchronized()?;
+        if self.shared_guest_base() == 0
+            || !self.initial_reflection_acknowledged
+            || generation != self.generation
+        {
+            return Err(GuestMemoryError::conflict(
+                "shared CPU mapping generation is not current",
+            ));
+        }
+        Ok(())
     }
 
     pub fn current_reflection(&self) -> Result<MemoryReflection, GuestMemoryError> {

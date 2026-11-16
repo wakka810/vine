@@ -83,6 +83,19 @@ export interface MemoryReflection {
   pages: ReflectedPage[];
 }
 
+export interface SharedGuestMemory {
+  memory: WebAssembly.Memory;
+  guestBase: number;
+  guestBytes: number;
+}
+
+function sharedPage(shared: SharedGuestMemory, base: number, address: number): Uint8Array {
+  invariant(base === shared.guestBase && (address & (pageSize - 1)) === 0 &&
+    address + pageSize <= shared.guestBytes &&
+    base + shared.guestBytes <= shared.memory.buffer.byteLength, "invalid shared guest page range");
+  return new Uint8Array(shared.memory.buffer, base + address, pageSize);
+}
+
 export interface HostMemoryDelta {
   fromGeneration: bigint;
   generation: bigint;
@@ -168,7 +181,7 @@ function mappingRange(controlView: DataView, offset: number): MemoryRange {
   return { base, byteLength };
 }
 
-export function decodeReflection(control: Uint8Array, payload: Uint8Array): MemoryReflection {
+export function decodeReflection(control: Uint8Array, payload: Uint8Array, shared?: SharedGuestMemory): MemoryReflection {
   const headerBytes = 36;
   const descriptorBytes = 16;
   expectMagic(control, "VINEREFL");
@@ -185,7 +198,10 @@ export function decodeReflection(control: Uint8Array, payload: Uint8Array): Memo
     control.byteLength === headerBytes + count * descriptorBytes,
     "reflection control length mismatch",
   );
-  invariant(payload.byteLength === count * pageSize, "reflection payload length mismatch");
+  const sharedBase = controlView.getUint32(32, true);
+  invariant(sharedBase === 0 ? shared === undefined : shared !== undefined && sharedBase === shared.guestBase,
+    "reflection memory mode mismatch");
+  invariant(payload.byteLength === (sharedBase === 0 ? count * pageSize : 0), "reflection payload length mismatch");
   const pages: ReflectedPage[] = [];
   for (let index = 0; index < count; index += 1) {
     const offset = headerBytes + index * descriptorBytes;
@@ -196,7 +212,8 @@ export function decodeReflection(control: Uint8Array, payload: Uint8Array): Memo
       protection: protection(flags & 7),
       ownerSealed: Boolean(flags & 8),
       dirty: Boolean(flags & 16),
-      bytes: payload.subarray(index * pageSize, (index + 1) * pageSize),
+      bytes: shared ? sharedPage(shared, sharedBase, controlView.getUint32(offset, true))
+        : payload.subarray(index * pageSize, (index + 1) * pageSize),
     });
   }
   invariant(
@@ -210,7 +227,7 @@ export function decodeReflection(control: Uint8Array, payload: Uint8Array): Memo
   };
 }
 
-export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostMemoryDelta {
+export function decodeHostDelta(control: Uint8Array, payload: Uint8Array, shared?: SharedGuestMemory): HostMemoryDelta {
   const headerBytes = 52;
   const mappingDescriptorBytes = 40;
   const pageDescriptorBytes = 16;
@@ -235,7 +252,10 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
       headerBytes + mappingCount * mappingDescriptorBytes + dirtyCount * pageDescriptorBytes,
     "host delta control length mismatch",
   );
-  invariant(payload.byteLength === dirtyCount * pageSize, "host delta payload length mismatch");
+  const sharedBase = controlView.getUint32(48, true);
+  invariant(sharedBase === 0 ? shared === undefined : shared !== undefined && sharedBase === shared.guestBase,
+    "delta memory mode mismatch");
+  invariant(payload.byteLength === (sharedBase === 0 ? dirtyCount * pageSize : 0), "host delta payload length mismatch");
   const mappingOperations: MappingOperation[] = [];
   for (let index = 0; index < mappingCount; index += 1) {
     const offset = headerBytes + index * mappingDescriptorBytes;
@@ -313,7 +333,8 @@ export function decodeHostDelta(control: Uint8Array, payload: Uint8Array): HostM
       protection: protection(flags & 7),
       ownerSealed: Boolean(flags & 8),
       dirty: true,
-      bytes: payload.subarray(index * pageSize, (index + 1) * pageSize),
+      bytes: shared ? sharedPage(shared, sharedBase, controlView.getUint32(offset, true))
+        : payload.subarray(index * pageSize, (index + 1) * pageSize),
     });
   }
   return {

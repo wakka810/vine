@@ -7,7 +7,7 @@
     <style>
       body { font: 16px system-ui, sans-serif; background: #111; color: #eee; margin: 2rem auto; max-width: 800px; padding: 0 1rem; }
       header { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
-      button { background: #292929; color: inherit; border: 1px solid #777; border-radius: 4px; padding: .6rem; cursor: pointer; text-align: left; }
+      button, select { background: #292929; color: inherit; border: 1px solid #777; border-radius: 4px; padding: .6rem; cursor: pointer; text-align: left; }
       button:disabled { opacity: .4; cursor: default; }
       ul { padding: 0; list-style: none; }
       li button { width: 100%; margin-bottom: .25rem; }
@@ -25,6 +25,7 @@
   </head>
   <body>
     <header><button id="choose">Choose game directory</button><button id="back" disabled>Up</button><button id="launch" disabled>Launch selected executable</button></header>
+    <p><label for="execution-mode">Execution mode</label> <select id="execution-mode"><option value="fast">Fast — experimental</option><option value="strict">Strict — baseline</option></select></p>
     <output id="location" aria-label="Current folder"></output>
     <ul id="listing" aria-label="Folders and executables"></ul>
     <output id="status" role="status">Choose a directory to browse executables.</output>

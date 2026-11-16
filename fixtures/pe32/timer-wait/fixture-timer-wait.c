@@ -35,9 +35,10 @@ int __cdecl fixture_entry(void) {
   if (!timer || !unarmed) return 1;
   Sleep(1); /* request ID differs from the later wait registration ID */
   if (WaitForSingleObjectEx(unarmed, 0, 1) != 258u) result = 2;
+  /* The relative deadline starts when armed, including time before the wait. */
+  started = GetTickCount();
   if (!result && !SetWaitableTimer(timer, &due_time, 0, 0, 0, 0)) result = 3;
   SetLastError(0x4321u);
-  started = GetTickCount();
   if (!result && WaitForSingleObjectEx(timer, 40, 1) != 0) result = 4;
   if (!result && GetTickCount() - started < 18u) result = 9;
   if (!result && (GetLastError() != 0x4321u || WaitForSingleObjectEx(timer, 0, 1) != 0)) result = 5;

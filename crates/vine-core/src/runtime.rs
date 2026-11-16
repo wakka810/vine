@@ -150,8 +150,8 @@ pub use user32::{
     RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
 };
 pub use waits::{
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitCompletion, RuntimeWaitDisposition,
-    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RUNTIME_OBJECT_WAIT_SERVICE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitCompletion,
+    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitRegistration, RuntimeWaitRegistrationId,
 };
 

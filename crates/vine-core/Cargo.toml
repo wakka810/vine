@@ -6,6 +6,11 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+vine-shared-memory = { path = "../vine-shared-memory", optional = true }
 encoding_rs.workspace = true
 goblin.workspace = true
 sha2.workspace = true
+vine-cpu-profile = { path = "../vine-cpu-profile" }
+
+[features]
+shared-guest-memory = ["dep:vine-shared-memory"]

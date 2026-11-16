@@ -6,9 +6,13 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const source = path.join(root, ".work", "vine-v86");
+// Explicit fork development checkout; never reset or replace its local changes.
+const modesPath = path.join(root, ".work/v86-execution-modes.json");
+const localModes = fs.existsSync(modesPath) ? JSON.parse(fs.readFileSync(modesPath, "utf8")) : {};
+const developmentSource = process.env.VINE_V86_SOURCE ?? process.env.VINE_V86_FAST_SOURCE ?? localModes.fastSource;
+const source = path.resolve(root, developmentSource ?? ".work/vine-v86");
 const repository = "https://github.com/wakka810/vine-v86.git";
-const revision = "1d19442cea7ba0ca6354f1218f06c468a58c77e6";
+const revision = "c1e017dd8ff720a691bc9007d194f1e95a88724e";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -30,6 +34,7 @@ for (const command of ["git", "make", "clang", "cargo"]) {
   run(command, ["--version"], { capture: true });
 }
 if (!fs.existsSync(source)) {
+  assert(!developmentSource, `Explicit CPU checkout does not exist: ${source}`);
   fs.mkdirSync(source, { recursive: true });
   run("git", ["init", "--quiet", source]);
   git("remote", "add", "origin", repository);
@@ -37,14 +42,16 @@ if (!fs.existsSync(source)) {
   git("checkout", "--detach", "--quiet", revision);
 }
 assert.equal(git("remote", "get-url", "origin"), repository, "unexpected CPU repository");
-assert.equal(git("status", "--porcelain"), "", "CPU source has local changes; preserve them before preparing");
+const sourceStatus = git("status", "--porcelain");
+if (!developmentSource) assert.equal(sourceStatus, "", "CPU source has local changes; preserve them before preparing");
 let head = git("rev-parse", "--verify", "HEAD");
-if (head !== revision) {
+if (!developmentSource && head !== revision) {
   git("fetch", "--depth", "1", "origin", revision);
   git("checkout", "--detach", "--quiet", revision);
   head = git("rev-parse", "HEAD");
 }
-assert.equal(head, revision, "CPU checkout differs from the pinned revision");
+if (!developmentSource) assert.equal(head, revision, "CPU checkout differs from the pinned revision");
+else console.log(`Building explicit Vine-v86 checkout: ${source} @ ${head}${sourceStatus ? " (local changes)" : ""}`);
 
 const details = run("rustc", ["-vV"], { capture: true });
 const host = /^host: (.+)$/mu.exec(details)?.[1];
@@ -64,5 +71,5 @@ run("make", ["--always-make", `CARGO_FLAGS_SAFE=${flags}`, "build/v86-fallback.w
   env: { ...process.env, CARGO_TARGET_DIR: path.join(source, "build") },
 });
 assert(fs.existsSync(path.join(source, "build", "v86-fallback.wasm")), "CPU build produced no Wasm");
-assert.equal(git("status", "--porcelain"), "", "CPU build changed source files");
-console.log(`Vine-v86 ready at ${revision}: .work/vine-v86/build/v86-fallback.wasm`);
+assert.equal(git("status", "--porcelain"), sourceStatus, "CPU build changed source files");
+console.log(`Vine-v86 ready at ${head}: ${path.join(source, "build", "v86-fallback.wasm")}`);

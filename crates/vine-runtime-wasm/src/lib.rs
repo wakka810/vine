@@ -2,9 +2,11 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use encoding_rs::SHIFT_JIS;
 use serde_json::{Value, json};
+pub use vine_core::X86CpuContext;
 use vine_core::directshow::{
     ComMediaAudio, ComMediaDeferred, ComMediaFormat, ComMediaFrame, ComMediaOperation,
     ComMediaResponse, ComMediaSource,
@@ -16,21 +18,21 @@ use vine_core::{
     HostCompletion, ImportTarget, MemoryDeltaBuffers, MemoryLimits, MemoryRegionKind,
     ModuleSnapshot, OpfsFileOperation, Pe32Limits, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE,
-    RUNTIME_GDI_TEXT_RASTER_SERVICE, RUNTIME_MESSAGE_BOX_SERVICE, RUNTIME_OPFS_READ_SERVICE,
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, Runtime, RuntimeBootstrap, RuntimeClockState,
-    RuntimeCursorPositionProfile, RuntimeDisplayProfile, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeInputProfile, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
-    RuntimeMessageBoxIcon, RuntimeModule, RuntimePointerButton, RuntimePointerButtonSourceEvent,
-    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent, RuntimeProcessId,
-    RuntimeRect, RuntimeSchedulerEvent, RuntimeSourceFileManifest, RuntimeSourceMountManifest,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo,
-    RuntimeThreadId, SchedulerThreadState, X86CpuContext, build_pe32_load_plan,
-    complete_gdi32_text_raster, complete_kernel32_audio_notification_wait,
-    complete_kernel32_opfs_open, complete_kernel32_opfs_write, complete_kernel32_source_read,
-    complete_kernel32_waitable_timer_pacing, complete_opfs_file_operation,
-    complete_user32_message_box, install_initial_thread_stack, install_runtime_return_sentinels,
-    materialize_pe32_image,
+    RUNTIME_GDI_TEXT_RASTER_SERVICE, RUNTIME_MESSAGE_BOX_SERVICE, RUNTIME_OBJECT_WAIT_SERVICE,
+    RUNTIME_OPFS_READ_SERVICE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE, Runtime, RuntimeBootstrap,
+    RuntimeClockState, RuntimeCursorPositionProfile, RuntimeDisplayProfile,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeInputProfile, RuntimeKeyboardSourceEvent,
+    RuntimeKeyboardSourceEventKind, RuntimeMessageBoxIcon, RuntimeModule, RuntimePointerButton,
+    RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind,
+    RuntimePointerPositionSourceEvent, RuntimeProcessId, RuntimeRect, RuntimeSchedulerEvent,
+    RuntimeSourceFileManifest, RuntimeSourceMountManifest, RuntimeSourceReadHostResponse,
+    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeThreadId, SchedulerThreadState,
+    build_pe32_load_plan, complete_gdi32_text_raster, complete_kernel32_audio_notification_wait,
+    complete_kernel32_object_wait, complete_kernel32_opfs_open, complete_kernel32_opfs_write,
+    complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
+    complete_opfs_file_operation, complete_user32_message_box, install_initial_thread_stack,
+    install_runtime_return_sentinels, materialize_pe32_image,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -41,6 +43,8 @@ const MAX_GAME_PHYSICAL_PAGES: usize = 384 * 1024;
 const SYSTEM_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 thread_local! {
+    // Rust 1.97 reports this macro expansion despite the explicit const initializer.
+    #[allow(clippy::missing_const_for_thread_local)]
     static BRIDGE: RefCell<Bridge> = const { RefCell::new(Bridge::new()) };
 }
 
@@ -62,6 +66,85 @@ enum DispatchMetadata {
     ApiCompletion([u32; 4]),
 }
 
+#[derive(Debug)]
+enum RuntimeOutputBytes {
+    Owned(Vec<u8>),
+    Shared(Arc<Vec<u8>>),
+}
+
+impl RuntimeOutputBytes {
+    const fn new() -> Self {
+        Self::Owned(Vec::new())
+    }
+
+    fn clear(&mut self) {
+        match self {
+            Self::Owned(bytes) => bytes.clear(),
+            Self::Shared(_) => *self = Self::new(),
+        }
+    }
+
+    fn into_owned(self) -> Vec<u8> {
+        match self {
+            Self::Owned(bytes) => bytes,
+            Self::Shared(bytes) => Arc::unwrap_or_clone(bytes),
+        }
+    }
+
+    fn append_snapshot(&mut self, snapshot: &Arc<Vec<u8>>) -> usize {
+        let offset = self.len();
+        if snapshot.is_empty() {
+            return offset;
+        }
+        match self {
+            Self::Owned(bytes) if bytes.is_empty() => {
+                // Sharing the Vec owner preserves its existing pixel allocation.
+                *self = Self::Shared(Arc::clone(snapshot));
+            }
+            Self::Owned(bytes) => bytes.extend_from_slice(snapshot),
+            Self::Shared(first) => {
+                // Multiple payloads retain the existing contiguous transport ABI.
+                let mut bytes = Vec::with_capacity(first.len() + snapshot.len());
+                bytes.extend_from_slice(first);
+                bytes.extend_from_slice(snapshot);
+                *self = Self::Owned(bytes);
+            }
+        }
+        offset
+    }
+}
+
+impl std::ops::Deref for RuntimeOutputBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        match self {
+            Self::Owned(bytes) => bytes,
+            Self::Shared(bytes) => bytes,
+        }
+    }
+}
+
+impl From<Vec<u8>> for RuntimeOutputBytes {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self::Owned(bytes)
+    }
+}
+
+fn append_presentation_pixels(
+    bytes: &mut RuntimeOutputBytes,
+    snapshot: &Arc<Vec<u8>>,
+    pitch: Option<u32>,
+) -> Value {
+    if snapshot.is_empty() {
+        Value::Null
+    } else {
+        let offset = bytes.append_snapshot(snapshot);
+        json!({ "offset": offset, "length": snapshot.len(),
+            "pitch": pitch.expect("captured texture pitch") })
+    }
+}
+
 struct Bridge {
     input: Vec<u8>,
     source_dlls: Vec<SourceDll>,
@@ -69,7 +152,7 @@ struct Bridge {
     api_completion: Option<[u32; 4]>,
     control: Vec<u8>,
     payload: Vec<u8>,
-    presentation_bytes: Vec<u8>,
+    presentation_bytes: RuntimeOutputBytes,
     audio_bytes: Vec<u8>,
     media_bytes: Vec<u8>,
     stop_context_metadata: Vec<u8>,
@@ -86,7 +169,7 @@ impl Bridge {
             api_completion: None,
             control: Vec::new(),
             payload: Vec::new(),
-            presentation_bytes: Vec::new(),
+            presentation_bytes: RuntimeOutputBytes::new(),
             audio_bytes: Vec::new(),
             media_bytes: Vec::new(),
             stop_context_metadata: Vec::new(),
@@ -134,6 +217,73 @@ impl Bridge {
         Ok(())
     }
 
+    fn put_cpu_snapshot(
+        &mut self,
+        thread_id: u32,
+        expected_revision: u64,
+        backend_tag: u32,
+        abi_version: u32,
+        input_length: usize,
+    ) -> Result<(), String> {
+        if input_length != self.input.len() || input_length > 4096 {
+            return Err(
+                "CPU snapshot input must exactly match its bounded bridge buffer".to_owned(),
+            );
+        }
+        let next_revision = expected_revision
+            .checked_add(1)
+            .ok_or_else(|| "CPU snapshot revision space is exhausted".to_owned())?;
+        // Serialize the receipt before publishing the new Rust-owned snapshot.
+        let metadata = serde_json::to_vec(&json!({
+            "kind": "cpu-snapshot-stored", "threadId": thread_id,
+            "revisionLow": next_revision as u32, "revisionHigh": (next_revision >> 32) as u32,
+            "backendTag": backend_tag, "abiVersion": abi_version, "byteLength": input_length,
+        }))
+        .map_err(error_string)?;
+        let runtime = &mut self
+            .runtime
+            .as_mut()
+            .ok_or_else(|| "runtime is not prepared".to_owned())?
+            .runtime;
+        let revision = runtime
+            .put_thread_cpu_snapshot(
+                RuntimeThreadId(thread_id),
+                expected_revision,
+                backend_tag,
+                abi_version,
+                &self.input,
+            )
+            .map_err(error_string)?;
+        debug_assert_eq!(revision, next_revision);
+        self.metadata = metadata;
+        Ok(())
+    }
+
+    fn get_cpu_snapshot(&mut self, thread_id: u32) -> Result<(), String> {
+        let runtime = &self
+            .runtime
+            .as_ref()
+            .ok_or_else(|| "runtime is not prepared".to_owned())?
+            .runtime;
+        let (backend_tag, abi_version, revision, bytes) = runtime
+            .thread_cpu_snapshot(RuntimeThreadId(thread_id))
+            .map_err(error_string)?;
+        let metadata = serde_json::to_vec(&json!({
+            "kind": "cpu-snapshot", "threadId": thread_id,
+            "revisionLow": revision as u32, "revisionHigh": (revision >> 32) as u32,
+            "backendTag": backend_tag, "abiVersion": abi_version, "byteLength": bytes.len(),
+        }))
+        .map_err(error_string)?;
+        let mut payload = Vec::new();
+        payload
+            .try_reserve_exact(bytes.len())
+            .map_err(|_| "CPU snapshot output allocation failed".to_owned())?;
+        payload.extend_from_slice(bytes);
+        self.metadata = metadata;
+        self.payload = payload;
+        Ok(())
+    }
+
     fn set_error(&mut self, message: String) {
         self.api_completion = None;
         self.control.clear();
@@ -152,7 +302,7 @@ impl Bridge {
         &mut self,
         metadata: Value,
         delta: Option<MemoryDeltaBuffers>,
-        bytes: Vec<u8>,
+        bytes: RuntimeOutputBytes,
     ) -> Result<(), String> {
         let (control, payload) = delta
             .map(|buffers| (buffers.control, buffers.page_bytes))
@@ -167,7 +317,7 @@ impl Bridge {
                 .to_vec();
         }
         if metadata["kind"] == "media-data" || metadata["kind"] == "media-request" {
-            self.media_bytes = bytes;
+            self.media_bytes = bytes.into_owned();
         } else {
             self.presentation_bytes = bytes;
         }
@@ -564,7 +714,11 @@ impl BrowserRuntime {
         if let Some(unused) = available.difference(&required).next() {
             return Err(format!("unreferenced source DLL {unused} was supplied"));
         }
-        let mut memory = GuestMemory::new(MemoryLimits {
+        #[cfg(all(feature = "shared-guest-memory", target_arch = "wasm32"))]
+        let memory_constructor = GuestMemory::new_shared;
+        #[cfg(not(all(feature = "shared-guest-memory", target_arch = "wasm32")))]
+        let memory_constructor = GuestMemory::new;
+        let mut memory = memory_constructor(MemoryLimits {
             max_physical_pages: MAX_GAME_PHYSICAL_PAGES,
             ..MemoryLimits::default()
         })
@@ -728,15 +882,26 @@ impl BrowserRuntime {
         }
         let endpoints = endpoint_by_address.into_values().collect::<Vec<_>>();
         let dispatcher = ApiDispatcher::from_endpoints(endpoints).map_err(api_fault_string)?;
-        let reflection = process
+        let reflection_buffers = process
             .runtime
             .memory_mut()
-            .pending_reflection()
+            .pending_reflection_binary()
             .map_err(error_string)?;
-        let reflection_buffers = reflection.encode_binary().map_err(error_string)?;
+        let code_images = std::iter::once((&plan, &materialization))
+            .chain(
+                mapped_dlls
+                    .iter()
+                    .map(|dll| (&dll.source.loader, &dll.image)),
+            )
+            .collect::<Vec<_>>();
+        let code_entries =
+            vine_core::code_preparation_entries(process.runtime.memory(), &code_images, 4096)
+                .map_err(error_string)?;
         let metadata = json!({
             "kind": "prepared",
             "entryPoint": materialization.entry_point_address.0,
+            "codeEntries": code_entries.entries,
+            "codeEntriesLimited": code_entries.limited,
             "fsBase": environment.teb_address.0,
             "initialStackPointer": stack.initial_esp.0,
             "entrySentinel": sentinels.process_entry_return.address.0,
@@ -971,7 +1136,14 @@ impl BrowserRuntime {
         return_address: GuestAddress,
         retired_instructions: u64,
         x86_context: X86CpuContext,
-    ) -> Result<(DispatchMetadata, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+    ) -> Result<
+        (
+            DispatchMetadata,
+            Option<MemoryDeltaBuffers>,
+            RuntimeOutputBytes,
+        ),
+        String,
+    > {
         if self.pending_com_audio.is_some() {
             return Err("COM audio handoff must finish before guest dispatch".to_owned());
         }
@@ -1017,7 +1189,11 @@ impl BrowserRuntime {
                 }
             };
             self.prepared_source_trap = Some(identity);
-            return Ok((DispatchMetadata::Json(metadata), None, Vec::new()));
+            return Ok((
+                DispatchMetadata::Json(metadata),
+                None,
+                RuntimeOutputBytes::new(),
+            ));
         }
         let Some(endpoint_id) = endpoint_id else {
             return self
@@ -1290,7 +1466,7 @@ impl BrowserRuntime {
             }
             DispatchOutcome::Fault(fault) => Err(api_fault_string(fault)),
         };
-        result.map(|(metadata, delta)| (metadata, delta, Vec::new()))
+        result.map(|(metadata, delta)| (metadata, delta, RuntimeOutputBytes::new()))
     }
 
     fn dispatch_com(
@@ -1299,7 +1475,7 @@ impl BrowserRuntime {
         stack_pointer: GuestAddress,
         return_address: GuestAddress,
         retired_instructions: u64,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, RuntimeOutputBytes), String> {
         self.advance_clock_for_dispatch(retired_instructions)?;
 
         let trap = ComCallTrap {
@@ -1316,7 +1492,7 @@ impl BrowserRuntime {
         &mut self,
         outcome: ComDispatchOutcome,
         endpoint_address: GuestAddress,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, RuntimeOutputBytes), String> {
         acknowledge_thread_wakes(&mut self.runtime);
         match outcome {
             ComDispatchOutcome::Completed(completion) => {
@@ -1326,7 +1502,7 @@ impl BrowserRuntime {
                     "stackPointer": completion.stack_pointer.0,
                     "eax": completion.eax,
                 });
-                let mut presentation_bytes = Vec::new();
+                let mut presentation_bytes = RuntimeOutputBytes::new();
                 let mut metadata = json!({
                     "kind": "com-complete",
                     "threadId": self.runtime.current_thread_id().0,
@@ -1368,12 +1544,9 @@ impl BrowserRuntime {
                                     })
                                 })
                                 .collect();
-                            let pixels = if draw.texture_data.is_empty() { Value::Null } else {
-                                let offset = presentation_bytes.len();
-                                presentation_bytes.extend_from_slice(&draw.texture_data);
-                                json!({ "offset": offset, "length": draw.texture_data.len(),
-                                    "pitch": draw.texture_pitch.expect("captured texture pitch") })
-                            };
+                            let pixels = append_presentation_pixels(
+                                &mut presentation_bytes, &draw.texture_data, draw.texture_pitch,
+                            );
                             json!({
                                 "vertices": draw.vertex_data,
                                 "texture": { "width": draw.texture_width,
@@ -1397,7 +1570,7 @@ impl BrowserRuntime {
                 let metadata = json!({ "kind": "audio-request", "requestId": pending.request_id().to_string(),
                     "threadId": self.runtime.current_thread_id().0 });
                 self.pending_com_audio = Some(pending);
-                Ok((metadata, None, Vec::new()))
+                Ok((metadata, None, RuntimeOutputBytes::new()))
             }
             ComDispatchOutcome::GuestCallback(prepared) => Ok((
                 json!({ "kind": "guest-callback", "threadId": self.runtime.current_thread_id().0,
@@ -1405,7 +1578,7 @@ impl BrowserRuntime {
                     "stackPointer": prepared.stack_pointer.0,
                     "returnSentinel": prepared.return_sentinel.0 }),
                 self.pending_delta()?,
-                Vec::new(),
+                RuntimeOutputBytes::new(),
             )),
             ComDispatchOutcome::MediaPending(pending) => {
                 if self.pending_com_media.contains_key(&pending.request_id) {
@@ -1418,14 +1591,14 @@ impl BrowserRuntime {
                     .map(|audio| audio.pcm_f32le.clone())
                     .unwrap_or_default();
                 self.pending_com_media.insert(pending.request_id, pending);
-                Ok((metadata, self.pending_delta()?, audio))
+                Ok((metadata, self.pending_delta()?, audio.into()))
             }
             ComDispatchOutcome::MediaData(data) => Ok((
                 json!({ "kind": "media-data", "requestId": data.request_id.to_string(),
                     "threadId": self.runtime.current_thread_id().0,
                     "offset": data.offset.to_string(), "byteLength": data.bytes.len() }),
                 self.pending_delta()?,
-                data.bytes,
+                data.bytes.into(),
             )),
             ComDispatchOutcome::Fault(fault) => {
                 let target = fault
@@ -1490,7 +1663,7 @@ impl BrowserRuntime {
         request_id: u64,
         offset: u64,
         length: u32,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, RuntimeOutputBytes), String> {
         let pending = self
             .pending_com_media
             .get(&request_id)
@@ -1516,7 +1689,7 @@ impl BrowserRuntime {
         &mut self,
         request_id: u64,
         response: ComMediaResponse,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, RuntimeOutputBytes), String> {
         let pending = self
             .pending_com_media
             .get(&request_id)
@@ -1706,6 +1879,13 @@ impl BrowserRuntime {
         if self
             .pending_host
             .get(&request_id)
+            .is_some_and(|pending| pending.call.request.service == RUNTIME_OBJECT_WAIT_SERVICE)
+        {
+            return self.complete_object_wait(request_id, result);
+        }
+        if self
+            .pending_host
+            .get(&request_id)
             .is_some_and(|pending| pending.call.request.service == RUNTIME_MESSAGE_BOX_SERVICE)
         {
             return self.complete_message_box(request_id, result);
@@ -1883,12 +2063,33 @@ impl BrowserRuntime {
         request_id: u64,
         acknowledgement: u32,
     ) -> Result<Value, String> {
+        self.complete_paced_object_or_timer_wait(request_id, acknowledgement, false)
+    }
+
+    fn complete_object_wait(
+        &mut self,
+        request_id: u64,
+        acknowledgement: u32,
+    ) -> Result<Value, String> {
+        self.complete_paced_object_or_timer_wait(request_id, acknowledgement, true)
+    }
+
+    fn complete_paced_object_or_timer_wait(
+        &mut self,
+        request_id: u64,
+        acknowledgement: u32,
+        object_wait: bool,
+    ) -> Result<Value, String> {
+        let service = if object_wait {
+            RUNTIME_OBJECT_WAIT_SERVICE
+        } else {
+            RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+        };
         let pending = self
             .pending_host
             .get(&request_id)
             .ok_or_else(|| "timer pacing completion has no pending API call".to_owned())?;
-        if pending.call.request.request_id != request_id
-            || pending.call.request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+        if pending.call.request.request_id != request_id || pending.call.request.service != service
         {
             return Err("timer pacing completion request identity is corrupt".to_owned());
         }
@@ -1899,7 +2100,12 @@ impl BrowserRuntime {
                 .select_thread(owner_thread_id)
                 .map_err(error_string)?;
         }
-        let outcome = complete_kernel32_waitable_timer_pacing(
+        let complete = if object_wait {
+            complete_kernel32_object_wait
+        } else {
+            complete_kernel32_waitable_timer_pacing
+        };
+        let outcome = complete(
             &self.dispatcher,
             &pending.call,
             acknowledgement,
@@ -1914,7 +2120,7 @@ impl BrowserRuntime {
                         .map_err(error_string)?;
                 }
                 if retry.request.request_id != request_id
-                    || retry.request.service != RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+                    || retry.request.service != service
                     || retry.request.payload.len() != 4
                     || self
                         .runtime
@@ -1947,7 +2153,7 @@ impl BrowserRuntime {
                     "kind": "host-retry",
                     "threadId": owner_thread_id.0,
                     "requestId": request_id.to_string(),
-                    "service": RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
+                    "service": service,
                     "arguments": [milliseconds],
                 }));
             }
@@ -1964,7 +2170,7 @@ impl BrowserRuntime {
             Some(RuntimeSchedulerEvent::HostCompleted(completion))
                 if completion.request_id == request_id
                     && completion.thread_id == owner_thread_id
-                    && completion.service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE => {}
+                    && completion.service == service => {}
             _ => return Err("timer pacing scheduler completion event mismatch".to_owned()),
         }
         self.pending_host.remove(&request_id);
@@ -2229,7 +2435,7 @@ impl BrowserRuntime {
         &mut self,
         sentinel: GuestAddress,
         result: u32,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>, Vec<u8>), String> {
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>, RuntimeOutputBytes), String> {
         let outcome = self
             .runtime
             .complete_guest_callback(&self.dispatcher, sentinel, result)
@@ -2243,7 +2449,7 @@ impl BrowserRuntime {
                 Ok((
                     completion_metadata("callback-complete", &completion),
                     delta,
-                    Vec::new(),
+                    RuntimeOutputBytes::new(),
                 ))
             }
             vine_core::GuestCallbackReturn::Continue(prepared) => {
@@ -2258,7 +2464,7 @@ impl BrowserRuntime {
                     .memory_mut()
                     .pending_delta_binary()
                     .map_err(error_string)?;
-                Ok((metadata, Some(buffers), Vec::new()))
+                Ok((metadata, Some(buffers), RuntimeOutputBytes::new()))
             }
             vine_core::GuestCallbackReturn::DllCallback {
                 target,
@@ -2266,12 +2472,12 @@ impl BrowserRuntime {
             } => Ok((
                 json!({"kind": "dll-attach-callback", "target": target.0, "stackPointer": stack_pointer.0}),
                 self.pending_delta()?,
-                Vec::new(),
+                RuntimeOutputBytes::new(),
             )),
             vine_core::GuestCallbackReturn::DllAttached => Ok((
                 json!({"kind": "dll-attach-complete"}),
                 self.pending_delta()?,
-                Vec::new(),
+                RuntimeOutputBytes::new(),
             )),
         }
     }
@@ -2928,6 +3134,172 @@ fn parse_media_response(metadata: &[u8], payload: &[u8]) -> Result<ComMediaRespo
     }
 }
 
+#[cfg(feature = "shared-guest-memory")]
+pub fn shared_arena_descriptor() -> Option<(u32, u32, u32)> {
+    BRIDGE.with(|bridge| {
+        bridge
+            .borrow()
+            .runtime
+            .as_ref()?
+            .runtime
+            .memory()
+            .shared_arena_descriptor()
+    })
+}
+
+#[cfg(feature = "shared-guest-memory")]
+pub fn shared_permissions_pointer() -> Option<u32> {
+    BRIDGE.with(|bridge| {
+        bridge
+            .borrow()
+            .runtime
+            .as_ref()?
+            .runtime
+            .memory()
+            .shared_permissions_pointer()
+    })
+}
+
+#[cfg(feature = "shared-guest-memory")]
+pub fn with_shared_execution(generation: u64, execute: impl FnOnce() -> u32) -> u32 {
+    BRIDGE.with(|cell| {
+        // An imported JIT compiler may run while execute() is on the stack.
+        // Holding this borrow prevents any reentrant Runtime entry from exposing
+        // page references or changing ownership underneath the CPU.
+        let mut bridge = cell.borrow_mut();
+        let validation = bridge.runtime_mut().and_then(|runtime| {
+            runtime
+                .runtime
+                .memory()
+                .validate_shared_execution(generation)
+                .map_err(error_string)
+        });
+        if let Err(error) = validation {
+            bridge.set_error(error);
+            return u32::MAX;
+        }
+        execute()
+    })
+}
+
+#[cfg(feature = "shared-guest-memory")]
+pub enum SharedDispatch {
+    Unhandled,
+    Resume([u32; 4]),
+    Output,
+    Error,
+}
+
+/// Execute an ordinary Windows entry inside the unified module. Thread,
+/// callback, browser and mapping boundaries still publish the normal receipt.
+#[cfg(feature = "shared-guest-memory")]
+pub fn dispatch_shared(
+    context: X86CpuContext,
+    retired: u64,
+    elapsed: u64,
+    mut invalidate: impl FnMut(Option<u32>),
+) -> SharedDispatch {
+    BRIDGE.with(|cell| {
+        let mut bridge = cell.borrow_mut();
+        let result = (|| -> Result<SharedDispatch, String> {
+            let runtime = bridge.runtime_mut()?;
+            if runtime
+                .dispatcher
+                .endpoint(GuestAddress(context.eip))
+                .is_none()
+            {
+                return Ok(SharedDispatch::Unhandled);
+            }
+            let return_bytes = runtime
+                .runtime
+                .memory()
+                .read(GuestAddress(context.esp), 4)
+                .map_err(error_string)?;
+            let return_address =
+                u32::from_le_bytes(return_bytes.try_into().expect("four-byte return address"));
+            runtime.synchronize_forward_clock(retired, elapsed)?;
+            let (metadata, delta, bytes) = runtime.dispatch(
+                GuestAddress(context.eip),
+                GuestAddress(context.esp),
+                GuestAddress(return_address),
+                retired,
+                context,
+            )?;
+            if let DispatchMetadata::ApiCompletion(completion) = metadata {
+                if delta.is_none() {
+                    return Ok(SharedDispatch::Resume(completion));
+                }
+                if let Some((generation, addresses)) =
+                    runtime.runtime.memory().shared_data_changes()
+                {
+                    if addresses.is_empty() {
+                        invalidate(None);
+                    }
+                    for address in addresses {
+                        invalidate(Some(address));
+                    }
+                    runtime.acknowledge_fast(generation)?;
+                    return Ok(SharedDispatch::Resume(completion));
+                }
+                bridge.clear_output();
+                bridge.api_completion = Some(completion);
+                let (control, payload) =
+                    delta.map(|d| (d.control, d.page_bytes)).unwrap_or_default();
+                bridge.control = control;
+                bridge.payload = payload;
+            } else if let DispatchMetadata::Json(metadata) = metadata {
+                bridge.clear_output();
+                bridge.set_runtime_output(metadata, delta, bytes)?;
+            }
+            Ok(SharedDispatch::Output)
+        })();
+        match result {
+            Ok(result) => result,
+            Err(error) => {
+                bridge.set_error(error);
+                SharedDispatch::Error
+            }
+        }
+    })
+}
+
+#[cfg(feature = "shared-guest-memory")]
+pub fn shared_acknowledged_generation() -> u64 {
+    BRIDGE.with(|cell| {
+        cell.borrow().runtime.as_ref().map_or(0, |runtime| {
+            runtime
+                .runtime
+                .memory()
+                .synchronization_state()
+                .acknowledged_generation
+        })
+    })
+}
+
+#[cfg(feature = "shared-guest-memory")]
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_shared_generation() -> u64 {
+    shared_acknowledged_generation()
+}
+
+#[cfg(feature = "shared-guest-memory")]
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_shared_arena_base() -> u32 {
+    shared_arena_descriptor().map_or(0, |arena| arena.0)
+}
+
+#[cfg(feature = "shared-guest-memory")]
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_shared_arena_size() -> u32 {
+    shared_arena_descriptor().map_or(0, |arena| arena.1)
+}
+
+#[cfg(feature = "shared-guest-memory")]
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_shared_guest_offset() -> u32 {
+    shared_arena_descriptor().map_or(0, |arena| arena.2)
+}
+
 fn run_bridge(operation: impl FnOnce(&mut Bridge) -> Result<(), String>) -> u32 {
     BRIDGE.with(|cell| {
         let mut bridge = cell.borrow_mut();
@@ -2957,6 +3329,31 @@ pub extern "C" fn vine_bridge_input_resize(byte_length: u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_input_ptr() -> u32 {
     BRIDGE.with(|cell| cell.borrow_mut().input.as_mut_ptr() as usize as u32)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_cpu_snapshot_put(
+    thread_id: u32,
+    expected_revision_low: u32,
+    expected_revision_high: u32,
+    backend_tag: u32,
+    abi_version: u32,
+    input_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        bridge.put_cpu_snapshot(
+            thread_id,
+            u64::from(expected_revision_low) | (u64::from(expected_revision_high) << 32),
+            backend_tag,
+            abi_version,
+            input_length as usize,
+        )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_cpu_snapshot_get(thread_id: u32) -> u32 {
+    run_bridge(|bridge| bridge.get_cpu_snapshot(thread_id))
 }
 
 #[unsafe(no_mangle)]
@@ -3058,6 +3455,16 @@ pub extern "C" fn vine_bridge_register_source_dll(image_length: u32, path_length
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_ready_object_wait_request_id() -> u64 {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .runtime
+            .as_ref()
+            .map_or(0, |runtime| runtime.runtime.ready_object_wait_request_id())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_prepare_executable(
     executable_length: u32,
     path_length: u32,
@@ -3104,6 +3511,32 @@ pub extern "C" fn vine_bridge_synchronize_forward_clock(
         bridge
             .runtime_mut()?
             .synchronize_forward_clock(retired_instructions, host_elapsed_time_100ns)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_read_timestamp_counter(
+    retired_instructions_low: u32,
+    retired_instructions_high: u32,
+    host_elapsed_time_100ns_low: u32,
+    host_elapsed_time_100ns_high: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let retired =
+            u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
+        let elapsed = u64::from(host_elapsed_time_100ns_low)
+            | (u64::from(host_elapsed_time_100ns_high) << 32);
+        let timestamp = bridge
+            .runtime_mut()?
+            .runtime
+            .read_timestamp_counter(retired, elapsed)
+            .map_err(error_string)?;
+        bridge.set_output(
+            json!({ "kind": "timestamp-counter", "low": timestamp as u32,
+            "high": (timestamp >> 32) as u32 }),
+            Vec::new(),
+            Vec::new(),
+        )
     })
 }
 
@@ -3482,6 +3915,115 @@ mod tests {
 
     const SECOND_THREAD_ID: u32 = 8193;
 
+    #[test]
+    fn single_pixel_payload_is_shared_across_empty_draws_and_bridge_lifetime() {
+        let empty = Arc::new(Vec::new());
+        let snapshot = Arc::new(vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        let original_pointer = snapshot.as_ptr();
+        let mut bytes = RuntimeOutputBytes::new();
+        assert_eq!(
+            append_presentation_pixels(&mut bytes, &empty, None),
+            Value::Null
+        );
+        let pixels = append_presentation_pixels(&mut bytes, &snapshot, Some(8));
+        assert_eq!(pixels["offset"], 0);
+        assert_eq!(pixels["length"], 8);
+        assert_eq!(pixels["pitch"], 8);
+        assert_eq!(
+            append_presentation_pixels(&mut bytes, &empty, None),
+            Value::Null
+        );
+        assert_eq!(
+            bytes.as_ptr(),
+            original_pointer,
+            "single payload keeps the draw's pixel allocation"
+        );
+        let RuntimeOutputBytes::Shared(shared) = &bytes else {
+            panic!("single snapshot was copied")
+        };
+        assert!(Arc::ptr_eq(shared, &snapshot));
+
+        let weak = Arc::downgrade(&snapshot);
+        let mut bridge = Bridge::new();
+        bridge
+            .set_runtime_output(json!({"kind": "com-complete"}), None, bytes)
+            .unwrap();
+        drop(snapshot); // The frame can retire before the bridge relinquishes its output.
+        assert_eq!(bridge.presentation_bytes.as_ptr(), original_pointer);
+        assert_eq!(&*bridge.presentation_bytes, &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(weak.strong_count(), 1);
+        bridge.clear_output();
+        assert!(bridge.presentation_bytes.is_empty());
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn multiple_pixel_payloads_keep_order_and_clear_does_not_mutate_snapshots() {
+        let first = Arc::new(vec![1, 2, 3, 4]);
+        let second = Arc::new(vec![5, 6, 7, 8]);
+        let empty = Arc::new(Vec::new());
+        let mut bytes = RuntimeOutputBytes::new();
+        assert_eq!(
+            append_presentation_pixels(&mut bytes, &first, Some(4))["offset"],
+            0
+        );
+        assert_eq!(
+            append_presentation_pixels(&mut bytes, &empty, None),
+            Value::Null
+        );
+        assert_eq!(
+            append_presentation_pixels(&mut bytes, &second, Some(4))["offset"],
+            4
+        );
+        assert_eq!(
+            append_presentation_pixels(&mut bytes, &first, Some(4))["offset"],
+            8
+        );
+        assert!(matches!(&bytes, RuntimeOutputBytes::Owned(_)));
+        assert_eq!(&*bytes, &[1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4]);
+        assert_ne!(bytes.as_ptr(), first.as_ptr());
+        bytes.clear();
+        assert_eq!(first.as_slice(), &[1, 2, 3, 4]);
+        assert_eq!(second.as_slice(), &[5, 6, 7, 8]);
+
+        let mut bridge = Bridge::new();
+        bridge.presentation_bytes.append_snapshot(&first);
+        bridge.set_error("presentation failed".to_owned());
+        assert!(bridge.presentation_bytes.is_empty());
+        assert_eq!(
+            Arc::strong_count(&first),
+            1,
+            "error drops the shared owner without copying or clearing it"
+        );
+        assert_eq!(first.as_slice(), &[1, 2, 3, 4]);
+        bridge.presentation_bytes.append_snapshot(&second);
+        bridge
+            .set_runtime_output(
+                json!({"kind": "com-complete"}),
+                None,
+                RuntimeOutputBytes::new(),
+            )
+            .unwrap();
+        assert!(
+            bridge.presentation_bytes.is_empty(),
+            "clear-only frame replaces prior output"
+        );
+        assert_eq!(Arc::strong_count(&second), 1);
+    }
+
+    #[test]
+    fn owned_media_output_keeps_its_allocation() {
+        let bytes = vec![4, 3, 2, 1];
+        let pointer = bytes.as_ptr();
+        let mut bridge = Bridge::new();
+        bridge
+            .set_runtime_output(json!({"kind": "media-data"}), None, bytes.into())
+            .unwrap();
+        assert_eq!(bridge.media_bytes.as_ptr(), pointer);
+        assert_eq!(bridge.media_bytes, [4, 3, 2, 1]);
+        assert!(bridge.presentation_bytes.is_empty());
+    }
+
     fn running_test_runtime() -> Runtime {
         controlled_executable_runtime_state(
             GuestMemory::new(MemoryLimits::default()).unwrap(),
@@ -3489,6 +4031,188 @@ mod tests {
             b"C:\\Vine\\browser-vertical.exe\0".to_vec(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn cpu_snapshot_exports_keep_opaque_owned_bytes_and_reject_stale_or_malformed_handoffs() {
+        let runtime = running_test_runtime();
+        let thread_id = runtime.current_thread_id().0;
+        let memory_before = runtime.memory().stats();
+        BRIDGE.with(|cell| {
+            let mut bridge = Bridge::new();
+            bridge.runtime = Some(BrowserRuntime {
+                runtime,
+                dispatcher: ApiDispatcher::from_endpoints([]).unwrap(),
+                callback_sentinel: GuestAddress(0x7f01_0000),
+                pending_host: BTreeMap::new(),
+                pending_com_audio: None,
+                pending_com_media: BTreeMap::new(),
+                prepared_source_trap: None,
+                pending_source_lookup: None,
+                pending_source_search: None,
+            });
+            *cell.borrow_mut() = bridge;
+        });
+        assert_eq!(vine_bridge_input_resize(512), 0);
+        BRIDGE.with(|cell| cell.borrow_mut().input.fill(0xa5));
+        assert_eq!(vine_bridge_cpu_snapshot_put(thread_id, 0, 0, 2, 2, 512), 0);
+        BRIDGE.with(|cell| {
+            let bridge = cell.borrow();
+            let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+            assert_eq!(
+                metadata,
+                json!({
+                    "kind": "cpu-snapshot-stored", "threadId": thread_id,
+                    "revisionLow": 1, "revisionHigh": 0,
+                    "backendTag": 2, "abiVersion": 2, "byteLength": 512,
+                })
+            );
+            assert!(bridge.payload.is_empty());
+        });
+        // A later bridge input mutation cannot alias the parked CPU bytes.
+        BRIDGE.with(|cell| cell.borrow_mut().input.fill(0x5a));
+        for (low, high, tag, version, length) in [
+            (0, 0, 2, 2, 512),
+            (1, 1, 2, 2, 512),
+            (1, 0, 3, 2, 512),
+            (1, 0, 2, 1, 512),
+            (1, 0, 2, 2, 511),
+            (1, 0, 2, 2, 513),
+        ] {
+            assert_eq!(
+                vine_bridge_cpu_snapshot_put(thread_id, low, high, tag, version, length),
+                1
+            );
+            BRIDGE.with(|cell| {
+                let bridge = cell.borrow();
+                let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+                assert_eq!(metadata["kind"], "error");
+                assert!(bridge.control.is_empty());
+                assert!(bridge.payload.is_empty());
+            });
+            assert_eq!(vine_bridge_cpu_snapshot_get(thread_id), 0);
+            BRIDGE.with(|cell| {
+                let bridge = cell.borrow();
+                let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+                assert_eq!(
+                    metadata,
+                    json!({
+                        "kind": "cpu-snapshot", "threadId": thread_id,
+                        "revisionLow": 1, "revisionHigh": 0,
+                        "backendTag": 2, "abiVersion": 2, "byteLength": 512,
+                    })
+                );
+                assert_eq!(bridge.payload, vec![0xa5; 512]);
+                assert!(bridge.control.is_empty());
+                assert!(bridge.presentation_bytes.is_empty());
+                assert!(bridge.audio_bytes.is_empty());
+                assert!(bridge.media_bytes.is_empty());
+                let runtime = &bridge.runtime.as_ref().unwrap().runtime;
+                assert_eq!(runtime.memory().stats(), memory_before);
+                assert_eq!(runtime.current_thread_id().0, thread_id);
+                assert_eq!(runtime.current_last_error().unwrap(), 87);
+            });
+        }
+        assert_eq!(vine_bridge_cpu_snapshot_put(thread_id, 1, 0, 2, 2, 512), 0);
+        assert_eq!(vine_bridge_cpu_snapshot_get(thread_id), 0);
+        BRIDGE.with(|cell| {
+            let bridge = cell.borrow();
+            let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+            assert_eq!(metadata["revisionLow"], 2);
+            assert_eq!(bridge.payload, vec![0x5a; 512]);
+        });
+        assert_eq!(vine_bridge_cpu_snapshot_get(0), 1);
+        assert_eq!(vine_bridge_input_resize(4097), 0);
+        assert_eq!(vine_bridge_cpu_snapshot_put(thread_id, 2, 0, 2, 2, 4097), 1);
+        assert_eq!(vine_bridge_cpu_snapshot_get(thread_id), 0);
+        BRIDGE.with(|cell| {
+            let bridge = cell.borrow();
+            assert_eq!(bridge.payload, vec![0x5a; 512]);
+            let runtime = &bridge.runtime.as_ref().unwrap().runtime;
+            assert_eq!(
+                runtime
+                    .thread_cpu_snapshot(RuntimeThreadId(thread_id))
+                    .unwrap()
+                    .2,
+                2
+            );
+        });
+    }
+
+    #[test]
+    fn timestamp_counter_export_preserves_u64_transport_and_publishes_no_guest_outputs() {
+        let runtime = running_test_runtime();
+        let memory_before = runtime.memory().stats();
+        BRIDGE.with(|cell| {
+            let mut bridge = Bridge::new();
+            bridge.runtime = Some(BrowserRuntime {
+                runtime,
+                dispatcher: ApiDispatcher::from_endpoints([]).unwrap(),
+                callback_sentinel: GuestAddress(0x7f01_0000),
+                pending_host: BTreeMap::new(),
+                pending_com_audio: None,
+                pending_com_media: BTreeMap::new(),
+                prepared_source_trap: None,
+                pending_source_lookup: None,
+                pending_source_search: None,
+            });
+            bridge.control = vec![1];
+            bridge.payload = vec![2];
+            bridge
+                .presentation_bytes
+                .append_snapshot(&Arc::new(vec![3]));
+            bridge.audio_bytes = vec![4];
+            bridge.media_bytes = vec![5];
+            *cell.borrow_mut() = bridge;
+        });
+        for _ in 0..2 {
+            assert_eq!(vine_bridge_read_timestamp_counter(0x11, 2, 7, 1), 0);
+            BRIDGE.with(|cell| {
+                let bridge = cell.borrow();
+                let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+                assert_eq!(
+                    metadata,
+                    json!({ "kind": "timestamp-counter", "low": 700, "high": 100 })
+                );
+                assert!(bridge.control.is_empty());
+                assert!(bridge.payload.is_empty());
+                assert!(bridge.presentation_bytes.is_empty());
+                assert!(bridge.audio_bytes.is_empty());
+                assert!(bridge.media_bytes.is_empty());
+                assert!(bridge.api_completion.is_none());
+                let runtime = &bridge.runtime.as_ref().unwrap().runtime;
+                assert_eq!(runtime.synchronized_instruction_count(), 0x0002_0000_0011);
+                assert_eq!(runtime.memory().stats(), memory_before);
+                assert_eq!(runtime.current_last_error().unwrap(), 87);
+            });
+        }
+        // Rejected observations do not advance the retirement cursor or leave
+        // stale successful timestamp/output data visible through the bridge.
+        for (retired_low, elapsed_low) in [(0x12, 6), (0x10, 8)] {
+            assert_eq!(
+                vine_bridge_read_timestamp_counter(retired_low, 2, elapsed_low, 1),
+                1
+            );
+            BRIDGE.with(|cell| {
+                let bridge = cell.borrow();
+                let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+                assert_eq!(metadata["kind"], "error");
+                assert!(bridge.control.is_empty());
+                assert!(bridge.payload.is_empty());
+                let runtime = &bridge.runtime.as_ref().unwrap().runtime;
+                assert_eq!(runtime.synchronized_instruction_count(), 0x0002_0000_0011);
+                assert_eq!(runtime.memory().stats(), memory_before);
+            });
+        }
+        assert_eq!(vine_bridge_read_timestamp_counter(0x11, 2, 7, 1), 0);
+        BRIDGE.with(|cell| {
+            let bridge = cell.borrow();
+            let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+            assert_eq!(
+                metadata,
+                json!({ "kind": "timestamp-counter", "low": 700, "high": 100 })
+            );
+        });
     }
 
     #[test]
@@ -3687,7 +4411,7 @@ mod tests {
             bridge.metadata = br#"{"kind":"error","message":"original guest fault"}"#.to_vec();
             bridge.control = vec![1];
             bridge.payload = vec![2];
-            bridge.presentation_bytes = vec![3];
+            bridge.presentation_bytes = vec![3].into();
             bridge.audio_bytes = vec![4];
             bridge.media_bytes = vec![5];
             bridge.writeback_generation = Some(77);
@@ -3710,7 +4434,7 @@ mod tests {
             );
             assert_eq!(bridge.control, [1]);
             assert_eq!(bridge.payload, [2]);
-            assert_eq!(bridge.presentation_bytes, [3]);
+            assert_eq!(&*bridge.presentation_bytes, [3]);
             assert_eq!(bridge.audio_bytes, [4]);
             assert_eq!(bridge.media_bytes, [5]);
             assert_eq!(bridge.writeback_generation, Some(77));
@@ -4454,6 +5178,244 @@ mod tests {
             );
             *transport = Bridge::new();
         });
+    }
+
+    #[test]
+    fn finite_object_wait_export_preserves_owner_retry_and_latched_signal() {
+        for retire_selected in [false, true] {
+            let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../.work/toolchain-spike/timer-threads.exe");
+            let limits = Pe32Limits::default();
+            let snapshot =
+                ModuleSnapshot::from_bytes(std::fs::read(fixture).unwrap(), &limits).unwrap();
+            let plan = build_pe32_load_plan(&snapshot, limits).unwrap();
+            let catalog = runtime_catalog_for_load_plan(&[&plan]).unwrap();
+            let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+            let image = materialize_pe32_image(
+                &mut memory,
+                &snapshot,
+                &plan,
+                GuestAddress(plan.image.preferred_image_base),
+            )
+            .unwrap();
+            let stack = GuestAddress(0x2000_0100);
+            let owner = memory
+                .create_owner(vine_core::MemoryOwnerKind::Runtime)
+                .unwrap();
+            let range = memory
+                .reserve_fixed(
+                    owner,
+                    MemoryRegionKind::Runtime,
+                    GuestAddress(0x2000_0000),
+                    0x1000,
+                )
+                .unwrap();
+            memory
+                .commit(
+                    owner,
+                    range,
+                    vine_core::PageProtection {
+                        read: true,
+                        write: true,
+                        execute: false,
+                    },
+                )
+                .unwrap();
+            memory.seal_owner(owner).unwrap();
+            let process = prepare_executable_runtime_process(
+                memory,
+                &plan,
+                &image,
+                &[],
+                &catalog,
+                0xec02_5c47,
+                "timer-threads.exe",
+                b"C:\\Vine\\timer-threads.exe\0".to_vec(),
+            )
+            .unwrap();
+            let endpoints = process
+                .binding
+                .imports
+                .iter()
+                .filter_map(ApiEndpointIdentity::from_runtime_guest_import)
+                .collect::<Vec<_>>();
+            let endpoint = |wanted: &str| {
+                ApiEndpointIdentity::from_runtime_guest_import(
+            process.binding.imports.iter().find(|import|
+                matches!(&import.target, ImportTarget::Name { name, .. } if name == wanted)).unwrap()).unwrap()
+            };
+            let wait = endpoint("WaitForSingleObject");
+            let create = endpoint("CreateEventA");
+            let signal = endpoint("SetEvent");
+            let mut browser = BrowserRuntime {
+                runtime: process.runtime,
+                dispatcher: ApiDispatcher::from_endpoints(endpoints).unwrap(),
+                callback_sentinel: GuestAddress(0x7f01_0000),
+                pending_host: BTreeMap::new(),
+                pending_com_audio: None,
+                pending_com_media: BTreeMap::new(),
+                prepared_source_trap: None,
+                pending_source_lookup: None,
+                pending_source_search: None,
+            };
+            let reflection = browser.runtime.memory_mut().pending_reflection().unwrap();
+            browser
+                .acknowledge_fast(reflection.invalidation.generation)
+                .unwrap();
+            let call = |browser: &mut BrowserRuntime,
+                        endpoint: &ApiEndpointIdentity,
+                        call_stack: GuestAddress,
+                        arguments: &[u32]| {
+                let words = std::iter::once(image.entry_point_address.0)
+                    .chain(arguments.iter().copied())
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>();
+                browser
+                    .runtime
+                    .memory_mut()
+                    .write(call_stack, &words)
+                    .unwrap();
+                let generation = browser.runtime.memory().stats().generation;
+                browser.runtime.memory_mut().pending_delta_binary().unwrap();
+                browser.acknowledge_fast(generation).unwrap();
+                browser.runtime.dispatch_api_call(
+                    &browser.dispatcher,
+                    ApiOwnedTrap {
+                        endpoint_id: endpoint.id,
+                        endpoint_address: endpoint.address,
+                        stack_pointer: call_stack,
+                        return_address: image.entry_point_address,
+                    },
+                    browser.callback_sentinel,
+                    None,
+                )
+            };
+            let DispatchOutcome::Immediate(created) =
+                call(&mut browser, &create, stack, &[0, 0, 0, 0])
+            else {
+                panic!("create event");
+            };
+            let event = created.eax.unwrap();
+            let initial = browser.runtime.current_thread_id();
+            let second = RuntimeThreadId(SECOND_THREAD_ID);
+            browser.runtime.register_thread(second, 0).unwrap();
+            browser.runtime.set_current_last_error(11).unwrap();
+            browser
+                .runtime
+                .memory_mut()
+                .write(
+                    stack,
+                    &[
+                        image.entry_point_address.0.to_le_bytes(),
+                        event.to_le_bytes(),
+                        1_u32.to_le_bytes(),
+                    ]
+                    .concat(),
+                )
+                .unwrap();
+            let generation = browser.runtime.memory().stats().generation;
+            browser.runtime.memory_mut().pending_delta_binary().unwrap();
+            browser.acknowledge_fast(generation).unwrap();
+            let DispatchOutcome::Deferred(waiting) = browser.runtime.dispatch_api_call(
+                &browser.dispatcher,
+                ApiOwnedTrap {
+                    endpoint_id: wait.id,
+                    endpoint_address: wait.address,
+                    stack_pointer: stack,
+                    return_address: image.entry_point_address,
+                },
+                browser.callback_sentinel,
+                None,
+            ) else {
+                panic!("finite event wait must defer");
+            };
+            let id = waiting.request.request_id;
+            assert_eq!(waiting.request.service, RUNTIME_OBJECT_WAIT_SERVICE);
+            assert_eq!(waiting.request.payload, 1_u32.to_le_bytes());
+            browser.pending_host.insert(
+                id,
+                PendingHostCall {
+                    thread_id: initial,
+                    call: waiting,
+                },
+            );
+            browser.runtime.select_thread(second).unwrap();
+            browser.runtime.set_current_last_error(22).unwrap();
+            BRIDGE.with(|cell| {
+                let mut bridge = Bridge::new();
+                bridge.runtime = Some(browser);
+                *cell.borrow_mut() = bridge;
+            });
+            assert_eq!(vine_bridge_ready_object_wait_request_id(), 0);
+            // No elapsed guest time: a timer ACK is a retry, never an early timeout.
+            assert_eq!(
+                vine_bridge_complete_host(id as u32, (id >> 32) as u32, 1),
+                0
+            );
+            BRIDGE.with(|cell| {
+            let mut bridge = cell.borrow_mut();
+            let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+            assert_eq!(metadata, json!({ "kind":"host-retry", "threadId":initial.0,
+                "requestId":id.to_string(), "service":RUNTIME_OBJECT_WAIT_SERVICE, "arguments":[1] }));
+            let browser = bridge.runtime.as_mut().unwrap();
+            assert_eq!(browser.runtime.current_thread_id(), second);
+            assert_eq!(browser.runtime.current_last_error().unwrap(), 22);
+            browser.runtime.synchronize_scheduled_clock_for_host_execution(0, 9_999).unwrap();
+            assert!(matches!(call(browser, &signal, GuestAddress(stack.0 + 0x100), &[event]), DispatchOutcome::Immediate(_)));
+            if retire_selected {
+                browser.runtime.request_current_thread_exit(0).unwrap();
+                browser.runtime.complete_current_thread_exit().unwrap();
+            }
+            browser.runtime.synchronize_scheduled_clock_for_host_execution(0, 20_000).unwrap();
+            bridge.control = vec![1]; bridge.payload = vec![2]; bridge.metadata = vec![3];
+        });
+            assert_eq!(vine_bridge_ready_object_wait_request_id(), id);
+            BRIDGE.with(|cell| {
+                let bridge = cell.borrow();
+                assert_eq!(bridge.control, vec![1]);
+                assert_eq!(bridge.payload, vec![2]);
+                assert_eq!(bridge.metadata, vec![3]);
+            });
+            assert_eq!(
+                vine_bridge_complete_host(id as u32, (id >> 32) as u32, 0),
+                0
+            );
+            assert_eq!(vine_bridge_ready_object_wait_request_id(), 0);
+            BRIDGE.with(|cell| {
+                let bridge = cell.borrow();
+                let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+                assert_eq!(metadata["kind"], "host-complete");
+                assert_eq!(metadata["threadId"], initial.0);
+                assert_eq!(
+                    metadata["completion"],
+                    json!({"instructionPointer":image.entry_point_address.0,
+                "stackPointer":stack.0 + 12, "eax":0})
+                );
+                let browser = bridge.runtime.as_ref().unwrap();
+                assert_eq!(
+                    browser.runtime.current_thread_id(),
+                    if retire_selected { initial } else { second }
+                );
+                assert_eq!(
+                    browser.runtime.thread_state(initial).unwrap().last_error,
+                    11
+                );
+                assert_eq!(browser.runtime.thread_state(second).unwrap().last_error, 22);
+                assert!(browser.pending_host.is_empty());
+                assert!(browser.runtime.scheduler().wait_registrations().is_empty());
+                assert_eq!(
+                    browser.runtime.scheduler_state_for_thread(initial).unwrap(),
+                    SchedulerThreadState::Runnable
+                );
+            });
+            assert_ne!(
+                vine_bridge_complete_host(id as u32, (id >> 32) as u32, 0),
+                0
+            );
+            BRIDGE.with(|cell| {
+                *cell.borrow_mut() = Bridge::new();
+            });
+        }
     }
 
     #[test]

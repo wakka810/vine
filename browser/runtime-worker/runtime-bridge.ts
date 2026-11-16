@@ -5,12 +5,14 @@ import {
   memoryPageSize,
   type MemoryRegionSnapshot,
 } from "./memory-transport.js";
-import type { ExecutionCpuContext } from "./execution-engine-contract.js";
+import type { ExecutionBackendSnapshot, ExecutionCpuContext } from "./execution-engine-contract.js";
 import type { RuntimeKeyboardInputEvent, RuntimePointerInputEvent } from "./protocol.js";
 
 export interface ExecutablePreparedMetadata {
   kind: "prepared";
   entryPoint: number;
+  codeEntries: number[];
+  codeEntriesLimited: boolean;
   fsBase: number;
   initialStackPointer: number;
   entrySentinel: number;
@@ -39,6 +41,16 @@ export interface RuntimeStopContext {
   symbol: string | null;
 }
 
+interface CpuSnapshotReceipt {
+  kind: "cpu-snapshot" | "cpu-snapshot-stored";
+  threadId: number;
+  revisionLow: number;
+  revisionHigh: number;
+  backendTag: number;
+  abiVersion: number;
+  byteLength: number;
+}
+
 interface RuntimeBridgeExports extends WebAssembly.Exports {
   memory: WebAssembly.Memory;
   vine_bridge_input_resize(length: number): number;
@@ -61,9 +73,11 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_observe_audio_end(low: number, high: number): number;
   vine_bridge_inspect_executable(executableLength: number, pathLength: number): number;
   vine_bridge_prepare_executable(executableLength: number, pathLength: number, cookie: number): number;
+  vine_bridge_ready_object_wait_request_id(): bigint;
   vine_bridge_register_source_dll(imageLength: number, pathLength: number): number;
   vine_bridge_complete_source_lookup(length: number): number;
   vine_bridge_synchronize_forward_clock(low: number, high: number, elapsedLow: number, elapsedHigh: number): number;
+  vine_bridge_read_timestamp_counter(low: number, high: number, elapsedLow: number, elapsedHigh: number): number;
   vine_bridge_acknowledge_fast(low: number, high: number): number;
   vine_bridge_reconcile_writeback(controlLength: number, payloadLength: number): number;
   vine_bridge_writeback_generation_low(): number;
@@ -85,6 +99,9 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_complete_gdi_text_raster(low: number, high: number, payloadLength: number): number;
   vine_bridge_schedule_next_thread(): number;
   vine_bridge_finish_thread(exitCode: number): number;
+  vine_bridge_cpu_snapshot_put(threadId: number, revisionLow: number, revisionHigh: number,
+    backendTag: number, abiVersion: number, inputLength: number): number;
+  vine_bridge_cpu_snapshot_get(threadId: number): number;
   vine_bridge_complete_callback(sentinel: number, result: number): number;
   vine_bridge_stop_context(instructionPointer: number): number;
   vine_bridge_stop_context_ptr(): number;
@@ -134,6 +151,18 @@ export class RuntimeBridge {
     return new RuntimeBridge(exports as RuntimeBridgeExports);
   }
 
+  sharedGuestMemory(): import("./memory-transport.js").SharedGuestMemory | undefined {
+    const base = this.#exports.vine_bridge_shared_arena_base;
+    const offset = this.#exports.vine_bridge_shared_guest_offset;
+    const size = this.#exports.vine_bridge_shared_arena_size;
+    if (typeof base !== "function" || typeof offset !== "function" || typeof size !== "function") return undefined;
+    const physicalBase = base() >>> 0, guestOffset = offset() >>> 0, physicalBytes = size() >>> 0;
+    invariant(physicalBase > 0 && guestOffset === 0x800000 && physicalBytes === 0x80800000,
+      "shared Runtime has no live guest arena");
+    return { memory: this.#exports.memory, guestBase: physicalBase + guestOffset,
+      guestBytes: physicalBytes - guestOffset };
+  }
+
   inspectExecutable(executable: Uint8Array, relativePath: string): {
     sha256: string; imageBase: number; entryPoint: number; importModules: number; guestImports: string[];
   } {
@@ -159,6 +188,14 @@ export class RuntimeBridge {
     return this.#invoke(() => this.#exports.vine_bridge_prepare_executable(
       executable.length, path.length, pointerCookie(),
     ));
+  }
+
+  readyObjectWaitRequestId(): bigint {
+    const id = this.#exports.vine_bridge_ready_object_wait_request_id();
+    invariant(typeof id === "bigint" && id >= -(1n << 63n) && id < (1n << 63n),
+      "Runtime returned an invalid object wait request");
+    // Wasm exposes an i64 result as a signed BigInt even for Rust u64.
+    return BigInt.asUintN(64, id);
   }
 
   completeSourceLookup(entry: { kind: "file"; byteLength: number } | { kind: "directory" } | null): void {
@@ -202,6 +239,21 @@ export class RuntimeBridge {
     const [low, high] = instructionWords(retiredInstructions);
     const [elapsedLow, elapsedHigh] = splitU64(BigInt(Math.floor(elapsedMilliseconds * 10_000)));
     this.#check(this.#exports.vine_bridge_synchronize_forward_clock(low, high, elapsedLow, elapsedHigh));
+  }
+
+  readTimestampCounter(retiredInstructions: number, elapsedMilliseconds: number): { low: number; high: number } {
+    invariant(Number.isFinite(elapsedMilliseconds) && elapsedMilliseconds >= 0,
+      "Timestamp elapsed time must be finite and nonnegative");
+    const [low, high] = instructionWords(retiredInstructions);
+    const [elapsedLow, elapsedHigh] = splitU64(BigInt(Math.floor(elapsedMilliseconds * 10_000)));
+    const result = this.#invoke<{ kind: string; low: number; high: number }>(() =>
+      this.#exports.vine_bridge_read_timestamp_counter(low, high, elapsedLow, elapsedHigh));
+    invariant(result.metadata.kind === "timestamp-counter" &&
+      Number.isInteger(result.metadata.low) && result.metadata.low >= 0 && result.metadata.low <= 0xffff_ffff &&
+      Number.isInteger(result.metadata.high) && result.metadata.high >= 0 && result.metadata.high <= 0xffff_ffff &&
+      result.control.length === 0 && result.payload.length === 0,
+    "Rust returned an invalid timestamp counter");
+    return { low: result.metadata.low, high: result.metadata.high };
   }
 
   acknowledgeFast(generation: bigint): void {
@@ -295,6 +347,11 @@ export class RuntimeBridge {
     ), true);
   }
 
+  readPendingDispatch<T = Record<string, unknown>>(): BridgeOutput<T> {
+    invariant(typeof this.#exports.vine_shared_execute_budget === "function", "unified dispatch is unavailable");
+    return this.#invoke<T>(() => 0, true);
+  }
+
   completeHost<T = Record<string, unknown>>(requestId: bigint, result: number): BridgeOutput<T> {
     const [low, high] = splitU64(requestId);
     return this.#invoke(() => this.#exports.vine_bridge_complete_host(low, high, result));
@@ -366,6 +423,60 @@ export class RuntimeBridge {
     return this.#invoke(() => this.#exports.vine_bridge_finish_thread(exitCode));
   }
 
+  // Rust owns parked CPU bytes and their thread lifetime. The browser only
+  // transports an opaque backend snapshot and the revision of that handoff.
+  storeCpuSnapshot(threadId: number, revision: bigint, snapshot: ExecutionBackendSnapshot): bigint {
+    invariant(Number.isInteger(threadId) && threadId > 0 && threadId <= 0xffff_ffff,
+      "Invalid CPU snapshot thread");
+    invariant(revision < 0xffff_ffff_ffff_ffffn, "CPU snapshot revision exhausted");
+    const [low, high] = splitU64(revision);
+    const backendTag = snapshot.backend === "v86" ? 1 : snapshot.backend === "recompiler" ? 2 : 0;
+    invariant(snapshot.words instanceof Uint32Array &&
+      this.#validSnapshotFormat(backendTag, snapshot.abiVersion, snapshot.words.byteLength),
+    "CPU snapshot transport ABI mismatch");
+    this.#setInput([new Uint8Array(snapshot.words.buffer, snapshot.words.byteOffset, snapshot.words.byteLength)]);
+    this.#check(this.#exports.vine_bridge_cpu_snapshot_put(threadId, low, high,
+      backendTag, snapshot.abiVersion, snapshot.words.byteLength));
+    const receipt = this.#cpuSnapshotReceipt("cpu-snapshot-stored", threadId);
+    const next = BigInt(receipt.revisionLow) | BigInt(receipt.revisionHigh) << 32n;
+    invariant(next === revision + 1n && receipt.backendTag === backendTag &&
+      receipt.abiVersion === snapshot.abiVersion && receipt.byteLength === snapshot.words.byteLength &&
+      this.#exports.vine_bridge_payload_len() === 0, "CPU snapshot store receipt mismatch");
+    return next;
+  }
+
+  loadCpuSnapshot(threadId: number): { snapshot: ExecutionBackendSnapshot; revision: bigint } {
+    invariant(Number.isInteger(threadId) && threadId > 0 && threadId <= 0xffff_ffff,
+      "Invalid CPU snapshot thread");
+    this.#check(this.#exports.vine_bridge_cpu_snapshot_get(threadId));
+    const receipt = this.#cpuSnapshotReceipt("cpu-snapshot", threadId);
+    invariant(this.#exports.vine_bridge_payload_len() === receipt.byteLength,
+      "CPU snapshot payload length mismatch");
+    const bytes = this.#copyOutput(this.#exports.vine_bridge_payload_ptr(), receipt.byteLength);
+    const words = new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+    const snapshot: ExecutionBackendSnapshot = receipt.backendTag === 1 ?
+      { backend: "v86", abiVersion: 1, words } : { backend: "recompiler", abiVersion: 2, words };
+    return { snapshot, revision: BigInt(receipt.revisionLow) | BigInt(receipt.revisionHigh) << 32n };
+  }
+
+  #validSnapshotFormat(backend: number, version: number, length: number): boolean {
+    return backend === 1 && version === 1 && length === 612 ||
+      backend === 2 && version === 2 && length === 512;
+  }
+
+  #cpuSnapshotReceipt(kind: CpuSnapshotReceipt["kind"], threadId: number): CpuSnapshotReceipt {
+    const receipt = this.#readJson<CpuSnapshotReceipt>();
+    const word = (value: number) => Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff;
+    invariant(receipt !== null && receipt.kind === kind && receipt.threadId === threadId &&
+      word(receipt.revisionLow) && word(receipt.revisionHigh) &&
+      (receipt.revisionLow !== 0 || receipt.revisionHigh !== 0) &&
+      this.#validSnapshotFormat(receipt.backendTag, receipt.abiVersion, receipt.byteLength) &&
+      this.#exports.vine_bridge_control_len() === 0 && this.#exports.vine_bridge_presentation_len() === 0 &&
+      this.#exports.vine_bridge_audio_len() === 0 && this.#exports.vine_bridge_media_len() === 0,
+    "Invalid CPU snapshot receipt");
+    return receipt;
+  }
+
   completeCallback<T = Record<string, unknown>>(sentinel: number, result: number): BridgeOutput<T> {
     return this.#invoke(() => this.#exports.vine_bridge_complete_callback(sentinel, result));
   }
@@ -409,6 +520,9 @@ export class RuntimeBridge {
   }
 
   #view(pointer: number, length: number): Uint8Array {
+    invariant(Number.isInteger(pointer) && pointer >= -0x8000_0000 && pointer <= 0xffff_ffff,
+      "Runtime bridge buffer is outside Wasm memory");
+    pointer >>>= 0;
     const memory = this.#exports.memory.buffer;
     invariant(Number.isSafeInteger(pointer) && pointer >= 0 &&
       Number.isSafeInteger(length) && length >= 0 &&

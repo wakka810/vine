@@ -47,6 +47,16 @@ impl RuntimeClock {
         self.host_elapsed_time_100ns
     }
 
+    pub(super) fn timestamp_counter(&self) -> u64 {
+        // Only real host observations drive TSC. A completed timer can project
+        // the Windows timer timeline forward, but cannot invent CPU ticks.
+        // Keep multiplication exact before architectural 64-bit wrap. Equal
+        // coarsened browser observations intentionally return equal counters.
+        ((u128::from(self.host_elapsed_time_100ns)
+            * u128::from(vine_cpu_profile::TSC_FREQUENCY_HZ))
+            / FILE_TIME_TICKS_PER_SECOND) as u64
+    }
+
     pub(super) fn project_advance(
         &self,
         target_time_100ns: u64,
@@ -157,6 +167,67 @@ mod tests {
             performance_frequency: 10_000_000,
         })
         .unwrap()
+    }
+
+    #[test]
+    fn timestamp_counter_uses_real_elapsed_and_does_not_increment_on_reads() {
+        let mut clock = clock();
+        assert_eq!(clock.timestamp_counter(), 0);
+        clock.advance(20_000_000).unwrap();
+        clock.advance_scheduled_host_execution(12, 1).unwrap();
+        assert_eq!(clock.timestamp_counter(), 100);
+        assert_eq!(clock.timer_time_100ns(), 20_000_000);
+        let before = clock.state().clone();
+        for retired in [12, 13, 10_000_000] {
+            clock.advance_scheduled_host_execution(retired, 1).unwrap();
+            assert_eq!(clock.timestamp_counter(), 100);
+            assert_eq!(clock.timestamp_counter(), 100);
+            assert_eq!(*clock.state(), before);
+        }
+        clock
+            .advance_scheduled_host_execution(10_000_000, 10_000_001)
+            .unwrap();
+        assert_eq!(clock.timestamp_counter(), 1_000_000_100);
+        assert_eq!(clock.timer_time_100ns(), 20_000_000);
+    }
+
+    #[test]
+    fn timestamp_counter_wraps_without_host_clock_regression() {
+        let mut clock = clock();
+        for (elapsed, expected) in [(42_949_672, 4_294_967_200), (42_949_673, 4_294_967_300)] {
+            clock.advance_scheduled_host_execution(0, elapsed).unwrap();
+            assert_eq!(clock.timestamp_counter(), expected);
+        }
+        // These large host elapsed values still fit FILETIME and QPC. The TSC
+        // wraps first because its rate is 100 times the 100ns transport rate.
+        let before_wrap = u64::MAX / 100;
+        clock
+            .advance_scheduled_host_execution(0, before_wrap)
+            .unwrap();
+        assert_eq!(clock.timestamp_counter(), u64::MAX - 15);
+        clock
+            .advance_scheduled_host_execution(0, before_wrap + 1)
+            .unwrap();
+        assert_eq!(clock.timestamp_counter(), 84);
+    }
+
+    #[test]
+    fn rejected_timestamp_observations_preserve_all_clock_fields() {
+        let mut clock = clock();
+        clock.advance_scheduled_host_execution(7, 100).unwrap();
+        let state = clock.state().clone();
+        for (retired, elapsed) in [(7, 99), (6, 101), (8, u64::MAX)] {
+            assert!(
+                clock
+                    .advance_scheduled_host_execution(retired, elapsed)
+                    .is_err()
+            );
+            assert_eq!(*clock.state(), state);
+            assert_eq!(clock.timer_time_100ns(), 100);
+            assert_eq!(clock.host_elapsed_time_100ns(), 100);
+            assert_eq!(clock.synchronized_instruction_count(), 7);
+            assert_eq!(clock.timestamp_counter(), 10_000);
+        }
     }
 
     #[test]

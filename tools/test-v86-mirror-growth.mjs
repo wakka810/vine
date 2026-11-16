@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { build } from "esbuild";
+import "./test-v86-jit-entries.mjs";
 
 // Use the production adapter and real prepared CPU. Intercept only the standard
 // WebAssembly instance boundary to observe allocations and inject failed exports.
@@ -10,7 +11,8 @@ const bundle = await build({
   platform: "node", format: "esm", target: "node24",
 });
 const { V86Mirror } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
-const cpuBytes = await readFile(process.env.VINE_TEST_CPU_WASM ?? ".work/vine-v86/build/v86-fallback.wasm");
+const cpuBytes = await readFile(process.env.VINE_TEST_CPU_WASM ??
+  `${process.env.VINE_V86_SOURCE ?? ".work/vine-v86"}/build/v86-fallback.wasm`);
 const pageSize = 4096;
 const codeBase = 0x00401000;
 const entry = codeBase + pageSize - 3;
@@ -38,25 +40,67 @@ Uint8Array.prototype.set = function(source, offset) {
 let adapters = [];
 let failNextAdapter;
 let heldFinalizers = null;
+let forceLegacyGrowth = true;
+let countNativeEntries = false;
+let rejectActiveGrowth = false;
+const nativeEntries = new WebAssembly.Global({ value: "i32", mutable: true }, 0);
+// Count actual CPU-to-JIT entries without replacing a native Wasm entry with JS.
+const counterBody = [0, 0x23, 0, 0x41, 1, 0x6a, 0x24, 0, 0x20, 0, 0x10, 0, 11];
+const counterSection = (id, bytes) => [id, bytes.length, ...bytes];
+const counterModule = new WebAssembly.Module(new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0,
+  ...counterSection(1, [1, 0x60, 1, 0x7f, 0]),
+  ...counterSection(2, [2, 1, 101, 1, 102, 0, 0, 1, 101, 1, 110, 3, 0x7f, 1]),
+  ...counterSection(3, [1, 0]), ...counterSection(7, [1, 1, 102, 0, 1]),
+  ...counterSection(10, [1, counterBody.length, ...counterBody]),
+]));
 
 WebAssembly.Instance = function(module, imports) {
   let record;
   const actualImports = imports.env?.codegen_finalize ? {
     ...imports, env: { ...imports.env, codegen_finalize(...args) {
       record.compiles += 1;
+      record.generated.push({ index: args[0], flags: args[2] });
+      if (rejectActiveGrowth) {
+        assert.equal(record.raw.vine_grow_memory(record.base, record.poolBytes, record.poolBytes * 2), 0,
+          "a reentrant host import cannot move RAM during CPU execution");
+        record.activeGrowthRejected = true;
+      }
       return imports.env.codegen_finalize(...args);
     } },
   } : imports;
   const instance = new NativeInstance(module, actualImports);
   const raw = instance.exports;
-  if (typeof raw.vine_cpu_state_ptr !== "function") return instance;
+  if (typeof raw.vine_cpu_state_ptr !== "function") {
+    if (countNativeEntries && imports.e?.m && typeof raw.f === "function") {
+      const counted = new NativeInstance(counterModule, { e: { f: raw.f, n: nativeEntries } });
+      return { exports: { ...raw, f: counted.exports.f } };
+    }
+    return instance;
+  }
   const failure = failNextAdapter;
   failNextAdapter = undefined;
-  record = { raw, poolBytes: 0, base: 0, compiles: 0, finalizes: 0, copiedBytes: 0, copyCalls: 0,
-    fullClears: 0, rearmedPages: 0, stoppedResumes: 0, forceDirtyOverflow: false };
+  record = { raw, poolBytes: 0, base: 0, compiles: 0, generated: [], finalizes: 0, copiedBytes: 0, copyCalls: 0,
+    fullClears: 0, rearmedPages: 0, stoppedResumes: 0, forceDirtyOverflow: false, growths: 0 };
   adapters.push(record);
   return { exports: {
     ...raw,
+    vine_grow_memory: forceLegacyGrowth || typeof raw.vine_grow_memory !== "function" ? undefined :
+      (base, oldBytes, bytes) => {
+        if (record.failGrowth) {
+          if (record.failGrowth === "detach") raw.memory.grow(1);
+          return 0;
+        }
+        const result = raw.vine_grow_memory(base, oldBytes, bytes);
+        if (result !== 0) {
+          record.growths += 1;
+          record.base = result >>> 0;
+          record.poolBytes = bytes;
+          cpuBuffers.set(raw.memory.buffer, record);
+        }
+        return result;
+      },
+    ...(failure === "legacy-x87" ? { vine_set_x87_mode: undefined, vine_get_x87_mode: undefined } : {}),
     vine_cpu_state_ptr() { return record.statePointer ?? raw.vine_cpu_state_ptr(); },
     vine_cpu_state_size() { return record.stateSize ?? raw.vine_cpu_state_size(); },
     allocate_memory(bytes) {
@@ -124,7 +168,7 @@ function physical(record) {
 }
 function frame(engine, record, address) {
   const words = new Uint32Array(record.raw.memory.buffer, record.base, record.poolBytes / 4);
-  const directory = engine.saveCpuContext().opaqueWords[61];
+  const directory = engine.saveCpuContext().snapshot.words[61];
   const table = words[(directory >>> 2) + (address >>> 22)] & 0xfffff000;
   assert.notEqual(table, 0, "page directory entry is present");
   const pte = words[(table >>> 2) + ((address >>> 12) & 1023)];
@@ -139,9 +183,9 @@ function run(engine, budget = 4096) {
 function startAt(engine, address) {
   engine.applyCpuResume({ instructionPointer: address, stackPointer: stack + 4000, eax: null });
 }
-async function fixture(maximumPhysicalPages = 4096, extraPages = []) {
+async function fixture(maximumPhysicalPages = 4096, extraPages = [], options = {}) {
   adapters = [];
-  const engine = await V86Mirror.instantiateBytes(cpuBytes, { maximumPhysicalPages });
+  const engine = await V86Mirror.instantiateBytes(cpuBytes, { maximumPhysicalPages, ...options });
   const code = new Uint8Array(pageSize * 2);
   // INC DWORD PTR [data]; JMP back, with INC straddling the page boundary.
   code.set([0xff, 0x05, ...u32(data), 0xeb, 0xf8], pageSize - 3);
@@ -167,34 +211,93 @@ function assertDirtyOnce(engine, addresses) {
   const changed = engine.collectChangedPages();
   assert.deepEqual(changed.map(p => p.address), [...addresses].sort((a, b) => a - b));
   assert(changed.every(p => p.owner === 1 && p.bytes.byteLength === pageSize));
-  assert.deepEqual(engine.collectChangedPages(), [], "writeback is emitted exactly once");
+  assert.deepEqual(engine.collectChangedPages().map(p => p.address), changed.map(p => p.address),
+    "unacknowledged writeback remains available after a rejected Runtime handoff");
+  engine.acknowledgeWriteback(1n);
+  assert.deepEqual(engine.collectChangedPages(), [], "acknowledged writeback is retired exactly once");
   return changed;
+}
+
+function populateContext(engine) {
+  const initial = engine.saveCpuContext();
+  const words = Uint32Array.from(initial.snapshot.words);
+  // Include the raw x87, MMX and SSE payloads, not just scalar resume registers.
+  for (let i = 2; i < words.length; i++) words[i] = (0x10203040 + i * 0x01010101) >>> 0;
+  words[17] &= 255; words[18] = 3;
+  for (const i of [19, 20, 21, 22, 86]) words[i] = 1;
+  for (let i = 26; i < 34; i++) words[i] &= 0xffff;
+  for (let i = 50; i < 58; i++) words[i] &= 0x1ff;
+  words[61] = initial.snapshot.words[61];
+  words[88] &= 255; words[89] &= 7; words[90] = 0x037f; words[91] &= 0xffff;
+  for (let i = 99; i < 121; i += 3) words[i] &= 0xffff;
+  engine.restoreCpuContext({ ...initial, snapshot: { ...initial.snapshot, words } });
+  return engine.saveCpuContext();
 }
 
 try {
   {
     const engine = await fixture();
+    const supports = typeof current().raw.vine_get_x87_mode === "function";
+    if (supports) {
+      assert.equal(current().raw.vine_get_x87_mode(), 2, "capable CPU defaults to fast x87");
+      commit(engine, 0x20000000, 40);
+      assert.equal(current().raw.vine_get_x87_mode(), 2, "fast policy survives actual adapter replacement");
+      const strict = await fixture(4096, [], { v86NumericMode: "strict" });
+      assert.equal(current().raw.vine_get_x87_mode(), 0);
+      commit(strict, 0x20000000, 40);
+      assert.equal(current().raw.vine_get_x87_mode(), 0, "strict policy survives replacement");
+    }
+    failNextAdapter = "legacy-x87";
+    await assert.rejects(V86Mirror.instantiateBytes(cpuBytes, {
+      maximumPhysicalPages: 4096, v86NumericMode: "fast",
+    }), /requires a CPU/u, "requested approximation never silently runs a legacy CPU");
+    failNextAdapter = "legacy-x87";
+    await fixture(4096, [], { v86NumericMode: "strict" });
+    await assert.rejects(V86Mirror.instantiateBytes(cpuBytes, {
+      maximumPhysicalPages: 4096, v86NumericMode: "unknown",
+    }), /numerical mode/u);
+    console.log("mirror x87 mode selection, legacy rejection and replacement persistence passed");
+  }
+  {
+    const engine = await fixture();
+    writeOnce(engine, 0x11223344);
+    const first = engine.collectChangedPages();
+    assert.equal(first.length, 1);
+    assert.throws(() => engine.applyMemoryDelta(delta([operation("protect", data, 1, ro)])),
+      /writeback must be acknowledged/u);
+    writeOnce(engine, 0x55667788);
+    assert.throws(() => engine.acknowledgeWriteback(1n), /CPU ran after/u,
+      "an old Runtime ACK cannot erase a later guest write");
+    assert.equal(new DataView(first[0].bytes.buffer).getUint32(0, true), 0x11223344);
+    const latest = engine.collectChangedPages();
+    assert.equal(new DataView(latest[0].bytes.buffer).getUint32(0, true), 0x55667788);
+    engine.acknowledgeWriteback(1n);
+    assert.deepEqual(engine.collectChangedPages(), []);
+    console.log("mirror failed writeback and stale ACK retain guest writes until reconciliation");
+  }
+  {
+    const engine = await fixture();
     const record = current();
     const before = engine.saveCpuContext();
     const warmed = engine.saveCpuContext();
-    const retained = Uint32Array.from(before.opaqueWords);
-    assert.equal(before.opaqueWords.length, 153);
+    const retained = Uint32Array.from(before.snapshot.words);
+    assert.equal(before.snapshot.words.length, 153);
     assert.deepEqual(warmed, before);
-    assert.notEqual(warmed.opaqueWords.buffer, before.opaqueWords.buffer, "saved contexts own distinct CPU words");
-    assert.notEqual(before.opaqueWords.buffer, record.raw.memory.buffer);
+    assert.notEqual(warmed.snapshot.words.buffer, before.snapshot.words.buffer, "saved contexts own distinct CPU words");
+    assert.notEqual(before.snapshot.words.buffer, record.raw.memory.buffer);
     record.statePointer = record.raw.memory.buffer.byteLength;
     assert.throws(() => engine.saveCpuContext(), RangeError, "a warmed state view still checks its live pointer");
     record.statePointer = undefined;
     const pointerRecovered = engine.saveCpuContext();
     assert.deepEqual(pointerRecovered, before, "pointer recovery preserves all 153 words and scalar context");
-    assert.notEqual(pointerRecovered.opaqueWords.buffer, before.opaqueWords.buffer);
+    assert.notEqual(pointerRecovered.snapshot.words.buffer, before.snapshot.words.buffer);
     record.stateSize = record.raw.memory.buffer.byteLength + 4;
     assert.throws(() => engine.saveCpuContext(), RangeError, "a warmed state view still checks its live size");
     record.stateSize = undefined;
     const sizeRecovered = engine.saveCpuContext();
     assert.deepEqual(sizeRecovered, before, "size recovery preserves all 153 words and scalar context");
-    assert.notEqual(sizeRecovered.opaqueWords.buffer, before.opaqueWords.buffer);
-    assert.deepEqual(before.opaqueWords, retained, "failed state reads do not change the owned snapshot");
+    assert.notEqual(sizeRecovered.snapshot.words.buffer, before.snapshot.words.buffer);
+    assert.deepEqual(before.snapshot.words, retained, "failed state reads do not change the owned snapshot");
     console.log("mirror warmed CPU state range failures and recovery preserve owned contexts");
   }
 
@@ -214,7 +317,7 @@ try {
     assertDirtyOnce(engine, [data]);
     assert.equal(record.fullClears, fullClears, "ordinary dirty collection preserves code/read translations");
     assert.equal(record.rearmedPages, 1, "ordinary dirty collection rearms only its dirty virtual page");
-    const before = engine.saveCpuContext().opaqueWords;
+    const before = engine.saveCpuContext().snapshot.words;
     const expected = Uint32Array.from(before);
     expected[2] = 0x12345678;
     expected[6] = stack + 4000;
@@ -223,11 +326,11 @@ try {
     const staging = new Uint32Array(record.raw.memory.buffer, record.raw.vine_cpu_state_ptr(), 153);
     staging.fill(0xa5a5a5a5, 2);
     engine.applyStoppedCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0x12345678 });
-    assert.deepEqual(engine.saveCpuContext().opaqueWords, expected, "stopped resume preserves all other CPU words despite stale staging");
+    assert.deepEqual(engine.saveCpuContext().snapshot.words, expected, "stopped resume preserves all other CPU words despite stale staging");
     const resumes = record.stoppedResumes;
     assert.throws(() => engine.applyStoppedCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: NaN }), /unsigned/u);
     assert.equal(record.stoppedResumes, resumes, "invalid EAX is rejected before the CPU mutation");
-    assert.deepEqual(engine.saveCpuContext().opaqueWords, expected);
+    assert.deepEqual(engine.saveCpuContext().snapshot.words, expected);
     const retired = jitRetired(record);
     run(engine, 4096);
     assert(jitRetired(record) > retired, "the first rearmed write must use compiled code");
@@ -265,19 +368,7 @@ try {
   {
     const engine = await fixture();
     const parked = engine.createCpuContext({ entryPoint: entry, initialStackPointer: stack + 3996, fsBase: 0x54321000 });
-    const initial = engine.saveCpuContext();
-    const words = Uint32Array.from(initial.opaqueWords);
-    // Populate every ABI word, masking fields whose native representation is narrower.
-    for (let i = 2; i < words.length; i++) words[i] = (0x10203040 + i * 0x01010101) >>> 0;
-    words[17] &= 255; words[18] = 3;
-    for (const i of [19, 20, 21, 22, 86]) words[i] = 1;
-    for (let i = 26; i < 34; i++) words[i] &= 0xffff;
-    for (let i = 50; i < 58; i++) words[i] &= 0x1ff;
-    words[61] = initial.opaqueWords[61];
-    words[88] &= 255; words[89] &= 7; words[90] = 0x037f; words[91] &= 0xffff;
-    for (let i = 99; i < 121; i += 3) words[i] &= 0xffff;
-    engine.restoreCpuContext({ ...initial, opaqueWords: words });
-    const allFields = engine.saveCpuContext();
+    const allFields = populateContext(engine);
     const originalFrames = [codeBase, codeBase + pageSize, stack, data].map(a => frame(engine, current(), a));
     let priorBuffer = engine.readGuestBytes(data, 4, true).buffer;
     const growthPools = [];
@@ -375,6 +466,40 @@ try {
   }
 
   {
+    const engine = await fixture(4096, [page(data + pageSize, rw, 0x22, 2)]);
+    const record = current();
+    const reject = (change, message) => {
+      const before = engine.saveCpuContext();
+      const bytes = Uint8Array.from(physical(record));
+      const clears = record.fullClears;
+      assert.throws(() => engine.applyMemoryDelta(change), message);
+      assert.deepEqual(engine.saveCpuContext(), before);
+      assert.deepEqual(physical(record), bytes, "failed protection batch preserves bytes and page tables");
+      assert.equal(record.fullClears, clears, "failed protection batch publishes no cache effects");
+    };
+    reject(delta([operation("protect", data, 2, ro)]), /owner mismatch/u);
+    reject(delta([operation("protect", stack, 2, ro)]), /unmapped/u);
+    reject(delta([{ ...operation("protect", data, 1, ro), addressAllocationId: 99 }]), /allocation mismatch/u);
+    reject(delta([operation("protect", data, 1, ro)], [page(data, rw, 0x44)]), /protection/u);
+    reject(delta([operation("protect", data, 1, ro)], [page(data, ro, 0x44), page(stack, ro)]), /protection/u);
+    reject(delta([operation("protect", data, 1, ro)], [page(data, ro), page(data, ro)]), /repeats/u);
+    reject(delta([operation("protect", data, 1, ro)], [page(data, ro, 0, 2)]), /owner/u);
+    writeOnce(engine, 0x12345678);
+    assert.equal(engine.readGuestU32(data), 0x12345678, "rejected protect leaves guest writes permitted");
+    assertDirtyOnce(engine, [data]);
+    engine.applyMemoryDelta(delta([operation("protect", data, 1, ro)], [page(data, ro, 0x44), page(stack, rw, 0x55)]));
+    assert.equal(engine.readGuestU32(data), 0x44444444);
+    assert.equal(engine.readGuestU32(stack), 0x55555555, "payload outside the protected range retains its own protection");
+    engine.applyCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0x87654321 });
+    assert.equal(engine.executeBudget(16).stop.fault, "page-fault");
+    assert.equal(engine.readGuestU32(data), 0x44444444);
+    engine.applyMemoryDelta(delta([operation("protect", data, 1, rw)]));
+    writeOnce(engine, 0x87654321);
+    assert.equal(engine.readGuestU32(data), 0x87654321, "later protection changes retain normal TLB behavior");
+    console.log("mirror single protection batch validates identity and final payload before mutation");
+  }
+
+  {
     const engine = await fixture();
     const overlapBase = 0x30000000;
     const overlapLast = overlapBase + pageSize;
@@ -424,11 +549,13 @@ try {
     assert.deepEqual(four.map(p => [p.address, p.owner]), addresses.map(address => [address, 1]));
     assert(four.every(p => new DataView(p.bytes.buffer, p.bytes.byteOffset).getUint32(0, true) === 0x11112222));
     const oldBytes = four[0].bytes;
+    engine.acknowledgeWriteback(1n);
     write([addresses[3]], 0x33334444);
     current().forceDirtyOverflow = true;
     const one = engine.collectChangedPageViews();
     assert.deepEqual(one.map(p => [p.address, p.owner]), [[addresses[3], 1]], "a smaller full scan does not return stale dirty pages");
     assert.equal(new DataView(one[0].bytes.buffer, one[0].bytes.byteOffset).getUint32(0, true), 0x33334444);
+    engine.acknowledgeWriteback(1n);
     assert.deepEqual(engine.collectChangedPageViews(), [], "a clean collection has no stale tail");
     engine.applyMemoryDelta(delta([
       operation("decommit", addresses[1]), operation("release", addresses[1]),
@@ -445,6 +572,7 @@ try {
     assert(three.every(p => p.bytes.buffer === current().raw.memory.buffer &&
       new DataView(p.bytes.buffer, p.bytes.byteOffset).getUint32(0, true) === 0x55556666),
     "regrown writeback contains fresh bytes and current mapping owners");
+    engine.acknowledgeWriteback(1n);
     assert.deepEqual(engine.collectChangedPageViews(), []);
     console.log("mirror dirty batches 4-to-1-to-0-to-3 preserve current owners and grown views");
   }
@@ -455,6 +583,7 @@ try {
     const borrowedPages = engine.collectChangedPageViews();
     assert.equal(borrowedPages.length, 1);
     const oldBuffer = borrowedPages[0].bytes.buffer;
+    engine.acknowledgeWriteback(1n);
     writeOnce(engine, 0x33334444);
     commit(engine, 0x20000000, 40);
     assert.equal(current().raw.vine_dirty_page_count(), 0, "new CPU has no inherited candidate queue");
@@ -465,6 +594,7 @@ try {
     assert.equal(changed.length, 1);
     assert.notEqual(changed[0].bytes.buffer, oldBuffer);
     assert.equal(new DataView(changed[0].bytes.buffer, changed[0].bytes.byteOffset).getUint32(0, true), 0x33334444);
+    engine.acknowledgeWriteback(1n);
     assert.deepEqual(engine.collectChangedPageViews(), []);
     writeOnce(engine, 0x55556666);
     assertDirtyOnce(engine, [data]);
@@ -549,6 +679,300 @@ try {
   }
 
   {
+    const other = 0x0c001000;
+    const loopPage = (address, opcode) => {
+      const p = page(address, rx);
+      p.bytes.set([opcode, 0xeb, 0xfd]); // INC/DEC EAX; JMP back.
+      return p;
+    };
+    const engine = await fixture(4096, [loopPage(other, 0x40)]);
+    engine.applyMemoryDelta(delta([], [loopPage(codeBase, 0x40)]));
+    const record = current();
+    const cached = address => {
+      // A TLB flush discards its lookup table while leaving generated modules
+      // alive. Refill translation without executing or recompiling guest code.
+      record.raw.translate_address_system_read_js(address);
+      return record.generated.some(({ index, flags }) =>
+        record.raw.jit_find_cache_entry_in_page(address, index, flags) >= 0);
+    };
+    async function warm(address) {
+      startAt(engine, address);
+      for (let i = 0; i < 40; i++) { run(engine, 16384); await Promise.resolve(); }
+      assert(cached(address), "the independent loop has a real compiled entry");
+    }
+    function execute(address, expected) {
+      engine.applyCpuResume({ instructionPointer: address, stackPointer: stack + 4000, eax: 0 });
+      run(engine, 64);
+      assert.equal(engine.saveCpuContext().snapshot.words[2], expected >>> 0);
+    }
+    await warm(codeBase);
+    await warm(other);
+    const added = other + 2 * pageSize;
+    engine.applyMemoryDelta(delta([operation("commit", added, 1, rx)], [loopPage(added, 0x40)]));
+    assert.equal(current(), record, "adding one code page stays within the existing physical pool");
+    assert(cached(codeBase) && cached(other), "new executable page keeps unrelated compiled entries");
+    assert.throws(() => engine.applyMemoryDelta(delta([], [page(codeBase, rx), page(other, rx, 0, 2)])),
+      /owner does not match/u);
+    assert(cached(codeBase) && cached(other), "rejected host handoff does not retire live code");
+    engine.applyMemoryDelta(delta([operation("protect", data, 1, ro)], [], { ...noEffects, flushTlb: true }));
+    assert(cached(codeBase) && cached(other), "data protection keeps unrelated compiled entries");
+    execute(codeBase, 32);
+    execute(other, 32);
+
+    engine.applyMemoryDelta(delta([], [loopPage(other, 0x48)]));
+    assert(cached(codeBase), "host code replacement preserves independent compiled code");
+    assert(!cached(other), "host code replacement retires the changed page before execution");
+    execute(other, -32);
+    await warm(other);
+    engine.applyMemoryDelta(delta([operation("protect", other, 1, rw)]));
+    assert(cached(codeBase), "execute permission removal preserves unrelated compiled code");
+    startAt(engine, other);
+    assert.equal(engine.executeBudget(1).stop.fault, "execute-protection");
+    engine.applyMemoryDelta(delta([operation("protect", other, 1, rx)]));
+    execute(other, -32);
+    await warm(other);
+
+    const oldFrame = frame(engine, record, other), reused = other + pageSize;
+    engine.applyMemoryDelta(delta([
+      operation("decommit", other), operation("commit", reused, 1, rx),
+    ], [loopPage(reused, 0x40)]));
+    assert.equal(frame(engine, record, reused), oldFrame, "test reuses the retired physical frame");
+    assert(cached(codeBase), "frame reuse preserves independent compiled code");
+    execute(reused, 32);
+    await warm(reused);
+
+    // Hold a real finalizer while its dependency is changed by the host.
+    engine.applyMemoryDelta(delta([], [loopPage(reused, 0x48)]));
+    heldFinalizers = [];
+    startAt(engine, reused);
+    for (let i = 0; i < 100 && heldFinalizers.length === 0; i++) run(engine, 16384);
+    assert(heldFinalizers.length > 0);
+    engine.applyMemoryDelta(delta([], [loopPage(reused, 0x40)], noEffects));
+    for (const finalize of heldFinalizers.splice(0)) finalize();
+    heldFinalizers = null;
+    assert(!cached(reused), "late finalization cannot publish replaced host bytes");
+    assert(cached(codeBase), "host repair preserves independent compiled code");
+    execute(reused, 32);
+
+    engine.applyCacheEffects(effects);
+    assert(!cached(codeBase), "standalone unscoped invalidation still clears all code");
+    console.log("mirror targeted host invalidation, permissions, frame reuse and late finalization passed");
+  }
+
+  {
+    const callee = 0x0c001000, called = page(callee, rx), caller = page(codeBase, rx);
+    called.bytes.set([0x40, 0xc3]); // INC EAX; RET.
+    caller.bytes.set([0xe8, ...u32(callee - codeBase - 5), 0xeb, 0xf9]);
+    const engine = await fixture(4096, [called]);
+    engine.applyMemoryDelta(delta([], [caller]));
+    startAt(engine, codeBase);
+    for (let i = 0; i < 100; i++) { run(engine, 16384); await Promise.resolve(); }
+    assert(jitRetired(current()) > 0n, "cross-page caller executes compiled code");
+    assertDirtyOnce(engine, [stack]);
+    called.bytes[0] = 0x48; // DEC EAX; RET.
+    engine.applyMemoryDelta(delta([], [called]));
+    engine.applyCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0 });
+    run(engine, 64);
+    assert.equal(engine.saveCpuContext().snapshot.words[2], (-16) >>> 0,
+      "callee replacement retires code that folded it from another physical page");
+    assertDirtyOnce(engine, [stack]);
+    console.log("mirror host code replacement retires cross-page compiled dependencies");
+  }
+
+  {
+    const previousGrowthMode = forceLegacyGrowth;
+    forceLegacyGrowth = false;
+    const callee = 0x0d001000, called = page(callee, rx), caller = page(codeBase, rx);
+    called.bytes.set([0x40, 0xc3]);
+    called.bytes.set([0x83, 0xc0, 7, 0xc3], 0x20);
+    called.bytes.set([0x0f, 0x0b], 0x60);
+    caller.bytes.set([0xe8, ...u32(callee - codeBase - 5), 0xeb, 0xf9]);
+    const engine = await fixture(4096, [called]);
+    const record = current();
+    record.raw.set_jit_config(5, 1);
+    const stackPage = page(stack);
+    new DataView(stackPage.bytes.buffer).setUint32(4000, callee + 0x60, true);
+    engine.applyMemoryDelta(delta([], [caller, stackPage]));
+    function cached(address) {
+      record.raw.translate_address_system_read_js(address);
+      return [...new Set(record.generated.filter(({ index, flags }) =>
+        record.raw.jit_find_cache_entry_in_page(address, index, flags) >= 0).map(r => r.index))];
+    }
+    // Warm public callee entries before the caller can copy their bodies.
+    for (const address of [callee, callee + 0x20]) {
+      startAt(engine, address);
+      assert.equal(engine.executeBudget(32).stop.trap, "invalid-opcode");
+      await Promise.resolve();
+      assert(cached(address).length > 0);
+    }
+    const calleePrimary = cached(callee);
+    startAt(engine, codeBase);
+    for (let i = 0; i < 4; i++) { run(engine); await Promise.resolve(); }
+    assert(cached(codeBase).length > 0);
+    assert.deepEqual(cached(callee), calleePrimary, "caller keeps the existing public callee entry");
+    assert.deepEqual(cached(callee + 0x20), calleePrimary, "unrelated callee entry stays callable");
+    assertDirtyOnce(engine, [stack]);
+    if (typeof record.raw.vine_grow_memory === "function") {
+      const poolBytes = record.poolBytes;
+      commit(engine, 0x25000000, 96);
+      assert(record.poolBytes > poolBytes && current() === record, "grow the same CPU containing copied code");
+      assert(cached(codeBase).length > 0);
+    }
+    engine.applyMemoryDelta(delta([operation("protect", callee, 1, rw)]));
+    engine.applyCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0 });
+    const denied = engine.executeBudget(64);
+    assert.equal(denied.stop.fault, "execute-protection");
+    assert.equal(denied.context.instructionPointer, callee);
+    assert.equal(denied.context.snapshot.words[2], 0, "a copied callee cannot execute after losing permission");
+    engine.applyMemoryDelta(delta([operation("protect", callee, 1, rx)]));
+    called.bytes[0] = 0x48;
+    engine.applyMemoryDelta(delta([], [called], noEffects));
+    engine.applyCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0 });
+    run(engine, 64);
+    assert.equal(engine.saveCpuContext().snapshot.words[2], (-16) >>> 0,
+      "host replacement retires copied callee bytes after protection and growth");
+    forceLegacyGrowth = previousGrowthMode;
+    console.log("mirror warm callee copies preserve public entries, retained growth, execute permission and host replacement");
+  }
+
+  if (typeof current().raw.vine_grow_memory === "function") {
+    forceLegacyGrowth = false;
+    countNativeEntries = true;
+    rejectActiveGrowth = true;
+    const engine = await fixture();
+    const record = current();
+    const first = page(codeBase, rx), second = page(codeBase + pageSize, rx);
+    first.bytes.set([0xff, 0x05, ...u32(data), 0xe9, ...u32(pageSize - 11)]);
+    second.bytes.set([0xff, 0x05, ...u32(data + 4), 0xe9, ...u32(-pageSize - 11)]);
+    engine.applyMemoryDelta(delta([], [first, second]));
+    startAt(engine, codeBase);
+    heldFinalizers = [];
+    for (let i = 0; heldFinalizers.length === 0 && i < 100; i++) run(engine, 16384);
+    assert(heldFinalizers.length > 0, "cross-page native code is awaiting publication");
+    assert(record.activeGrowthRejected, "execution-active rejection was exercised by a real CPU import");
+    rejectActiveGrowth = false;
+    const coldState = engine.saveCpuContext(), oldBase = record.base;
+    const dirtyCount = record.raw.vine_dirty_page_count();
+    commit(engine, 0x20000000, 40);
+    assert.equal(current(), record, "physical growth keeps the same CPU and JIT owner");
+    assert.equal(record.growths, 1);
+    assert.notEqual(record.base, oldBase, "test actually relocates the RAM allocation");
+    assert.deepEqual(engine.saveCpuContext(), coldState);
+    assert.equal(record.raw.vine_dirty_page_count(), dirtyCount, "uncollected dirty candidates survive relocation");
+    for (const finalize of heldFinalizers.splice(0)) finalize();
+    heldFinalizers = null;
+    for (let i = 0; i < 40; i++) { run(engine, 16384); await Promise.resolve(); }
+    assert(jitRetired(record) > 0n, "the retained modules execute after asynchronous finalization");
+    const compiles = record.compiles;
+    function crossPageSlice() {
+      startAt(engine, codeBase);
+      const left = engine.readGuestU32(data), right = engine.readGuestU32(data + 4);
+      nativeEntries.value = 0;
+      const retired = jitRetired(record);
+      run(engine, 4096);
+      assert.equal(engine.readGuestU32(data) - left, 1024);
+      assert.equal(engine.readGuestU32(data + 4) - right, 1024);
+      assert.equal(jitRetired(record) - retired, 4096n, "the entire slice uses existing generated code");
+      assert(nativeEntries.value > 0 && nativeEntries.value <= 8,
+        `cross-page code must not fall back to the dispatcher at every page switch (${nativeEntries.value} entries)`);
+      assert.equal(record.compiles, compiles, "growth does not require recompilation");
+      return nativeEntries.value;
+    }
+    const beforeEntries = crossPageSlice();
+    const warmState = engine.saveCpuContext();
+    commit(engine, 0x30000000, 250);
+    assert.equal(current(), record);
+    assert.deepEqual(engine.saveCpuContext(), warmState);
+    const afterEntries = crossPageSlice();
+    assert(afterEntries <= beforeEntries + 1);
+    assertDirtyOnce(engine, [data]);
+    countNativeEntries = false;
+    console.log(`mirror retained cross-page JIT, native entries ${beforeEntries}->${afterEntries}, active-call rejection and async publication passed`);
+
+    const parked = engine.createCpuContext({ entryPoint: entry, initialStackPointer: stack + 3996, fsBase: 0x54321000 });
+    const allFields = populateContext(engine);
+    const frames = [codeBase, codeBase + pageSize, stack, data].map(a => frame(engine, record, a));
+    commit(engine, 0x40000000, 500);
+    assert.equal(current(), record);
+    assert.equal(record.growths, 3);
+    assert.deepEqual(engine.saveCpuContext(), allFields, "all 153 CPU words survive retained growth");
+    assert.deepEqual([codeBase, codeBase + pageSize, stack, data].map(a => frame(engine, record, a)), frames);
+    assertDirtyOnce(engine, []);
+    assert(engine.readGuestBytes(0x40000000, pageSize).every(byte => byte === 0));
+    engine.restoreCpuContext(parked);
+    assert.deepEqual(engine.saveCpuContext(), parked);
+    assert.deepEqual(engine.createCpuContext({ entryPoint: entry, initialStackPointer: stack + 3996, fsBase: 0x54321000 }), parked);
+    console.log("mirror retained growth preserves raw CPU state, parked/future threads, physical identity and zeroed pages");
+
+    const failureEngine = await fixture();
+    const failed = current();
+    writeOnce(failureEngine, 0xabcddcba);
+    const before = failureEngine.saveCpuContext(), bytes = Uint8Array.from(physical(failed));
+    const queued = failed.raw.vine_dirty_page_count();
+    for (const args of [
+      [failed.base + pageSize, failed.poolBytes, failed.poolBytes * 2],
+      [failed.base, failed.poolBytes + pageSize, failed.poolBytes * 2],
+      [failed.base, failed.poolBytes, 0], [failed.base, failed.poolBytes, failed.poolBytes],
+      [failed.base, failed.poolBytes, failed.poolBytes * 2 + 1],
+      [failed.base, failed.poolBytes, 1600 * 1024 * 1024 + pageSize],
+    ]) {
+      assert.equal(failed.raw.vine_grow_memory(...args), 0);
+      assert.deepEqual(physical(failed), bytes);
+      assert.deepEqual(failureEngine.saveCpuContext(), before);
+    }
+    for (const failure of ["allocation", "detach"]) {
+      failed.failGrowth = failure;
+      assert.throws(() => commit(failureEngine, 0x20000000, 40), /allocation|grow/u);
+      assert.equal(current(), failed);
+      assert.deepEqual(failureEngine.saveCpuContext(), before);
+      assert.deepEqual(physical(failed), bytes);
+      assert.equal(failed.raw.vine_dirty_page_count(), queued);
+      assert.equal(failureEngine.readGuestU32(data), 0xabcddcba);
+      assert.throws(() => failureEngine.readGuestU32(0x20000000), /unmapped/u);
+    }
+    failed.failGrowth = undefined;
+    commit(failureEngine, 0x20000000, 40);
+    assert.equal(current(), failed);
+    assertDirtyOnce(failureEngine, [data]);
+    failureEngine.applyMemoryDelta(delta([operation("protect", data, 1, ro)]));
+    commit(failureEngine, 0x30000000, 80);
+    startAt(failureEngine, data);
+    assert.equal(failureEngine.executeBudget(1).stop.fault, "execute-protection");
+    failureEngine.applyCpuResume({ instructionPointer: codeBase, stackPointer: stack + 4000, eax: 0x12345678 });
+    assert.equal(failureEngine.executeBudget(16).stop.fault, "page-fault");
+    assert.equal(failureEngine.readGuestU32(data), 0xabcddcba);
+    assertDirtyOnce(failureEngine, []);
+    const freed = frame(failureEngine, failed, data);
+    failureEngine.applyMemoryDelta(delta([operation("decommit", data), operation("commit", 0x60000000)]));
+    assert.equal(frame(failureEngine, failed, 0x60000000), freed);
+    assert(failureEngine.readGuestBytes(0x60000000, pageSize).every(byte => byte === 0));
+    console.log("mirror retained growth rejects stale/invalid/reentrant allocation, recovers detached failure views and preserves write/execute protection");
+
+    const reflected = await fixture(4096, Array.from({ length: 40 }, (_, i) => page(0x20000000 + i * pageSize, rw, i)),
+      { v86NumericMode: "strict" });
+    const initialized = current(), initializedState = reflected.saveCpuContext();
+    assert.equal(initialized.growths, 1, "initial reflection grows the same uninitialized CPU");
+    assert.equal(initialized.raw.vine_get_x87_mode(), 0, "retained growth preserves the selected numeric policy");
+    assert.equal(reflected.readGuestBytes(0x20001000, 1)[0], 1);
+    const replacementPages = Array.from({ length: 100 }, (_, i) => page(0x30000000 + i * pageSize, rw, 0x5a));
+    reflected.rebuildMemory({ generation: 2n, cacheEffects: effects, pages: replacementPages },
+      [region(0x30000000, 100 * pageSize)]);
+    assert.equal(current(), initialized);
+    assert.equal(initialized.growths, 2);
+    assert.equal(reflected.readGuestU32(0x30000000), 0x5a5a5a5a);
+    assert.deepEqual(reflected.saveCpuContext(), initializedState);
+    reflected.applyMemoryDelta(delta([operation("decommit", 0x30000000, 100)]));
+    commit(reflected, 0x40000000, 250);
+    assert.equal(initialized.growths, 3);
+    assert.deepEqual(reflected.saveCpuContext(), initializedState);
+    assertDirtyOnce(reflected, []);
+    console.log("mirror retained initial reflection, rebuild and initialized empty-map growth passed");
+    forceLegacyGrowth = true;
+  }
+
+  for (const retained of [false, true]) {
+    if (retained && typeof current().raw.vine_grow_memory !== "function") continue;
+    forceLegacyGrowth = !retained;
     const engine = await fixture(34000);
     const dirtyBase = 0x20000000;
     const dirtyPages = 16385;
@@ -569,14 +993,20 @@ try {
     assert.equal(old.raw.vine_dirty_page_count(), 16384);
     assert.equal(old.raw.vine_dirty_pages_overflowed(), 1);
     const oldBuffer = old.raw.memory.buffer;
-    // Stay below the configured ceiling while requiring a replacement of 128 MiB.
+    // Stay below the configured ceiling while requiring a growth beyond 128 MiB.
     commit(engine, 0x40000000, 16500);
     assert.notEqual(current().raw.memory.buffer, oldBuffer);
+    if (retained) {
+      assert.equal(current(), old);
+      assert.equal(old.raw.vine_dirty_page_count(), 16384);
+      assert.equal(old.raw.vine_dirty_pages_overflowed(), 1);
+    }
     const changed = assertDirtyOnce(engine, Array.from({ length: dirtyPages }, (_, i) => dirtyBase + i * pageSize));
     assert(changed.every(p => new DataView(p.bytes.buffer, p.bytes.byteOffset).getUint32(0, true) === 0x76543210));
     assert(engine.readGuestBytes(0x40000000, pageSize).every(byte => byte === 0));
-    console.log("mirror real dirty-candidate overflow survives growth and writes back each page exactly once");
+    console.log(`mirror real dirty-candidate overflow survives ${retained ? "retained" : "legacy"} growth and writes back each page exactly once`);
   }
+  forceLegacyGrowth = true;
 
   {
     const engine = await fixture();

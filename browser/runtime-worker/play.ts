@@ -10,6 +10,9 @@ import type { InspectExecutableMessage, InspectedExecutableMessage } from "./ins
 const choose = document.querySelector<HTMLButtonElement>("#choose")!;
 const back = document.querySelector<HTMLButtonElement>("#back")!;
 const launchButton = document.querySelector<HTMLButtonElement>("#launch")!;
+const executionMode = document.querySelector<HTMLSelectElement>("#execution-mode")!;
+const requestedExecutionMode = new URL(location.href).searchParams.get("executionMode");
+if (requestedExecutionMode !== null) executionMode.value = requestedExecutionMode;
 const listing = document.querySelector<HTMLUListElement>("#listing")!;
 const locationLabel = document.querySelector<HTMLOutputElement>("#location")!;
 const status = document.querySelector<HTMLOutputElement>("#status")!;
@@ -110,8 +113,14 @@ choose.addEventListener("click", async () => {
 });
 launchButton.addEventListener("click", async () => {
   if (selected === null) return;
+  if (executionMode.value !== "strict" && executionMode.value !== "fast") {
+    showError("This build does not include the requested execution mode.");
+    return;
+  }
   stopGame();
-  const running = new Worker(new URL("./game-worker.js", import.meta.url), { type: "module" });
+  const gameWorkerUrl = new URL("./game-worker.js", import.meta.url);
+  gameWorkerUrl.searchParams.set("executionMode", executionMode.value);
+  const running = new Worker(gameWorkerUrl, { type: "module" });
   gameWorker = running;
   const audioReady = BrowserAudio.create(id => {
     if (gameWorker === running) running.postMessage({ type: "audio-ended", resourceId: id });

@@ -1,6 +1,7 @@
 use crate::runtime::{
     RUNTIME_API_BOUNDARY_QUANTUM, RuntimeHandle, RuntimeObjectKind, RuntimeProcessLifecycleState,
-    RuntimeThreadPriority, RuntimeWaitState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeThreadPriority, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWaitRegistration, RuntimeWaitState, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 use crate::{
     GuestAddress, Runtime, RuntimeApiBoundaryDisposition, RuntimeBootstrap, RuntimeClockState,
@@ -11,6 +12,309 @@ use crate::{
 const PROCESS_ID: u32 = 4096;
 const INITIAL_THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
 const SECOND_THREAD_ID: RuntimeThreadId = RuntimeThreadId(4097);
+
+fn finite_wait(
+    runtime: &mut Runtime,
+    handle: RuntimeHandle,
+    milliseconds: u32,
+) -> RuntimeWaitRegistration {
+    match runtime
+        .begin_finite_object_wait(handle, milliseconds)
+        .unwrap()
+    {
+        RuntimeWaitForSingleObjectExBegin::Deferred { registration } => registration,
+        other => panic!("expected pending object wait: {other:?}"),
+    }
+}
+
+#[test]
+fn finite_object_wait_signal_deadline_race_preserves_the_winner_and_auto_reset() {
+    for signal_time in [9_999, 10_000, 10_001] {
+        let mut runtime = running_runtime();
+        let event = runtime.create_event(false, false).unwrap();
+        runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+        let registration = finite_wait(&mut runtime, event, 1);
+        let request = registration.object_wait_pacing.unwrap().request_id;
+        runtime.select_thread(SECOND_THREAD_ID).unwrap();
+        runtime
+            .synchronize_scheduled_clock_for_host_execution(0, signal_time)
+            .unwrap();
+        assert!(runtime.set_event(event).unwrap());
+        assert_eq!(
+            runtime.ready_object_wait_request_id(),
+            if signal_time < 10_000 { request } else { 0 }
+        );
+        assert_eq!(
+            runtime
+                .object_wait_state(event, RuntimeObjectKind::Event)
+                .unwrap(),
+            if signal_time < 10_000 {
+                RuntimeWaitState::Nonsignaled
+            } else {
+                RuntimeWaitState::Signaled { exit_code: 0 }
+            }
+        );
+        // Completion delay cannot overturn a notification already captured.
+        runtime
+            .synchronize_scheduled_clock_for_host_execution(0, 20_000)
+            .unwrap();
+        runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+        let plan = runtime.plan_object_wait_completion(request, 1).unwrap();
+        assert!(plan.retry().is_none());
+        assert_eq!(
+            plan.outcome(),
+            if signal_time < 10_000 {
+                RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+            } else {
+                RuntimeWaitForSingleObjectExOutcome::TimedOut
+            }
+        );
+        runtime.commit_object_wait_completion(plan);
+        assert_eq!(runtime.ready_object_wait_request_id(), 0);
+        assert!(runtime.scheduler().wait_registrations().is_empty());
+        let before = runtime.scheduler().clone();
+        assert!(runtime.plan_object_wait_completion(request, 1).is_err());
+        assert_eq!(runtime.scheduler(), &before);
+        if signal_time >= 10_000 {
+            assert!(runtime.try_wait_event(event).unwrap());
+        }
+    }
+}
+
+#[test]
+fn finite_object_wait_early_timer_retries_and_invalid_ack_is_atomic() {
+    let mut runtime = running_runtime();
+    let event = runtime.create_event(false, false).unwrap();
+    let registration = finite_wait(&mut runtime, event, u32::MAX - 1);
+    let request = registration.object_wait_pacing.unwrap().request_id;
+    assert_eq!(
+        registration.object_wait_pacing.unwrap().delay_milliseconds,
+        i32::MAX as u32
+    );
+    for ack in [0, 2, u32::MAX] {
+        let before = runtime.scheduler().clone();
+        assert!(runtime.plan_object_wait_completion(request, ack).is_err());
+        assert_eq!(runtime.scheduler(), &before);
+    }
+    let early = runtime.plan_object_wait_completion(request, 1).unwrap();
+    assert_eq!(early.retry().unwrap().delay_milliseconds, i32::MAX as u32);
+    runtime.commit_object_wait_completion(early);
+    assert_eq!(
+        runtime.timer_time_100ns(),
+        0,
+        "acknowledgement alone never advances guest time"
+    );
+    runtime
+        .synchronize_scheduled_clock_for_host_execution(0, u64::from(i32::MAX as u32) * 10_000)
+        .unwrap();
+    let retry = runtime.plan_object_wait_completion(request, 1).unwrap();
+    assert_eq!(retry.retry().unwrap().delay_milliseconds, i32::MAX as u32);
+    runtime.commit_object_wait_completion(retry);
+    runtime
+        .synchronize_scheduled_clock_for_host_execution(0, u64::from(u32::MAX - 1) * 10_000)
+        .unwrap();
+    let timeout = runtime.plan_object_wait_completion(request, 1).unwrap();
+    assert!(timeout.retry().is_none());
+    assert_eq!(
+        timeout.outcome(),
+        RuntimeWaitForSingleObjectExOutcome::TimedOut
+    );
+    runtime.commit_object_wait_completion(timeout);
+    assert!(runtime.scheduler().host_requests().is_empty());
+}
+
+#[test]
+fn finite_object_wait_manual_and_auto_events_latch_only_eligible_waiters() {
+    for manual in [false, true] {
+        let mut runtime = running_runtime();
+        let event = runtime.create_event(manual, false).unwrap();
+        let ids = [INITIAL_THREAD_ID, SECOND_THREAD_ID, RuntimeThreadId(9000)];
+        for &id in &ids[1..] {
+            runtime.register_thread(id, 0).unwrap();
+        }
+        let controller = RuntimeThreadId(9001);
+        runtime.register_thread(controller, 0).unwrap();
+        let mut requests = Vec::new();
+        for id in ids {
+            runtime.select_thread(id).unwrap();
+            requests.push(
+                finite_wait(&mut runtime, event, 10)
+                    .object_wait_pacing
+                    .unwrap()
+                    .request_id,
+            );
+        }
+        runtime.select_thread(controller).unwrap();
+        runtime.set_event(event).unwrap();
+        let latched = |runtime: &Runtime| {
+            runtime
+                .scheduler()
+                .wait_registrations()
+                .values()
+                .filter(|r| r.object_wait_pacing.is_some_and(|p| p.signaled))
+                .count()
+        };
+        assert_eq!(latched(&runtime), if manual { 3 } else { 1 });
+        runtime.set_event(event).unwrap();
+        assert_eq!(
+            latched(&runtime),
+            if manual { 3 } else { 2 },
+            "a latched auto-reset winner cannot consume a second signal"
+        );
+        runtime.reset_event(event).unwrap();
+        assert_eq!(
+            latched(&runtime),
+            if manual { 3 } else { 2 },
+            "ResetEvent cannot retract a completed wait condition"
+        );
+        for (id, request) in ids.into_iter().zip(requests) {
+            runtime.select_thread(id).unwrap();
+            let plan = runtime.plan_object_wait_completion(request, 1).unwrap();
+            if plan.retry().is_none() {
+                assert_eq!(
+                    plan.outcome(),
+                    RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+                );
+                runtime.commit_object_wait_completion(plan);
+            }
+        }
+    }
+}
+
+#[test]
+fn finite_object_wait_mixed_infinite_queue_and_thread_exit_keep_live_identity() {
+    let mut runtime = running_runtime();
+    let event = runtime.create_event(false, false).unwrap();
+    let second = runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    let controller = RuntimeThreadId(9000);
+    runtime.register_thread(controller, 0).unwrap();
+    runtime.wait_current_thread_on(event).unwrap();
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    let finite = finite_wait(&mut runtime, event, 10)
+        .object_wait_pacing
+        .unwrap()
+        .request_id;
+    runtime.select_thread(controller).unwrap();
+    runtime.set_event(event).unwrap();
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert_eq!(runtime.ready_object_wait_request_id(), 0);
+    runtime.set_event(event).unwrap();
+    assert_eq!(runtime.ready_object_wait_request_id(), finite);
+    assert!(runtime.close_handle(event).is_err());
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    let completion = runtime.plan_object_wait_completion(finite, 0).unwrap();
+    runtime.commit_object_wait_completion(completion);
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    let join = finite_wait(&mut runtime, second, 10)
+        .object_wait_pacing
+        .unwrap()
+        .request_id;
+    runtime.select_thread(controller).unwrap();
+    assert!(runtime.close_handle(second).is_err());
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    runtime.request_current_thread_exit(23).unwrap();
+    runtime.complete_current_thread_exit().unwrap();
+    assert_eq!(runtime.ready_object_wait_request_id(), join);
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    let completion = runtime.plan_object_wait_completion(join, 0).unwrap();
+    assert_eq!(
+        completion.outcome(),
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+    );
+    runtime.commit_object_wait_completion(completion);
+    runtime.close_handle(second).unwrap();
+    let replacement = runtime.register_thread(RuntimeThreadId(9002), 0).unwrap();
+    assert_ne!(replacement, second);
+    assert!(runtime.plan_object_wait_completion(join, 0).is_err());
+}
+
+#[test]
+fn finite_object_wait_owner_cancellation_retires_ready_token_and_invalid_inputs_are_atomic() {
+    let mut runtime = running_runtime();
+    let event = runtime.create_event(false, false).unwrap();
+    runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    for timeout in [0, u32::MAX] {
+        let before = runtime.scheduler().clone();
+        assert!(runtime.begin_finite_object_wait(event, timeout).is_err());
+        assert_eq!(runtime.scheduler(), &before);
+    }
+    let request = finite_wait(&mut runtime, event, 10)
+        .object_wait_pacing
+        .unwrap()
+        .request_id;
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    runtime.set_event(event).unwrap();
+    let before = runtime.scheduler().clone();
+    assert!(
+        runtime.plan_object_wait_completion(request, 0).is_err(),
+        "wrong selected owner is rejected"
+    );
+    assert_eq!(runtime.scheduler(), &before);
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    runtime.request_current_thread_exit(7).unwrap();
+    assert_eq!(runtime.ready_object_wait_request_id(), 0);
+    assert!(runtime.scheduler().host_requests().is_empty());
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    assert!(runtime.plan_object_wait_completion(request, 1).is_err());
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    runtime.close_handle(event).unwrap();
+    let replacement = runtime.create_event(false, false).unwrap();
+    assert_ne!(replacement, event);
+    assert!(runtime.plan_object_wait_completion(request, 1).is_err());
+}
+
+#[test]
+fn finite_object_wait_restores_callback_depth_and_deadline_overflow_is_atomic() {
+    let mut runtime = running_runtime();
+    let event = runtime.create_event(false, false).unwrap();
+    runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    let callback = runtime
+        .push_callback_frame(GuestAddress(0x1000_1000), GuestAddress(0x7f01_0000))
+        .unwrap();
+    let request = finite_wait(&mut runtime, event, 2)
+        .object_wait_pacing
+        .unwrap()
+        .request_id;
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    runtime.set_event(event).unwrap();
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    let plan = runtime.plan_object_wait_completion(request, 0).unwrap();
+    runtime.commit_object_wait_completion(plan);
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::InCallback { depth: 1 }
+    );
+    assert_eq!(
+        runtime.current_thread_state().unwrap().callback_frames,
+        vec![callback]
+    );
+    runtime.pop_callback_frame(callback.id).unwrap();
+    let mut runtime = bootstrapping_runtime_with_clock(RuntimeClockState {
+        wall_clock_file_time: 0,
+        tick_count: 0,
+        performance_counter: 0,
+        performance_frequency: 1,
+    });
+    runtime.start_initial_thread().unwrap();
+    let event = runtime.create_event(false, false).unwrap();
+    runtime
+        .synchronize_scheduled_clock_for_host_execution(0, u64::MAX - 1)
+        .unwrap();
+    let before = runtime.scheduler().clone();
+    assert!(runtime.begin_finite_object_wait(event, 1).is_err());
+    assert_eq!(runtime.scheduler(), &before);
+    assert_eq!(
+        runtime
+            .object_wait_state(event, RuntimeObjectKind::Event)
+            .unwrap(),
+        RuntimeWaitState::Nonsignaled
+    );
+}
 
 #[test]
 fn executable_selection_preserves_cyclic_priority_order_with_blocked_lanes() {
@@ -66,6 +370,67 @@ fn executable_selection_preserves_cyclic_priority_order_with_blocked_lanes() {
             assert_eq!(actual, expected, "seed {seed}");
         }
     }
+}
+
+#[test]
+fn host_clock_after_selected_thread_exit_keeps_finite_join_winner_and_rejects_no_live_process() {
+    let mut runtime = bootstrapping_runtime();
+    let before = runtime.clock().clone();
+    assert!(
+        runtime
+            .synchronize_scheduled_clock_for_host_execution(0, 1)
+            .is_err()
+    );
+    assert_eq!(runtime.clock(), &before);
+    runtime.start_initial_thread().unwrap();
+    let second = runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    let request = finite_wait(&mut runtime, second, 1)
+        .object_wait_pacing
+        .unwrap()
+        .request_id;
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    runtime
+        .synchronize_scheduled_clock_for_host_execution(10, 9_999)
+        .unwrap();
+    runtime.request_current_thread_exit(0).unwrap();
+    runtime.complete_current_thread_exit().unwrap();
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+    assert_eq!(runtime.ready_object_wait_request_id(), request);
+    let state = runtime.scheduler().clone();
+    runtime
+        .synchronize_scheduled_clock_for_host_execution(10, 20_000)
+        .unwrap();
+    assert_eq!(
+        runtime.scheduler(),
+        &state,
+        "process clock never revives or selects a thread"
+    );
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+    for (retired, time) in [(9, 20_000), (10, 19_999)] {
+        let before = runtime.clock().clone();
+        assert!(
+            runtime
+                .synchronize_scheduled_clock_for_host_execution(retired, time)
+                .is_err()
+        );
+        assert_eq!(runtime.clock(), &before);
+    }
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    let completion = runtime.plan_object_wait_completion(request, 0).unwrap();
+    assert_eq!(
+        completion.outcome(),
+        RuntimeWaitForSingleObjectExOutcome::ObjectSignaled
+    );
+    runtime.commit_object_wait_completion(completion);
+    runtime.request_current_thread_exit(0).unwrap();
+    runtime.complete_current_thread_exit().unwrap();
+    let before = runtime.clock().clone();
+    assert!(
+        runtime
+            .synchronize_scheduled_clock_for_host_execution(10, 30_000)
+            .is_err()
+    );
+    assert_eq!(runtime.clock(), &before);
 }
 
 #[test]
@@ -552,17 +917,27 @@ fn thread_resource_ownership_tracks_tls_fls_and_callbacks() {
 }
 
 fn running_runtime() -> Runtime {
-    let mut runtime = Runtime::new(
+    let mut runtime = bootstrapping_runtime();
+    runtime.start_initial_thread().unwrap();
+    runtime
+}
+
+fn bootstrapping_runtime() -> Runtime {
+    bootstrapping_runtime_with_clock(RuntimeClockState {
+        wall_clock_file_time: 134_282_016_000_000_000,
+        tick_count: 3_600_000,
+        performance_counter: 12_345_678_901,
+        performance_frequency: 10_000_000,
+    })
+}
+
+fn bootstrapping_runtime_with_clock(clock: RuntimeClockState) -> Runtime {
+    Runtime::new(
         RuntimeBootstrap {
             process_id: RuntimeProcessId(PROCESS_ID),
             initial_thread_id: INITIAL_THREAD_ID,
             initial_last_error: 87,
-            clock: RuntimeClockState {
-                wall_clock_file_time: 134_282_016_000_000_000,
-                tick_count: 3_600_000,
-                performance_counter: 12_345_678_901,
-                performance_frequency: 10_000_000,
-            },
+            clock,
             startup_info: RuntimeStartupInfo {
                 bytes: vec![0; X86_STARTUP_INFO_W_BYTE_LENGTH],
             },
@@ -576,9 +951,5 @@ fn running_runtime() -> Runtime {
         },
         crate::GuestMemory::new(crate::MemoryLimits::default()).unwrap(),
     )
-    .expect("initialized controlled runtime");
-    runtime
-        .start_initial_thread()
-        .expect("start controlled initial thread");
-    runtime
+    .expect("initialized controlled runtime")
 }

@@ -18,12 +18,25 @@ import {
   type MemoryReflection,
   type MemoryRegionKind,
   type MemoryRegionSnapshot,
+  type ReflectedPage,
   memoryPageSize,
 } from "./memory-transport.js";
 
 const dirtyPageCandidateCapacity = 16 * 1024;
 const jitTableOffset = 1_024;
 const jitTableSize = 900;
+const jitTailTableOffset = jitTableOffset + jitTableSize;
+// Import-only modules validate native Wasm function types without executing an
+// entry. g carries state, eight GPRs, the cumulative instruction count and limit.
+const jitEntryTypes = [2, 0x60, 1, 0x7f, 0, 0x60, 11, ...Array(11).fill(0x7f), 0];
+const jitEntryValidators = [false, true].map(paired => {
+  const imports = [paired ? 2 : 1, 1, 101, 1, 102, 0, 0,
+    ...(paired ? [1, 101, 1, 103, 0, 1] : [])];
+  return new WebAssembly.Module(new Uint8Array([
+    0, 97, 115, 109, 1, 0, 0, 0,
+    1, jitEntryTypes.length, ...jitEntryTypes, 2, imports.length, ...imports,
+  ]));
+});
 const initialPhysicalPoolBytes = 64 * 1024;
 // Bound the live guest set and leave room for the mirror's page tables.
 const hardMaximumPhysicalPoolBytes = 1600 * 1024 * 1024;
@@ -60,27 +73,43 @@ export const v86StopReason = {
   halt: 2,
   executeProtection: 3,
   runtimeDispatch: 4,
+  runtimeOutput: 5,
   divideError: 0x100,
   invalidOpcode: 0x106,
   generalProtection: 0x10d,
   pageFault: 0x10e,
 } as const;
 
-interface V86Exports extends WebAssembly.Exports {
+interface V86Exports {
+  vine_shared_bind_cpu?: () => number;
+  vine_shared_execute_budget?: (budget: number, low: number, high: number) => number;
+  vine_shared_set_clock?: (retired: bigint, elapsed: number) => number;
+  vine_shared_generation?: () => bigint;
+  vine_bridge_metadata_ptr?: () => number;
+  vine_bridge_metadata_len?: () => number;
+  vine_bridge_shared_arena_base?: () => number;
+  vine_bridge_shared_arena_size?: () => number;
+  vine_bridge_shared_guest_offset?: () => number;
+  [name: string]: WebAssembly.ExportValue | undefined;
   memory: WebAssembly.Memory;
   rust_init(): void;
   allocate_memory(bytes: number): number;
+  vine_grow_memory?: (expectedBase: number, expectedBytes: number, bytes: number) => number;
   zero_memory(address: number, bytes: number): void;
   reset_cpu(): void;
   full_clear_tlb(): void;
   jit_clear_cache_js(): void;
   jit_dirty_cache(start: number, end: number): void;
   get_jit_config(index: number): number;
+  vine_set_x87_mode?: (mode: number) => number;
+  vine_get_x87_mode?: () => number;
+  vine_set_jit_chaining?: (enabled: number) => number;
   codegen_finalize_finished(index: number, start: number, stateFlags: number): void;
   vine_cpu_state_ptr(): number;
   vine_cpu_state_size(): number;
   vine_cpu_state_save(): void;
   vine_cpu_state_restore(): number;
+  get_eflags(): number;
   vine_cpu_apply_stopped_resume(eax: number, writeEax: number, esp: number, eip: number): number;
   vine_rearm_dirty_page(address: number): number;
   vine_dirty_pages_ptr(): number;
@@ -128,6 +157,11 @@ interface PreparedAdapter {
   wasm: V86Exports;
   physicalBase: number;
   dirtyPagesPointer: number;
+}
+
+export interface SharedRuntimeInstance {
+  module: WebAssembly.Module;
+  exports: WebAssembly.Exports;
 }
 
 function physicalCapacityError(
@@ -207,6 +241,8 @@ export function classifyV86Stop(
       return { kind: "halt" };
     case v86StopReason.runtimeDispatch:
       return { kind: "runtime-dispatch" };
+    case v86StopReason.runtimeOutput:
+      return { kind: "runtime-output" };
     case v86StopReason.executeProtection:
       return {
         kind: "fault",
@@ -257,11 +293,18 @@ function rangeContains(outer: MemoryRange, inner: MemoryRange): boolean {
 
 export class V86Mirror implements ExecutionEngine {
   readonly #module: WebAssembly.Module;
+  readonly #numericMode: "strict" | "fast" | undefined;
+  readonly #shared: SharedRuntimeInstance | undefined;
+  #sharedGuestOffset = 0;
+  #sharedGeneration = 0n;
   #wasm!: V86Exports;
   readonly #mappings = new Map<number, MirrorMapping>();
   readonly #reservations = new Map<number, MirrorReservation>();
   readonly #directoryMappingCounts = new Map<number, number>();
   readonly #dirtyMappingsScratch: MirrorMapping[] = [];
+  readonly #pendingWritebackMappings = new Map<number, MirrorMapping>();
+  #executionSerial = 0;
+  #writebackSerial = 0;
   readonly #borrowedDirtyPages: DirtyMirrorPage[] = [];
   readonly #borrowedDirtyPagePool: DirtyMirrorPage[] = [];
   #dirtyPageCandidates!: Uint32Array;
@@ -284,8 +327,13 @@ export class V86Mirror implements ExecutionEngine {
   private constructor(
     module: WebAssembly.Module,
     options: ExecutionEngineOptions,
+    shared?: SharedRuntimeInstance,
   ) {
     this.#module = module;
+    this.#shared = shared;
+    invariant(options.v86NumericMode === undefined || options.v86NumericMode === "strict" ||
+      options.v86NumericMode === "fast", "unsupported v86 numerical mode");
+    this.#numericMode = options.v86NumericMode;
     this.#maximumPhysicalPages = requirePageCount(
       options.maximumPhysicalPages,
       "maximum physical page count",
@@ -300,6 +348,13 @@ export class V86Mirror implements ExecutionEngine {
       Math.max(initialPhysicalPoolBytes, physicalPoolBytesForAllocations(1)),
       this.#maximumPhysicalPoolBytes,
     );
+    if (shared) {
+      const wasm = shared.exports as V86Exports;
+      this.#sharedGuestOffset = wasm.vine_bridge_shared_guest_offset!() >>> 0;
+      this.#physicalPoolBytes = wasm.vine_bridge_shared_arena_size!() >>> 0;
+      invariant(this.#sharedGuestOffset === 0x800000 && this.#physicalPoolBytes === 0x80800000,
+        "shared Runtime arena ABI mismatch");
+    }
     this.#publishAdapter(this.#prepareAdapter(this.#physicalPoolBytes), this.#physicalPoolBytes);
     this.#pageDirectory = this.#allocatePage();
   }
@@ -321,12 +376,25 @@ export class V86Mirror implements ExecutionEngine {
     return new V86Mirror(module, options);
   }
 
+  static async instantiateSharedRuntime(bytes: BufferSource): Promise<SharedRuntimeInstance> {
+    const module = await WebAssembly.compile(bytes);
+    const exports = V86Mirror.#instantiateAdapter(module) as WebAssembly.Exports;
+    invariant(typeof exports.vine_shared_bind_cpu === "function" &&
+      typeof exports.vine_shared_execute_budget === "function", "unified CPU/Runtime ABI is missing");
+    return { module, exports };
+  }
+
+  static attachSharedRuntime(shared: SharedRuntimeInstance, options: ExecutionEngineOptions): V86Mirror {
+    return new V86Mirror(shared.module, options, shared);
+  }
+
   static #instantiateAdapter(module: WebAssembly.Module): V86Exports {
     const imports = WebAssembly.Module.imports(module);
     const table = new WebAssembly.Table({
       element: "anyfunc",
-      initial: jitTableOffset + jitTableSize,
+      initial: jitTailTableOffset + jitTableSize,
     });
+    const entryValidationTable = new WebAssembly.Table({ element: "anyfunc", initial: 2 });
     let wasm: V86Exports | undefined;
     let jitImports: Record<string, WebAssembly.ImportValue> | undefined;
     const environment: Record<string, WebAssembly.ImportValue> = {
@@ -342,18 +410,22 @@ export class V86Mirror implements ExecutionEngine {
         if (imported.name === "microtick") {
           return 0;
         }
+        if (imported.name === "vine_host_now") return performance.now();
         if (imported.name === "get_rand_int") {
           return 0;
         }
         if (imported.name === "codegen_finalize") {
           invariant(arguments_.length === 5, "v86 generated an invalid JIT compile request");
-          const [index, start, stateFlags, pointer, byteLength] = arguments_ as [
+          const [index, start, stateFlags, rawPointer, byteLength] = arguments_ as [
             number,
             number,
             number,
             number,
             number,
           ];
+          const pointer = rawPointer >>> 0;
+          invariant(Number.isInteger(rawPointer) && rawPointer >= -0x8000_0000 && rawPointer <= 0xffff_ffff,
+            "v86 generated an invalid Wasm32 module pointer");
           invariant(wasm !== undefined && jitImports !== undefined, "JIT host bridge is not ready");
           invariant(
             Number.isInteger(index) && index >= 0 && index < jitTableSize,
@@ -379,10 +451,27 @@ export class V86Mirror implements ExecutionEngine {
           }
           const generatedExports = new WebAssembly.Instance(generated, { e: jitImports }).exports;
           const entry = generatedExports.f;
+          const tailEntry = generatedExports.g;
           invariant(typeof entry === "function", "v86 JIT module did not export its entry point");
+          invariant(tailEntry === undefined || typeof tailEntry === "function",
+            "v86 JIT module exported an invalid tail entry point");
+          // Validate both entries before changing either live slot. A plain JS
+          // function can satisfy an import but cannot be a native table entry.
+          try {
+            entryValidationTable.set(0, entry);
+            entryValidationTable.set(1, tailEntry ?? null);
+            new WebAssembly.Instance(jitEntryValidators[Number(tailEntry !== undefined)]!, {
+              e: { f: entry, ...(tailEntry === undefined ? {} : { g: tailEntry }) },
+            });
+          } finally {
+            entryValidationTable.set(0, null);
+            entryValidationTable.set(1, null);
+          }
+          table.set(index + jitTailTableOffset, tailEntry ?? null);
           table.set(index + jitTableOffset, entry);
           if (wasm.get_jit_config(6) === 0) {
-            queueMicrotask(() => wasm?.codegen_finalize_finished(index, start, stateFlags));
+            const owner = wasm;
+            queueMicrotask(() => owner.codegen_finalize_finished(index, start, stateFlags));
           }
           return 0;
         }
@@ -393,6 +482,7 @@ export class V86Mirror implements ExecutionEngine {
             Number.isInteger(index) && index >= 0 && index < jitTableSize,
             "v86 requested an invalid JIT table clear",
           );
+          table.set(index + jitTailTableOffset, null);
           table.set(index + jitTableOffset, null);
           return 0;
         }
@@ -407,9 +497,14 @@ export class V86Mirror implements ExecutionEngine {
       };
     }
     wasm = new WebAssembly.Instance(module, { env: environment }).exports as V86Exports;
-    jitImports = { m: wasm.memory };
+    // A unified link has more native indirect entries than a standalone CPU.
+    // Never overwrite a Rust function with a dynamically generated JIT entry.
+    for (let index = jitTableOffset; index < table.length; index++) {
+      invariant(table.get(index) === null, "native table overlaps the reserved JIT slots");
+    }
+    jitImports = { m: wasm.memory, t: table };
     for (const [name, value] of Object.entries(wasm)) {
-      if (!name.startsWith("_") && !name.startsWith("zstd") && !name.endsWith("_js")) {
+      if (value !== undefined && !name.startsWith("_") && !name.startsWith("zstd") && !name.endsWith("_js")) {
         jitImports[name] = value;
       }
     }
@@ -417,15 +512,29 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #prepareAdapter(poolBytes: number): PreparedAdapter {
-    const wasm = V86Mirror.#instantiateAdapter(this.#module);
+    const wasm = this.#shared?.exports as V86Exports | undefined ?? V86Mirror.#instantiateAdapter(this.#module);
     wasm.rust_init();
+    if (typeof wasm.vine_set_jit_chaining === "function") {
+      invariant(wasm.vine_set_jit_chaining(1) === 0, "v86 rejected native JIT chaining");
+    }
+    const supportsFastX87 = typeof wasm.vine_set_x87_mode === "function" &&
+      typeof wasm.vine_get_x87_mode === "function";
+    const numericMode = this.#numericMode ?? (supportsFastX87 ? "fast" : "strict");
+    invariant(numericMode !== "fast" || supportsFastX87,
+      "v86 fast x87 requires a CPU built with vine_set_x87_mode");
+    if (supportsFastX87) {
+      const mode = numericMode === "fast" ? 2 : 0;
+      invariant(wasm.vine_set_x87_mode!(mode) === 0 && wasm.vine_get_x87_mode!() === mode,
+        "v86 rejected the selected x87 numerical mode");
+    }
     invariant(
       wasm.vine_cpu_state_size() === 612,
       "execution engine CPU context ABI mismatch",
     );
     invariant(wasm.vine_set_memory_size(poolBytes) === 0, "v86 rejected mirror memory size");
     wasm.vine_reset_execute_permissions();
-    const physicalBase = wasm.allocate_memory(poolBytes);
+    const physicalBase = this.#shared ? wasm.vine_bridge_shared_arena_base!() >>> 0 : wasm.allocate_memory(poolBytes);
+    if (this.#shared) invariant(wasm.vine_shared_bind_cpu!() === 0, "Runtime refused shared CPU attachment");
     invariant(physicalBase > 0 && physicalBase % memoryPageSize === 0,
       "execution memory allocation is missing or unaligned");
     const dirtyPagesPointer = wasm.vine_dirty_pages_ptr();
@@ -437,7 +546,7 @@ export class V86Mirror implements ExecutionEngine {
       "execution engine mirror buffer is invalid",
     );
     wasm.vine_reset_dirty_pages();
-    wasm.zero_memory(0, poolBytes);
+    wasm.zero_memory(0, this.#shared ? this.#sharedGuestOffset : poolBytes);
     return { wasm, physicalBase, dirtyPagesPointer };
   }
 
@@ -482,6 +591,11 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #ensurePhysicalCapacity(requirement: PhysicalCapacityRequirement): void {
+    if (this.#shared) {
+      invariant(physicalPoolBytesForAllocations(1 + requirement.pageTables) <= this.#sharedGuestOffset,
+        "shared CPU page-table area exhausted");
+      return;
+    }
     if (requirement.bytes <= this.#physicalPoolBytes) {
       return;
     }
@@ -497,7 +611,29 @@ export class V86Mirror implements ExecutionEngine {
         this.#maximumPhysicalPoolBytes,
       );
     }
-    this.#reinstantiateAdapter(nextBytes);
+    const grow = this.#wasm.vine_grow_memory;
+    if (typeof grow !== "function") {
+      this.#reinstantiateAdapter(nextBytes);
+      return;
+    }
+    let physicalBase: number;
+    try {
+      physicalBase = grow(this.#physicalBase, this.#physicalPoolBytes, nextBytes) >>> 0;
+    } finally {
+      // Even an unsuccessful allocation can grow Wasm memory and detach the
+      // old views. Its allocation identity and guest bytes remain unchanged.
+      this.#refreshLinearMemoryViews();
+    }
+    invariant(
+      Number.isInteger(physicalBase) && physicalBase > 0 && physicalBase % memoryPageSize === 0 &&
+        physicalBase + nextBytes <= this.#wasm.memory.buffer.byteLength,
+      "v86 mirror growth allocation failed or returned an invalid range",
+    );
+    // The CPU moves its RAM and clears translations that embed the old base.
+    // Physical offsets, dirty candidates, contexts and compiled code survive.
+    this.#publishAdapter({
+      wasm: this.#wasm, physicalBase, dirtyPagesPointer: this.#dirtyPagesPointer,
+    }, nextBytes);
   }
 
   #reinstantiateAdapter(poolBytes: number): void {
@@ -558,6 +694,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   rebuildMemory(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void {
+    invariant(this.#pendingWritebackMappings.size === 0, "CPU writeback must be acknowledged before rebuilding memory");
     this.#refreshLinearMemoryViews();
     const state = this.saveState().words;
     this.#mappings.clear();
@@ -566,7 +703,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#directoryMappingCounts.clear();
     this.#freePhysicalPages.length = 0;
     this.#nextPhysicalPage = memoryPageSize;
-    this.#physicalMemory.fill(0);
+    this.#physicalMemory.fill(0, 0, this.#shared ? this.#sharedGuestOffset : undefined);
     this.#wasm.vine_reset_execute_permissions();
     this.#wasm.vine_reset_dirty_pages();
     this.#forceFullDirtyScan = false;
@@ -582,8 +719,21 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   executeBudget(instructionBudget: number): ExecutionSlice {
+    this.#executionSerial += 1;
     const before = this.#wasm.vine_instruction_counter();
-    const reason = this.#wasm.vine_execute_budget(instructionBudget);
+    const reason = this.#shared
+      ? this.#wasm.vine_shared_execute_budget!(instructionBudget, Number(this.#sharedGeneration & 0xffff_ffffn),
+        Number(this.#sharedGeneration >> 32n)) >>> 0
+      : this.#wasm.vine_execute_budget(instructionBudget);
+    if (reason === 0xffff_ffff) {
+      const pointer = this.#wasm.vine_bridge_metadata_ptr!() >>> 0;
+      const length = this.#wasm.vine_bridge_metadata_len!() >>> 0;
+      const error = JSON.parse(new TextDecoder().decode(new Uint8Array(this.#wasm.memory.buffer, pointer, length)));
+      throw new Error(`Runtime rejected shared CPU execution: ${String(error.message)}`);
+    }
+    if (this.#shared && this.#wasm.vine_shared_generation) {
+      this.#sharedGeneration = this.#wasm.vine_shared_generation();
+    }
     this.#refreshLinearMemoryViews();
     const errorCode = this.#wasm.vine_get_stop_error_code();
     this.#wasm.vine_cpu_state_save();
@@ -603,9 +753,19 @@ export class V86Mirror implements ExecutionEngine {
         words[stateWord.controlRegisterBase + 2],
       ),
       instructions: (after - before) >>> 0,
-      context: this.#executionContext(state),
+      context: this.#executionContext(state, this.#wasm.get_eflags() >>> 0),
     };
   }
+
+  setRuntimeClock(retiredInstructions: number, elapsedMilliseconds: number): void {
+    if (!this.#shared) return;
+    invariant(Number.isSafeInteger(retiredInstructions) && retiredInstructions >= 0 &&
+      Number.isFinite(elapsedMilliseconds) && elapsedMilliseconds >= 0, "invalid shared CPU clock");
+    invariant(this.#wasm.vine_shared_set_clock!(BigInt(retiredInstructions), elapsedMilliseconds) === 0,
+      "Runtime rejected the shared CPU clock");
+  }
+
+  memoryGeneration(): bigint | undefined { return this.#shared ? this.#sharedGeneration : undefined; }
 
   saveState(): CpuState {
     this.#wasm.vine_cpu_state_save();
@@ -620,7 +780,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   saveCpuContext(): ExecutionCpuContext {
-    return this.#executionContext(this.saveState());
+    return this.#executionContext(this.saveState(), this.#wasm.get_eflags() >>> 0);
   }
 
   createCpuContext(bootstrap: ExecutionThreadBootstrap): ExecutionCpuContext {
@@ -665,16 +825,17 @@ export class V86Mirror implements ExecutionEngine {
       esp: words[stateWord.esp] ?? 0,
       instructionPointer: words[stateWord.instructionPointer] ?? 0,
       previousInstructionPointer: words[stateWord.previousInstructionPointer] ?? 0,
-    });
+    }, 2);
   }
 
-  restoreCpuContext(context: ExecutionCpuContext): void {
+  restoreCpuContext(context: Pick<ExecutionCpuContext, "snapshot">): void {
     invariant(
-      context.byteLength === 612 &&
-        context.opaqueWords.byteLength === context.byteLength,
+      context.snapshot?.backend === "v86" && context.snapshot.abiVersion === 1 &&
+        context.snapshot.words instanceof Uint32Array &&
+        context.snapshot.words.byteLength === 612,
       "execution CPU context ABI mismatch",
     );
-    this.#restoreState(Uint32Array.from(context.opaqueWords));
+    this.#restoreState(Uint32Array.from(context.snapshot.words));
   }
 
   applyCpuResume(completion: CpuResume): void {
@@ -813,6 +974,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #collectChangedPages(copyBytes: boolean): DirtyMirrorPage[] {
+    if (this.#shared) return [];
     this.#refreshLinearMemoryViews();
     const dirtyMappings = this.#dirtyMappingsScratch;
     let dirtyMappingCount = 0;
@@ -854,6 +1016,20 @@ export class V86Mirror implements ExecutionEngine {
     // Refill before truncating so nonempty batches retain their array storage.
     dirtyMappings.length = dirtyMappingCount;
     this.#wasm.vine_reset_dirty_pages();
+    if (scanAll) {
+      this.#wasm.full_clear_tlb();
+    } else {
+      for (const mapping of dirtyMappings) {
+        invariant(
+          this.#wasm.vine_rearm_dirty_page(mapping.address) === 0,
+          "v86 rejected dirty-page write tracking",
+        );
+      }
+    }
+    for (const mapping of dirtyMappings) this.#pendingWritebackMappings.set(mapping.address, mapping);
+    dirtyMappings.length = 0;
+    for (const mapping of this.#pendingWritebackMappings.values()) dirtyMappings.push(mapping);
+    this.#writebackSerial = this.#executionSerial;
     dirtyMappings.sort((left, right) => left.address - right.address);
     const dirty = copyBytes ? [] : this.#borrowedDirtyPages;
     let dirtyCount = 0;
@@ -884,17 +1060,13 @@ export class V86Mirror implements ExecutionEngine {
       dirtyCount += 1;
     }
     dirty.length = dirtyCount;
-    if (scanAll) {
-      this.#wasm.full_clear_tlb();
-    } else {
-      for (const mapping of dirtyMappings) {
-        invariant(
-          this.#wasm.vine_rearm_dirty_page(mapping.address) === 0,
-          "v86 rejected dirty-page write tracking",
-        );
-      }
-    }
     return dirty;
+  }
+
+  acknowledgeWriteback(_generation: bigint): void {
+    invariant(this.#executionSerial === this.#writebackSerial,
+      "CPU ran after the pending writeback snapshot");
+    this.#pendingWritebackMappings.clear();
   }
 
   discoverDirtyPages(): DirtyMirrorPage[] {
@@ -902,6 +1074,11 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   applyMemoryDelta(delta: HostMemoryDelta): void {
+    if (this.#shared) {
+      invariant(delta.fromGeneration === this.#sharedGeneration, "shared mapping generation mismatch");
+      for (const page of delta.pages) this.#validateSharedPage(page);
+    }
+    invariant(this.#pendingWritebackMappings.size === 0, "CPU writeback must be acknowledged before a host delta");
     this.#refreshLinearMemoryViews();
     if (delta.mappingOperations.length === 0) {
       if (delta.pages.length === 1) {
@@ -923,7 +1100,8 @@ export class V86Mirror implements ExecutionEngine {
           this.#installPageBytes(page.bytes, mapping);
         }
       }
-      this.applyCacheEffects(delta.cacheEffects);
+      this.#applyDeltaCacheEffects(delta);
+      this.#sharedGeneration = delta.generation;
       return;
     }
     const capacity = this.#preflightHostDelta(delta);
@@ -935,7 +1113,8 @@ export class V86Mirror implements ExecutionEngine {
       const mapping = this.#mappings.get(page.address)!;
       this.#installPageBytes(page.bytes, mapping);
     }
-    this.applyCacheEffects(delta.cacheEffects);
+    this.#applyDeltaCacheEffects(delta);
+    this.#sharedGeneration = delta.generation;
   }
 
   #preflightHostDelta(delta: HostMemoryDelta): PhysicalCapacityRequirement {
@@ -948,6 +1127,29 @@ export class V86Mirror implements ExecutionEngine {
       this.#directoryMappingCounts.size === this.#pageTables.size,
       "mirror page-table population index is inconsistent",
     );
+    const only = delta.mappingOperations[0]!;
+    if (delta.mappingOperations.length === 1 && only.operation === "protect") {
+      // Protection changes preserve mapping identity and physical capacity.
+      // Validate the whole range and payload before applying any change; a
+      // temporary copy of every affected mapping is unnecessary here.
+      const end = rangeEnd(only.range);
+      for (let address = only.range.base; address < end; address += memoryPageSize) {
+        const mapping = this.#mappings.get(address);
+        invariant(mapping !== undefined, "protect operation targets an unmapped mirror page");
+        invariant(mapping.owner === only.owner, "protect operation owner mismatch");
+        invariant(
+          mapping.addressAllocationId === only.addressAllocationId,
+          "protect operation address allocation mismatch",
+        );
+      }
+      this.#preflightDeltaPagesWithLookup(delta.pages, address => {
+        const mapping = this.#mappings.get(address);
+        return mapping !== undefined && address >= only.range.base && address < end
+          ? { ...mapping, protection: only.protection }
+          : mapping;
+      });
+      return this.#capacityRequirement(this.#mappings.size, this.#pageTables.size);
+    }
     const mappingChanges = new Map<number, PlannedMapping | null>();
     const plannedMapping = (address: number): PlannedMapping | undefined => {
       if (mappingChanges.has(address)) {
@@ -1198,6 +1400,19 @@ export class V86Mirror implements ExecutionEngine {
     }
   }
 
+  #applyDeltaCacheEffects(delta: HostMemoryDelta): void {
+    if (delta.mappingOperations.length === 0 && delta.pages.length === 0) {
+      this.applyCacheEffects(delta.cacheEffects);
+      return;
+    }
+    // Runtime's flags summarize the mutations in this delta. Each byte,
+    // protection and lifetime change already retires its physical dependencies;
+    // expanding that scope to all generated code loses unrelated hot functions.
+    if (delta.cacheEffects.flushTlb || delta.cacheEffects.invalidateInstructionFetch) {
+      this.#wasm.full_clear_tlb();
+    }
+  }
+
   applyCacheEffects(effects: CacheEffects): void {
     if (effects.flushTlb || effects.invalidateInstructionFetch) {
       this.#wasm.full_clear_tlb();
@@ -1211,6 +1426,7 @@ export class V86Mirror implements ExecutionEngine {
     const directoryIndices = new Set(this.#pageTables.keys());
     const addresses = new Set<number>();
     for (const page of reflection.pages) {
+      this.#validateSharedPage(page);
       invariant((page.address & (memoryPageSize - 1)) === 0, "unaligned reflected page");
       invariant(page.bytes.byteLength === memoryPageSize, "invalid reflected page length");
       invariant(!addresses.has(page.address), "reflection repeats a guest page");
@@ -1228,6 +1444,14 @@ export class V86Mirror implements ExecutionEngine {
       const mapping = this.#mappings.get(page.address)!;
       this.#installPageBytes(page.bytes, mapping);
     }
+    this.#sharedGeneration = reflection.generation;
+  }
+
+  #validateSharedPage(page: ReflectedPage): void {
+    if (!this.#shared) return;
+    invariant(page.address < 0x80000000 && page.bytes.buffer === this.#wasm.memory.buffer &&
+      page.bytes.byteOffset === this.#physicalBase + this.#sharedGuestOffset + page.address &&
+      page.bytes.byteLength === memoryPageSize, "shared page does not belong to the Runtime arena");
   }
 
   #installReservations(regions: MemoryRegionSnapshot[]): void {
@@ -1274,11 +1498,11 @@ export class V86Mirror implements ExecutionEngine {
   ): void {
     const table = this.#ensurePageTable(address);
     const pteAddress = table + ((address >>> 12) & 0x3ff) * 4;
-    const physicalBase = this.#allocatePage();
+    const physicalBase = this.#shared ? this.#sharedGuestOffset + address : this.#allocatePage();
     this.#physicalView.setUint32(
       pteAddress,
       physicalBase |
-        pageFlags.present |
+        ((!this.#shared || protection.read || protection.write || protection.execute) ? pageFlags.present : 0) |
         pageFlags.user |
         (protection.write ? pageFlags.writable : 0),
       true,
@@ -1305,20 +1529,24 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #installPageBytes(bytes: Uint8Array, mapping: MirrorMapping): void {
-    this.#physicalMemory.set(bytes, mapping.physicalBase);
+    // Host copies bypass CPU store barriers. v86 also retires dependent modules
+    // and cancels in-flight compilations when this physical page changes.
+    this.#wasm.jit_dirty_cache(mapping.physicalBase, mapping.physicalBase + memoryPageSize);
+    if (!this.#shared) this.#physicalMemory.set(bytes, mapping.physicalBase);
   }
 
   #updateProtection(address: number, protection: MemoryProtection): void {
     const mapping = this.#mappings.get(address)!;
     const dirty = this.#physicalView.getUint32(mapping.pteAddress, true) & pageFlags.dirty;
     invariant(
-      protection.write || dirty === 0,
+      this.#shared || protection.write || dirty === 0,
       "mirror write protection changed while the CPU page was still dirty",
     );
+    this.#wasm.jit_dirty_cache(mapping.physicalBase, mapping.physicalBase + memoryPageSize);
     this.#physicalView.setUint32(
       mapping.pteAddress,
       mapping.physicalBase |
-        pageFlags.present |
+        ((!this.#shared || protection.read || protection.write || protection.execute) ? pageFlags.present : 0) |
         pageFlags.user |
         (protection.write ? pageFlags.writable : 0) |
         dirty,
@@ -1333,13 +1561,14 @@ export class V86Mirror implements ExecutionEngine {
 
   #unmapPage(address: number): void {
     const mapping = this.#mappings.get(address)!;
+    this.#wasm.jit_dirty_cache(mapping.physicalBase, mapping.physicalBase + memoryPageSize);
     this.#physicalView.setUint32(mapping.pteAddress, 0, true);
     invariant(
       this.#wasm.vine_set_page_executable(address, 0) === 0,
       "v86 rejected unmapped execute permission",
     );
     this.#mappings.delete(address);
-    this.#releasePage(mapping.physicalBase);
+    if (!this.#shared) this.#releasePage(mapping.physicalBase);
     const directoryIndex = address >>> 22;
     const directoryMappingCount = this.#directoryMappingCounts.get(directoryIndex);
     invariant(
@@ -1453,10 +1682,9 @@ export class V86Mirror implements ExecutionEngine {
     return mapping;
   }
 
-  #executionContext(state: CpuState): ExecutionCpuContext {
+  #executionContext(state: CpuState, materializedFlags: number): ExecutionCpuContext {
     return {
-      byteLength: 612,
-      opaqueWords: state.words,
+      snapshot: { backend: "v86", abiVersion: 1, words: state.words },
       eax: state.eax,
       ecx: state.words[stateWord.ecx] ?? 0,
       edx: state.words[stateWord.edx] ?? 0,
@@ -1466,8 +1694,7 @@ export class V86Mirror implements ExecutionEngine {
       esi: state.words[stateWord.esi] ?? 0,
       edi: state.words[stateWord.edi] ?? 0,
       instructionPointer: state.instructionPointer,
-      previousInstructionPointer: state.previousInstructionPointer,
-      eflags: state.words[stateWord.flags] ?? 0,
+      eflags: materializedFlags,
       es: state.words[stateWord.segmentSelectorBase] ?? 0,
       cs: state.words[stateWord.segmentSelectorBase + 1] ?? 0,
       ss: state.words[stateWord.segmentSelectorBase + 2] ?? 0,
@@ -1505,7 +1732,7 @@ export class V86Mirror implements ExecutionEngine {
       }
     }
     if (this.#nextPhysicalPage + memoryPageSize >
-        this.#physicalPoolBytes) {
+        (this.#shared ? this.#sharedGuestOffset : this.#physicalPoolBytes)) {
       throw physicalCapacityError(
         this.#mappings.size + 1,
         this.#maximumPhysicalPages,

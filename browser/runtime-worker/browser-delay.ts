@@ -1,6 +1,7 @@
 export function browserDelayMilliseconds(service: string, words: readonly number[]): number {
   const audio = service === "browser.audio-delay";
-  if ((!audio && service !== "browser.timer-delay" && service !== "browser.sleep") ||
+  if ((!audio && service !== "browser.timer-delay" && service !== "browser.sleep" &&
+      service !== "browser.object-wait") ||
       words.some(word => !Number.isInteger(word) || word < 0 || word > 0xffff_ffff)) {
     throw new Error("Invalid browser timer request");
   }

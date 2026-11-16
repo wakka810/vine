@@ -12,3 +12,6 @@ crate-type = ["cdylib", "rlib"]
 encoding_rs.workspace = true
 serde_json.workspace = true
 vine-core = { path = "../vine-core" }
+
+[features]
+shared-guest-memory = ["vine-core/shared-guest-memory"]

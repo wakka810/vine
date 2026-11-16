@@ -106,6 +106,44 @@ const exports = {
   vine_bridge_writeback_generation_high: () => 0,
 };
 const bridge = RuntimeBridge.fromExports(exports);
+{
+  const counterMemory = new WebAssembly.Memory({ initial: 1 });
+  let value = { kind: "timestamp-counter", low: 0xffff_ffff, high: 42 }, encoded, calls = [];
+  const counter = RuntimeBridge.fromExports({
+    memory: counterMemory,
+    vine_bridge_read_timestamp_counter(...words) {
+      calls.push(words);
+      encoded = new TextEncoder().encode(JSON.stringify(value));
+      new Uint8Array(counterMemory.buffer, 0, encoded.length).set(encoded);
+      return 0;
+    },
+    vine_bridge_metadata_ptr: () => 0, vine_bridge_metadata_len: () => encoded.length,
+    ...Object.fromEntries(["control","payload","presentation","audio","media"]
+      .flatMap(name => [[`vine_bridge_${name}_ptr`, () => 0], [`vine_bridge_${name}_len`, () => 0]])),
+  });
+  assert.deepEqual(counter.readTimestampCounter(0x1_0000_0001, 429496.7297), { low: 0xffff_ffff, high: 42 });
+  assert.deepEqual(calls, [[1, 1, 1, 1]], "clock and retirement words cross independently");
+  for (const time of [-1, NaN, Infinity]) assert.throws(() => counter.readTimestampCounter(0, time));
+  for (const retired of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1])
+    assert.throws(() => counter.readTimestampCounter(retired, 0));
+  assert.equal(calls.length, 1, "invalid observations must not reach Rust");
+  for (const invalid of [{ kind: "other", low: 0, high: 0 },
+    { kind: "timestamp-counter", low: -1, high: 0 },
+    { kind: "timestamp-counter", low: 0, high: 0x1_0000_0000 }]) {
+    value = invalid;
+    assert.throws(() => counter.readTimestampCounter(0, 0), /invalid timestamp counter/);
+  }
+}
+// Wait observations remain Rust-owned scalars and do not consume/replace
+// borrowed output buffers. Reject malformed observations at the adapter edge.
+{
+  let request = 0n;
+  const waits = RuntimeBridge.fromExports({ vine_bridge_ready_object_wait_request_id: () => request });
+  for (request of [0n, 1n, 1n << 40n, -1n])
+    assert.equal(waits.readyObjectWaitRequestId(), BigInt.asUintN(64, request));
+  for (request of [1, null, 1n << 63n, -(1n << 63n) - 1n])
+    assert.throws(() => waits.readyObjectWaitRequestId(), /invalid object wait request/);
+}
 new Uint8Array(memory.buffer, 128, 4).set([1, 2, 3, 4]);
 new Uint8Array(memory.buffer, 512, 4).set([3, 2, 1, 0]);
 new Uint8Array(memory.buffer, 768, 4).set([9, 8, 7, 6]);
@@ -454,4 +492,69 @@ console.log("runtime bridge: bounded input/output, owned async receipts, synchro
   assert.equal(emptyBorrow.presentation.byteLength, 0);
   assert.equal(emptyBorrow.presentation, emptyOwned.presentation, 'zero-length path preserves the shared empty object');
   console.log('presentation bridge: initial provenance, bounds/growth, owned deferred/created fallbacks passed');
+}
+
+// CPU snapshots are opaque owned transfers. Reject a malformed receipt before
+// reading its payload, and never expose the Runtime's reusable output buffer.
+{
+  const core = new WebAssembly.Memory({ initial: 1 });
+  let receipt, payloadLength = 0, extraControl = 0, storedBytes, putCalls = 0, getCalls = 0;
+  const encode = () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(receipt));
+    new Uint8Array(core.buffer, 128, bytes.length).set(bytes); return bytes.length;
+  };
+  const api = {
+    memory: core,
+    vine_bridge_input_resize: () => { core.grow(1); return 0; },
+    vine_bridge_input_ptr: () => 4096,
+    vine_bridge_metadata_ptr: () => 128, vine_bridge_metadata_len: encode,
+    vine_bridge_control_len: () => extraControl,
+    vine_bridge_payload_ptr: () => 8192, vine_bridge_payload_len: () => payloadLength,
+    vine_bridge_presentation_len: () => 0, vine_bridge_audio_len: () => 0, vine_bridge_media_len: () => 0,
+    vine_bridge_cpu_snapshot_put(threadId, low, high, backendTag, abiVersion, byteLength) {
+      putCalls++;
+      storedBytes = Uint8Array.from(new Uint8Array(core.buffer, 4096, byteLength));
+      const next = (BigInt(low) | BigInt(high) << 32n) + 1n;
+      receipt = { kind: 'cpu-snapshot-stored', threadId, revisionLow: Number(next & 0xffff_ffffn),
+        revisionHigh: Number(next >> 32n), backendTag, abiVersion, byteLength };
+      payloadLength = 0; return 0;
+    },
+    vine_bridge_cpu_snapshot_get() { getCalls++; return 0; },
+  };
+  const bridge = RuntimeBridge.fromExports(api);
+  for (const [backend, abiVersion, length] of [['v86', 1, 612], ['recompiler', 2, 512]]) {
+    const words = Uint32Array.from({ length: length / 4 }, (_, i) => (i * 0x10204081) >>> 0);
+    const original = Uint32Array.from(words);
+    assert.equal(bridge.storeCpuSnapshot(8192, 0xffff_ffffn, { backend, abiVersion, words }), 0x1_0000_0000n);
+    assert.deepEqual(storedBytes, new Uint8Array(original.buffer));
+    words.fill(0);
+    receipt.kind = 'cpu-snapshot'; payloadLength = length;
+    new Uint8Array(core.buffer, 8192, length).set(storedBytes);
+    const loaded = bridge.loadCpuSnapshot(8192);
+    assert.equal(loaded.revision, 0x1_0000_0000n);
+    assert.equal(loaded.snapshot.backend, backend); assert.equal(loaded.snapshot.abiVersion, abiVersion);
+    assert.deepEqual(loaded.snapshot.words, original);
+    new Uint8Array(core.buffer, 8192, length).fill(0);
+    assert.deepEqual(loaded.snapshot.words, original, 'parked bytes must survive the next Runtime call');
+    const valid = { ...receipt };
+    for (const patch of [{ threadId: 8193 }, { revisionLow: -1 }, { revisionLow: 0, revisionHigh: 0 },
+      { backendTag: 9 }, { abiVersion: 99 }, { byteLength: 0x7fff_ffff }, { byteLength: length - 4 }]) {
+      receipt = { ...valid, ...patch };
+      assert.throws(() => bridge.loadCpuSnapshot(8192), /snapshot receipt/);
+    }
+    receipt = valid; payloadLength = length - 4;
+    assert.throws(() => bridge.loadCpuSnapshot(8192), /payload length/);
+    payloadLength = length; extraControl = 1;
+    assert.throws(() => bridge.loadCpuSnapshot(8192), /snapshot receipt/);
+    extraControl = 0;
+  }
+  const calls = putCalls;
+  for (const snapshot of [
+    { backend: 'recompiler', abiVersion: 1, words: new Uint32Array(105) },
+    { backend: 'recompiler', abiVersion: 2, words: new Uint32Array(129) },
+    { backend: 'v86', abiVersion: 1, words: new Uint32Array(152) },
+  ]) assert.throws(() => bridge.storeCpuSnapshot(8192, 0n, snapshot), /ABI mismatch/);
+  assert.equal(putCalls, calls, 'invalid input cannot mutate Runtime storage');
+  assert(getCalls > 0);
+  console.log('CPU snapshot bridge: opaque ownership, growth, revisions and malformed receipt bounds passed');
 }
