@@ -24,8 +24,9 @@ source immutability and OPFS save/close/fresh-runtime/load in Fast and Strict.
 
 Fixed captured VM, pixel and audio work improved during CPU development, but
 those comparisons exclude parts of the full Runtime/browser path. Actual-title
-observations reach the title, opening scene and text progression; they do not
-qualify full-title play, save compatibility, animation FPS or long-run stability.
+observations include unattended startup to title screens, opening scenes,
+text progression and a sampled save/restart/load; they do not qualify full-title
+play, save compatibility, animation FPS or long-run stability.
 Generated guest code remains a major measured cost. Private comparisons, source
 snapshots and raw traces are retained outside Git.
 

@@ -123,6 +123,7 @@ fn runtime_dispatch_uses_windows_module_case_and_exact_name_or_ordinal() {
     let tick = runtime.clock().tick_count;
     for (module, name, ordinal, expected) in [
         ("KeRnEl32.dll", "GetACP", None, Some(932)),
+        ("kernel32.dll", "GetVersion", None, Some(0x4a65_000a)),
         ("kernel32.dll", "getacp", None, None),
         ("example.dll", "GetACP", None, None),
         ("WINMM.dll", "timeGetTime", None, Some(tick)),
@@ -317,23 +318,30 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
         PERFORMANCE_COUNTER.to_le_bytes()
     );
 
-    let startup = dispatch(
-        &dispatcher,
-        &mut runtime,
-        &endpoints[2],
-        frames[2].0,
-        frames[2].1[0],
-        4,
-    );
-    assert_eq!(startup.eax, None);
-    acknowledge_pending_delta(&mut runtime.memory);
-    assert_eq!(
-        runtime
-            .memory
-            .read(GuestAddress(OUTPUT_BASE + 0x100), startup_bytes.len())
-            .expect("startup output"),
-        startup_bytes
-    );
+    for name in ["GetStartupInfoA", "GetStartupInfoW"] {
+        let mut endpoint = endpoints[2].clone();
+        endpoint.symbol = crate::api::ApiSymbol::Name {
+            name: name.to_owned(),
+        };
+        let startup_dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+        let startup = dispatch(
+            &startup_dispatcher,
+            &mut runtime,
+            &endpoint,
+            frames[2].0,
+            frames[2].1[0],
+            4,
+        );
+        assert_eq!(startup.eax, None);
+        acknowledge_pending_delta(&mut runtime.memory);
+        assert_eq!(
+            runtime
+                .memory
+                .read(GuestAddress(OUTPUT_BASE + 0x100), startup_bytes.len())
+                .expect("startup output"),
+            startup_bytes
+        );
+    }
 
     let tls = dispatch(
         &dispatcher,
@@ -2148,7 +2156,7 @@ fn lc_map_string_w_models_measured_japanese_case_mapping_and_fails_closed() {
     let frames = [
         vec![
             0x1000_0d01,
-            0x0411,
+            0,
             0x0100,
             LOWER_SOURCE,
             lower_source.len() as u32,
@@ -2157,7 +2165,7 @@ fn lc_map_string_w_models_measured_japanese_case_mapping_and_fails_closed() {
         ],
         vec![
             0x1000_0d02,
-            0x0411,
+            0x0400,
             0x0100,
             LOWER_SOURCE,
             lower_source.len() as u32,
@@ -2166,7 +2174,7 @@ fn lc_map_string_w_models_measured_japanese_case_mapping_and_fails_closed() {
         ],
         vec![
             0x1000_0d03,
-            0x0411,
+            0x0800,
             0x0200,
             UPPER_SOURCE,
             upper_source.len() as u32,
@@ -2442,7 +2450,7 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
     const MODULE_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x200;
     const EXPORT_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x300;
 
-    let (mut memory, owner) = initialized_memory();
+    let (mut memory, owner) = initialized_memory_with_limits(MemoryLimits::default());
     let (dispatcher, endpoints, frames) =
         remaining_dispatcher_fixture(&mut memory, owner, MODULE_NAME_ADDRESS, EXPORT_NAME_ADDRESS);
     let mut runtime = controlled_runtime(memory, controlled_startup_info());
@@ -2586,7 +2594,7 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
     assert_eq!(missing_name.eax, Some(0));
     assert_eq!(runtime.current_last_error().unwrap(), 127);
 
-    // GetModuleHandleW(NULL) returns the handle of the file used to create the calling process.
+    // Both variants return the mapped image base, not the internal object handle.
     runtime
         .register_main_module(RuntimeModule {
             handle: 0x4d01_0002,
@@ -2595,6 +2603,23 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
             runtime_system_module: false,
         })
         .expect("register main executable module");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.work/toolchain-spike/timer-wait.exe");
+    let limits = Pe32Limits::default();
+    let snapshot = ModuleSnapshot::from_bytes(fs::read(fixture).unwrap(), &limits).unwrap();
+    let loader = build_pe32_load_plan(&snapshot, limits).unwrap();
+    let image = materialize_pe32_image(
+        &mut runtime.memory,
+        &snapshot,
+        &loader,
+        GuestAddress(0x0040_0000),
+    )
+    .unwrap();
+    runtime.memory.seal_owner(image.layout.owner).unwrap();
+    runtime
+        .register_module_image(0x4d01_0002, &loader, &image)
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
     runtime
         .set_current_last_error(INITIAL_LAST_ERROR)
         .expect("restore the LastError oracle after the not-found paths");
@@ -2606,7 +2631,23 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
         frames[10].1[0],
         4,
     );
-    assert_eq!(calling_process.eax, Some(0x4d01_0002));
+    assert_eq!(calling_process.eax, Some(0x0040_0000));
+    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+
+    let mut ansi_module = endpoints[5].clone();
+    ansi_module.symbol = crate::api::ApiSymbol::Name {
+        name: "GetModuleHandleA".to_owned(),
+    };
+    let ansi_dispatcher = ApiDispatcher::from_endpoints([ansi_module.clone()]).unwrap();
+    let calling_process = dispatch(
+        &ansi_dispatcher,
+        &mut runtime,
+        &ansi_module,
+        frames[10].0,
+        frames[10].1[0],
+        4,
+    );
+    assert_eq!(calling_process.eax, Some(0x0040_0000));
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
 
     // An unloaded module is NULL plus ERROR_MOD_NOT_FOUND, not a Vine fault.
@@ -2834,7 +2875,7 @@ fn load_library_a_reuses_an_attached_guest_dll_and_tracks_dynamic_references() {
         let DispatchOutcome::Immediate(completion) = outcome else {
             panic!("expected attached guest DLL handle, got {outcome:?}");
         };
-        assert_eq!(completion.eax, Some(MODULE_HANDLE));
+        assert_eq!(completion.eax, Some(0x3000_0000));
         assert_eq!(runtime.current_last_error().unwrap(), 0x2468_1357);
         let node = runtime
             .module_graph()
@@ -2852,6 +2893,42 @@ fn load_library_a_reuses_an_attached_guest_dll_and_tracks_dynamic_references() {
         );
         assert_eq!(runtime.memory.stats(), memory_before);
     }
+
+    let export = loader
+        .exports
+        .as_ref()
+        .unwrap()
+        .symbols
+        .iter()
+        .find(|symbol| matches!(symbol.target, crate::pe32::ExportTarget::Address { .. }))
+        .unwrap();
+    let crate::pe32::ExportTarget::Address { rva } = export.target else {
+        unreachable!()
+    };
+    let mut procedure_endpoint = endpoint.clone();
+    procedure_endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "GetProcAddress".to_owned(),
+    };
+    let procedure_dispatcher = ApiDispatcher::from_endpoints([procedure_endpoint.clone()]).unwrap();
+    runtime
+        .memory
+        .write(
+            GuestAddress(STACK_BASE),
+            &[0x1000_0a01, 0x3000_0000, export.ordinal]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let procedure = dispatch_owned(
+        &procedure_dispatcher,
+        &mut runtime,
+        &procedure_endpoint,
+        STACK_BASE,
+        0x1000_0a01,
+    );
+    assert_eq!(procedure.eax, Some(0x3000_0000 + rva.0));
 }
 
 #[test]
@@ -4087,13 +4164,16 @@ fn heap_creation_rejects_unsupported_flags_and_returns_native_null_at_capacity()
 }
 
 fn initialized_memory() -> (GuestMemory, MemoryOwnerId) {
-    let mut memory = GuestMemory::new(MemoryLimits {
+    initialized_memory_with_limits(MemoryLimits {
         max_physical_pages: 4,
         max_regions: 4,
         max_owners: 4,
         max_access_bytes: 0x4000,
     })
-    .expect("memory");
+}
+
+fn initialized_memory_with_limits(limits: MemoryLimits) -> (GuestMemory, MemoryOwnerId) {
+    let mut memory = GuestMemory::new(limits).expect("memory");
     let owner = memory
         .create_owner(MemoryOwnerKind::Runtime)
         .expect("runtime owner");

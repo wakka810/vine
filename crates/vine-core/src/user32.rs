@@ -205,10 +205,11 @@ fn handle_get_client_rect(
     Ok(ApiImmediate::new(Some(u32::from(true))).with_guest_write(GuestAddress(output), bytes))
 }
 
-fn handle_get_window_rect(
+fn handle_get_window_geometry(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
+    placement: bool,
 ) -> Result<ApiImmediate, ApiFault> {
     let window_handle = required_argument(endpoint, frame, 0, "window handle")?;
     let output = required_argument(endpoint, frame, 1, "window rectangle")?;
@@ -233,10 +234,51 @@ fn handle_get_window_rect(
         .y
         .checked_add(height)
         .ok_or_else(|| ApiFault::new("logical outer bottom coordinate does not fit an x86 RECT"))?;
-    let bytes = [geometry.x, geometry.y, right, bottom]
-        .into_iter()
-        .flat_map(i32::to_le_bytes)
-        .collect();
+    let mut rect = [geometry.x, geometry.y, right, bottom];
+    let mut bytes = Vec::new();
+    if placement {
+        let length = runtime
+            .memory
+            .read(GuestAddress(output), 4)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        if read_u32(&length, 0) != Some(44) {
+            return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
+        }
+        if window.creation.effective_style & 0x2100_0000 != 0 {
+            return Err(ApiFault::new(
+                "minimized and maximized window placement is not implemented",
+            ));
+        }
+        if window.creation.effective_style & 0x4000_0000 == 0
+            && window.creation.effective_extended_style & 0x80 == 0
+        {
+            let monitor = runtime
+                .primary_monitor()
+                .ok_or_else(|| ApiFault::new("window placement requires the primary monitor"))?;
+            let dx = monitor
+                .work_rect
+                .left
+                .checked_sub(monitor.rect.left)
+                .ok_or_else(|| ApiFault::new("workspace offset overflowed"))?;
+            let dy = monitor
+                .work_rect
+                .top
+                .checked_sub(monitor.rect.top)
+                .ok_or_else(|| ApiFault::new("workspace offset overflowed"))?;
+            for (coordinate, offset) in rect.iter_mut().zip([dx, dy, dx, dy]) {
+                *coordinate = coordinate
+                    .checked_sub(offset)
+                    .ok_or_else(|| ApiFault::new("workspace placement overflowed"))?;
+            }
+        }
+        // Normal, never-minimized windows retain the default min/max positions.
+        bytes.extend(
+            [44_i32, 0, 1, -1, -1, -1, -1]
+                .into_iter()
+                .flat_map(i32::to_le_bytes),
+        );
+    }
+    bytes.extend(rect.into_iter().flat_map(i32::to_le_bytes));
     Ok(ApiImmediate::new(Some(u32::from(true))).with_guest_write(GuestAddress(output), bytes))
 }
 
@@ -3760,7 +3802,8 @@ pub(crate) fn dispatch_user32_api(
                 "SetWindowLongA" => handle_set_window_long_a(endpoint, frame, runtime),
                 "SetTimer" => handle_set_timer(endpoint, frame, runtime),
                 "GetClientRect" => handle_get_client_rect(endpoint, frame, runtime),
-                "GetWindowRect" => handle_get_window_rect(endpoint, frame, runtime),
+                "GetWindowRect" => handle_get_window_geometry(endpoint, frame, runtime, false),
+                "GetWindowPlacement" => handle_get_window_geometry(endpoint, frame, runtime, true),
                 "SwapMouseButton" => {
                     let swapped =
                         match required_argument(endpoint, frame, 0, "mouse button swap flag") {
@@ -3860,8 +3903,9 @@ pub(crate) fn user32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<u8
         | "DispatchMessageA" | "IsIconic" | "GetAsyncKeyState" | "SetFocus" | "GetDC"
         | "GetQueueStatus" => 1,
         "LoadIconA" | "SetWindowTextA" | "ShowWindow" | "BeginPaint" | "EndPaint"
-        | "LoadCursorA" | "GetClientRect" | "GetWindowRect" | "SetCursorPos"
-        | "MonitorFromWindow" | "GetMonitorInfoA" | "ReleaseDC" | "GetSystemMenu" => 2,
+        | "LoadCursorA" | "GetClientRect" | "GetWindowRect" | "GetWindowPlacement"
+        | "SetCursorPos" | "MonitorFromWindow" | "GetMonitorInfoA" | "ReleaseDC"
+        | "GetSystemMenu" => 2,
         "SetWindowLongA" | "FillRect" | "EnableMenuItem" => 3,
         "MessageBoxA" | "EnumDisplayMonitors" | "SendMessageA" | "SetTimer" | "DefWindowProcA" => 4,
         "PeekMessageA" | "SetRect" => 5,

@@ -1758,11 +1758,10 @@ impl RuntimeUser32 {
                     || window.topmost
                     || !request.next_visible
                     || request.next_topmost
-                    || request.next_geometry == window.creation.geometry
-                    || small_icon_handle == 0 =>
+                    || request.next_geometry == window.creation.geometry =>
             {
                 return Err(RuntimeStateError::new(
-                    "initial logical window show requires a hidden non-topmost window, moved geometry, and a live small icon",
+                    "initial logical window show requires a hidden non-topmost window and moved geometry",
                 ));
             }
             RuntimeSetWindowPosVariant::InitialHide

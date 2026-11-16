@@ -3082,6 +3082,64 @@ fn get_client_rect_reads_live_window_geometry_and_preserves_failure_atomicity() 
 }
 
 #[test]
+fn get_window_placement_reads_normal_geometry_and_checks_output_length() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_created_window_and_small_icon();
+    fixture.get_window_rect_endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "GetWindowPlacement".to_owned(),
+    };
+    fixture.dispatcher =
+        ApiDispatcher::from_endpoints([fixture.get_window_rect_endpoint.clone()]).unwrap();
+    fixture.configure_get_window_rect(window, WINDOW_RECT_OUTPUT_ADDRESS);
+    let mut output = [0xa5; 44];
+    output[..4].copy_from_slice(&44_u32.to_le_bytes());
+    fixture
+        .runtime
+        .memory
+        .write(WINDOW_RECT_OUTPUT_ADDRESS, &output)
+        .unwrap();
+    fixture.acknowledge_pending_delta();
+    let last_error = fixture.runtime.current_last_error().unwrap();
+    assert!(matches!(fixture.dispatch_get_window_rect(),
+        DispatchOutcome::Immediate(ref completion) if completion.eax == Some(1)));
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), last_error);
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .runtime
+            .memory
+            .read(WINDOW_RECT_OUTPUT_ADDRESS, 44)
+            .unwrap(),
+        [44_i32, 0, 1, -1, -1, -1, -1, 557, 214, 1363, 843]
+            .into_iter()
+            .flat_map(i32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    fixture
+        .runtime
+        .memory
+        .write(WINDOW_RECT_OUTPUT_ADDRESS, &43_u32.to_le_bytes())
+        .unwrap();
+    fixture.acknowledge_pending_delta();
+    let before = fixture
+        .runtime
+        .memory
+        .read(WINDOW_RECT_OUTPUT_ADDRESS, 44)
+        .unwrap();
+    assert!(matches!(fixture.dispatch_get_window_rect(),
+        DispatchOutcome::Immediate(ref completion) if completion.eax == Some(0)));
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 87);
+    assert_eq!(
+        fixture
+            .runtime
+            .memory
+            .read(WINDOW_RECT_OUTPUT_ADDRESS, 44)
+            .unwrap(),
+        before
+    );
+}
+
+#[test]
 fn get_window_rect_reads_live_outer_geometry_and_preserves_failure_atomicity() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
@@ -6960,6 +7018,53 @@ fn imm32_null_invalid_and_wrong_identity_fail_without_partial_resources() {
     assert_eq!(
         fixture.runtime.ime_context_associations()[&app_id],
         association_before
+    );
+}
+
+#[test]
+fn set_window_pos_shows_a_window_without_an_explicit_small_icon() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    assert!(
+        fixture
+            .runtime
+            .window(window_handle)
+            .unwrap()
+            .small_icon
+            .is_none()
+    );
+    fixture.configure_set_window_pos(
+        [window_handle, 0xffff_fffe, 15_360, 8_640, 0, 0, 0x0559],
+        SET_WINDOW_POS_SHOW_RETURN_ADDRESS,
+    );
+    let DispatchOutcome::GuestCallback(call) =
+        fixture.dispatch_set_window_pos(SET_WINDOW_POS_SHOW_RETURN_ADDRESS)
+    else {
+        panic!("expected position notification");
+    };
+    fixture.runtime.begin_guest_callback(call).unwrap();
+    fixture.acknowledge_pending_delta();
+    assert!(matches!(
+        fixture
+            .runtime
+            .complete_guest_callback(&fixture.dispatcher, fixture.callback_sentinel, 0)
+            .unwrap(),
+        vine_core::GuestCallbackReturn::Continue(_)
+    ));
+    fixture.acknowledge_pending_delta();
+    let result = fixture
+        .runtime
+        .complete_guest_callback(&fixture.dispatcher, fixture.callback_sentinel, 0)
+        .unwrap();
+    assert!(
+        matches!(result, vine_core::GuestCallbackReturn::Completed(ref completion) if completion.eax == Some(1))
+    );
+    let window = fixture.runtime.window(window_handle).unwrap();
+    assert!(window.visible);
+    assert!(window.small_icon.is_none());
+    assert_eq!(
+        (window.creation.geometry.x, window.creation.geometry.y),
+        (15_360, 8_640)
     );
 }
 

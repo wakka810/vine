@@ -34,6 +34,9 @@ const MAX_LOAD_LIBRARY_MODULE_NAME_BYTES: usize = 260;
 const MAX_EXPORT_NAME_BYTES: usize = 64;
 const CP_ACP: u32 = 0;
 const WINDOWS_932_CODE_PAGE: u32 = 932;
+const WINDOWS_VERSION_MAJOR: u32 = 10;
+const WINDOWS_VERSION_MINOR: u32 = 0;
+const WINDOWS_VERSION_BUILD: u32 = 19045;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_FILE_NOT_FOUND: u32 = 2;
 const ERROR_PATH_NOT_FOUND: u32 = 3;
@@ -85,6 +88,7 @@ pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<
         | "GetCurrentThread"
         | "GetLastError"
         | "GetACP"
+        | "GetVersion"
         | "GetSystemDefaultLangID"
         | "GetTickCount"
         | "GetCommandLineA"
@@ -117,8 +121,10 @@ pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<
         | "Sleep"
         | "QueryPerformanceFrequency"
         | "QueryPerformanceCounter"
+        | "GetStartupInfoA"
         | "GetStartupInfoW"
         | "LoadLibraryA"
+        | "GetModuleHandleA"
         | "GetModuleHandleW"
         | "TlsGetValue"
         | "EncodePointer"
@@ -142,6 +148,8 @@ pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<
         | "GetFileSize"
         | "GetProcAddress"
         | "TlsSetValue"
+        | "IsBadReadPtr"
+        | "IsBadWritePtr"
         | "FlsSetValue"
         | "InitializeCriticalSectionAndSpinCount"
         | "WaitForSingleObject" => 2,
@@ -1011,9 +1019,9 @@ fn handle_get_version_ex_a_basic(
 
 fn merge_os_version_info_a(bytes: &mut [u8]) {
     // Fixed NT 10.0 / build 19045 workstation, independent of the browser host.
-    bytes[4..8].copy_from_slice(&10_u32.to_le_bytes());
-    bytes[8..12].copy_from_slice(&0_u32.to_le_bytes());
-    bytes[12..16].copy_from_slice(&19045_u32.to_le_bytes());
+    bytes[4..8].copy_from_slice(&WINDOWS_VERSION_MAJOR.to_le_bytes());
+    bytes[8..12].copy_from_slice(&WINDOWS_VERSION_MINOR.to_le_bytes());
+    bytes[12..16].copy_from_slice(&WINDOWS_VERSION_BUILD.to_le_bytes());
     bytes[16..20].copy_from_slice(&2_u32.to_le_bytes());
     bytes[20] = 0; // Empty service-pack string; preserve its unused tail.
     if bytes.len() == X86_OS_VERSION_INFO_EX_A_BYTES as usize {
@@ -1336,7 +1344,7 @@ fn handle_wide_char_to_multi_byte_basic(
     } else {
         code_page
     };
-    if effective_code_page != WINDOWS_932_CODE_PAGE || flags != 0 {
+    if effective_code_page != WINDOWS_932_CODE_PAGE || !matches!(flags, 0 | 0x0200 | 0x0220) {
         return Err(ApiFault::new(format!(
             "Windows-932 conversion does not support code page {code_page} and flags {flags:#010x}"
         )));
@@ -1368,6 +1376,18 @@ fn handle_wide_char_to_multi_byte_basic(
         source_count,
         MAXIMUM_SOURCE_CODE_UNITS,
     )?;
+    // WC_COMPOSITECHECK (with default WC_SEPCHARS) leaves this repertoire
+    // unchanged. Fail before writing for input requiring a composition table.
+    if flags != 0
+        && source_units.iter().any(|&unit| {
+            matches!(unit, 0x3099 | 0x309a)
+                || (unit != 0xfffd && classify_windows_ctype1(unit).is_none())
+        })
+    {
+        return Err(ApiFault::new(
+            "Windows-932 composite conversion does not yet cover this Unicode input",
+        ));
+    }
     let source_byte_length = source_units
         .len()
         .checked_mul(2)
@@ -3394,7 +3414,8 @@ fn handle_lc_map_string_w_basic(
     let destination_address = required_argument(endpoint, frame, 4, "UTF-16 destination")?;
     let destination_count =
         required_argument(endpoint, frame, 5, "UTF-16 destination capacity")? as i32;
-    if locale != 0x0411 {
+    // Neutral and user/system defaults resolve to the fixed Japanese environment.
+    if !matches!(locale, 0 | 0x0400 | 0x0800 | 0x0411) {
         return Err(ApiFault::new(format!(
             "LCMapStringW does not support locale {locale:#010x}"
         )));
@@ -3632,12 +3653,54 @@ fn handle_query_performance_frequency(
         .with_guest_write(GuestAddress(output), frequency.to_le_bytes().to_vec()))
 }
 
-fn handle_get_startup_info_w(
+fn handle_is_bad_pointer(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &crate::runtime::Runtime,
+    access: MemoryAccess,
 ) -> Result<ApiImmediate, ApiFault> {
-    let output = required_argument(endpoint, frame, 0, "STARTUPINFOW output")?;
+    let mut address = required_argument(endpoint, frame, 0, "memory pointer")?;
+    let mut remaining = required_argument(endpoint, frame, 1, "byte count")?;
+    if u64::from(address) + u64::from(remaining) > (1_u64 << 32) {
+        return Ok(ApiImmediate::new(Some(1)));
+    }
+    while remaining != 0 {
+        let chunk = remaining.min(0x1000 - (address & 0xfff)) as usize;
+        let chunk = chunk.min(runtime.memory.limits().max_access_bytes);
+        match runtime
+            .memory
+            .validate_access(GuestAddress(address), chunk, access)
+        {
+            Ok(()) => {}
+            Err(error) if error.fault.is_some() => return Ok(ApiImmediate::new(Some(1))),
+            Err(error) => return Err(ApiFault::from_memory(error, endpoint)),
+        }
+        remaining -= chunk as u32;
+        if remaining != 0 {
+            address += chunk as u32;
+        }
+    }
+    Ok(ApiImmediate::new(Some(0)))
+}
+
+fn handle_get_startup_info(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
+    wide: bool,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = required_argument(endpoint, frame, 0, "STARTUPINFO output")?;
+    // Numeric fields and the CRT reserved block share the x86 A/W layout.
+    // The owned startup image stores wide string pointers; never expose them as ANSI.
+    if !wide
+        && runtime.startup_info().bytes[4..16]
+            .iter()
+            .any(|&byte| byte != 0)
+    {
+        return Err(ApiFault::new(
+            "GetStartupInfoA startup string conversion is not implemented",
+        ));
+    }
     Ok(ApiImmediate::new(None)
         .with_guest_write(GuestAddress(output), runtime.startup_info().bytes.clone()))
 }
@@ -3851,10 +3914,17 @@ fn handle_load_library_a_basic(
                     "LoadLibraryA requires a materialized and attached guest DLL",
                 ));
             }
+            let guest_handle = runtime
+                .module_images()
+                .image(node.id)
+                .map_err(|error| ApiFault::new(error.to_string()))?
+                .image_range
+                .start()
+                .0;
             runtime
                 .add_current_thread_module_reference(handle)
                 .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
-            Ok(ApiImmediate::new(Some(handle)))
+            Ok(ApiImmediate::new(Some(guest_handle)))
         }
         Ok(None) => {
             let mut path = name.into_bytes();
@@ -3881,10 +3951,11 @@ fn load_library_a_failure(last_error: u32) -> ApiImmediate {
     ApiImmediate::new(Some(0)).with_last_error(last_error)
 }
 
-fn handle_get_module_handle_w(
+fn handle_get_module_handle(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &crate::runtime::Runtime,
+    wide: bool,
 ) -> Result<ApiImmediate, ApiFault> {
     let name_address = required_argument(endpoint, frame, 0, "module name")?;
     // A null module name is the documented request for the module handle of the file used to
@@ -3892,23 +3963,46 @@ fn handle_get_module_handle_w(
     let module = if name_address == 0 {
         runtime.main_module().map(Some)
     } else {
-        let name = read_utf16_nul(
-            endpoint,
-            &runtime.memory,
-            GuestAddress(name_address),
-            MAX_MODULE_NAME_CODE_UNITS,
-        )?;
+        let name = if wide {
+            read_utf16_nul(
+                endpoint,
+                &runtime.memory,
+                GuestAddress(name_address),
+                MAX_MODULE_NAME_CODE_UNITS,
+            )?
+        } else {
+            let bytes = read_multi_byte_source(
+                endpoint,
+                &runtime.memory,
+                GuestAddress(name_address),
+                -1,
+                MAX_MODULE_NAME_CODE_UNITS * 2,
+            )?;
+            String::from_utf16(&decode_windows_932(&bytes[..bytes.len() - 1]))
+                .map_err(|_| ApiFault::new("ANSI module name could not be decoded"))?
+        };
         runtime.module_by_name(&name)
     };
     match module {
-        Ok(Some(module)) => Ok(ApiImmediate::new(Some(module.handle))),
-        Ok(None) => Ok(get_module_handle_w_failure(ERROR_MOD_NOT_FOUND)),
+        Ok(Some(module)) => {
+            // HMODULE/HINSTANCE is the mapped image base for guest modules.
+            // Tagged object handles remain private to the module/object owners.
+            let handle = if module.runtime_system_module {
+                module.handle
+            } else {
+                runtime
+                    .module_images()
+                    .image_by_name(&module.canonical_name)
+                    .map_err(|error| ApiFault::new(error.to_string()))?
+                    .image_range
+                    .start()
+                    .0
+            };
+            Ok(ApiImmediate::new(Some(handle)))
+        }
+        Ok(None) => Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_MOD_NOT_FOUND)),
         Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
     }
-}
-
-fn get_module_handle_w_failure(last_error: u32) -> ApiImmediate {
-    ApiImmediate::new(Some(0)).with_last_error(last_error)
 }
 
 fn handle_get_proc_address(
@@ -3916,14 +4010,21 @@ fn handle_get_proc_address(
     frame: &ApiCallFrame,
     runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let module_handle = required_argument(endpoint, frame, 0, "module handle")?;
+    let guest_handle = required_argument(endpoint, frame, 0, "module handle")?;
     let name_address = required_argument(endpoint, frame, 1, "procedure name")?;
+    let mapped_image = runtime
+        .module_image_by_load_base(GuestAddress(guest_handle))
+        .map_err(|error| ApiFault::new(error.to_string()))?;
+    let module_handle = mapped_image.map_or(guest_handle, |image| image.handle);
     let Some(module) = runtime
         .module_option(module_handle)
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?
     else {
         return Ok(get_proc_address_failure(ERROR_MOD_NOT_FOUND));
     };
+    if !module.runtime_system_module && mapped_image.is_none() {
+        return Ok(get_proc_address_failure(ERROR_MOD_NOT_FOUND));
+    }
     // A procedure name whose high-order word is zero is an ordinal, not a string address.
     let lookup = if name_address <= u32::from(u16::MAX) {
         ExportLookup::Ordinal {
@@ -4108,7 +4209,14 @@ pub(crate) fn dispatch_kernel32_api(
                 "QueryPerformanceFrequency" => {
                     handle_query_performance_frequency(endpoint, frame, runtime)
                 }
-                "GetStartupInfoW" => handle_get_startup_info_w(endpoint, frame, runtime),
+                "GetStartupInfoA" => handle_get_startup_info(endpoint, frame, runtime, false),
+                "GetStartupInfoW" => handle_get_startup_info(endpoint, frame, runtime, true),
+                "IsBadReadPtr" => {
+                    handle_is_bad_pointer(endpoint, frame, runtime, MemoryAccess::Read)
+                }
+                "IsBadWritePtr" => {
+                    handle_is_bad_pointer(endpoint, frame, runtime, MemoryAccess::Write)
+                }
                 "HeapSetInformation" => handle_heap_set_information(endpoint, frame, runtime),
                 "HeapCreate" => handle_heap_create(endpoint, frame, runtime),
                 "HeapAlloc" => handle_heap_alloc_basic(endpoint, frame, runtime),
@@ -4135,6 +4243,11 @@ pub(crate) fn dispatch_kernel32_api(
                 "GlobalMemoryStatus" => {
                     handle_global_memory_status_basic(endpoint, frame, &runtime.memory)
                 }
+                "GetVersion" => Ok(ApiImmediate::new(Some(
+                    (WINDOWS_VERSION_BUILD << 16)
+                        | (WINDOWS_VERSION_MINOR << 8)
+                        | WINDOWS_VERSION_MAJOR,
+                ))),
                 "GetVersionExA" => handle_get_version_ex_a_basic(endpoint, frame, &runtime.memory),
                 "GetDriveTypeA" => handle_get_drive_type_a_basic(endpoint, frame, runtime),
                 "SetCurrentDirectoryA" => {
@@ -4177,7 +4290,8 @@ pub(crate) fn dispatch_kernel32_api(
                 "FreeEnvironmentStringsW" => {
                     handle_free_environment_strings_w(endpoint, frame, runtime)
                 }
-                "GetModuleHandleW" => handle_get_module_handle_w(endpoint, frame, runtime),
+                "GetModuleHandleA" => handle_get_module_handle(endpoint, frame, runtime, false),
+                "GetModuleHandleW" => handle_get_module_handle(endpoint, frame, runtime, true),
                 "LoadLibraryA" => handle_load_library_a_basic(endpoint, frame, runtime),
                 "GetProcAddress" => handle_get_proc_address(endpoint, frame, runtime),
                 "TlsAlloc" => handle_tls_alloc(endpoint, runtime),

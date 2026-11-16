@@ -2617,6 +2617,7 @@ fn runtime_system_module(name: &str) -> bool {
             | "advapi32.dll"
             | "wininet.dll"
             | "ole32.dll"
+            | "atl.dll"
             | "d3d9.dll"
             | "dinput8.dll"
             | "dsound.dll"

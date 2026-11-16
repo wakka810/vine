@@ -93,26 +93,38 @@ impl RuntimeSynchronization {
                 "critical section storage must be a nonzero 4-byte-aligned guest address",
             ));
         }
-        if self.critical_sections.contains_key(&address) {
-            return Err(RuntimeStateError::new(format!(
-                "critical section storage {:#010x} is already initialized",
-                address.0
-            )));
-        }
-        if self.critical_sections.len() >= RUNTIME_CRITICAL_SECTION_LIMIT {
+        if let Some(previous) = self.critical_sections.get(&address) {
+            // NT reinitializes idle storage, including storage reused by a guest
+            // allocator without a DeleteCriticalSection call. Never discard a
+            // live owner or a scheduler lane waiting on the previous instance.
+            if previous.owning_thread_id.is_some()
+                || previous.recursion_count != 0
+                || self
+                    .critical_section_waiters
+                    .get(&address)
+                    .is_some_and(|waiters| !waiters.is_empty())
+            {
+                return Err(RuntimeStateError::new(format!(
+                    "critical section storage {:#010x} cannot be reinitialized while owned or awaited",
+                    address.0
+                )));
+            }
+        } else if self.critical_sections.len() >= RUNTIME_CRITICAL_SECTION_LIMIT {
             return Err(RuntimeStateError::new(
                 "process critical section count exceeds the runtime bound",
             ));
         }
+        let initialized = RuntimeCriticalSection {
+            address,
+            spin_count,
+            owning_thread_id: None,
+            recursion_count: 0,
+        };
         Ok(self
             .critical_sections
             .entry(address)
-            .or_insert(RuntimeCriticalSection {
-                address,
-                spin_count,
-                owning_thread_id: None,
-                recursion_count: 0,
-            }))
+            .and_modify(|section| *section = initialized)
+            .or_insert(initialized))
     }
 
     pub(super) fn enter(
@@ -541,6 +553,7 @@ mod tests {
             synchronization.enqueue_waiter(ADDRESS, thread);
         }
         let before_rejections = synchronization.clone();
+        assert!(synchronization.initialize(ADDRESS, 1234).is_err());
         assert!(synchronization.validate_wait(ADDRESS, OWNER).is_err());
         assert!(
             synchronization

@@ -549,6 +549,32 @@ fn private_heap_calls_preserve_live_bytes_on_failure_and_return_exact_guest_size
 }
 
 #[test]
+fn bad_pointer_checks_cover_owned_ranges_and_distinguish_read_from_write() {
+    let mut f = fixture(&["IsBadReadPtr", "IsBadWritePtr"]);
+    let before = f.read(OUTPUT, 64);
+    for (pointer, length, expected) in [
+        (0, 0, 0),
+        (u32::MAX, 0, 0),
+        (0, 1, 1),
+        (BASE.0, 0x3000, 0),
+        (BASE.0 + 0xfff, 2, 0),
+        (BASE.0 + 0x2fff, 2, 1),
+        (0xffff_fff0, 32, 1),
+    ] {
+        for name in ["IsBadReadPtr", "IsBadWritePtr"] {
+            assert_eq!(value(&mut f, name, &[pointer, length]), expected);
+            assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+            assert_eq!(f.read(OUTPUT, 64), before);
+        }
+    }
+    protect_output(&mut f, false);
+    assert_eq!(value(&mut f, "IsBadReadPtr", &[OUTPUT.0, 1]), 0);
+    assert_eq!(value(&mut f, "IsBadWritePtr", &[OUTPUT.0, 1]), 1);
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    assert_eq!(f.read(OUTPUT, 64), before);
+}
+
+#[test]
 fn windows_932_conversion_preserves_query_partial_output_and_default_character_contracts() {
     let mut f = fixture(&["WideCharToMultiByte", "MultiByteToWideChar"]);
     let wide = OUTPUT.0;
@@ -598,6 +624,25 @@ fn windows_932_conversion_preserves_query_partial_output_and_default_character_c
         assert_eq!(f.read(GuestAddress(destination), 6), UTF16);
         assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
     }
+    for flags in [0x200, 0x220] {
+        assert_eq!(
+            value(
+                &mut f,
+                "WideCharToMultiByte",
+                &[932, flags, wide, 3, destination, 4, 0, used_default]
+            ),
+            4
+        );
+        assert_eq!(f.read(GuestAddress(destination), 4), CP932);
+        assert_eq!(f.read(GuestAddress(used_default), 4), [0; 4]);
+    }
+    f.write(GuestAddress(wide), &[0x4b, 0x30, 0x99, 0x30, 0, 0]);
+    fault_preserves_outputs(
+        &mut f,
+        "WideCharToMultiByte",
+        &[932, 0x220, wide, 3, destination, 8, 0, used_default],
+    );
+    f.write(GuestAddress(wide), UTF16);
     f.write(GuestAddress(destination), &[0xa5; 8]);
     assert_eq!(
         value(
@@ -854,7 +899,13 @@ fn critical_section_validates_a_read_only_tail_before_state_change_and_can_retry
         None
     );
     assert_eq!(f.read(OUTPUT, 24), section_bytes(0x0200_07d0, 0, 0));
-    fault_preserves_outputs(&mut f, "InitializeCriticalSection", &[OUTPUT.0]);
+    f.write(OUTPUT, &[0xa5; 24]);
+    assert_eq!(
+        f.call(KERNEL, "InitializeCriticalSection", &[OUTPUT.0]).eax,
+        None
+    );
+    assert_eq!(f.read(OUTPUT, 24), section_bytes(0x0200_07d0, 0, 0));
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
 }
 
 #[test]
