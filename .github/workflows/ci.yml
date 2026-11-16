@@ -15,7 +15,6 @@ jobs:
     env:
       # llvm-mingw supplies PE fixtures but omits the WebAssembly backend.
       VINE_X87_CC: /usr/bin/clang
-      VINE_X87_AR: /usr/bin/llvm-ar
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
