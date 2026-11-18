@@ -244,10 +244,13 @@ impl RuntimeModuleGraph {
         let requester_node = self.module(requester)?;
         let dependency_node = self.module(dependency)?;
         if requester_node.state != RuntimeModuleLoadState::Registered
-            || dependency_node.state != RuntimeModuleLoadState::Registered
+            || !matches!(
+                dependency_node.state,
+                RuntimeModuleLoadState::Registered | RuntimeModuleLoadState::ProcessAttached { .. }
+            )
         {
             return Err(RuntimeModuleGraphError::new(
-                "dependency edges must be complete before modules become ready",
+                "new dependencies require a registered requester and a registered or attached dependency",
             ));
         }
         if requester_node.dependencies.contains(&dependency) {
@@ -302,10 +305,14 @@ impl RuntimeModuleGraph {
             let requester_node = self.module(requester)?;
             let dependency_node = self.module(dependency)?;
             if requester_node.state != RuntimeModuleLoadState::Registered
-                || dependency_node.state != RuntimeModuleLoadState::Registered
+                || !matches!(
+                    dependency_node.state,
+                    RuntimeModuleLoadState::Registered
+                        | RuntimeModuleLoadState::ProcessAttached { .. }
+                )
             {
                 return Err(RuntimeModuleGraphError::new(
-                    "dependency edges must be complete before modules become ready",
+                    "new dependencies require a registered requester and a registered or attached dependency",
                 ));
             }
             *new_references.entry(dependency).or_default() += 1;
@@ -413,6 +420,34 @@ impl RuntimeModuleGraph {
         Ok(remaining)
     }
 
+    pub(crate) fn release_process_dynamic_reference(
+        &mut self,
+        module: RuntimeModuleId,
+    ) -> Result<(), RuntimeModuleGraphError> {
+        // LoadLibrary references belong to the process. The recorded thread is
+        // provenance, not an authority that prevents another thread freeing it.
+        let node = self.module_mut(module)?;
+        let index = node
+            .references
+            .iter()
+            .position(|reference| {
+                matches!(
+                    reference.owner,
+                    RuntimeModuleReferenceOwner::DynamicLoad { .. }
+                )
+            })
+            .ok_or_else(|| RuntimeModuleGraphError::new("library has no dynamic reference"))?;
+        let remaining = node.references[index].count.checked_sub(1).ok_or_else(|| {
+            RuntimeModuleGraphError::new("runtime module reference count underflowed")
+        })?;
+        if remaining == 0 {
+            node.references.remove(index);
+        } else {
+            node.references[index].count = remaining;
+        }
+        Ok(())
+    }
+
     pub fn mark_ready(&mut self, module: RuntimeModuleId) -> Result<(), RuntimeModuleGraphError> {
         if self.module(module)?.state != RuntimeModuleLoadState::Registered {
             return Err(RuntimeModuleGraphError::new(
@@ -441,6 +476,71 @@ impl RuntimeModuleGraph {
                 sequence: (index + 1) as u32,
             };
         }
+    }
+
+    pub(crate) fn attach_ready_dynamic_module(
+        &mut self,
+        id: RuntimeModuleId,
+    ) -> Result<(), RuntimeModuleGraphError> {
+        let node = self.module(id)?;
+        if node.state != RuntimeModuleLoadState::Ready
+            || node.reference_count() == 0
+            || node.class == RuntimeModuleClass::MainExecutable
+        {
+            return Err(RuntimeModuleGraphError::new(
+                "dynamic attach requires a ready referenced library",
+            ));
+        }
+        let mut maximum = 0_u32;
+        let mut sequences = BTreeSet::new();
+        for other in self.nodes.values().filter(|node| node.id != id) {
+            let RuntimeModuleLoadState::ProcessAttached { sequence } = other.state else {
+                return Err(RuntimeModuleGraphError::new(
+                    "dynamic library dependencies must be attached",
+                ));
+            };
+            if sequence == 0 || !sequences.insert(sequence) {
+                return Err(RuntimeModuleGraphError::new(
+                    "dynamic attach found inconsistent module sequences",
+                ));
+            }
+            maximum = maximum.max(sequence);
+        }
+        let sequence = maximum
+            .checked_add(1)
+            .ok_or_else(|| RuntimeModuleGraphError::new("module attach sequence exhausted"))?;
+        self.module_mut(id)?.state = RuntimeModuleLoadState::ProcessAttached { sequence };
+        Ok(())
+    }
+
+    pub(crate) fn remove_dynamic_module(
+        &mut self,
+        id: RuntimeModuleId,
+    ) -> Result<(), RuntimeModuleGraphError> {
+        let node = self.module(id)?;
+        let removable = node.state == RuntimeModuleLoadState::Ready
+            || (matches!(node.state, RuntimeModuleLoadState::ProcessAttached { .. })
+                && node.reference_count() == 0);
+        if node.class != RuntimeModuleClass::GuestDynamicLibrary
+            || !removable
+            || !node.dependents.is_empty()
+        {
+            return Err(RuntimeModuleGraphError::new(
+                "only an unattached or unreferenced dynamic library can be discarded",
+            ));
+        }
+        let name = node.canonical_name.clone();
+        let dependencies = node.dependencies.clone();
+        for dependency in dependencies {
+            let target = self.nodes.get_mut(&dependency).expect("live dependency");
+            target.dependents.remove(&id);
+            target.references.retain(|reference| {
+                reference.owner != RuntimeModuleReferenceOwner::StaticImport { requester: id }
+            });
+        }
+        self.canonical_index.remove(&name);
+        self.nodes.remove(&id);
+        Ok(())
     }
 
     #[cfg(test)]
@@ -790,7 +890,7 @@ fn canonical_module_name(
     Ok(canonical)
 }
 
-fn normalize_module_lookup(name: &str) -> Option<String> {
+pub(crate) fn normalize_module_lookup(name: &str) -> Option<String> {
     let (encoded, _, had_errors) = encoding_rs::SHIFT_JIS.encode(name);
     let mut byte_index = 0;
     let mut separator = false;

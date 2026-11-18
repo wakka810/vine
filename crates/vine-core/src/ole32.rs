@@ -15,6 +15,27 @@ pub(crate) fn dispatch_ole32_api(
     {
         match name.as_str() {
             "CoInitialize" => return handle_co_initialize(endpoint, frame, runtime),
+            "CoUninitialize" => return handle_co_uninitialize(endpoint, frame, runtime),
+            "CoCreateGuid" => {
+                let result = (|| {
+                    let [output] = frame.arguments.as_slice() else {
+                        return Err(ApiFault::new("CoCreateGuid requires one argument"));
+                    };
+                    let output = GuestAddress(*output);
+                    runtime
+                        .memory
+                        .validate_access(output, 16, MemoryAccess::Write)
+                        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+                    let bytes = runtime
+                        .create_guid()
+                        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                    Ok(ApiImmediate::new(Some(0)).with_guest_write(output, bytes.to_vec()))
+                })();
+                return match result {
+                    Ok(value) => ApiHandlerResult::Immediate(value),
+                    Err(fault) => ApiHandlerResult::Fault(fault),
+                };
+            }
             "CoCreateInstance" => return handle_co_create_instance(endpoint, frame, runtime),
             "CoTaskMemAlloc" => return handle_co_task_mem_alloc(endpoint, frame, runtime),
             "CoTaskMemFree" => return handle_co_task_mem_free(endpoint, frame, runtime),
@@ -152,6 +173,20 @@ fn handle_co_initialize(
     ApiHandlerResult::Immediate(ApiImmediate::new(Some((result).bits())))
 }
 
+fn handle_co_uninitialize(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    if !frame.arguments.is_empty() {
+        return ApiHandlerResult::Fault(ApiFault::new("CoUninitialize takes no arguments"));
+    }
+    match runtime.uninitialize_current_com_apartment() {
+        Ok(()) => ApiHandlerResult::Immediate(ApiImmediate::new(None)),
+        Err(error) => ApiHandlerResult::Fault(ApiFault::from_runtime(error, endpoint)),
+    }
+}
+
 pub(crate) fn ole32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<u8> {
     if !endpoint.module.eq_ignore_ascii_case("ole32.dll") {
         return None;
@@ -160,9 +195,10 @@ pub(crate) fn ole32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<u8>
         return None;
     };
     match name.as_str() {
+        "CoUninitialize" => Some(0),
         "CoInitialize" => Some(1),
         "CoCreateInstance" => Some(5),
-        "CoTaskMemAlloc" | "CoTaskMemFree" => Some(1),
+        "CoTaskMemAlloc" | "CoTaskMemFree" | "CoCreateGuid" => Some(1),
         _ => None,
     }
 }

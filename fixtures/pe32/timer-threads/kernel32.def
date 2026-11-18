@@ -9,3 +9,6 @@ EXPORTS
   SetEvent@4
   Sleep@4
   CloseHandle@4
+  GetCurrentThread@0
+  SuspendThread@4
+  ResumeThread@4

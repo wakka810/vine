@@ -101,6 +101,152 @@ fn direct_sound_create_8_installs_one_owned_root_and_audio_lifetime() {
 }
 
 #[test]
+fn legacy_named_factory_publishes_legacy_identity_with_one_audio_device() {
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    fixture.endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "DirectSoundCreate".to_owned(),
+    };
+    fixture.dispatcher = ApiDispatcher::from_endpoints([fixture.endpoint.clone()]).unwrap();
+    assert_eq!(
+        immediate(fixture.dispatch_factory(0, OUTPUT_ADDRESS.0, 0)).eax,
+        Some(0)
+    );
+    fixture.acknowledge();
+    let pointer = GuestAddress(read_u32(&fixture.runtime.memory, OUTPUT_ADDRESS));
+    let root = fixture
+        .runtime
+        .com_interface_for_pointer(pointer)
+        .unwrap()
+        .unwrap();
+    assert_eq!(root.iid, crate::dsound::DSOUND_IDIRECTSOUND_IID);
+    assert_eq!(root.methods.len(), 11);
+    assert_eq!(fixture.runtime.audio_devices().len(), 1);
+    assert!(
+        fixture
+            .runtime
+            .com()
+            .interface_for_object_iid(root.object_id, DSOUND_IDIRECTSOUND8_IID)
+            .is_err()
+    );
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        LAST_ERROR_SENTINEL
+    );
+}
+
+#[test]
+fn sound_enumeration_uses_checked_unicode_callback_scratch_and_returns_hresult() {
+    use crate::api::{
+        ApiCallFrame, ApiHandlerResult, GuestCallbackArgument, GuestCallbackCompletionPolicy,
+    };
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    let memory = &mut fixture.runtime.memory;
+    let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    let callback = GuestAddress(0x6000_0000);
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Runtime, callback, 4096)
+        .unwrap();
+    memory
+        .commit(
+            owner,
+            range,
+            PageProtection {
+                read: true,
+                write: false,
+                execute: true,
+            },
+        )
+        .unwrap();
+    memory.seal_owner(owner).unwrap();
+    acknowledge_pending(memory);
+    let mut endpoint = fixture.endpoint.clone();
+    endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "DirectSoundEnumerateW".to_owned(),
+    };
+    let mut frame = ApiCallFrame {
+        endpoint,
+        stack_pointer: STACK,
+        return_address: RETURN_ADDRESS,
+        arguments: vec![callback.0, 0x1234_5678],
+    };
+    let sentinel = GuestAddress(callback.0 + 4);
+    let ApiHandlerResult::GuestCallback(request) =
+        dispatch_dsound_api(sentinel, &frame, &mut fixture.runtime)
+    else {
+        panic!("enumeration must invoke the default-device callback");
+    };
+    assert_eq!(request.target, callback);
+    assert_eq!(request.return_sentinel, sentinel);
+    assert!(matches!(
+        request.arguments[0],
+        GuestCallbackArgument::U32(0)
+    ));
+    assert!(matches!(
+        request.arguments[3],
+        GuestCallbackArgument::U32(0x1234_5678)
+    ));
+    assert!(matches!(
+        request.completion_policy,
+        GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 }
+    ));
+    let GuestCallbackArgument::ScratchPointer { offset } = request.arguments[2] else {
+        panic!("module string");
+    };
+    assert_eq!(&request.scratch[offset as usize..], &[0, 0]);
+    assert!(request.scratch[..offset as usize].ends_with(&[0, 0]));
+    let dispatcher = ApiDispatcher::from_endpoints([frame.endpoint.clone()]).unwrap();
+    write_words(
+        &mut fixture.runtime.memory,
+        STACK,
+        &[RETURN_ADDRESS.0, callback.0, 0x1234_5678],
+    );
+    acknowledge_pending(&mut fixture.runtime.memory);
+    let outcome = dispatcher.dispatch_owned(
+        ApiOwnedTrap {
+            endpoint_id: frame.endpoint.id,
+            endpoint_address: frame.endpoint.address,
+            stack_pointer: STACK,
+            return_address: RETURN_ADDRESS,
+        },
+        &mut fixture.runtime,
+        None,
+        |frame, runtime, _| dispatch_dsound_api(sentinel, frame, runtime),
+    );
+    let DispatchOutcome::GuestCallback(call) = outcome else {
+        panic!("checked enumeration handoff: {outcome:?}");
+    };
+    fixture
+        .runtime
+        .begin_guest_callback(call)
+        .expect("materialize checked audio callback");
+    acknowledge_pending(&mut fixture.runtime.memory);
+    let crate::api::GuestCallbackReturn::Completed(completed) = fixture
+        .runtime
+        .complete_guest_callback(&dispatcher, sentinel, 1)
+        .unwrap()
+    else {
+        panic!("audio callback completion");
+    };
+    assert_eq!(completed.eax, Some(0));
+    assert_eq!(completed.stack_pointer, GuestAddress(STACK.0 + 12));
+    acknowledge_pending(&mut fixture.runtime.memory);
+    let before = fixture.runtime.memory.stats();
+    frame.arguments[0] = BUFFER_FORMAT.0;
+    assert!(matches!(
+        dispatch_dsound_api(sentinel, &frame, &mut fixture.runtime),
+        ApiHandlerResult::Fault(_)
+    ));
+    assert_eq!(fixture.runtime.memory.stats(), before);
+    frame.arguments[0] = 0;
+    let ApiHandlerResult::Immediate(result) =
+        dispatch_dsound_api(sentinel, &frame, &mut fixture.runtime)
+    else {
+        panic!("null callback");
+    };
+    assert_eq!(result.eax, Some(DSOUND_E_INVALIDARG.bits()));
+}
+
+#[test]
 fn buffer_argument_failures_preserve_output_and_authorities() {
     let mut fixture = Fixture::new(MemoryLimits::default());
     immediate(fixture.dispatch_factory(0, OUTPUT_ADDRESS.0, 0));
@@ -361,7 +507,7 @@ fn cooperative_level_rejects_invalid_or_unreached_relations_atomically() {
 }
 
 #[test]
-fn factory_catalog_matches_only_the_direct_sound_ordinal() {
+fn factory_catalog_matches_named_factories_and_existing_ordinal() {
     let fixture = Fixture::new(MemoryLimits::default());
     assert!(dsound_argument_words(&fixture.endpoint).is_some());
 
@@ -369,7 +515,7 @@ fn factory_catalog_matches_only_the_direct_sound_ordinal() {
     named.symbol = crate::api::ApiSymbol::Name {
         name: "DirectSoundCreate8".to_owned(),
     };
-    assert!(dsound_argument_words(&named).is_none());
+    assert_eq!(dsound_argument_words(&named), Some(3));
     let mut other_ordinal = fixture.endpoint;
     other_ordinal.symbol = crate::api::ApiSymbol::Ordinal { ordinal: 12 };
     assert!(dsound_argument_words(&other_ordinal).is_none());
@@ -497,7 +643,7 @@ impl Fixture {
         };
         self.dispatcher
             .dispatch_owned(trap, &mut self.runtime, None, |frame, runtime, _| {
-                dispatch_dsound_api(frame, runtime)
+                dispatch_dsound_api(GuestAddress(0x7f01_0000), frame, runtime)
             })
     }
 

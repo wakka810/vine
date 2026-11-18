@@ -5,7 +5,7 @@ use crate::api::{
 };
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
-    RUNTIME_GDI_BLACK_BRUSH_INDEX, RUNTIME_GDI_DIB_BI_RGB, RUNTIME_GDI_DIB_RGB_COLORS,
+    RUNTIME_GDI_DIB_BI_BITFIELDS, RUNTIME_GDI_DIB_BI_RGB, RUNTIME_GDI_DIB_RGB_COLORS,
     RUNTIME_LOG_FONT_A_BYTE_LENGTH, RUNTIME_LOG_FONT_A_FACE_CAPACITY, RuntimeDeviceContextTarget,
     RuntimeGdiDibSectionDescriptor, RuntimeGdiRgbQuad, RuntimeGdiTextRasterTarget,
     RuntimeHostCompletion, RuntimeLogFontA,
@@ -15,6 +15,7 @@ pub const RUNTIME_GDI_TEXT_RASTER_SERVICE: &str = "browser.gdi-text-raster";
 pub const X86_LOGFONTA_BYTE_LENGTH: u32 = RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32;
 pub const X86_BITMAPINFOHEADER_BYTE_LENGTH: u32 = 40;
 pub const X86_DIB_RGBQUAD_COUNT: usize = 256;
+#[cfg(test)]
 pub const X86_DIB_BITMAPINFO_BYTE_LENGTH: usize =
     X86_BITMAPINFOHEADER_BYTE_LENGTH as usize + X86_DIB_RGBQUAD_COUNT * 4;
 pub const X86_ENUMLOGFONTEXA_BYTE_LENGTH: usize = 188;
@@ -176,16 +177,58 @@ pub(crate) fn dispatch_gdi32_api(
                     runtime,
                 );
             }
+            "EnumFontsW" => {
+                return handle_enum_fonts_w(callback_return_sentinel, endpoint, frame, runtime);
+            }
             "CreateFontA" => handle_create_font_a(endpoint, frame, runtime),
+            "CreateFontIndirectA" | "CreateFontIndirectW" => {
+                handle_create_font_indirect_w(endpoint, frame, runtime)
+            }
+            "SetTextColor" | "SetBkColor" | "SetBkMode" => (|| {
+                let dc = required_argument(frame, 0, "device context")?;
+                let value = required_argument(frame, 1, "text attribute")?;
+                let (attribute, failure) = match name.as_str() {
+                    "SetTextColor" => (0, u32::MAX),
+                    "SetBkColor" => (1, u32::MAX),
+                    _ => (2, 0),
+                };
+                if attribute == 2 && !matches!(value, 1 | 2) {
+                    return Ok(ApiImmediate::new(Some(0)).with_last_error(87));
+                }
+                if attribute != 2 && value & 0xff00_0000 != 0 {
+                    return Err(ApiFault::new(
+                        "palette-relative GDI colors are not implemented",
+                    ));
+                }
+                let previous = runtime
+                    .set_gdi_text_attribute(dc, attribute, value)
+                    .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+                Ok(match previous {
+                    Some(old) => ApiImmediate::new(Some(old)),
+                    None => ApiImmediate::new(Some(failure)).with_last_error(6),
+                })
+            })(),
+            "AddFontMemResourceEx" => handle_add_font_mem_resource(endpoint, frame, runtime),
+            "RemoveFontMemResourceEx" => required_argument(frame, 0, "font resource")
+                .and_then(|handle| {
+                    runtime
+                        .remove_gdi_memory_font(handle)
+                        .map_err(|error| ApiFault::from_runtime(error, endpoint))
+                })
+                .map(|removed| ApiImmediate::new(Some(u32::from(removed)))),
             "CreateCompatibleDC" => handle_create_compatible_dc(endpoint, frame, runtime),
+            "CreateCompatibleBitmap" => handle_create_compatible_bitmap(endpoint, frame, runtime),
+            "SetPixel" | "GetPixel" => handle_pixel(endpoint, frame, runtime, name == "SetPixel"),
             "CreateDIBSection" => handle_create_dib_section(endpoint, frame, runtime),
-            "GetOutlineTextMetricsA" => handle_get_outline_text_metrics_a(endpoint, frame, runtime),
+            "GetOutlineTextMetricsA" | "GetOutlineTextMetricsW" => {
+                handle_get_outline_text_metrics(endpoint, frame, runtime, name.ends_with('W'))
+            }
             "TextOutA" => {
                 return handle_text_out_a(endpoint, frame, runtime);
             }
             "GetStockObject" => handle_get_stock_object(endpoint, frame, runtime),
             "DeleteDC" => handle_delete_dc(endpoint, frame, runtime),
-            "GetObjectA" => handle_get_object_a(endpoint, frame, runtime),
+            "GetObjectA" | "GetObjectW" => handle_get_object_a(endpoint, frame, runtime),
             "SelectObject" => handle_select_object(endpoint, frame, runtime),
             "DeleteObject" => handle_delete_object(endpoint, frame, runtime),
             _ => Err(ApiFault::new(format!(
@@ -200,20 +243,100 @@ pub(crate) fn dispatch_gdi32_api(
     }
 }
 
+fn handle_add_font_mem_resource(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let source = GuestAddress(required_argument(frame, 0, "font bytes")?);
+    let size = required_argument(frame, 1, "font byte length")? as usize;
+    let reserved = required_argument(frame, 2, "reserved")?;
+    let output = GuestAddress(required_argument(frame, 3, "font count output")?);
+    if reserved != 0
+        || size == 0
+        || source.0 == 0
+        || output.0 == 0
+        || size > crate::runtime::FONT_RESOURCE_MAX_BYTES
+    {
+        return Ok(ApiImmediate::new(Some(0)));
+    }
+    runtime
+        .memory
+        .validate_access(output, 4, MemoryAccess::Write)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let bytes = runtime
+        .memory
+        .read(source, size)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let handle = runtime
+        .add_gdi_memory_font(bytes, output)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(handle.unwrap_or(0))))
+}
+
 fn handle_create_compatible_dc(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    if required_argument(frame, 0, "source device context")? != 0 {
-        return Err(ApiFault::new(
-            "CreateCompatibleDC currently supports only the NULL screen source",
-        ));
+    let source = required_argument(frame, 0, "source device context")?;
+    if source != 0 {
+        let Some(dc) = runtime
+            .gdi_device_context_option(source)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        else {
+            return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE));
+        };
+        if dc.owner_thread_id != runtime.current_thread_id() {
+            return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE));
+        }
+        if matches!(
+            dc.target,
+            RuntimeDeviceContextTarget::GraphicsSurface { .. }
+        ) {
+            return Err(ApiFault::new(
+                "CreateCompatibleDC from a graphics surface is not implemented",
+            ));
+        }
     }
     let handle = runtime
         .create_compatible_memory_dc()
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
     Ok(ApiImmediate::new(Some(handle.unwrap_or(0))))
+}
+
+fn handle_create_compatible_bitmap(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let dc = required_argument(frame, 0, "device context")?;
+    let width = required_argument(frame, 1, "bitmap width")? as i32;
+    let height = required_argument(frame, 2, "bitmap height")? as i32;
+    let handle = runtime
+        .create_gdi_compatible_bitmap(dc, width, height)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(handle.unwrap_or(0))))
+}
+
+fn handle_pixel(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+    set: bool,
+) -> Result<ApiImmediate, ApiFault> {
+    let dc = required_argument(frame, 0, "device context")?;
+    let x = required_argument(frame, 1, "pixel x")? as i32;
+    let y = required_argument(frame, 2, "pixel y")? as i32;
+    let color = if set {
+        Some(required_argument(frame, 3, "pixel color")?)
+    } else {
+        None
+    };
+    let result = runtime
+        .gdi_device_bitmap_pixel(dc, x, y, color)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(result)))
 }
 
 fn handle_delete_dc(
@@ -266,7 +389,7 @@ fn handle_create_dib_section(
     let size_image = read_u32(&header, 20);
     let colors_used = read_u32(&header, 32);
     let colors_important = read_u32(&header, 36);
-    if header_size != X86_BITMAPINFOHEADER_BYTE_LENGTH
+    if !matches!(header_size, X86_BITMAPINFOHEADER_BYTE_LENGTH | 108 | 124)
         || width <= 0
         || height == 0
         || height == i32::MIN
@@ -277,19 +400,61 @@ fn handle_create_dib_section(
             ApiImmediate::new(Some(0)).with_guest_write(bits_output, 0_u32.to_le_bytes().to_vec())
         );
     }
-    let bitmap_info = runtime
-        .memory
-        .read(bitmap_info_address, X86_DIB_BITMAPINFO_BYTE_LENGTH)
-        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    let palette = bitmap_info[X86_BITMAPINFOHEADER_BYTE_LENGTH as usize..]
-        .chunks_exact(4)
-        .map(|quad| RuntimeGdiRgbQuad {
-            blue: quad[0],
-            green: quad[1],
-            red: quad[2],
-            reserved: quad[3],
-        })
-        .collect::<Vec<_>>();
+    let full_header = if header_size > X86_BITMAPINFOHEADER_BYTE_LENGTH {
+        runtime
+            .memory
+            .read(bitmap_info_address, header_size as usize)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?
+    } else {
+        header
+    };
+    let color_masks = if compression == RUNTIME_GDI_DIB_BI_BITFIELDS {
+        let mask_bytes = if full_header.len() >= 52 {
+            full_header[40..52].to_vec()
+        } else {
+            let full = runtime
+                .memory
+                .read(bitmap_info_address, 52)
+                .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+            full[40..52].to_vec()
+        };
+        Some([
+            read_u32(&mask_bytes, 0),
+            read_u32(&mask_bytes, 4),
+            read_u32(&mask_bytes, 8),
+        ])
+    } else {
+        None
+    };
+    let palette = match bits_per_pixel {
+        8 => {
+            let palette_offset = header_size as usize;
+            let bitmap_info = runtime
+                .memory
+                .read(
+                    bitmap_info_address,
+                    palette_offset + X86_DIB_RGBQUAD_COUNT * 4,
+                )
+                .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+            bitmap_info[palette_offset..]
+                .chunks_exact(4)
+                .map(|quad| RuntimeGdiRgbQuad {
+                    blue: quad[0],
+                    green: quad[1],
+                    red: quad[2],
+                    reserved: quad[3],
+                })
+                .collect::<Vec<_>>()
+        }
+        // Uncompressed or bitfield true-color/high-color DIBs have no palette.
+        // Do not read a color table past the caller's header or bitmasks.
+        16 | 24 | 32 if colors_used == 0 => Vec::new(),
+        _ => {
+            return Err(ApiFault::new(
+                "CreateDIBSection bit depth or color table is not implemented",
+            ));
+        }
+    };
     let width_u32 = u32::try_from(width).map_err(|_| {
         ApiFault::new("CreateDIBSection width does not fit unsigned pixel accounting")
     })?;
@@ -314,22 +479,33 @@ fn handle_create_dib_section(
         stride_bytes,
         pixel_byte_length,
         palette,
+        color_masks,
+    };
+    let valid_compression = match (bits_per_pixel, compression, color_masks) {
+        (8 | 16 | 24 | 32, RUNTIME_GDI_DIB_BI_RGB, None) => {
+            size_image == 0 || size_image == pixel_byte_length || header_size > 40
+        }
+        (
+            16,
+            RUNTIME_GDI_DIB_BI_BITFIELDS,
+            Some([0x7c00, 0x03e0, 0x001f] | [0xf800, 0x07e0, 0x001f] | [0x0f00, 0x00f0, 0x000f]),
+        ) => true,
+        (32, RUNTIME_GDI_DIB_BI_BITFIELDS, Some([0x00ff_0000, 0x0000_ff00, 0x0000_00ff])) => true,
+        _ => false,
     };
     let supported = usage == RUNTIME_GDI_DIB_RGB_COLORS
         && section_handle == 0
         && offset == 0
         && planes == 1
-        && bits_per_pixel == 8
-        && compression == RUNTIME_GDI_DIB_BI_RGB
+        && valid_compression
         && width_u32 <= 4096
         && height_u32 <= 4096
         && pixel_byte_length <= 8 * 1024 * 1024
-        && (size_image == 0 || size_image == pixel_byte_length)
-        && (colors_used == 0 || colors_used == 256)
-        && colors_important <= 256;
+        && (colors_used == 0 || bits_per_pixel == 8 && colors_used == 256)
+        && colors_important <= if bits_per_pixel == 8 { 256 } else { 0 };
     if !supported {
         return Err(ApiFault::new(
-            "CreateDIBSection supports bounded 8-bit BI_RGB memory DCs only",
+            "CreateDIBSection supports bounded 8/16/24/32-bit BI_RGB or BI_BITFIELDS bitmaps",
         ));
     }
     let handle = match runtime.create_gdi_dib_section(device_context, descriptor, bits_output) {
@@ -351,12 +527,33 @@ fn handle_get_object_a(
     let object_handle = required_argument(frame, 0, "object")?;
     let requested_byte_length = required_argument(frame, 1, "output byte length")?;
     let output = GuestAddress(required_argument(frame, 2, "object output")?);
-    let Some(bytes) = runtime
-        .get_gdi_object_bytes(object_handle, requested_byte_length)
-        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
-    else {
+    let unicode = matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "GetObjectW");
+    let bytes = if unicode {
+        let query_length = if output.0 == 0 {
+            92
+        } else {
+            requested_byte_length
+        };
+        let bytes = runtime
+            .get_gdi_object_bytes_w(object_handle, query_length)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        if output.0 == 0 && bytes.is_none() {
+            runtime.get_gdi_object_bytes_w(object_handle, 24)
+        } else {
+            Ok(bytes)
+        }
+    } else {
+        runtime.get_gdi_object_bytes(object_handle, requested_byte_length)
+    };
+    let Some(bytes) = bytes.map_err(|error| ApiFault::from_runtime(error, endpoint))? else {
         return Ok(ApiImmediate::new(Some(0)));
     };
+    if unicode && output.0 == 0 {
+        return Ok(ApiImmediate::new(Some(bytes.len() as u32)));
+    }
+    if bytes.is_empty() {
+        return Ok(ApiImmediate::new(Some(0)));
+    }
     Ok(
         ApiImmediate::new(Some(u32::try_from(bytes.len()).map_err(|_| {
             ApiFault::new("GetObjectA output length does not fit x86 accounting")
@@ -365,10 +562,11 @@ fn handle_get_object_a(
     )
 }
 
-fn handle_get_outline_text_metrics_a(
+fn handle_get_outline_text_metrics(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &crate::runtime::Runtime,
+    unicode: bool,
 ) -> Result<ApiImmediate, ApiFault> {
     let device_context = required_argument(frame, 0, "device context")?;
     let requested_byte_length = required_argument(frame, 1, "output byte length")?;
@@ -387,14 +585,70 @@ fn handle_get_outline_text_metrics_a(
     let selected_font = runtime
         .get_gdi_selected_font_a(device_context)
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let mut realized = selected_font.clone();
+    if unicode {
+        let face = &realized.face_name_windows_932;
+        if face.is_empty()
+            || face.eq_ignore_ascii_case(b"MS Gothic")
+            || face.eq_ignore_ascii_case(b"MS Shell Dlg")
+        {
+            // The shell/default logical face maps to the available virtual
+            // Japanese font. Keep the caller's logical LOGFONT unchanged.
+            realized.face_name_windows_932 = MS_GOTHIC_WINDOWS_932.to_vec();
+        }
+        if realized.character_set == 1 {
+            realized.character_set = SHIFT_JIS_CHARSET;
+        }
+        if realized.height == 0 {
+            realized.height = 16;
+        }
+        if realized.width == 0 {
+            realized.width = realized.height.unsigned_abs().div_ceil(2).max(1) as i32;
+        }
+    }
+    let selected_font = &realized;
     if selected_font.character_set != SHIFT_JIS_CHARSET
         || selected_font.face_name_windows_932 != MS_GOTHIC_WINDOWS_932
     {
-        return Err(ApiFault::new(
-            "only MS Gothic metrics are available in the fixed Japanese environment",
-        ));
+        return Err(ApiFault::new(format!(
+            "only MS Gothic metrics are available in the fixed Japanese environment: {selected_font:?}",
+        )));
     }
     let bytes = outline_text_metrics_for_font(selected_font)?;
+    if unicode {
+        let mut wide = vec![0; 216];
+        wide[..48].copy_from_slice(&bytes[..48]);
+        for (index, character) in [0_u16, 0xffee, 0xff65, 2].into_iter().enumerate() {
+            wide[48 + index * 2..50 + index * 2].copy_from_slice(&character.to_le_bytes());
+        }
+        wide[56..216].copy_from_slice(&bytes[52..212]);
+        for (index, name) in [
+            "ＭＳ ゴシック",
+            "ＭＳ ゴシック",
+            "標準",
+            "Microsoft:ＭＳ ゴシック",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let offset = wide.len() as u32;
+            write_u32(&mut wide, 200 + index * 4, offset);
+            wide.extend(name.encode_utf16().chain([0]).flat_map(u16::to_le_bytes));
+        }
+        let total = wide.len() as u32;
+        write_u32(&mut wide, 0, total);
+        if requested_byte_length == 0 || output.0 == 0 {
+            return Ok(ApiImmediate::new(Some(total)));
+        }
+        if requested_byte_length <= 216 {
+            wide[200..216].fill(0);
+            wide.truncate(requested_byte_length as usize);
+        } else if requested_byte_length < total {
+            // W does not publish a partial fixed header or set LastError here.
+            return Ok(ApiImmediate::new(Some(0)));
+        }
+        return Ok(ApiImmediate::new(Some(wide.len() as u32)).with_guest_write(output, wide));
+    }
     complete_outline_metrics(requested_byte_length, output, &bytes)
 }
 
@@ -410,6 +664,8 @@ fn outline_text_metrics_for_font(font: &RuntimeLogFontA) -> Result<Vec<u8>, ApiF
         || font.italic != 0
         || font.underline != 0
         || font.strike_out != 0
+        || font.escapement != 0
+        || font.orientation != 0
     {
         return Err(ApiFault::new(
             "outline metrics require a bounded upright MS Gothic font",
@@ -517,11 +773,22 @@ fn handle_text_out_a(
                 u32::from(true),
             ))));
         }
+        if matches!(target.descriptor.bits_per_pixel, 16 | 24 | 32) {
+            return crate::text_layout::text_out_a(frame, runtime);
+        }
         if x != 0
             || y != 0
             || !(1..=2).contains(&count)
             || target.log_font.character_set != SHIFT_JIS_CHARSET
             || target.log_font.face_name_windows_932 != MS_GOTHIC_WINDOWS_932
+            || target.log_font.height == 0
+            || target.log_font.height.unsigned_abs() > 4096
+            || !(1..=4096).contains(&target.log_font.width)
+            || target.log_font.escapement != 0
+            || target.log_font.orientation != 0
+            || target.log_font.italic != 0
+            || target.log_font.underline != 0
+            || target.log_font.strike_out != 0
             || target.descriptor.height >= 0
             || target.descriptor.pixel_byte_length > 2 * 1024 * 1024
             || target.descriptor.palette.len() != X86_DIB_RGBQUAD_COUNT
@@ -600,6 +867,15 @@ pub fn complete_gdi32_text_raster(
     response: Gdi32TextRasterHostResponse,
     runtime: &mut crate::runtime::Runtime,
 ) -> (DispatchOutcome, Option<RuntimeHostCompletion>) {
+    if call
+        .frame
+        .endpoint
+        .module
+        .eq_ignore_ascii_case("user32.dll")
+        || runtime.text_layouts.contains_key(&response.request_id)
+    {
+        return crate::text_layout::complete(dispatcher, call, response, runtime);
+    }
     if !call.frame.endpoint.module.eq_ignore_ascii_case("gdi32.dll")
         || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "TextOutA")
         || call.request.request_id != response.request_id
@@ -665,13 +941,25 @@ pub fn complete_gdi32_text_raster(
             Err(fault) => return (DispatchOutcome::Fault(fault), None),
         };
     let expected_bytes = vec![0; response.pixels.len()];
+    let mut pixels = response.pixels;
+    let background = if target.background_mode == 1 {
+        0x00ff_ffff
+    } else {
+        target.background_color
+    };
+    for row in 0..target.descriptor.height.unsigned_abs() as usize {
+        for column in 0..target.descriptor.width as usize {
+            let index = row * target.descriptor.stride_bytes as usize + column;
+            pixels[index] = grayscale_text_pixel(pixels[index], target.text_color, background);
+        }
+    }
     let runtime_completion = match runtime.commit_pending_gdi_text_raster(
         response.request_id,
         RUNTIME_GDI_TEXT_RASTER_SERVICE,
         target,
         0,
         &expected_bytes,
-        &response.pixels,
+        &pixels,
     ) {
         Ok(result) => result,
         Err(error) => {
@@ -687,6 +975,14 @@ pub fn complete_gdi32_text_raster(
         Err(fault) => DispatchOutcome::Fault(fault),
     };
     (outcome, Some(runtime_completion))
+}
+
+fn grayscale_text_pixel(coverage: u8, text: u32, background: u32) -> u8 {
+    let coverage = u32::from(coverage);
+    let channels = |color: u32| (color & 255) + ((color >> 8) & 255) + ((color >> 16) & 255);
+    let intensity =
+        (channels(text) * coverage + channels(background) * (255 - coverage) + 382) / 765;
+    (255 - intensity) as u8
 }
 
 fn handle_select_object(
@@ -722,25 +1018,82 @@ fn handle_create_font_a(
     let request = decode_log_font_a(endpoint, frame, &runtime.memory)?;
     if request.height == 0
         || request.height.unsigned_abs() > 4096
-        || request.width <= 0
-        || request.width > 4096
+        || !(0..=4096).contains(&request.width)
         || !(0..=1000).contains(&request.weight)
         || request.escapement != 0
         || request.orientation != 0
-        || request.italic != 0
-        || request.underline != 0
-        || request.strike_out != 0
-        || request.character_set != SHIFT_JIS_CHARSET
-        || request.output_precision != 4
-        || request.clip_precision != 0
-        || request.quality != 2
-        || request.pitch_and_family != 0
-        || request.face_name_windows_932 != MS_GOTHIC_WINDOWS_932
+        || encoding_rs::SHIFT_JIS
+            .decode_without_bom_handling(&request.face_name_windows_932)
+            .1
     {
         return Err(ApiFault::new(
-            "CreateFontA currently supports bounded upright CP932 MS Gothic fonts",
+            "CreateFontA currently supports bounded upright Windows-932 fonts",
         ));
     }
+    let handle = runtime
+        .create_gdi_font_a(request)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(handle.unwrap_or(0))))
+}
+
+fn handle_create_font_indirect_w(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(frame, 0, "LOGFONTW")?);
+    let ansi =
+        matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "CreateFontIndirectA");
+    let bytes = runtime
+        .memory
+        .read(address, if ansi { 60 } else { 92 })
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let units = if ansi {
+        crate::win32::decode_windows_932(&bytes[28..])
+    } else {
+        bytes[28..]
+            .chunks_exact(2)
+            .map(|b| u16::from_le_bytes(b.try_into().unwrap()))
+            .collect::<Vec<_>>()
+    };
+    let end = units
+        .iter()
+        .position(|&u| u == 0)
+        .ok_or_else(|| ApiFault::new("LOGFONTW face name is not terminated within LF_FACESIZE"))?;
+    let face = String::from_utf16(&units[..end])
+        .map_err(|_| ApiFault::new("LOGFONTW face name is malformed UTF-16"))?;
+    let (face, _, invalid) = encoding_rs::SHIFT_JIS.encode(&face);
+    if invalid || face.len() >= RUNTIME_LOG_FONT_A_FACE_CAPACITY {
+        return Err(ApiFault::new(
+            "logical font face requires bounded Windows-932 text",
+        ));
+    }
+    let request = RuntimeLogFontA {
+        height: read_i32(&bytes, 0),
+        width: read_i32(&bytes, 4),
+        escapement: read_i32(&bytes, 8),
+        orientation: read_i32(&bytes, 12),
+        weight: read_i32(&bytes, 16),
+        italic: bytes[20],
+        underline: bytes[21],
+        strike_out: bytes[22],
+        character_set: bytes[23],
+        output_precision: bytes[24],
+        clip_precision: bytes[25],
+        quality: bytes[26],
+        pitch_and_family: bytes[27],
+        face_name_windows_932: face.into_owned(),
+    };
+    if request.height.unsigned_abs() > 4096
+        || !(0..=4096).contains(&request.width)
+        || !(0..=1000).contains(&request.weight)
+    {
+        return Err(ApiFault::new(
+            "logical font dimensions or weight exceed supported bounds",
+        ));
+    }
+    // Retain the logical request. Metrics and rasterization separately validate
+    // whether the selected physical font and requested transformation are supported.
     let handle = runtime
         .create_gdi_font_a(request)
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
@@ -767,7 +1120,11 @@ fn decode_log_font_a(
         clip_precision: required_byte_argument(frame, 10, "clip precision")?,
         quality: required_byte_argument(frame, 11, "quality")?,
         pitch_and_family: required_byte_argument(frame, 12, "pitch and family")?,
-        face_name_windows_932: read_font_face_name(endpoint, memory, GuestAddress(face_address))?,
+        face_name_windows_932: if face_address == 0 {
+            Vec::new()
+        } else {
+            read_font_face_name(endpoint, memory, GuestAddress(face_address))?
+        },
     })
 }
 
@@ -810,13 +1167,83 @@ fn handle_get_stock_object(
         .argument_u32(0)
         .ok_or_else(|| ApiFault::new("decoded GetStockObject frame is missing object index 0"))?
         as i32;
-    if index != RUNTIME_GDI_BLACK_BRUSH_INDEX {
-        return Ok(ApiImmediate::new(Some(0)));
-    }
     match runtime.get_gdi_stock_object(index) {
         Ok(handle) => Ok(ApiImmediate::new(Some(handle.unwrap_or(0)))),
         Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
     }
+}
+
+fn handle_enum_fonts_w(
+    callback_return_sentinel: GuestAddress,
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let device_context = required_argument(frame, 0, "device context")?;
+        let face_address = required_argument(frame, 1, "typeface name")?;
+        let callback = GuestAddress(required_argument(frame, 2, "font enumeration callback")?);
+        let parameter = required_argument(frame, 3, "callback parameter")?;
+        let valid_dc = runtime
+            .gdi_device_context_option(device_context)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+            .is_some_and(|dc| dc.owner_thread_id == runtime.current_thread_id());
+        if !valid_dc {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE),
+            ));
+        }
+        if face_address != 0 {
+            let face = crate::win32::read_utf16_nul(
+                endpoint,
+                runtime.memory(),
+                GuestAddress(face_address),
+                RUNTIME_LOG_FONT_A_FACE_CAPACITY,
+            )?;
+            if face != "ＭＳ ゴシック" && !face.eq_ignore_ascii_case("MS Gothic") {
+                // Native EnumFonts succeeds without calling back for an empty
+                // or unavailable face. Memory-added fonts are not enumerable.
+                return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(1))));
+            }
+        }
+        runtime
+            .memory
+            .validate_access(callback, 1, MemoryAccess::Execute)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+
+        // Enumerate the same virtual font used by the ANSI GDI metrics path.
+        // LOGFONTW is 92 bytes; NEWTEXTMETRICW is 76 bytes on PE32.
+        let ansi_font = enum_log_font_ex_a_bytes();
+        let ansi_metrics = new_text_metric_ex_a_bytes();
+        let mut scratch = vec![0; 92 + 76];
+        scratch[..28].copy_from_slice(&ansi_font[..28]);
+        for (index, unit) in "ＭＳ ゴシック".encode_utf16().enumerate() {
+            scratch[28 + index * 2..30 + index * 2].copy_from_slice(&unit.to_le_bytes());
+        }
+        let metrics = &mut scratch[92..];
+        metrics[..44].copy_from_slice(&ansi_metrics[..44]);
+        for (index, character) in [0_u16, 0xffee, 0xff65, 2].into_iter().enumerate() {
+            metrics[44 + index * 2..46 + index * 2].copy_from_slice(&character.to_le_bytes());
+        }
+        metrics[52..57].copy_from_slice(&ansi_metrics[48..53]);
+        metrics[60..76].copy_from_slice(&ansi_metrics[56..72]);
+        Ok(ApiHandlerResult::GuestCallback(Box::new(
+            GuestCallbackRequest {
+                target: callback,
+                arguments: vec![
+                    GuestCallbackArgument::ScratchPointer { offset: 0 },
+                    GuestCallbackArgument::ScratchPointer { offset: 92 },
+                    GuestCallbackArgument::U32(TRUETYPE_FONTTYPE),
+                    GuestCallbackArgument::U32(parameter),
+                ],
+                scratch,
+                scratch_pointer_relocations: Vec::new(),
+                return_sentinel: callback_return_sentinel,
+                completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
+            },
+        )))
+    })();
+    result.unwrap_or_else(ApiHandlerResult::Fault)
 }
 
 fn handle_enum_font_families_ex_a(
@@ -906,9 +1333,21 @@ pub(crate) fn gdi32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<u8>
         return None;
     };
     Some(match name.as_str() {
-        "GetStockObject" | "CreateCompatibleDC" | "DeleteObject" | "DeleteDC" => 1,
-        "SelectObject" => 2,
-        "GetObjectA" | "GetOutlineTextMetricsA" => 3,
+        "GetStockObject"
+        | "CreateCompatibleDC"
+        | "DeleteObject"
+        | "DeleteDC"
+        | "CreateFontIndirectW"
+        | "CreateFontIndirectA"
+        | "RemoveFontMemResourceEx" => 1,
+        "SelectObject" | "SetTextColor" | "SetBkColor" | "SetBkMode" => 2,
+        "GetObjectA"
+        | "GetObjectW"
+        | "GetOutlineTextMetricsA"
+        | "GetOutlineTextMetricsW"
+        | "CreateCompatibleBitmap"
+        | "GetPixel" => 3,
+        "SetPixel" | "AddFontMemResourceEx" | "EnumFontsW" => 4,
         "EnumFontFamiliesExA" | "TextOutA" => 5,
         "CreateDIBSection" => 6,
         "CreateFontA" => 14,

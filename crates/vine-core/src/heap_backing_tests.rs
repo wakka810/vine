@@ -8,6 +8,103 @@ const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 
 #[test]
+fn heap_destroy_failure_preserves_mappings_handle_and_bytes() {
+    let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
+    let heap = runtime.allocate_private_heap(0, 0).unwrap();
+    let allocation = runtime
+        .allocate_private_heap_block(heap, 32, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    let owner = runtime.heap_backing(heap).unwrap().unwrap().memory_owner;
+    // An unexpected second region prevents retiring the owner after the known
+    // heap region has been removed in the transaction.
+    let extra = GuestAddress(0x6f00_0000);
+    runtime
+        .memory
+        .reserve_fixed(
+            owner,
+            crate::memory::MemoryRegionKind::Anonymous,
+            extra,
+            4096,
+        )
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    runtime
+        .memory
+        .write(allocation.address, &[0xa5; 32])
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    let before = runtime.memory.stats();
+    let addresses = runtime.process_address_space_allocator().clone();
+    assert!(runtime.destroy_private_heap(heap).is_err());
+    assert_eq!(runtime.memory.stats(), before);
+    assert_eq!(runtime.process_address_space_allocator(), &addresses);
+    assert_eq!(
+        runtime.memory.read(allocation.address, 32).unwrap(),
+        [0xa5; 32]
+    );
+    assert!(runtime.heap(heap).is_ok());
+    runtime.memory.release_region(owner, extra).unwrap();
+    acknowledge(&mut runtime.memory);
+    assert!(runtime.destroy_private_heap(heap).unwrap());
+}
+
+#[test]
+fn heap_destroy_releases_primary_extension_and_large_storage_without_touching_other_heaps() {
+    let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
+    let heap = runtime.allocate_private_heap(0, 0).unwrap();
+    let other = runtime.process_heap().unwrap();
+    let keep = runtime
+        .allocate_private_heap_block(other, 16, RuntimeHeapInitialization::Zeroed)
+        .unwrap()
+        .unwrap();
+    let before = runtime.memory.stats();
+    let mut addresses = Vec::new();
+    for size in [0x0100_0000, 32, 0x0101_0000] {
+        let allocation = runtime
+            .allocate_private_heap_block(heap, size, RuntimeHeapInitialization::Zeroed)
+            .unwrap()
+            .unwrap();
+        addresses.push(allocation.address);
+    }
+    acknowledge(&mut runtime.memory);
+    runtime.memory.write(keep.address, &[0x5a; 16]).unwrap();
+    acknowledge(&mut runtime.memory);
+    assert!(runtime.destroy_private_heap(heap).unwrap());
+    acknowledge(&mut runtime.memory);
+    for address in addresses {
+        assert!(runtime.memory.read(address, 1).is_err());
+        assert!(
+            runtime
+                .private_heap_allocation_option(heap, address)
+                .is_err()
+        );
+    }
+    assert_eq!(runtime.memory.read(keep.address, 16).unwrap(), [0x5a; 16]);
+    assert_eq!(runtime.memory.stats().physical_pages, before.physical_pages);
+    assert!(!runtime.destroy_private_heap(heap).unwrap());
+    assert!(!runtime.destroy_private_heap(other).unwrap());
+    let mut retired = vec![heap];
+    for _ in 0..40 {
+        let next = runtime.allocate_private_heap(0, 0).unwrap();
+        assert_ne!(next, 0);
+        assert!(!retired.contains(&next));
+        let allocation = runtime
+            .allocate_private_heap_block(next, 8, RuntimeHeapInitialization::Zeroed)
+            .unwrap()
+            .unwrap();
+        acknowledge(&mut runtime.memory);
+        assert_eq!(runtime.memory.read(allocation.address, 8).unwrap(), [0; 8]);
+        for old in &retired {
+            assert!(!runtime.destroy_private_heap(*old).unwrap());
+        }
+        assert!(runtime.destroy_private_heap(next).unwrap());
+        acknowledge(&mut runtime.memory);
+        retired.push(next);
+    }
+}
+
+#[test]
 fn realloc_preserves_other_blocks_and_leaves_coalesced_space_usable() {
     let mut runtime = running_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
     let heap = runtime.allocate_private_heap(0, 4096).unwrap();

@@ -9,6 +9,306 @@ use vine_core::{
 const KERNEL: &str = "kernel32.dll";
 const CROSS_PAGE: GuestAddress = GuestAddress(BASE.0 + 0x2ff0);
 
+#[test]
+fn global_atoms_copy_names_count_references_and_validate_before_mutation() {
+    let mut f = fixture(&["GlobalAddAtomA", "GlobalDeleteAtom"]);
+    f.write(OUTPUT, b"TabletProperty\0");
+    let atom = value(&mut f, "GlobalAddAtomA", &[OUTPUT.0]);
+    assert!((0xc000..=0xffff).contains(&atom));
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    f.write(OUTPUT, b"TABLETPROPERTY\0");
+    assert_eq!(value(&mut f, "GlobalAddAtomA", &[OUTPUT.0]), atom);
+    f.write(OUTPUT, b"DifferentName\0");
+    let other = value(&mut f, "GlobalAddAtomA", &[OUTPUT.0]);
+    assert_ne!(atom, other);
+    for _ in 0..2 {
+        assert_eq!(value(&mut f, "GlobalDeleteAtom", &[atom]), 0);
+        assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    }
+    assert_eq!(value(&mut f, "GlobalDeleteAtom", &[atom]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    for name in [b"#0012\0".as_slice(), b"#49151\0"] {
+        f.write(OUTPUT, name);
+        let expected = if name == b"#0012\0" { 12 } else { 49151 };
+        assert_eq!(value(&mut f, "GlobalAddAtomA", &[OUTPUT.0]), expected);
+        assert_eq!(value(&mut f, "GlobalAddAtomA", &[expected]), expected);
+        assert_eq!(value(&mut f, "GlobalDeleteAtom", &[expected]), 0);
+    }
+    for (name, error) in [(b"\0".as_slice(), 123), (b"#0\0", 87), (b"#49152\0", 87)] {
+        f.write(OUTPUT, name);
+        assert_eq!(value(&mut f, "GlobalAddAtomA", &[OUTPUT.0]), 0);
+        assert_eq!(f.runtime.current_last_error().unwrap(), error);
+    }
+    f.write(OUTPUT, &[vec![b'a'; 256], vec![0]].concat());
+    assert_eq!(value(&mut f, "GlobalAddAtomA", &[OUTPUT.0]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    // The native A entry point limits the decoded Unicode name, not ANSI bytes.
+    f.write(OUTPUT, &[[0x82, 0xa0].repeat(128), vec![0]].concat());
+    assert_ne!(value(&mut f, "GlobalAddAtomA", &[OUTPUT.0]), 0);
+    assert!(matches!(
+        f.dispatch(KERNEL, "GlobalAddAtomA", &[u32::MAX]),
+        DispatchOutcome::Fault(_)
+    ));
+    f.write(OUTPUT, b"DifferentName\0");
+    assert_eq!(value(&mut f, "GlobalAddAtomA", &[OUTPUT.0]), other);
+    for pointer in [0, 0xc000, 0xffff] {
+        assert_eq!(value(&mut f, "GlobalAddAtomA", &[pointer]), 0);
+        assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    }
+}
+
+#[test]
+fn heap_destroy_invalidates_private_handles_and_preserves_the_process_heap() {
+    let mut f = fixture(&["HeapCreate", "HeapAlloc", "HeapDestroy", "GetProcessHeap"]);
+    let heap = value(&mut f, "HeapCreate", &[0, 0, 0]);
+    let address = value(&mut f, "HeapAlloc", &[heap, 0, 64]);
+    assert_ne!(address, 0);
+    assert_eq!(value(&mut f, "HeapDestroy", &[heap]), 1);
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    assert!(f.runtime.memory().read(GuestAddress(address), 1).is_err());
+    assert_eq!(value(&mut f, "HeapDestroy", &[heap]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    let process = value(&mut f, "GetProcessHeap", &[]);
+    assert_eq!(value(&mut f, "HeapDestroy", &[process]), 0);
+    assert_ne!(value(&mut f, "HeapAlloc", &[process, 0, 64]), 0);
+    assert_eq!(value(&mut f, "HeapDestroy", &[0]), 0);
+}
+
+#[test]
+fn tls_free_preserves_error_on_success_and_rejects_double_release() {
+    let mut f = fixture(&["TlsAlloc", "TlsSetValue", "TlsGetValue", "TlsFree"]);
+    let index = value(&mut f, "TlsAlloc", &[]);
+    assert_eq!(value(&mut f, "TlsSetValue", &[index, 0x12345678]), 1);
+    assert_eq!(value(&mut f, "TlsFree", &[index]), 1);
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    assert_eq!(value(&mut f, "TlsFree", &[index]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    assert_eq!(value(&mut f, "TlsFree", &[u32::MAX]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    assert_eq!(value(&mut f, "TlsAlloc", &[]), index);
+    assert_eq!(value(&mut f, "TlsGetValue", &[index]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 0);
+}
+
+#[test]
+fn scalar_math_and_compare_exchange_preserve_signed_results_and_memory_authority() {
+    let mut f = fixture(&["MulDiv", "InterlockedCompareExchange"]);
+    for (a, b, d, expected) in [
+        (1280, 1, 1, 1280),
+        (1, 1, 2, 1),
+        (-1, 1, 2, -1),
+        (1, 1, -2, -1),
+        (-1, 1, -2, 1),
+        (3, 1, 2, 2),
+        (-3, 1, 2, -2),
+        (i32::MAX, 2, 2, i32::MAX),
+        (i32::MIN, 1, 1, -1),
+        (i32::MAX, 2, 1, -1),
+        (1, 1, 0, -1),
+    ] {
+        assert_eq!(
+            f.call(KERNEL, "MulDiv", &[a as u32, b as u32, d as u32])
+                .eax,
+            Some(expected as u32)
+        );
+    }
+    f.words(OUTPUT, &[5, 0xaabbccdd]);
+    assert_eq!(
+        f.call(KERNEL, "InterlockedCompareExchange", &[OUTPUT.0, 9, 4])
+            .eax,
+        Some(5)
+    );
+    assert_eq!(f.read(OUTPUT, 4), 5_u32.to_le_bytes());
+    assert_eq!(
+        f.call(KERNEL, "InterlockedCompareExchange", &[OUTPUT.0, 9, 5])
+            .eax,
+        Some(5)
+    );
+    assert_eq!(
+        f.read(OUTPUT, 8),
+        [9_u32, 0xaabbccdd]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    fault_preserves_outputs(&mut f, "InterlockedCompareExchange", &[OUTPUT.0 + 1, 0, 0]);
+    protect_output(&mut f, false);
+    fault_preserves_outputs(&mut f, "InterlockedCompareExchange", &[OUTPUT.0, 0, 0]);
+}
+
+#[test]
+fn slist_initialization_zeros_only_the_aligned_x86_header() {
+    let mut f = fixture(&["InitializeSListHead"]);
+    f.write(OUTPUT, &[0xa5; 16]);
+    assert_eq!(f.call(KERNEL, "InitializeSListHead", &[OUTPUT.0]).eax, None);
+    assert_eq!(f.read(OUTPUT, 16), [[0; 8], [0xa5; 8]].concat());
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    fault_preserves_outputs(&mut f, "InitializeSListHead", &[OUTPUT.0 + 4]);
+    fault_preserves_outputs(&mut f, "InitializeSListHead", &[0]);
+    protect_output(&mut f, false);
+    fault_preserves_outputs(&mut f, "InitializeSListHead", &[OUTPUT.0]);
+}
+
+#[test]
+fn extended_locale_mapping_uses_the_same_bounded_utf16_mapping_and_query_rules() {
+    let mut f = fixture(&["LCMapStringEx"]);
+    let source = GuestAddress(OUTPUT.0 + 0x100);
+    let destination = GuestAddress(OUTPUT.0 + 0x200);
+    let wide = |text: &str| {
+        text.encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>()
+    };
+    f.write(OUTPUT, &wide("ja-JP\0"));
+    f.write(source, &wide("AbC\0"));
+    let mut args = [OUTPUT.0, 0x100, source.0, 4, 0xffff_ffff, 0, 0, 0, 0];
+    assert_eq!(value(&mut f, "LCMapStringEx", &args), 4);
+    args[4] = destination.0;
+    args[5] = 4;
+    assert_eq!(value(&mut f, "LCMapStringEx", &args), 4);
+    assert_eq!(f.read(destination, 8), wide("abc\0"));
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    args[1] = 0x200;
+    assert_eq!(value(&mut f, "LCMapStringEx", &args), 4);
+    assert_eq!(f.read(destination, 8), wide("ABC\0"));
+    args[5] = 3;
+    assert_eq!(value(&mut f, "LCMapStringEx", &args), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 122);
+    assert_eq!(f.read(destination, 8), wide("ABC\0"));
+    args[5] = 4;
+    args[8] = 1;
+    fault_preserves_outputs(&mut f, "LCMapStringEx", &args);
+}
+
+#[test]
+fn extended_critical_sections_and_empty_condition_variables_preserve_storage_and_last_error() {
+    let mut f = fixture(&[
+        "InitializeCriticalSectionEx",
+        "EnterCriticalSection",
+        "LeaveCriticalSection",
+        "InitializeConditionVariable",
+        "WakeAllConditionVariable",
+    ]);
+    assert_eq!(
+        value(&mut f, "InitializeCriticalSectionEx", &[OUTPUT.0, 4000, 0]),
+        1
+    );
+    f.call(KERNEL, "EnterCriticalSection", &[OUTPUT.0]);
+    f.call(KERNEL, "LeaveCriticalSection", &[OUTPUT.0]);
+    let cv = GuestAddress(OUTPUT.0 + 0x80);
+    f.write(cv, &[0xff; 8]);
+    assert_eq!(
+        f.call(KERNEL, "InitializeConditionVariable", &[cv.0]).eax,
+        None
+    );
+    assert_eq!(f.read(cv, 8), [0, 0, 0, 0, 255, 255, 255, 255]);
+    assert_eq!(
+        f.call(KERNEL, "WakeAllConditionVariable", &[cv.0]).eax,
+        None
+    );
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    f.write(cv, &[1, 0, 0, 0]);
+    fault_preserves_outputs(&mut f, "WakeAllConditionVariable", &[cv.0]);
+    protect_output(&mut f, false);
+    fault_preserves_outputs(&mut f, "InitializeConditionVariable", &[cv.0]);
+}
+
+#[test]
+fn load_library_ex_resolves_reached_api_sets_to_system_module_identity() {
+    let mut f = fixture(&[
+        "LoadLibraryExW",
+        "LoadLibraryExA",
+        "FreeLibrary",
+        "GetModuleHandleW",
+        "GetProcAddress",
+        "GetTickCount",
+    ]);
+    let host = f.runtime.module_by_name(KERNEL).unwrap().unwrap().handle;
+    f.runtime.mark_module_ready(host).unwrap();
+    f.runtime.mark_module_ready(0x4d01_0001).unwrap();
+    let sentinel = f
+        .runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&vine_core::ProcessAddressAllocationPurpose::CallbackReturns)
+        .unwrap()
+        .range
+        .base;
+    f.runtime.begin_dll_process_attach(sentinel).unwrap();
+    for contract in [
+        "api-ms-win-core-synch-l1-2-0",
+        "API-MS-WIN-CORE-FIBERS-L1-1-1.DLL",
+        "api-ms-win-core-localization-l1-2-1",
+    ] {
+        let bytes = contract
+            .encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        f.write(OUTPUT, &bytes);
+        assert_eq!(value(&mut f, "LoadLibraryExW", &[OUTPUT.0, 0, 0x800]), host);
+        assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+        assert_eq!(value(&mut f, "GetModuleHandleW", &[OUTPUT.0]), host);
+    }
+    f.write(OUTPUT, b"api-ms-win-core-fibers-l1-1-1\0");
+    assert_eq!(value(&mut f, "LoadLibraryExA", &[OUTPUT.0, 0, 0]), host);
+    f.write(OUTPUT, b"GetTickCount\0");
+    assert_eq!(
+        value(&mut f, "GetProcAddress", &[host, OUTPUT.0]),
+        f.endpoint_address(KERNEL, "GetTickCount").0
+    );
+    for _ in 0..5 {
+        assert_eq!(value(&mut f, "FreeLibrary", &[host]), 1);
+    }
+    assert_eq!(
+        f.runtime.module_by_name(KERNEL).unwrap().unwrap().handle,
+        host
+    );
+    assert_eq!(
+        value(&mut f, "GetProcAddress", &[host, OUTPUT.0]),
+        f.endpoint_address(KERNEL, "GetTickCount").0
+    );
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    assert_eq!(value(&mut f, "FreeLibrary", &[0]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 6);
+    assert_eq!(value(&mut f, "LoadLibraryExW", &[OUTPUT.0, 1, 0]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    f.write(
+        OUTPUT,
+        &"missing.dll\0"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(value(&mut f, "LoadLibraryExW", &[OUTPUT.0, 0, 0x800]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 126);
+    fault_preserves_outputs(&mut f, "LoadLibraryExW", &[OUTPUT.0, 0, 2]);
+}
+
+#[test]
+fn get_proc_address_resolves_loaded_system_exports_and_preserves_name_semantics() {
+    let mut f = fixture(&["GetProcAddress", "GetTickCount"]);
+    let module = f
+        .runtime
+        .module_by_name("KERNEL32.DLL")
+        .unwrap()
+        .unwrap()
+        .handle;
+    f.write(OUTPUT, b"GetTickCount\0");
+    let address = value(&mut f, "GetProcAddress", &[module, OUTPUT.0]);
+    assert_eq!(address, f.endpoint_address(KERNEL, "GetTickCount").0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    assert_eq!(
+        value(&mut f, "GetProcAddress", &[module, OUTPUT.0]),
+        address
+    );
+    f.write(OUTPUT, b"gettickcount\0");
+    assert_eq!(value(&mut f, "GetProcAddress", &[module, OUTPUT.0]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 127);
+    assert_eq!(value(&mut f, "GetProcAddress", &[module, 1]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 127);
+}
+
 fn fixture(names: &[&str]) -> Fixture {
     Fixture::new(&names.iter().map(|&name| (KERNEL, name)).collect::<Vec<_>>())
 }
@@ -162,6 +462,8 @@ fn fixed_environment_queries_preserve_windows_last_error() {
     let mut f = fixture(&[
         "GetACP",
         "GetSystemDefaultLangID",
+        "GetUserDefaultUILanguage",
+        "GetSystemDefaultUILanguage",
         "GetCurrentProcessId",
         "GetCurrentThreadId",
         "IsProcessorFeaturePresent",
@@ -172,6 +474,8 @@ fn fixed_environment_queries_preserve_windows_last_error() {
     for (name, args, expected) in [
         ("GetACP", vec![], 932),
         ("GetSystemDefaultLangID", vec![], 0x411),
+        ("GetUserDefaultUILanguage", vec![], 0x411),
+        ("GetSystemDefaultUILanguage", vec![], 0x411),
         ("GetCurrentProcessId", vec![], 4096),
         ("GetCurrentThreadId", vec![], THREAD.0),
         ("IsProcessorFeaturePresent", vec![10], 1),
@@ -182,6 +486,147 @@ fn fixed_environment_queries_preserve_windows_last_error() {
         assert_eq!(value(&mut f, name, &args), expected);
         assert_eq!(last_error(&mut f), LAST_ERROR);
     }
+}
+
+#[test]
+fn locale_language_name_and_code_page_count_terminators_and_preserve_failed_outputs() {
+    let mut f = fixture(&["GetLocaleInfoW", "GetLocaleInfoA"]);
+    for (api, unit) in [("GetLocaleInfoW", 2), ("GetLocaleInfoA", 1)] {
+        for (kind, text) in [(0x1001, "Japanese"), (0x1004, "932")] {
+            let count = text.len() as u32 + 1;
+            f.runtime.set_current_last_error(LAST_ERROR).unwrap();
+            assert_eq!(
+                f.call(KERNEL, api, &[0x411, kind, u32::MAX, 0]).eax,
+                Some(count)
+            );
+            f.write(OUTPUT, &[0xa5; 24]);
+            assert_eq!(
+                f.call(KERNEL, api, &[0x411, kind, OUTPUT.0, count]).eax,
+                Some(count)
+            );
+            let expected: Vec<u8> = if unit == 2 {
+                text.encode_utf16()
+                    .chain([0])
+                    .flat_map(u16::to_le_bytes)
+                    .collect()
+            } else {
+                text.bytes().chain([0]).collect()
+            };
+            assert_eq!(f.read(OUTPUT, expected.len()), expected);
+            assert_eq!(f.read(GuestAddress(OUTPUT.0 + count * unit), 2), [0xa5; 2]);
+            assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+            let before = f.read(OUTPUT, 24);
+            assert_eq!(
+                f.call(KERNEL, api, &[0x411, kind, OUTPUT.0, count - 1]).eax,
+                Some(0)
+            );
+            assert_eq!(f.runtime.current_last_error().unwrap(), 122);
+            assert_eq!(f.read(OUTPUT, 24), before);
+        }
+        assert_eq!(
+            f.call(KERNEL, api, &[0x400, 0x2000_1004, OUTPUT.0, 4 / unit])
+                .eax,
+            Some(4 / unit)
+        );
+        assert_eq!(f.read(OUTPUT, 4), 932_u32.to_le_bytes());
+    }
+    assert_eq!(
+        f.call(KERNEL, "GetLocaleInfoW", &[0x411, 0x1001, 0, 9]).eax,
+        Some(0)
+    );
+    assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    let before = f.read(CROSS_PAGE, 16);
+    assert!(matches!(
+        f.dispatch(KERNEL, "GetLocaleInfoW", &[0x411, 0x1001, CROSS_PAGE.0, 9]),
+        DispatchOutcome::Fault(_)
+    ));
+    assert_eq!(f.read(CROSS_PAGE, 16), before);
+}
+
+#[test]
+fn wide_unnamed_events_use_runtime_wait_reset_and_close_semantics() {
+    let mut f = fixture(&[
+        "CreateEventW",
+        "SetEvent",
+        "ResetEvent",
+        "WaitForSingleObject",
+        "CloseHandle",
+    ]);
+    for manual in [0, 1] {
+        let event = value(&mut f, "CreateEventW", &[0, manual, 1, 0]);
+        assert_ne!(event, 0);
+        assert_eq!(value(&mut f, "WaitForSingleObject", &[event, 0]), 0);
+        assert_eq!(
+            value(&mut f, "WaitForSingleObject", &[event, 0]),
+            if manual != 0 { 0 } else { 258 }
+        );
+        assert_eq!(value(&mut f, "SetEvent", &[event]), 1);
+        assert_eq!(value(&mut f, "ResetEvent", &[event]), 1);
+        assert_eq!(value(&mut f, "WaitForSingleObject", &[event, 0]), 258);
+        assert_eq!(value(&mut f, "CloseHandle", &[event]), 1);
+        assert_eq!(value(&mut f, "SetEvent", &[event]), 0);
+        assert_eq!(f.runtime.current_last_error().unwrap(), 6);
+    }
+    fault_preserves_outputs(&mut f, "CreateEventW", &[4, 0, 0, 0]);
+    fault_preserves_outputs(&mut f, "CreateEventW", &[0, 0, 0, OUTPUT.0]);
+}
+
+#[test]
+fn process_query_handles_preserve_identity_and_affinity_outputs_on_failure() {
+    let mut f = fixture(&[
+        "OpenProcess",
+        "GetProcessAffinityMask",
+        "GetCurrentProcessId",
+        "CloseHandle",
+    ]);
+    let pid = value(&mut f, "GetCurrentProcessId", &[]);
+    let first = value(&mut f, "OpenProcess", &[0x400, 0, pid]);
+    let second = value(&mut f, "OpenProcess", &[0x1000, 0, pid]);
+    assert_ne!(first, 0);
+    assert_ne!(first, second);
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    assert_eq!(value(&mut f, "CloseHandle", &[first]), 1);
+    for handle in [second, u32::MAX] {
+        f.write(OUTPUT, &[0xa5; 16]);
+        assert_eq!(
+            value(
+                &mut f,
+                "GetProcessAffinityMask",
+                &[handle, OUTPUT.0, OUTPUT.0 + 4]
+            ),
+            1
+        );
+        assert_eq!(f.read(OUTPUT, 8), [1, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(f.read(GuestAddress(OUTPUT.0 + 8), 8), [0xa5; 8]);
+        fault_preserves_outputs(
+            &mut f,
+            "GetProcessAffinityMask",
+            &[handle, OUTPUT.0, BASE.0 + 0x2ffe],
+        );
+    }
+    f.write(OUTPUT, &[0xa5; 16]);
+    for handle in [first, 0, 0xffff_fffe] {
+        assert_eq!(
+            value(
+                &mut f,
+                "GetProcessAffinityMask",
+                &[handle, OUTPUT.0, OUTPUT.0 + 4]
+            ),
+            0
+        );
+        assert_eq!(f.runtime.current_last_error().unwrap(), 6);
+        assert_eq!(f.read(OUTPUT, 16), [0xa5; 16]);
+    }
+    for other_pid in [0, pid + 1] {
+        assert_eq!(value(&mut f, "OpenProcess", &[0x400, 0, other_pid]), 0);
+        assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    }
+    fault_preserves_outputs(&mut f, "OpenProcess", &[0x10, 0, pid]);
+    fault_preserves_outputs(&mut f, "OpenProcess", &[0x400, 1, pid]);
+    assert_eq!(value(&mut f, "CloseHandle", &[second]), 1);
+    let reopened = value(&mut f, "OpenProcess", &[0x400, 0, pid]);
+    assert_ne!(reopened, first);
+    assert_ne!(reopened, second);
 }
 
 #[test]
@@ -216,6 +661,30 @@ fn affinity_validates_thread_handles_and_the_single_processor_mask() {
     assert_eq!(value(&mut f, "CloseHandle", &[real]), 1);
     assert_eq!(value(&mut f, "SetThreadAffinityMask", &[real, 1]), 0);
     assert_eq!(last_error(&mut f), 6);
+}
+
+#[test]
+fn time_zone_information_matches_japan_without_daylight_saving_and_checks_the_full_output() {
+    let mut f = fixture(&["GetTimeZoneInformation"]);
+    f.write(OUTPUT, &[0xa5; 176]);
+    assert_eq!(value(&mut f, "GetTimeZoneInformation", &[OUTPUT.0]), 0);
+    let bytes = f.read(OUTPUT, 176);
+    assert_eq!(i32::from_le_bytes(bytes[..4].try_into().unwrap()), -540);
+    for (offset, expected) in [(4, "Tokyo Standard Time"), (88, "Tokyo Daylight Time")] {
+        let units: Vec<_> = bytes[offset..offset + 64]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .take_while(|&u| u != 0)
+            .collect();
+        assert_eq!(String::from_utf16(&units).unwrap(), expected);
+    }
+    assert_eq!(&bytes[68..88], &[0; 20]);
+    assert_eq!(&bytes[152..172], &[0; 20]);
+    assert_eq!(&bytes[172..], &[0xa5; 4]);
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    fault_preserves_outputs(&mut f, "GetTimeZoneInformation", &[CROSS_PAGE.0]);
+    protect_output(&mut f, false);
+    fault_preserves_outputs(&mut f, "GetTimeZoneInformation", &[OUTPUT.0]);
 }
 
 #[test]
@@ -303,6 +772,110 @@ fn version_layout_preserves_unused_bytes_and_rejects_invalid_outputs() {
     f.words(OUTPUT, &[148]);
     protect_output(&mut f, false);
     fault_preserves_outputs(&mut f, "GetVersionExA", &[OUTPUT.0]);
+}
+
+#[test]
+fn wide_version_and_dbcs_classification_follow_the_fixed_windows_environment() {
+    let mut f = fixture(&["GetVersionExW", "IsDBCSLeadByte"]);
+    for size in [276_u32, 284] {
+        f.write(OUTPUT, &[0xa5; 288]);
+        f.words(OUTPUT, &[size]);
+        assert_eq!(value(&mut f, "GetVersionExW", &[OUTPUT.0]), 1);
+        assert_eq!(
+            f.read(GuestAddress(OUTPUT.0 + 4), 18),
+            [10_u32, 0, 19045, 2]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .chain([0, 0])
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(f.read(GuestAddress(OUTPUT.0 + 22), 254), [0xa5; 254]);
+        if size == 284 {
+            assert_eq!(
+                f.read(GuestAddress(OUTPUT.0 + 276), 8),
+                [0, 0, 0, 0, 0, 0, 1, 0]
+            );
+        }
+    }
+    for byte in 0..=255 {
+        assert_eq!(
+            value(&mut f, "IsDBCSLeadByte", &[byte]),
+            u32::from(matches!(byte, 0x81..=0x9f | 0xe0..=0xfc))
+        );
+    }
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+}
+
+#[test]
+fn full_path_resolves_without_opening_files_and_preserves_short_outputs() {
+    let mut f = fixture(&["GetFullPathNameW"]);
+    let input = GuestAddress(OUTPUT.0 + 0x400);
+    let part = GuestAddress(OUTPUT.0 + 0x300);
+    for (requested, expected, filename) in [
+        ("data/../日本.dat", "C:\\Vine\\日本.dat", Some("日本.dat")),
+        ("\\folder\\file", "C:\\folder\\file", Some("file")),
+        ("C:folder/", "C:\\Vine\\folder\\", None),
+    ] {
+        f.write(
+            input,
+            &requested
+                .encode_utf16()
+                .chain([0])
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+        let required = expected.encode_utf16().count() as u32 + 1;
+        f.write(OUTPUT, &[0xa5; 256]);
+        f.words(part, &[0xdeadbeef]);
+        assert_eq!(
+            value(
+                &mut f,
+                "GetFullPathNameW",
+                &[input.0, required - 1, OUTPUT.0, part.0]
+            ),
+            required
+        );
+        assert_eq!(f.read(OUTPUT, 256), [0xa5; 256]);
+        assert_eq!(f.read(part, 4), 0xdeadbeef_u32.to_le_bytes());
+        assert_eq!(
+            value(
+                &mut f,
+                "GetFullPathNameW",
+                &[input.0, 128, OUTPUT.0, part.0]
+            ),
+            required - 1
+        );
+        assert_eq!(
+            f.read(OUTPUT, required as usize * 2),
+            expected
+                .encode_utf16()
+                .chain([0])
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>()
+        );
+        let pointer = u32::from_le_bytes(f.read(part, 4).try_into().unwrap());
+        if let Some(filename) = filename {
+            assert_eq!(
+                f.read(
+                    GuestAddress(pointer),
+                    (filename.encode_utf16().count() + 1) * 2
+                ),
+                filename
+                    .encode_utf16()
+                    .chain([0])
+                    .flat_map(u16::to_le_bytes)
+                    .collect::<Vec<_>>()
+            );
+        } else {
+            assert_eq!(pointer, 0);
+        }
+    }
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    fault_preserves_outputs(
+        &mut f,
+        "GetFullPathNameW",
+        &[input.0, 128, OUTPUT.0, CROSS_PAGE.0 + 14],
+    );
 }
 
 #[test]
@@ -406,6 +979,28 @@ fn standard_handles_have_stable_guest_identity_and_file_type_errors() {
 }
 
 #[test]
+fn wide_command_line_returns_the_existing_process_parameter_buffer() {
+    let mut f = fixture(&["GetCommandLineW", "GetCommandLineA"]);
+    let text = "\"日本語.exe\" /test";
+    let env = f.runtime.install_process_environment(text).unwrap();
+    f.ack();
+    let pointer = value(&mut f, "GetCommandLineW", &[]);
+    assert_eq!(
+        pointer,
+        env.process_parameters.command_line_buffer_address.0
+    );
+    assert_eq!(value(&mut f, "GetCommandLineW", &[]), pointer);
+    let expected = text
+        .encode_utf16()
+        .chain([0])
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    assert_eq!(f.read(GuestAddress(pointer), expected.len()), expected);
+    assert_ne!(value(&mut f, "GetCommandLineA", &[]), pointer);
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+}
+
+#[test]
 fn command_line_and_environment_copy_follow_guest_acquire_release_lifetime() {
     let mut f = fixture(&[
         "GetCommandLineA",
@@ -421,10 +1016,13 @@ fn command_line_and_environment_copy_follow_guest_acquire_release_lifetime() {
     assert_eq!(value(&mut f, "GetCommandLineA", &[]), command_line);
     let environment = value(&mut f, "GetEnvironmentStringsW", &[]);
     assert_eq!(f.read(GuestAddress(environment), 4), [0, 0, 0, 0]);
-    fault_preserves_outputs(&mut f, "GetEnvironmentStringsW", &[]);
-    fault_preserves_outputs(&mut f, "FreeEnvironmentStringsW", &[command_line]);
+    let second = value(&mut f, "GetEnvironmentStringsW", &[]);
+    assert_ne!(second, environment);
+    assert_eq!(value(&mut f, "FreeEnvironmentStringsW", &[command_line]), 0);
+    assert_eq!(value(&mut f, "FreeEnvironmentStringsW", &[second]), 1);
     assert_eq!(value(&mut f, "FreeEnvironmentStringsW", &[environment]), 1);
-    fault_preserves_outputs(&mut f, "FreeEnvironmentStringsW", &[environment]);
+    assert_eq!(value(&mut f, "FreeEnvironmentStringsW", &[environment]), 0);
+    f.runtime.set_current_last_error(LAST_ERROR).unwrap();
     let reacquired = value(&mut f, "GetEnvironmentStringsW", &[]);
     assert_eq!(f.read(GuestAddress(reacquired), 4), [0, 0, 0, 0]);
     assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
@@ -461,13 +1059,163 @@ fn module_filename_truncation_and_bad_buffers_preserve_the_guest_path() {
     assert_eq!(f.runtime.current_last_error().unwrap(), 122);
     assert_eq!(value(&mut f, "GetModuleFileNameA", &[0, 0, 1]), 0);
     assert_eq!(f.runtime.current_last_error().unwrap(), 87);
-    for args in [
-        [0, OUTPUT.0, 32769],
-        [0xdead_beef, OUTPUT.0, 64],
-        [0, CROSS_PAGE.0, 64],
-    ] {
+    for args in [[0, OUTPUT.0, 32769], [0, CROSS_PAGE.0, 64]] {
         fault_preserves_outputs(&mut f, "GetModuleFileNameA", &args);
     }
+    f.write(OUTPUT, &[0xa5; 64]);
+    assert_eq!(
+        value(&mut f, "GetModuleFileNameA", &[0xdead_beef, OUTPUT.0, 64]),
+        0
+    );
+    assert_eq!(f.runtime.current_last_error().unwrap(), 126);
+    assert_eq!(f.read(OUTPUT, 64), [0xa5; 64]);
+}
+
+#[test]
+fn wide_module_filename_counts_utf16_units_and_validates_the_entire_buffer() {
+    let mut f = fixture(&["GetModuleFileNameW"]);
+    let path: Vec<u16> = "C:\\Vine\\fixture.exe\0".encode_utf16().collect();
+    for capacity in [64, path.len() as u32, path.len() as u32 - 1, 1] {
+        f.write(OUTPUT, &[0xa5; 128]);
+        let result = value(&mut f, "GetModuleFileNameW", &[0, OUTPUT.0, capacity]);
+        let truncated = (capacity as usize) < path.len();
+        assert_eq!(
+            result,
+            if truncated {
+                capacity
+            } else {
+                path.len() as u32 - 1
+            }
+        );
+        assert_eq!(
+            f.runtime.current_last_error().unwrap(),
+            if truncated { 122 } else { 0 }
+        );
+        let count = (capacity as usize).min(path.len());
+        let mut expected = path[..count].to_vec();
+        expected[count - 1] = 0;
+        let bytes: Vec<_> = expected.into_iter().flat_map(u16::to_le_bytes).collect();
+        assert_eq!(f.read(OUTPUT, bytes.len()), bytes);
+        assert_eq!(
+            f.read(GuestAddress(OUTPUT.0 + bytes.len() as u32), 2),
+            [0xa5; 2]
+        );
+    }
+    assert_eq!(value(&mut f, "GetModuleFileNameW", &[0, 0, 0]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 122);
+    for args in [[0, CROSS_PAGE.0, 32], [0, OUTPUT.0, 32769]] {
+        fault_preserves_outputs(&mut f, "GetModuleFileNameW", &args);
+    }
+}
+
+#[test]
+fn module_filename_resolves_guest_image_handles_and_retains_loaded_dll_paths() {
+    let mut f = fixture(&["GetModuleFileNameA", "GetModuleFileNameW"]);
+    let mut bytes = support::imported_pe(&[]);
+    bytes[0x96..0x98].copy_from_slice(&0x2103_u16.to_le_bytes());
+    bytes[0xb4..0xb8].copy_from_slice(&0x12000000_u32.to_le_bytes());
+    let limits = vine_core::Pe32Limits::default();
+    let snapshot = vine_core::ModuleSnapshot::from_bytes(bytes, &limits).unwrap();
+    let plan = vine_core::build_pe32_load_plan(&snapshot, limits).unwrap();
+    let image = vine_core::materialize_pe32_image(
+        f.runtime.memory_mut(),
+        &snapshot,
+        &plan,
+        GuestAddress(0x12000000),
+    )
+    .unwrap();
+    let path = "C:\\Vine\\plugin\\日本語.dll";
+    f.runtime
+        .memory_mut()
+        .seal_owner(image.layout.owner)
+        .unwrap();
+    f.runtime
+        .load_module(vine_core::RuntimeModule {
+            handle: 0x4d010003,
+            requested_name: path.into(),
+            canonical_name: "日本語.dll".into(),
+            runtime_system_module: false,
+        })
+        .unwrap();
+    f.runtime
+        .register_module_image(0x4d010003, &plan, &image)
+        .unwrap();
+    f.ack();
+    for (handle, path) in [(0x00400000, "C:\\Vine\\fixture.exe"), (0x12000000, path)] {
+        let wide: Vec<u8> = path
+            .encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert_eq!(
+            value(&mut f, "GetModuleFileNameW", &[handle, OUTPUT.0, 128]),
+            path.encode_utf16().count() as u32
+        );
+        assert_eq!(f.read(OUTPUT, wide.len()), wide);
+        let mut ansi = encoding_rs::SHIFT_JIS.encode(path).0.into_owned();
+        let length = ansi.len();
+        ansi.push(0);
+        assert_eq!(
+            value(&mut f, "GetModuleFileNameA", &[handle, OUTPUT.0, 128]),
+            length as u32
+        );
+        assert_eq!(f.read(OUTPUT, ansi.len()), ansi);
+    }
+    f.write(OUTPUT, &[0xa5; 32]);
+    assert_eq!(
+        value(&mut f, "GetModuleFileNameW", &[0x12000000, OUTPUT.0, 5]),
+        5
+    );
+    assert_eq!(
+        f.read(OUTPUT, 12),
+        [b'C', 0, b':', 0, b'\\', 0, b'V', 0, 0, 0, 0xa5, 0xa5]
+    );
+    assert_eq!(f.runtime.current_last_error().unwrap(), 122);
+    for invalid in [0x4d010003, 0x12000001] {
+        f.write(OUTPUT, &[0xa5; 32]);
+        assert_eq!(
+            value(&mut f, "GetModuleFileNameW", &[invalid, OUTPUT.0, 16]),
+            0
+        );
+        assert_eq!(f.read(OUTPUT, 32), [0xa5; 32]);
+        assert_eq!(f.runtime.current_last_error().unwrap(), 126);
+    }
+}
+
+#[test]
+fn process_heap_is_shared_by_threads_and_supports_the_regular_heap_calls() {
+    let mut f = fixture(&[
+        "GetProcessHeap",
+        "HeapCreate",
+        "HeapAlloc",
+        "HeapReAlloc",
+        "HeapFree",
+        "HeapSize",
+    ]);
+    let private = value(&mut f, "HeapCreate", &[0, 0, 0]);
+    let heap = value(&mut f, "GetProcessHeap", &[]);
+    assert_ne!(heap, 0);
+    assert_ne!(heap, private);
+    assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+    assert_eq!(value(&mut f, "GetProcessHeap", &[]), heap);
+    let allocation = value(&mut f, "HeapAlloc", &[heap, 8, 129]);
+    assert_ne!(allocation, 0);
+    assert_eq!(f.read(GuestAddress(allocation), 129), [0; 129]);
+    f.write(GuestAddress(allocation), &[1, 2, 3, 4]);
+    let second = RuntimeThreadId(THREAD.0 + 1);
+    f.runtime.register_thread(second, 122).unwrap();
+    f.runtime.select_thread(second).unwrap();
+    assert_eq!(value(&mut f, "GetProcessHeap", &[]), heap);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 122);
+    assert_eq!(value(&mut f, "HeapSize", &[heap, 0, allocation]), 129);
+    let grown = value(&mut f, "HeapReAlloc", &[heap, 8, allocation, 256]);
+    assert_ne!(grown, 0);
+    assert_eq!(f.read(GuestAddress(grown), 4), [1, 2, 3, 4]);
+    assert_eq!(f.read(GuestAddress(grown + 129), 127), [0; 127]);
+    assert_eq!(value(&mut f, "HeapFree", &[private, 0, grown]), 0);
+    assert_eq!(f.read(GuestAddress(grown), 4), [1, 2, 3, 4]);
+    assert_eq!(value(&mut f, "HeapFree", &[heap, 0, grown]), 1);
+    assert_eq!(value(&mut f, "GetProcessHeap", &[]), heap);
 }
 
 #[test]
@@ -721,7 +1469,7 @@ fn windows_932_conversion_preserves_query_partial_output_and_default_character_c
             "MultiByteToWideChar",
             vec![65001, 0, ansi, 4, destination, 3],
         ),
-        ("MultiByteToWideChar", vec![932, 8, ansi, 4, destination, 3]),
+        ("MultiByteToWideChar", vec![932, 2, ansi, 4, destination, 3]),
         (
             "MultiByteToWideChar",
             vec![932, 0, ansi, 4, BASE.0 + 0x2ffc, 3],
@@ -729,6 +1477,76 @@ fn windows_932_conversion_preserves_query_partial_output_and_default_character_c
     ] {
         fault_preserves_outputs(&mut f, name, &args);
     }
+}
+
+#[test]
+fn windows_932_strict_conversion_rejects_invalid_sequences_without_output() {
+    let mut f = fixture(&["MultiByteToWideChar"]);
+    let output = OUTPUT.0 + 0x200;
+    for flags in [8, 9] {
+        for code_page in [0, 932] {
+            // CP932 private-use single bytes remain valid with strict conversion.
+            f.write(OUTPUT, &[0x82, 0xa0, 0xa0, 0xfd, 0xfe, 0xff, 0]);
+            f.runtime.set_current_last_error(LAST_ERROR).unwrap();
+            assert_eq!(
+                value(
+                    &mut f,
+                    "MultiByteToWideChar",
+                    &[code_page, flags, OUTPUT.0, u32::MAX, 0, 0]
+                ),
+                6
+            );
+            assert_eq!(
+                value(
+                    &mut f,
+                    "MultiByteToWideChar",
+                    &[code_page, flags, OUTPUT.0, 7, output, 6]
+                ),
+                6
+            );
+            assert_eq!(f.runtime.current_last_error().unwrap(), LAST_ERROR);
+            assert_eq!(
+                f.read(GuestAddress(output), 12),
+                [
+                    0x42, 0x30, 0xf0, 0xf8, 0xf1, 0xf8, 0xf2, 0xf8, 0xf3, 0xf8, 0, 0
+                ]
+            );
+
+            for invalid in [&[b'A', 0x82][..], &[0x82, b' '], &[0x81, 0xad]] {
+                f.write(OUTPUT, invalid);
+                f.write(GuestAddress(output), &[0xa5; 16]);
+                for (destination, capacity) in [(0, 0), (output, 8)] {
+                    assert_eq!(
+                        value(
+                            &mut f,
+                            "MultiByteToWideChar",
+                            &[
+                                code_page,
+                                flags,
+                                OUTPUT.0,
+                                invalid.len() as u32,
+                                destination,
+                                capacity
+                            ]
+                        ),
+                        0
+                    );
+                    assert_eq!(f.runtime.current_last_error().unwrap(), 1113);
+                    assert_eq!(f.read(GuestAddress(output), 16), [0xa5; 16]);
+                }
+            }
+        }
+    }
+    f.write(OUTPUT, &[b'A', 0x82]);
+    assert_eq!(
+        value(
+            &mut f,
+            "MultiByteToWideChar",
+            &[932, 1, OUTPUT.0, 2, output, 8]
+        ),
+        2
+    );
+    assert_eq!(f.read(GuestAddress(output), 4), [b'A', 0, 0xfd, 0xff]);
 }
 
 #[test]
@@ -960,4 +1778,68 @@ fn named_mutex_copies_the_guest_name_and_duplicate_handles_share_lifetime() {
     assert_ne!(unnamed, 0);
     assert_ne!(unnamed, duplicate);
     assert_eq!(f.runtime.current_last_error().unwrap(), 0);
+}
+
+#[test]
+fn unicode_mutex_names_share_ansi_identity_and_preserve_non_acp_characters() {
+    let mut f = fixture(&["CreateMutexA", "CreateMutexW", "CloseHandle"]);
+    let wide = GuestAddress(OUTPUT.0 + 0x100);
+    f.write(OUTPUT, &[0x82, 0xa0, 0]); // CP932: あ
+    f.write(
+        wide,
+        &"あ\0"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    let first = value(&mut f, "CreateMutexA", &[0, 1, OUTPUT.0]);
+    let second = value(&mut f, "CreateMutexW", &[0, 1, wide.0]);
+    assert_ne!(first, second);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 183);
+    f.write(
+        wide,
+        &"mutex😀\0"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    let unicode = value(&mut f, "CreateMutexW", &[0, 0, wide.0]);
+    assert_ne!(unicode, 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 0);
+    assert_ne!(value(&mut f, "CreateMutexW", &[0, 0, wide.0]), unicode);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 183);
+    assert_eq!(value(&mut f, "CloseHandle", &[first]), 1);
+    assert_eq!(value(&mut f, "CloseHandle", &[second]), 1);
+    assert_ne!(value(&mut f, "CreateMutexA", &[0, 0, OUTPUT.0]), 0);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 0);
+}
+
+#[test]
+fn extended_memory_status_and_native_system_info_match_the_guest_environment() {
+    let mut f = fixture(&[
+        "GlobalMemoryStatus",
+        "GlobalMemoryStatusEx",
+        "GetSystemInfo",
+        "GetNativeSystemInfo",
+    ]);
+    f.call(KERNEL, "GlobalMemoryStatus", &[OUTPUT.0]);
+    let basic = f.read(OUTPUT, 32);
+    let extended = GuestAddress(OUTPUT.0 + 0x100);
+    f.write(extended, &[0x5a; 64]);
+    assert_eq!(value(&mut f, "GlobalMemoryStatusEx", &[extended.0]), 0);
+    assert_eq!(f.read(extended, 64), [0x5a; 64]);
+    assert_eq!(f.runtime.current_last_error().unwrap(), 87);
+    f.words(extended, &[64]);
+    assert_eq!(value(&mut f, "GlobalMemoryStatusEx", &[extended.0]), 1);
+    let result = f.read(extended, 64);
+    assert_eq!(&result[4..8], &basic[4..8]);
+    for index in 0..6 {
+        let old = u32::from_le_bytes(basic[8 + index * 4..12 + index * 4].try_into().unwrap());
+        let new = u64::from_le_bytes(result[8 + index * 8..16 + index * 8].try_into().unwrap());
+        assert_eq!(new, u64::from(old));
+    }
+    assert_eq!(&result[56..64], &[0; 8]);
+    f.call(KERNEL, "GetSystemInfo", &[OUTPUT.0]);
+    f.call(KERNEL, "GetNativeSystemInfo", &[extended.0]);
+    assert_eq!(f.read(OUTPUT, 36), f.read(extended, 36));
 }

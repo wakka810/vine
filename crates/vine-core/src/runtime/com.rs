@@ -16,12 +16,20 @@ pub struct RuntimeComIid(pub [u8; 16]);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeComClass {
+    D3d8,
+    D3d8Device,
+    D3d8Surface,
+    D3d8BackBuffer,
+    D3d8Texture,
+    D3d8TextureSurface,
+    D3d8VertexBuffer,
     D3d9,
     D3d9Device,
     D3d9Texture,
     D3d9Surface,
     D3d9VertexBuffer,
     DirectInput8A,
+    DirectInputKeyboard,
     DirectSound8,
     DirectSoundBuffer8,
     DirectShowGraph,
@@ -185,6 +193,10 @@ impl RuntimeCom {
     #[cfg(test)]
     pub(crate) fn interfaces(&self) -> &BTreeMap<RuntimeComInterfaceId, RuntimeComInterfaceRecord> {
         &self.interfaces
+    }
+
+    pub fn has_endpoint(&self, endpoint: GuestAddress) -> bool {
+        self.endpoint_index.contains_key(&endpoint)
     }
 
     pub fn object(

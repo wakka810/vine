@@ -29,12 +29,13 @@ pub fn materialize_pe32_image(
     Ok(materialization)
 }
 
-fn materialize_pe32_image_transaction(
+pub(crate) fn materialize_pe32_image_transaction(
     memory: &mut GuestMemory,
     snapshot: &ModuleSnapshot,
     loader: &Pe32LoadPlan,
     load_base: GuestAddress,
 ) -> Result<ImageMaterialization, LoaderError> {
+    validate_materialization_input(snapshot, loader, load_base)?;
     let plan = loader;
     let relocation_delta = load_base.0.wrapping_sub(plan.image.preferred_image_base);
     let layout = memory

@@ -153,16 +153,24 @@ export async function readSourceRange(
     !Number.isSafeInteger(byteLength) || byteLength < 0 ||
     !Number.isSafeInteger(lastModified) || lastModified < 0 ||
     !Number.isSafeInteger(offset) || offset < 0 || offset > 0xffff_ffff ||
-    !Number.isSafeInteger(length) || length < 0 || length > 2 * 1024 * 1024
+    !Number.isSafeInteger(length) || length < 0 || length > 16 * 1024 * 1024 - 28
   ) throw new Error("Invalid source read range");
-  const before = await openSourceFile(root, pathSegments);
+  const openFile = await resolveSourceFileOpener(root, pathSegments);
+  const before = await openFile();
   if (before.size !== byteLength || before.lastModified !== lastModified ||
       before.sourceVersion !== sourceVersion) {
     throw new Error("Source file changed since it was verified");
   }
   const transferred = Math.min(length, Math.max(0, byteLength - offset));
-  const bytes = new Uint8Array(await before.slice(offset, offset + transferred).arrayBuffer());
-  const after = await openSourceFile(root, pathSegments);
+  const bytes = new Uint8Array(transferred);
+  for (let done = 0; done < transferred;) {
+    const length = Math.min(2 * 1024 * 1024, transferred - done);
+    const part = new Uint8Array(await before.slice(offset + done, offset + done + length).arrayBuffer());
+    if (part.byteLength !== length) throw new Error("Incomplete source read chunk");
+    bytes.set(part, done);
+    done += length;
+  }
+  const after = await openFile();
   if (after.size !== byteLength || after.lastModified !== lastModified ||
       after.sourceVersion !== sourceVersion ||
       bytes.byteLength !== transferred) {
@@ -171,20 +179,28 @@ export async function readSourceRange(
   return bytes;
 }
 
-async function openSourceFile(
+async function resolveSourceFileOpener(
   root: SourceDirectory,
   pathSegments: readonly string[],
-): Promise<SourceFile> {
+): Promise<() => Promise<SourceFile>> {
   if (pathSegments.length === 0 || pathSegments.length > 256 ||
       pathSegments.some((segment) => segment.length > 255 || !validSegment(segment))) {
     throw new Error("Invalid source path");
   }
-  if (isDevSource(root)) return openDevSourceFile(root, pathSegments);
+  if (isDevSource(root)) return () => openDevSourceFile(root, pathSegments);
   let directory = root;
   for (const segment of pathSegments.slice(0, -1)) {
     directory = await directory.getDirectoryHandle(segment, { create: false });
   }
-  return (await directory.getFileHandle(pathSegments.at(-1)!, { create: false })).getFile();
+  const fileHandle = await directory.getFileHandle(pathSegments.at(-1)!, { create: false });
+  return () => fileHandle.getFile();
+}
+
+async function openSourceFile(
+  root: SourceDirectory,
+  pathSegments: readonly string[],
+): Promise<SourceFile> {
+  return (await resolveSourceFileOpener(root, pathSegments))();
 }
 
 function validSegment(segment: string): boolean {

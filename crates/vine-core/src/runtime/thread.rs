@@ -261,8 +261,21 @@ impl RuntimeThreads {
         for thread in self.states.values_mut() {
             thread.tls_values.remove(&index);
         }
-        self.next_tls_index = index + 1;
+        self.next_tls_index = (index + 1..TLS_INDEX_LIMIT)
+            .find(|candidate| !self.allocated_tls_indices.contains(candidate))
+            .unwrap_or(TLS_INDEX_LIMIT);
         Ok(index)
+    }
+
+    pub(super) fn free_tls_index(&mut self, index: u32) -> bool {
+        if !self.allocated_tls_indices.remove(&index) {
+            return false;
+        }
+        for thread in self.states.values_mut() {
+            thread.tls_values.remove(&index);
+        }
+        self.next_tls_index = self.next_tls_index.min(index);
+        true
     }
 
     pub(super) fn tls_index_available(&self, index: u32) -> bool {
@@ -341,6 +354,10 @@ impl RuntimeThreads {
             .checked_add(1)
             .ok_or_else(|| RuntimeStateError::new("callback frame ID space is exhausted"))?;
         Ok(RuntimeCallbackFrameId(self.next_callback_frame_id))
+    }
+
+    pub(super) fn states(&self) -> impl Iterator<Item = &RuntimeThreadState> {
+        self.states.values()
     }
 
     pub(super) fn contains(&self, thread_id: RuntimeThreadId) -> bool {
@@ -717,6 +734,32 @@ impl RuntimeThreads {
             .expect("validated current thread")
             .com_apartment = Some(apartment);
         Ok(result)
+    }
+
+    pub(super) fn uninitialize_com_apartment(
+        &mut self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<(), RuntimeStateError> {
+        let previous = self.current_state(thread_id)?;
+        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::new(
+                "COM uninitialization requires a running runtime thread",
+            ));
+        }
+        let next = match previous.com_apartment {
+            Some(apartment) if apartment.initialization_count > 1 => {
+                Some(RuntimeComApartmentState {
+                    model: apartment.model,
+                    initialization_count: apartment.initialization_count - 1,
+                })
+            }
+            Some(_) | None => None,
+        };
+        self.states
+            .get_mut(&thread_id)
+            .expect("validated current thread")
+            .com_apartment = next;
+        Ok(())
     }
 
     pub(super) fn effective_priority(
@@ -1614,5 +1657,32 @@ mod tests {
             );
         }
         assert!(threads.require_tls_index(TLS_INDEX_LIMIT).is_err());
+    }
+
+    #[test]
+    fn tls_free_clears_every_thread_and_reuses_holes_without_aliasing_live_slots() {
+        let mut threads = RuntimeThreads::new(INITIAL, 0);
+        threads.validate_registration(SECOND).unwrap();
+        threads.register(SECOND, 0);
+        for index in 0..TLS_INDEX_LIMIT {
+            assert_eq!(threads.allocate_tls_index().unwrap(), index);
+            threads.set_tls_value(INITIAL, index, index + 10).unwrap();
+            threads.set_tls_value(SECOND, index, index + 20).unwrap();
+        }
+        for index in [2, 70] {
+            assert!(threads.free_tls_index(index));
+        }
+        let before = threads.clone();
+        assert!(!threads.free_tls_index(2));
+        assert!(!threads.free_tls_index(u32::MAX));
+        assert_eq!(threads, before);
+        for index in [2, 70] {
+            assert_eq!(threads.allocate_tls_index().unwrap(), index);
+            assert_eq!(threads.tls_value_or_unset(INITIAL, index).unwrap(), None);
+            assert_eq!(threads.tls_value_or_unset(SECOND, index).unwrap(), None);
+        }
+        assert_eq!(threads.allocate_tls_index().unwrap(), TLS_OUT_OF_INDEXES);
+        assert_eq!(threads.tls_value_or_unset(INITIAL, 3).unwrap(), Some(13));
+        assert_eq!(threads.tls_value_or_unset(SECOND, 3).unwrap(), Some(23));
     }
 }

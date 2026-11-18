@@ -29,6 +29,81 @@ const GET_EXIT_CODE_STACK: GuestAddress = GuestAddress(0x2000_0220);
 const CURRENT_THREAD_PSEUDO_HANDLE: u32 = 0xffff_fffe;
 
 #[test]
+fn suspend_thread_blocks_self_and_preserves_other_thread_counts_and_errors() {
+    let (mut runtime, owner) = prepared_runtime();
+    let suspend = endpoint(owner, 1, 0x7f00_0310, DATA.0 + 0x800, "SuspendThread");
+    runtime
+        .memory
+        .write_initialization(
+            owner,
+            GuestAddress(DATA.0 + 0x800),
+            &suspend.address.0.to_le_bytes(),
+        )
+        .unwrap();
+    write_words(&mut runtime.memory, owner, RESUME_STACK, &[0x401100, 0]);
+    runtime.memory.seal_owner(owner).unwrap();
+    let reflection = runtime.memory.pending_reflection().unwrap();
+    runtime
+        .memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    let dispatcher = ApiDispatcher::from_endpoints([suspend.clone()]).unwrap();
+    let second = RuntimeThreadId(INITIAL_THREAD_ID.0 + 1);
+    let handle = runtime.register_thread(second, 0).unwrap();
+    for (argument, expected, last_error) in [
+        (handle.0, 0, 0x5678),
+        (handle.0, 1, 0x5678),
+        (0, u32::MAX, 6),
+    ] {
+        runtime
+            .memory
+            .write(GuestAddress(RESUME_STACK.0 + 4), &argument.to_le_bytes())
+            .unwrap();
+        acknowledge(&mut runtime.memory);
+        runtime.set_current_last_error(0x5678).unwrap();
+        let result = dispatch(&dispatcher, &mut runtime, &suspend, RESUME_STACK);
+        assert_eq!(result.eax, Some(expected));
+        assert_eq!(runtime.current_last_error().unwrap(), last_error);
+        assert_eq!(
+            result.execution_boundary,
+            vine_core::RuntimeApiBoundaryDisposition::ContinueQuantum
+        );
+    }
+    assert_eq!(
+        runtime.scheduler_state_for_thread(second).unwrap(),
+        SchedulerThreadState::Suspended { count: 2 }
+    );
+    assert_eq!(runtime.resume_thread(handle).unwrap(), 2);
+    assert_eq!(runtime.resume_thread(handle).unwrap(), 1);
+    let initial_handle = runtime.open_current_thread_handle().unwrap();
+    runtime
+        .memory
+        .write(
+            GuestAddress(RESUME_STACK.0 + 4),
+            &CURRENT_THREAD_PSEUDO_HANDLE.to_le_bytes(),
+        )
+        .unwrap();
+    acknowledge(&mut runtime.memory);
+    let result = dispatch(&dispatcher, &mut runtime, &suspend, RESUME_STACK);
+    assert_eq!(result.eax, Some(0));
+    assert_eq!(
+        result.execution_boundary,
+        vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread
+    );
+    assert_eq!(
+        runtime.select_next_executable_thread().unwrap(),
+        Some(second)
+    );
+    assert_eq!(runtime.resume_thread(initial_handle).unwrap(), 1);
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+}
+
+#[test]
 fn exit_code_query_accepts_current_pseudo_handle_and_rejects_invalid_handles_without_output() {
     let (mut runtime, owner) = prepared_runtime();
     let get_exit = endpoint(owner, 1, 0x7f00_0310, DATA.0 + 0x800, "GetExitCodeThread");
@@ -1193,5 +1268,81 @@ fn runtime_bootstrap() -> RuntimeBootstrap {
             bytes_with_nul: b"C:\\Vine\0".to_vec(),
         },
         encoded_pointer_cookie: 0xec01_9d3b,
+    }
+}
+
+#[test]
+fn get_thread_priority_returns_owned_values_and_checks_handle_lifetime() {
+    let (mut runtime, owner) = prepared_runtime();
+    let query = endpoint(owner, 1, 0x7f00_0310, DATA.0 + 0x800, "GetThreadPriority");
+    write_words(
+        &mut runtime.memory,
+        owner,
+        GuestAddress(DATA.0 + 0x800),
+        &[query.address.0],
+    );
+    write_words(
+        &mut runtime.memory,
+        owner,
+        CREATE_STACK,
+        &[0x401000, CURRENT_THREAD_PSEUDO_HANDLE],
+    );
+    runtime.memory.seal_owner(owner).unwrap();
+    let reflection = runtime.memory.pending_reflection().unwrap();
+    runtime
+        .memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    let dispatcher = ApiDispatcher::from_endpoints([query.clone()]).unwrap();
+    let initial = dispatch(&dispatcher, &mut runtime, &query, CREATE_STACK);
+    assert_eq!(initial.eax, Some(0));
+    assert_eq!(initial.stack_pointer, GuestAddress(CREATE_STACK.0 + 8));
+    assert_eq!(runtime.current_last_error().unwrap(), 0x5a5a);
+    let thread = runtime.register_thread(RuntimeThreadId(8193), 0).unwrap();
+    for value in [-15_i32, -2, -1, 0, 1, 2, 15] {
+        assert!(
+            runtime
+                .set_thread_priority(
+                    thread,
+                    RuntimeThreadPriority::from_win32_value(value).unwrap()
+                )
+                .unwrap()
+        );
+        write_runtime_u32(
+            &mut runtime.memory,
+            GuestAddress(CREATE_STACK.0 + 4),
+            thread.0,
+        );
+        let state = runtime.thread_state(RuntimeThreadId(8193)).unwrap().clone();
+        assert_eq!(
+            dispatch(&dispatcher, &mut runtime, &query, CREATE_STACK).eax,
+            Some(value as u32)
+        );
+        assert_eq!(runtime.thread_state(RuntimeThreadId(8193)).unwrap(), &state);
+        assert_eq!(runtime.current_last_error().unwrap(), 0x5a5a);
+        write_runtime_u32(
+            &mut runtime.memory,
+            GuestAddress(CREATE_STACK.0 + 4),
+            CURRENT_THREAD_PSEUDO_HANDLE,
+        );
+        assert_eq!(
+            dispatch(&dispatcher, &mut runtime, &query, CREATE_STACK).eax,
+            Some(0)
+        );
+    }
+    let event = runtime.create_event(false, false).unwrap();
+    runtime.close_handle(thread).unwrap();
+    for handle in [0, u32::MAX, thread.0, event.0] {
+        runtime.set_current_last_error(0x5a5a).unwrap();
+        write_runtime_u32(
+            &mut runtime.memory,
+            GuestAddress(CREATE_STACK.0 + 4),
+            handle,
+        );
+        assert_eq!(
+            dispatch(&dispatcher, &mut runtime, &query, CREATE_STACK).eax,
+            Some(0x7fff_ffff)
+        );
+        assert_eq!(runtime.current_last_error().unwrap(), 6);
     }
 }

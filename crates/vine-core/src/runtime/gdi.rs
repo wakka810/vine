@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
+use crate::memory::{GuestAddress, GuestMemory, GuestRange, MemoryOwnerId};
 
 use super::address_space::ProcessAddressAllocationId;
 use super::com::RuntimeComObjectId;
@@ -21,6 +21,8 @@ pub const RUNTIME_LOG_FONT_A_FACE_CAPACITY: usize = 32;
 pub const RUNTIME_GDI_BITMAP_BYTE_LENGTH: usize = 24;
 pub const RUNTIME_GDI_DIB_RGB_COLORS: u32 = 0;
 pub const RUNTIME_GDI_DIB_BI_RGB: u32 = 0;
+pub const RUNTIME_GDI_DIB_BI_BITFIELDS: u32 = 3;
+const DEVICE_BITMAP_PIXEL_LIMIT: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RuntimeDeviceContextId(pub u64);
@@ -90,6 +92,9 @@ pub struct RuntimeDeviceContext {
     pub selected_font_id: Option<RuntimeGdiObjectId>,
     pub selected_bitmap_id: Option<RuntimeGdiObjectId>,
     pub selection_generation: u64,
+    pub text_color: u32,
+    pub background_color: u32,
+    pub background_mode: u32,
 }
 
 impl RuntimeDeviceContext {
@@ -126,6 +131,11 @@ pub enum RuntimeGdiObjectKind {
         descriptor: RuntimeGdiDibSectionDescriptor,
         backing: RuntimeGdiDibSectionBacking,
     },
+    DeviceBitmap {
+        width: u32,
+        height: u32,
+        pixels: Vec<u32>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +156,7 @@ pub struct RuntimeGdiDibSectionDescriptor {
     pub stride_bytes: u32,
     pub pixel_byte_length: u32,
     pub palette: Vec<RuntimeGdiRgbQuad>,
+    pub color_masks: Option<[u32; 3]>,
 }
 
 impl RuntimeGdiDibSectionDescriptor {
@@ -215,6 +226,24 @@ impl RuntimeLogFontA {
             .copy_from_slice(&self.face_name_windows_932);
         Ok(bytes)
     }
+
+    fn to_wide_bytes(&self) -> Result<Vec<u8>, RuntimeStateError> {
+        let ansi = self.to_bytes()?;
+        let (face, invalid) =
+            encoding_rs::SHIFT_JIS.decode_without_bom_handling(&self.face_name_windows_932);
+        let units = face.encode_utf16().collect::<Vec<_>>();
+        if invalid || units.len() >= RUNTIME_LOG_FONT_A_FACE_CAPACITY {
+            return Err(RuntimeStateError::new(
+                "logical font face cannot be represented in LOGFONTW",
+            ));
+        }
+        let mut bytes = vec![0; 92];
+        bytes[..28].copy_from_slice(&ansi[..28]);
+        for (index, unit) in units.into_iter().enumerate() {
+            bytes[28 + index * 2..30 + index * 2].copy_from_slice(&unit.to_le_bytes());
+        }
+        Ok(bytes)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,6 +282,9 @@ pub struct RuntimeGdiTextRasterTarget {
     pub device_context_handle: u32,
     pub owner_thread_id: RuntimeThreadId,
     pub selection_generation: u64,
+    pub text_color: u32,
+    pub background_color: u32,
+    pub background_mode: u32,
     pub font_id: RuntimeGdiObjectId,
     pub font_handle: u32,
     pub log_font: RuntimeLogFontA,
@@ -264,6 +296,7 @@ pub struct RuntimeGdiTextRasterTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeGdi {
+    font_resources: super::font_resources::RuntimeFontResources,
     device_contexts: BTreeMap<RuntimeDeviceContextId, RuntimeDeviceContext>,
     device_context_handle_index: BTreeMap<u32, RuntimeDeviceContextId>,
     objects: BTreeMap<RuntimeGdiObjectId, RuntimeGdiObject>,
@@ -282,6 +315,7 @@ pub(super) struct RuntimeGdi {
 impl Default for RuntimeGdi {
     fn default() -> Self {
         Self {
+            font_resources: super::font_resources::RuntimeFontResources::default(),
             device_contexts: BTreeMap::new(),
             device_context_handle_index: BTreeMap::new(),
             objects: BTreeMap::new(),
@@ -322,6 +356,53 @@ struct RuntimeGdiObjectAllocation {
 }
 
 impl RuntimeGdi {
+    pub(super) fn text_font(
+        &self,
+        dc: u32,
+        thread: RuntimeThreadId,
+    ) -> Result<RuntimeLogFontA, RuntimeStateError> {
+        let dc = self.device_context_by_handle(dc)?;
+        if dc.owner_thread_id != thread {
+            return Err(RuntimeStateError::new("text DC belongs to another thread"));
+        }
+        let id = dc
+            .selected_font_id
+            .ok_or_else(|| RuntimeStateError::new("text DC has no selected font"))?;
+        match &self
+            .objects
+            .get(&id)
+            .ok_or_else(|| RuntimeStateError::new("selected font is not live"))?
+            .object
+        {
+            RuntimeGdiObjectKind::FontA { log_font } => Ok(log_font.clone()),
+            RuntimeGdiObjectKind::StockFont { index } => stock_log_font(*index)
+                .ok_or_else(|| RuntimeStateError::new("stock font has no metrics")),
+            _ => Err(RuntimeStateError::new("selected text object is not a font")),
+        }
+    }
+    pub(super) fn retire_window(&mut self, window_id: RuntimeWindowId) {
+        let handles:Vec<_>=self.device_contexts.values().filter_map(|dc|
+            matches!(dc.target,RuntimeDeviceContextTarget::Window {window_id:id,..} if id==window_id).then_some(dc.handle)).collect();
+        for handle in handles {
+            self.remove_device_context(handle).expect("live window DC");
+        }
+        if let Some(surface) = self.window_surface_index.remove(&window_id) {
+            self.surfaces.remove(&surface);
+        }
+    }
+    pub(super) fn add_memory_font(
+        &mut self,
+        memory: &mut GuestMemory,
+        bytes: Vec<u8>,
+        count_output: GuestAddress,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.font_resources.add(memory, bytes, count_output)
+    }
+
+    pub(super) fn remove_memory_font(&mut self, handle: u32) -> bool {
+        self.font_resources.remove(handle)
+    }
+
     pub(super) fn validate_window_surface_resize(
         &self,
         window_id: RuntimeWindowId,
@@ -330,18 +411,14 @@ impl RuntimeGdi {
         next_width: u32,
         next_height: u32,
     ) -> Result<Option<RuntimeGdiSurfaceId>, RuntimeStateError> {
-        if previous_width == 0
-            || previous_height == 0
-            || next_width == 0
-            || next_height == 0
-            || previous_width > i32::MAX as u32
+        if previous_width > i32::MAX as u32
             || previous_height > i32::MAX as u32
             || next_width > i32::MAX as u32
             || next_height > i32::MAX as u32
             || (previous_width == next_width && previous_height == next_height)
         {
             return Err(RuntimeStateError::new(
-                "logical window surface resize requires changed positive x86 dimensions",
+                "logical window surface resize requires changed nonnegative x86 dimensions",
             ));
         }
 
@@ -394,6 +471,11 @@ impl RuntimeGdi {
             next_height,
         )?;
         if let Some(surface_id) = surface_id {
+            if next_width == 0 || next_height == 0 {
+                self.surfaces.remove(&surface_id);
+                self.window_surface_index.remove(&window_id);
+                return Ok(());
+            }
             let surface = self
                 .surfaces
                 .get_mut(&surface_id)
@@ -512,6 +594,9 @@ impl RuntimeGdi {
             selected_font_id: None,
             selected_bitmap_id: None,
             selection_generation: 0,
+            text_color: 0,
+            background_color: 0x00ff_ffff,
+            background_mode: 2,
         };
         if surface_created {
             self.window_surface_index
@@ -560,6 +645,9 @@ impl RuntimeGdi {
                 selected_font_id: None,
                 selected_bitmap_id: None,
                 selection_generation: 0,
+                text_color: 0,
+                background_color: 0x00ff_ffff,
+                background_mode: 2,
             },
         );
         self.next_device_context_id = allocation.next_id;
@@ -661,6 +749,9 @@ impl RuntimeGdi {
                 selected_font_id: Some(selected_font_id),
                 selected_bitmap_id: Some(selected_bitmap_id),
                 selection_generation: 0,
+                text_color: 0,
+                background_color: 0x00ff_ffff,
+                background_mode: 2,
             },
         );
         self.next_device_context_id = device_context_allocation.next_id;
@@ -711,6 +802,9 @@ impl RuntimeGdi {
             selected_font_id: None,
             selected_bitmap_id: None,
             selection_generation: 0,
+            text_color: 0,
+            background_color: 0x00ff_ffff,
+            background_mode: 2,
         };
         self.graphics_surface_dc_index.insert(target.surface_id, id);
         self.device_context_handle_index.insert(handle, id);
@@ -728,7 +822,8 @@ impl RuntimeGdi {
         if !(0..=RUNTIME_GDI_DEFAULT_BITMAP_INDEX).contains(&index) {
             return Ok(None);
         }
-        if index != RUNTIME_GDI_BLACK_BRUSH_INDEX {
+        if !(0..=RUNTIME_GDI_BLACK_BRUSH_INDEX).contains(&index) && stock_log_font(index).is_none()
+        {
             return Err(RuntimeStateError::new(format!(
                 "GDI stock object index {index} is outside the reached support band"
             )));
@@ -744,9 +839,13 @@ impl RuntimeGdi {
             id: allocation.id,
             handle: allocation.handle,
             shared: true,
-            object: RuntimeGdiObjectKind::StockBrush {
-                index,
-                color_ref: 0,
+            object: if (0..=RUNTIME_GDI_BLACK_BRUSH_INDEX).contains(&index) {
+                RuntimeGdiObjectKind::StockBrush {
+                    index,
+                    color_ref: [0xffffff, 0xc0c0c0, 0x808080, 0x404040, 0][index as usize],
+                }
+            } else {
+                RuntimeGdiObjectKind::StockFont { index }
             },
         };
         self.stock_object_index.insert(index, object.id);
@@ -781,6 +880,131 @@ impl RuntimeGdi {
         Ok(Some(allocation.handle))
     }
 
+    pub(super) fn create_compatible_bitmap(
+        &mut self,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+        width: i32,
+        height: i32,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        let Some(dc) = self.device_context_option(device_context_handle)? else {
+            return Ok(None);
+        };
+        if dc.owner_thread_id != thread_id || width < 0 || height < 0 {
+            return Ok(None);
+        }
+        if width == 0 || height == 0 {
+            return Err(RuntimeStateError::new(
+                "zero-sized compatible bitmap requires monochrome bitmap support",
+            ));
+        }
+        match dc.target {
+            RuntimeDeviceContextTarget::Screen { .. }
+            | RuntimeDeviceContextTarget::Window { .. } => {}
+            RuntimeDeviceContextTarget::Memory { .. } => {
+                self.validate_memory_dc_selections(dc)?;
+                let bitmap = &self.objects[&dc.selected_bitmap_id.expect("validated bitmap")];
+                if !matches!(bitmap.object, RuntimeGdiObjectKind::DeviceBitmap { .. }) {
+                    return Err(RuntimeStateError::new(
+                        "compatible bitmap source requires a selected color device bitmap",
+                    ));
+                }
+            }
+            RuntimeDeviceContextTarget::GraphicsSurface { .. } => {
+                return Err(RuntimeStateError::new(
+                    "compatible bitmap from a graphics surface is not implemented",
+                ));
+            }
+        }
+        let Some(length) = (width as usize).checked_mul(height as usize) else {
+            return Ok(None);
+        };
+        let used: usize = self
+            .objects
+            .values()
+            .map(|object| match &object.object {
+                RuntimeGdiObjectKind::DeviceBitmap { pixels, .. } => pixels.len(),
+                _ => 0,
+            })
+            .sum();
+        if length > DEVICE_BITMAP_PIXEL_LIMIT.saturating_sub(used) {
+            return Ok(None);
+        }
+        let Some(allocation) = self.try_plan_object_allocation()? else {
+            return Ok(None);
+        };
+        let mut pixels = Vec::new();
+        if pixels.try_reserve_exact(length).is_err() {
+            return Ok(None);
+        }
+        pixels.resize(length, 0);
+        let object = RuntimeGdiObject {
+            id: allocation.id,
+            handle: allocation.handle,
+            shared: false,
+            object: RuntimeGdiObjectKind::DeviceBitmap {
+                width: width as u32,
+                height: height as u32,
+                pixels,
+            },
+        };
+        self.object_handle_index.insert(object.handle, object.id);
+        self.objects.insert(object.id, object);
+        self.next_object_id = allocation.next_id;
+        self.next_object_handle = allocation.next_handle;
+        Ok(Some(allocation.handle))
+    }
+
+    pub(super) fn device_bitmap_pixel(
+        &mut self,
+        device_context_handle: u32,
+        thread_id: RuntimeThreadId,
+        x: i32,
+        y: i32,
+        color: Option<u32>,
+    ) -> Result<u32, RuntimeStateError> {
+        let Some(dc) = self.device_context_option(device_context_handle)? else {
+            return Ok(u32::MAX);
+        };
+        if dc.owner_thread_id != thread_id {
+            return Ok(u32::MAX);
+        }
+        if !matches!(dc.target, RuntimeDeviceContextTarget::Memory { .. }) {
+            return Err(RuntimeStateError::new(
+                "pixel access currently requires a memory DC",
+            ));
+        }
+        self.validate_memory_dc_selections(dc)?;
+        if color.is_some_and(|color| color & 0xff00_0000 != 0) {
+            return Err(RuntimeStateError::new(
+                "palette-indexed COLORREF pixel access is not implemented",
+            ));
+        }
+        let bitmap_id = dc.selected_bitmap_id.expect("validated bitmap");
+        let bitmap = self
+            .objects
+            .get_mut(&bitmap_id)
+            .expect("validated bitmap identity");
+        let RuntimeGdiObjectKind::DeviceBitmap {
+            width,
+            height,
+            pixels,
+        } = &mut bitmap.object
+        else {
+            return Err(RuntimeStateError::new(
+                "pixel access requires a selected color device bitmap",
+            ));
+        };
+        if x < 0 || y < 0 || x as u32 >= *width || y as u32 >= *height {
+            return Ok(u32::MAX);
+        }
+        let pixel = &mut pixels[y as usize * *width as usize + x as usize];
+        if let Some(color) = color {
+            *pixel = color;
+        }
+        Ok(*pixel)
+    }
+
     pub(super) fn create_dib_section(
         &mut self,
         device_context_handle: u32,
@@ -792,17 +1016,19 @@ impl RuntimeGdi {
     ) -> Result<Option<u32>, RuntimeStateError> {
         validate_dib_section_descriptor(&descriptor)?;
         validate_dib_section_backing_shape(&descriptor, address_allocation_id, backing_range)?;
-        let source_device_context = self.device_context_by_handle(device_context_handle)?;
-        if !matches!(
-            source_device_context.target,
-            RuntimeDeviceContextTarget::Memory { .. }
-        ) || source_device_context.owner_thread_id != thread_id
-        {
-            return Err(RuntimeStateError::new(
-                "CreateDIBSection requires a live compatible memory DC owned by the current guest thread",
-            ));
+        if device_context_handle != 0 {
+            let source_device_context = self.device_context_by_handle(device_context_handle)?;
+            if !matches!(
+                source_device_context.target,
+                RuntimeDeviceContextTarget::Memory { .. }
+            ) || source_device_context.owner_thread_id != thread_id
+            {
+                return Err(RuntimeStateError::new(
+                    "CreateDIBSection requires NULL or a live compatible memory DC owned by the current guest thread",
+                ));
+            }
+            self.validate_memory_dc_selections(source_device_context)?;
         }
-        self.validate_memory_dc_selections(source_device_context)?;
         if self.objects.values().any(|object| {
             matches!(
                 &object.object,
@@ -869,7 +1095,9 @@ impl RuntimeGdi {
                     .selected_font_id
                     .expect("validated memory DC has a selected font"),
             ),
-            RuntimeGdiObjectKind::StockBitmap { .. } | RuntimeGdiObjectKind::DibSection { .. } => (
+            RuntimeGdiObjectKind::StockBitmap { .. }
+            | RuntimeGdiObjectKind::DibSection { .. }
+            | RuntimeGdiObjectKind::DeviceBitmap { .. } => (
                 RuntimeGdiSelectionSlot::Bitmap,
                 device_context
                     .selected_bitmap_id
@@ -883,6 +1111,16 @@ impl RuntimeGdi {
             RuntimeStateError::new("logical memory DC selection does not resolve to a live object")
         })?;
         let changed = previous_id != selected_object.id;
+        if changed
+            && !selected_object.shared
+            && matches!(slot, RuntimeGdiSelectionSlot::Bitmap)
+            && self
+                .device_contexts
+                .values()
+                .any(|dc| dc.selected_bitmap_id == Some(selected_object.id))
+        {
+            return Ok(None);
+        }
         let selection_generation = if changed {
             device_context
                 .selection_generation
@@ -932,7 +1170,9 @@ impl RuntimeGdi {
         }
         if !matches!(
             &object.object,
-            RuntimeGdiObjectKind::FontA { .. } | RuntimeGdiObjectKind::DibSection { .. }
+            RuntimeGdiObjectKind::FontA { .. }
+                | RuntimeGdiObjectKind::DibSection { .. }
+                | RuntimeGdiObjectKind::DeviceBitmap { .. }
         ) {
             return Ok(None);
         }
@@ -969,6 +1209,13 @@ impl RuntimeGdi {
             return Ok(None);
         };
         match &object.object {
+            RuntimeGdiObjectKind::StockFont { index }
+                if requested_byte_length == RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32 =>
+            {
+                let font = stock_log_font(*index)
+                    .ok_or_else(|| RuntimeStateError::new("unknown stock font"))?;
+                Ok(Some(font.to_bytes()?.to_vec()))
+            }
             RuntimeGdiObjectKind::FontA { log_font }
                 if requested_byte_length == RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32 =>
             {
@@ -980,12 +1227,48 @@ impl RuntimeGdi {
             } if requested_byte_length == RUNTIME_GDI_BITMAP_BYTE_LENGTH as u32 => Ok(Some(
                 descriptor.bitmap_bytes(backing.range.start())?.to_vec(),
             )),
+            RuntimeGdiObjectKind::DeviceBitmap { width, height, .. }
+                if requested_byte_length == RUNTIME_GDI_BITMAP_BYTE_LENGTH as u32 =>
+            {
+                let mut bytes = vec![0; RUNTIME_GDI_BITMAP_BYTE_LENGTH];
+                bytes[4..8].copy_from_slice(&width.to_le_bytes());
+                bytes[8..12].copy_from_slice(&height.to_le_bytes());
+                bytes[12..16].copy_from_slice(&(width * 4).to_le_bytes());
+                bytes[16..18].copy_from_slice(&1_u16.to_le_bytes());
+                bytes[18..20].copy_from_slice(&32_u16.to_le_bytes());
+                Ok(Some(bytes))
+            }
             RuntimeGdiObjectKind::StockBrush { .. }
             | RuntimeGdiObjectKind::StockFont { .. }
             | RuntimeGdiObjectKind::StockBitmap { .. }
             | RuntimeGdiObjectKind::FontA { .. }
+            | RuntimeGdiObjectKind::DeviceBitmap { .. }
             | RuntimeGdiObjectKind::DibSection { .. } => Ok(None),
         }
+    }
+
+    pub(super) fn object_bytes_w(
+        &self,
+        object_handle: u32,
+        requested_byte_length: u32,
+    ) -> Result<Option<Vec<u8>>, RuntimeStateError> {
+        let Some(object) = self.object_option(object_handle)? else {
+            return Ok(None);
+        };
+        let mut bytes = match &object.object {
+            RuntimeGdiObjectKind::FontA { log_font } => log_font.to_wide_bytes()?,
+            RuntimeGdiObjectKind::StockFont { index } => stock_log_font(*index)
+                .ok_or_else(|| RuntimeStateError::new("unknown stock font"))?
+                .to_wide_bytes()?,
+            _ => return self.object_bytes(object_handle, requested_byte_length),
+        };
+        if requested_byte_length > bytes.len() as u32 {
+            return Err(RuntimeStateError::new(
+                "extended GetObjectW font structures are not implemented",
+            ));
+        }
+        bytes.truncate(requested_byte_length as usize);
+        Ok(Some(bytes))
     }
 
     pub(super) fn selected_font_a(
@@ -1019,6 +1302,7 @@ impl RuntimeGdi {
             )),
             RuntimeGdiObjectKind::StockBrush { .. }
             | RuntimeGdiObjectKind::StockBitmap { .. }
+            | RuntimeGdiObjectKind::DeviceBitmap { .. }
             | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::new(
                 "logical memory DC font selection resolved to a non-font object",
             )),
@@ -1057,10 +1341,11 @@ impl RuntimeGdi {
                 "logical memory DC selected bitmap does not resolve to a live object",
             )
         })?;
-        let RuntimeGdiObjectKind::FontA { log_font } = &font.object else {
-            return Err(RuntimeStateError::new(
-                "text rasterization requires an explicitly created FontA object",
-            ));
+        let log_font = match &font.object {
+            RuntimeGdiObjectKind::FontA { log_font } => log_font.clone(),
+            RuntimeGdiObjectKind::StockFont { index } => stock_log_font(*index)
+                .ok_or_else(|| RuntimeStateError::new("stock font has no metrics"))?,
+            _ => return Err(RuntimeStateError::new("selected object is not a font")),
         };
         let RuntimeGdiObjectKind::DibSection {
             descriptor,
@@ -1076,9 +1361,12 @@ impl RuntimeGdi {
             device_context_handle: device_context.handle,
             owner_thread_id: device_context.owner_thread_id,
             selection_generation: device_context.selection_generation,
+            text_color: device_context.text_color,
+            background_color: device_context.background_color,
+            background_mode: device_context.background_mode,
             font_id: font.id,
             font_handle: font.handle,
-            log_font: log_font.clone(),
+            log_font,
             dib_section_id: bitmap.id,
             dib_section_handle: bitmap.handle,
             descriptor: descriptor.clone(),
@@ -1348,6 +1636,35 @@ impl RuntimeGdi {
             ));
         }
         Ok(Some(device_context))
+    }
+
+    pub(super) fn set_text_attribute(
+        &mut self,
+        handle: u32,
+        thread: RuntimeThreadId,
+        attribute: u32,
+        value: u32,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        let Some(dc) = self.device_context_option(handle)? else {
+            return Ok(None);
+        };
+        if dc.owner_thread_id != thread {
+            return Ok(None);
+        }
+        let next = dc
+            .selection_generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("DC attribute generation exhausted"))?;
+        let id = dc.id;
+        let dc = self.device_contexts.get_mut(&id).expect("validated HDC");
+        let field = match attribute {
+            0 => &mut dc.text_color,
+            1 => &mut dc.background_color,
+            _ => &mut dc.background_mode,
+        };
+        let previous = std::mem::replace(field, value);
+        dc.selection_generation = next;
+        Ok(Some(previous))
     }
 
     pub fn device_context_by_handle(
@@ -1627,10 +1944,18 @@ fn validate_default_bitmap_object(object: &RuntimeGdiObject) -> Result<(), Runti
 
 fn validate_selectable_font_object(object: &RuntimeGdiObject) -> Result<(), RuntimeStateError> {
     match &object.object {
-        RuntimeGdiObjectKind::StockFont { .. } => validate_default_font_object(object),
+        RuntimeGdiObjectKind::StockFont { index }
+            if object.shared && stock_log_font(*index).is_some() =>
+        {
+            Ok(())
+        }
+        RuntimeGdiObjectKind::StockFont { .. } => {
+            Err(RuntimeStateError::new("unknown or unshared stock font"))
+        }
         RuntimeGdiObjectKind::FontA { log_font } if !object.shared => validate_log_font_a(log_font),
         RuntimeGdiObjectKind::StockBrush { .. }
         | RuntimeGdiObjectKind::StockBitmap { .. }
+        | RuntimeGdiObjectKind::DeviceBitmap { .. }
         | RuntimeGdiObjectKind::DibSection { .. }
         | RuntimeGdiObjectKind::FontA { .. } => Err(RuntimeStateError::new(
             "logical memory DC selected font identity is not a supported font object",
@@ -1638,9 +1963,55 @@ fn validate_selectable_font_object(object: &RuntimeGdiObject) -> Result<(), Runt
     }
 }
 
+fn stock_log_font(index: i32) -> Option<RuntimeLogFontA> {
+    let (
+        height,
+        width,
+        character_set,
+        output_precision,
+        clip_precision,
+        quality,
+        pitch_and_family,
+        face,
+    ) = match index {
+        11 => (12, 9, 0, 0, 2, 2, 1, "Courier"),
+        13 => (18, 8, 128, 1, 2, 2, 2, "System"),
+        17 => (-11, 0, 128, 0, 0, 0, 0, "MS Shell Dlg"),
+        _ => return None,
+    };
+    Some(RuntimeLogFontA {
+        height,
+        width,
+        escapement: 0,
+        orientation: 0,
+        weight: 400,
+        italic: 0,
+        underline: 0,
+        strike_out: 0,
+        character_set,
+        output_precision,
+        clip_precision,
+        quality,
+        pitch_and_family,
+        face_name_windows_932: face.as_bytes().to_vec(),
+    })
+}
+
 fn validate_selectable_bitmap_object(object: &RuntimeGdiObject) -> Result<(), RuntimeStateError> {
     match &object.object {
         RuntimeGdiObjectKind::StockBitmap { .. } => validate_default_bitmap_object(object),
+        RuntimeGdiObjectKind::DeviceBitmap {
+            width,
+            height,
+            pixels,
+        } if !object.shared
+            && *width > 0
+            && *height > 0
+            && (*width as usize).checked_mul(*height as usize) == Some(pixels.len())
+            && pixels.len() <= DEVICE_BITMAP_PIXEL_LIMIT =>
+        {
+            Ok(())
+        }
         RuntimeGdiObjectKind::DibSection {
             descriptor,
             backing,
@@ -1661,6 +2032,7 @@ fn validate_selectable_bitmap_object(object: &RuntimeGdiObject) -> Result<(), Ru
         RuntimeGdiObjectKind::StockBrush { .. }
         | RuntimeGdiObjectKind::StockFont { .. }
         | RuntimeGdiObjectKind::FontA { .. }
+        | RuntimeGdiObjectKind::DeviceBitmap { .. }
         | RuntimeGdiObjectKind::DibSection { .. } => Err(RuntimeStateError::new(
             "logical memory DC selected bitmap identity is not a supported bitmap object",
         )),
@@ -1670,17 +2042,41 @@ fn validate_selectable_bitmap_object(object: &RuntimeGdiObject) -> Result<(), Ru
 fn validate_dib_section_descriptor(
     descriptor: &RuntimeGdiDibSectionDescriptor,
 ) -> Result<(), RuntimeStateError> {
+    let valid_compression_and_masks = matches!(
+        (
+            descriptor.bits_per_pixel,
+            descriptor.compression,
+            descriptor.color_masks
+        ),
+        (8 | 16 | 24 | 32, RUNTIME_GDI_DIB_BI_RGB, None)
+            | (
+                16,
+                RUNTIME_GDI_DIB_BI_BITFIELDS,
+                Some(
+                    [0x7c00, 0x03e0, 0x001f] | [0xf800, 0x07e0, 0x001f] | [0x0f00, 0x00f0, 0x000f]
+                )
+            )
+            | (
+                32,
+                RUNTIME_GDI_DIB_BI_BITFIELDS,
+                Some([0x00ff_0000, 0x0000_ff00, 0x0000_00ff])
+            )
+    );
     if descriptor.width <= 0
         || descriptor.height == 0
         || descriptor.height == i32::MIN
         || descriptor.planes != 1
-        || descriptor.bits_per_pixel != 8
-        || descriptor.compression != RUNTIME_GDI_DIB_BI_RGB
-        || descriptor.palette.len() != 256
+        || !valid_compression_and_masks
+        || descriptor.palette.len()
+            != if descriptor.bits_per_pixel == 8 {
+                256
+            } else {
+                0
+            }
         || descriptor.palette.iter().any(|color| color.reserved != 0)
     {
         return Err(RuntimeStateError::new(
-            "logical DIB section requires a nonempty 8bpp BI_RGB shape and 256 RGBQUAD colors",
+            "logical DIB section requires a nonempty BI_RGB or BI_BITFIELDS shape and matching color table or masks",
         ));
     }
     let width = u32::try_from(descriptor.width).map_err(|_| {
@@ -1914,6 +2310,7 @@ mod tests {
                     }
                 })
                 .collect(),
+            color_masks: None,
         }
     }
 
@@ -2170,7 +2567,7 @@ mod tests {
         let before = gdi.clone();
         assert!(
             gdi.create_dib_section(
-                0,
+                0xdead_beef,
                 screen_target().owner_thread_id,
                 dib_descriptor(),
                 backing.address_allocation_id,
@@ -2371,8 +2768,9 @@ mod tests {
         for index in [-1, i32::MAX] {
             assert!(gdi.get_stock_object(index).unwrap().is_none());
         }
-        gdi.get_stock_object(1).unwrap_err();
         assert_eq!(gdi, invalid_before);
+        let light_gray = gdi.get_stock_object(1).unwrap().unwrap();
+        assert_eq!(gdi.get_stock_object(1).unwrap(), Some(light_gray));
 
         let brush = gdi
             .get_stock_object(RUNTIME_GDI_BLACK_BRUSH_INDEX)

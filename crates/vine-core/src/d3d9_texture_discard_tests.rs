@@ -259,7 +259,7 @@ fn texture_discard_invalid_usage_rect_flags_and_outputs_publish_nothing() {
         &mut runtime,
         &dynamic,
         &[0, D3D9_FIXTURE_OUTPUT.0, 0, 0x10],
-        true,
+        false,
     );
     for output in [D3D9_FIXTURE_MEMORY_BASE.0 + 0x2ffc, dynamic.guest_pointer.0] {
         texture_discard_rejected(
@@ -423,4 +423,20 @@ fn texture_discard_failed_backing_retries_and_dirty_update_follows_lock_flags() 
         }
     }
     assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+
+    // Releasing the system-memory staging texture before the default-pool GPU
+    // texture succeeds and preserves the destination texture's copied texels.
+    assert_eq!(texture_discard_call(&mut runtime, &source, 2, &[]), 0);
+    let destination_after_source_release = runtime
+        .graphics_texture_for_com_object(destination.object_id)
+        .unwrap();
+    assert!(destination_after_source_release.content.pixel_source.is_none());
+    let retained = destination_after_source_release
+        .content
+        .retained_pixels
+        .as_ref()
+        .expect("retained destination pixels");
+    assert_eq!(retained.row_pitch, 12);
+    assert_eq!(retained.data.as_slice(), &[0x33; 24]);
+    assert_eq!(texture_discard_call(&mut runtime, &destination, 2, &[]), 0);
 }

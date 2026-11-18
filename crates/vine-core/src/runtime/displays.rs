@@ -30,6 +30,7 @@ pub struct RuntimeDisplayProfile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeLogicalMonitor {
     pub handle: u32,
+    pub device_name: String,
     pub primary: bool,
     pub rect: RuntimeRect,
     pub work_rect: RuntimeRect,
@@ -76,6 +77,7 @@ impl RuntimeDisplays {
         }
         self.primary_monitor = Some(RuntimeLogicalMonitor {
             handle: RUNTIME_PRIMARY_MONITOR_HANDLE,
+            device_name: r"\\.\DISPLAY1".to_owned(),
             primary: true,
             rect,
             work_rect,

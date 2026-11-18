@@ -127,7 +127,12 @@ fn runtime_dispatch_uses_windows_module_case_and_exact_name_or_ordinal() {
         ("kernel32.dll", "getacp", None, None),
         ("example.dll", "GetACP", None, None),
         ("WINMM.dll", "timeGetTime", None, Some(tick)),
-        ("dsound.dll", "DirectSoundCreate8", None, None),
+        (
+            "dsound.dll",
+            "DirectSoundCreate8",
+            None,
+            Some(crate::dsound::DSOUND_E_INVALIDARG.bits()),
+        ),
         (
             "DSOUND.dll",
             "diagnostic-label",
@@ -3107,7 +3112,14 @@ fn load_library_a_reuses_registered_runtime_modules_without_export_configuration
                 dispatch_kernel32_api,
             )
         };
-        assert!(matches!(outcome, DispatchOutcome::Fault(_)));
+        if index == 3 {
+            assert!(matches!(outcome, DispatchOutcome::Fault(_)));
+        } else {
+            let DispatchOutcome::Immediate(completion) = outcome else {
+                panic!("missing Windows-932 DLL should return NULL: {outcome:?}");
+            };
+            assert_eq!(completion.eax, Some(0));
+        }
         assert_eq!(
             runtime
                 .module_graph()
@@ -3563,7 +3575,7 @@ fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
         &mut runtime.memory,
         &sentinels.process_entry_return,
         0x0010_0000,
-        GUEST_PAGE_SIZE,
+        2 * GUEST_PAGE_SIZE,
     )
     .expect("initial stack");
     runtime
@@ -3754,7 +3766,7 @@ fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
         .memory
         .acknowledge_delta(callback_delta.generation)
         .expect("acknowledge SEH callback delta");
-    const UNWIND_STACK: GuestAddress = GuestAddress(0x006f_f700);
+    const UNWIND_STACK: GuestAddress = GuestAddress(0x006f_f300);
     let unwind_words = [
         HANDLER_ONE.0,
         REGISTRATION_ONE.0,
@@ -3798,17 +3810,10 @@ fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
     assert_eq!(unwind.eax, Some(0x1234_5678));
     assert_eq!(unwind.instruction_pointer, HANDLER_ONE);
     assert_eq!(unwind.stack_pointer, GuestAddress(UNWIND_STACK.0 + 20));
-    assert!(runtime.pending_api_callbacks.is_empty());
-    assert!(
-        runtime
-            .thread_state(runtime.current_thread_id())
-            .unwrap()
-            .callback_frames
-            .is_empty()
-    );
+    assert_eq!(runtime.pending_api_callbacks.len(), 1);
     assert_eq!(
         runtime.scheduler_state().unwrap(),
-        vine_core::SchedulerThreadState::Runnable
+        vine_core::SchedulerThreadState::InCallback { depth: 1 }
     );
     let unwind_delta = runtime.memory.pending_delta().expect("RtlUnwind delta");
     runtime
@@ -3817,7 +3822,7 @@ fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
         .expect("acknowledge RtlUnwind delta");
     assert_eq!(
         u32::from_le_bytes(runtime.memory.read(teb, 4).unwrap().try_into().unwrap()),
-        REGISTRATION_TWO.0
+        REGISTRATION_ONE.0
     );
     assert_eq!(
         u32::from_le_bytes(
@@ -3842,6 +3847,230 @@ fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
             &1_u32.to_le_bytes(),
         )
         .expect("restore exception flags for negative case");
+
+    // A catch can rethrow while its CRT still holds the first record. The
+    // completed dispatch must not expose a reusable arena slot to that catch.
+    acknowledge_pending_delta(&mut runtime.memory);
+    let original_record = runtime.memory.read(prepared.scratch_address, 80).unwrap();
+    assert!(prepared.scratch_address.0 < API_STACK.0);
+    assert!(prepared.stack_pointer.0 < prepared.scratch_address.0);
+    let mut rethrow_call = unwind_call.clone();
+    rethrow_call.frame.stack_pointer = UNWIND_STACK;
+    rethrow_call.request.scratch[24..28].fill(0);
+    let rethrow = runtime.begin_guest_callback(rethrow_call).unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert!(rethrow.scratch_address.0 + rethrow.scratch_bytes <= prepared.stack_pointer.0);
+    assert_eq!(
+        runtime.memory.read(prepared.scratch_address, 80).unwrap(),
+        original_record
+    );
+    assert_eq!(
+        read_slice_u32(
+            &runtime.memory.read(rethrow.scratch_address, 80).unwrap(),
+            24
+        ),
+        0
+    );
+    // The rethrow's local unwind returns into the first handler. Its CPU ESP
+    // passes the inner RaiseException frame, but not the outer one.
+    runtime
+        .synchronize_exception_callback_stack(GuestAddress(prepared.stack_pointer.0 + 4))
+        .unwrap();
+    assert_eq!(runtime.pending_api_callbacks.len(), 1);
+    assert!(
+        runtime
+            .pending_api_callbacks
+            .contains_key(&prepared.frame_id)
+    );
+    assert!(
+        !runtime
+            .pending_api_callbacks
+            .contains_key(&rethrow.frame_id)
+    );
+    // A successful catch instead transfers out of the original RaiseException.
+    assert!(
+        runtime
+            .synchronize_exception_callback_stack(GuestAddress(u32::MAX))
+            .is_err()
+    );
+    assert_eq!(runtime.pending_api_callbacks.len(), 1);
+    runtime
+        .synchronize_exception_callback_stack(API_STACK)
+        .unwrap();
+    assert!(runtime.pending_api_callbacks.is_empty());
+
+    // Native x86 RtlUnwind invokes intervening handlers and leaves TargetFrame
+    // registered. Keep the dispatch callback alive throughout both cleanups.
+    const REGISTRATION_THREE: GuestAddress = GuestAddress(0x006f_ff40);
+    runtime
+        .memory
+        .write(REGISTRATION_TWO, &REGISTRATION_THREE.0.to_le_bytes())
+        .unwrap();
+    runtime
+        .memory
+        .write(
+            REGISTRATION_THREE,
+            &[u32::MAX.to_le_bytes(), HANDLER_TWO.0.to_le_bytes()].concat(),
+        )
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let parent = runtime.begin_guest_callback(unwind_call.clone()).unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    runtime
+        .memory
+        .write(
+            UNWIND_STACK,
+            &[
+                HANDLER_ONE.0,
+                REGISTRATION_THREE.0 + 8,
+                HANDLER_ONE.0,
+                parent.scratch_address.0,
+                0x1234_5678,
+            ]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let before = runtime.memory.stats();
+    let invalid = runtime.dispatch_api_call(
+        &dispatcher,
+        owned_trap(&unwind_endpoint, UNWIND_STACK.0, HANDLER_ONE.0),
+        sentinels.callback_return,
+        Some(unwind_context),
+    );
+    assert!(matches!(invalid, DispatchOutcome::Fault(_)));
+    assert_eq!(runtime.memory.stats(), before);
+    assert_eq!(runtime.pending_api_callbacks.len(), 1);
+    runtime
+        .memory
+        .write(
+            GuestAddress(UNWIND_STACK.0 + 4),
+            &REGISTRATION_THREE.0.to_le_bytes(),
+        )
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let unwind = runtime.dispatch_api_call(
+        &dispatcher,
+        owned_trap(&unwind_endpoint, UNWIND_STACK.0, HANDLER_ONE.0),
+        sentinels.callback_return,
+        Some(unwind_context),
+    );
+    let DispatchOutcome::GuestCallback(first) = unwind else {
+        panic!("expected unwind handlers: {unwind:?}");
+    };
+    assert_eq!(first.request.target, HANDLER_ONE);
+    runtime.begin_guest_callback(first).unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert_eq!(runtime.pending_api_callbacks.len(), 2);
+    assert_eq!(
+        read_slice_u32(&runtime.memory.read(parent.scratch_address, 8).unwrap(), 4),
+        3
+    );
+    // A guest callback cannot swap its registered successor and continue with
+    // the stale Rust continuation.
+    runtime
+        .memory
+        .write(REGISTRATION_ONE, &REGISTRATION_THREE.0.to_le_bytes())
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let before = runtime.memory.stats();
+    assert!(
+        runtime
+            .complete_guest_callback(&dispatcher, sentinels.callback_return, 1)
+            .is_err()
+    );
+    assert_eq!(runtime.memory.stats(), before);
+    assert_eq!(runtime.pending_api_callbacks.len(), 2);
+    runtime
+        .memory
+        .write(REGISTRATION_ONE, &REGISTRATION_TWO.0.to_le_bytes())
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let next = runtime
+        .complete_guest_callback(&dispatcher, sentinels.callback_return, 1)
+        .unwrap();
+    let crate::api::GuestCallbackReturn::Continue(next) = next else {
+        panic!("expected second unwind handler");
+    };
+    assert_eq!(next.target, HANDLER_TWO);
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert_eq!(
+        read_slice_u32(&runtime.memory.read(teb, 4).unwrap(), 0),
+        REGISTRATION_TWO.0
+    );
+    let completed = runtime
+        .complete_guest_callback(&dispatcher, sentinels.callback_return, 1)
+        .unwrap();
+    let crate::api::GuestCallbackReturn::Completed(completed) = completed else {
+        panic!("expected completed unwind");
+    };
+    assert_eq!(completed.eax, Some(0x1234_5678));
+    assert_eq!(completed.stack_pointer, GuestAddress(UNWIND_STACK.0 + 20));
+    assert_eq!(runtime.pending_api_callbacks.len(), 1);
+    acknowledge_pending_delta(&mut runtime.memory);
+    runtime
+        .synchronize_exception_callback_stack(API_STACK)
+        .unwrap();
+    assert!(runtime.pending_api_callbacks.is_empty());
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        vine_core::SchedulerThreadState::Runnable
+    );
+    assert_eq!(
+        read_slice_u32(&runtime.memory.read(teb, 4).unwrap(), 0),
+        REGISTRATION_THREE.0
+    );
+
+    // NULL ExceptionRecord creates STATUS_UNWIND for intervening handlers.
+    runtime
+        .memory
+        .write(teb, &REGISTRATION_ONE.0.to_le_bytes())
+        .unwrap();
+    runtime
+        .memory
+        .write(GuestAddress(UNWIND_STACK.0 + 12), &0_u32.to_le_bytes())
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let generated = runtime.dispatch_api_call(
+        &dispatcher,
+        owned_trap(&unwind_endpoint, UNWIND_STACK.0, HANDLER_ONE.0),
+        sentinels.callback_return,
+        Some(unwind_context),
+    );
+    let DispatchOutcome::GuestCallback(generated) = generated else {
+        panic!("expected generated unwind");
+    };
+    let generated = runtime.begin_guest_callback(generated).unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let record = runtime.memory.read(generated.scratch_address, 80).unwrap();
+    assert_eq!(read_slice_u32(&record, 0), 0xc000_0027);
+    assert_eq!(read_slice_u32(&record, 4), 2);
+    assert_eq!(read_slice_u32(&record, 12), HANDLER_ONE.0);
+    assert_eq!(read_slice_u32(&record, 16), 0);
+    assert!(matches!(
+        runtime
+            .complete_guest_callback(&dispatcher, sentinels.callback_return, 1)
+            .unwrap(),
+        crate::api::GuestCallbackReturn::Continue(_)
+    ));
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert!(matches!(
+        runtime
+            .complete_guest_callback(&dispatcher, sentinels.callback_return, 1)
+            .unwrap(),
+        crate::api::GuestCallbackReturn::Completed(_)
+    ));
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert!(runtime.pending_api_callbacks.is_empty());
+    let empty = runtime.dispatch_api_call(
+        &dispatcher,
+        owned_trap(&unwind_endpoint, UNWIND_STACK.0, HANDLER_ONE.0),
+        sentinels.callback_return,
+        Some(unwind_context),
+    );
+    assert!(matches!(empty, DispatchOutcome::Immediate(_)));
 
     runtime
         .memory

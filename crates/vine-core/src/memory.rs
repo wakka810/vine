@@ -853,6 +853,7 @@ struct MemoryRegion {
     range: GuestRange,
     owner: MemoryOwnerId,
     kind: MemoryRegionKind,
+    initial_protection: Option<PageProtection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1754,6 +1755,7 @@ impl GuestMemory {
                 range,
                 owner,
                 kind,
+                initial_protection: None,
             },
         );
         self.record_change(
@@ -1827,6 +1829,19 @@ impl GuestMemory {
                 }
             }
         }
+        let region_start = self
+            .regions
+            .range(..=range.start().0)
+            .next_back()
+            .expect("validated committed region")
+            .0
+            .to_owned();
+        self.journal_region_before(region_start);
+        self.regions
+            .get_mut(&region_start)
+            .expect("validated region")
+            .initial_protection
+            .get_or_insert(protection);
         for (virtual_page, frame) in allocated {
             self.journal_page_before(virtual_page);
             self.pages.insert(
@@ -2250,6 +2265,20 @@ impl GuestMemory {
         )
     }
 
+    pub(crate) fn flush_instruction_cache(
+        &mut self,
+    ) -> Result<MemoryInvalidation, GuestMemoryError> {
+        self.ensure_generation_available()?;
+        self.record_change(
+            Vec::new(),
+            CacheEffects {
+                flush_tlb: false,
+                invalidate_instruction_fetch: true,
+                invalidate_generated_code: true,
+            },
+        )
+    }
+
     pub fn acknowledge_delta(&mut self, generation: u64) -> Result<(), GuestMemoryError> {
         if self.transaction.is_some() {
             return Err(GuestMemoryError::conflict(
@@ -2408,8 +2437,8 @@ impl GuestMemory {
         address: GuestAddress,
         byte_length: usize,
     ) -> Result<Vec<u8>, GuestMemoryError> {
-        let segments = self.preflight_guest_access(address, byte_length, MemoryAccess::Read)?;
-        self.read_segments(&segments, byte_length)
+        self.ensure_synchronized()?;
+        self.read_range_without_synchronization(address, byte_length, MemoryAccess::Read)
     }
 
     pub(crate) fn read_owned(
@@ -2434,12 +2463,7 @@ impl GuestMemory {
     ) -> Result<Vec<u8>, GuestMemoryError> {
         let range = GuestRange::new(address, byte_length as u64)?;
         self.require_region_contains(owner, range)?;
-        let segments = self.preflight_guest_access_without_synchronization(
-            address,
-            byte_length,
-            MemoryAccess::Read,
-        )?;
-        self.read_segments(&segments, byte_length)
+        self.read_range_without_synchronization(address, byte_length, MemoryAccess::Read)
     }
 
     pub fn validate_access(
@@ -2448,8 +2472,8 @@ impl GuestMemory {
         byte_length: usize,
         access: MemoryAccess,
     ) -> Result<(), GuestMemoryError> {
-        self.preflight_guest_access(address, byte_length, access)
-            .map(|_| ())
+        self.ensure_synchronized()?;
+        self.validate_range_without_synchronization(address, byte_length, access)
     }
 
     pub(crate) fn validate_owned_host_execute(
@@ -2469,12 +2493,7 @@ impl GuestMemory {
     ) -> Result<(), GuestMemoryError> {
         // Host preparation checks live mappings without reading unsynchronized
         // guest bytes. CPU execution still requires reflection/delta acknowledgement.
-        self.preflight_guest_access_without_synchronization(
-            address,
-            byte_length,
-            MemoryAccess::Execute,
-        )
-        .map(drop)
+        self.validate_range_without_synchronization(address, byte_length, MemoryAccess::Execute)
     }
 
     pub fn fetch(
@@ -2482,8 +2501,8 @@ impl GuestMemory {
         address: GuestAddress,
         byte_length: usize,
     ) -> Result<Vec<u8>, GuestMemoryError> {
-        let segments = self.preflight_guest_access(address, byte_length, MemoryAccess::Execute)?;
-        self.read_segments(&segments, byte_length)
+        self.ensure_synchronized()?;
+        self.read_range_without_synchronization(address, byte_length, MemoryAccess::Execute)
     }
 
     pub(crate) fn validate_host_write(
@@ -2492,12 +2511,7 @@ impl GuestMemory {
         byte_length: usize,
     ) -> Result<(), GuestMemoryError> {
         // Host-side transactions may have just committed the allocation's pages.
-        self.preflight_guest_access_without_synchronization(
-            address,
-            byte_length,
-            MemoryAccess::Write,
-        )
-        .map(|_| ())
+        self.validate_range_without_synchronization(address, byte_length, MemoryAccess::Write)
     }
 
     pub fn write(&mut self, address: GuestAddress, bytes: &[u8]) -> Result<(), GuestMemoryError> {
@@ -2696,6 +2710,76 @@ impl GuestMemory {
         })
     }
 
+    pub(crate) fn query_windows_memory(&self, address: GuestAddress) -> [u32; 7] {
+        let base = address.0 & !0xfff;
+        let protection = |p: PageProtection| match (p.read, p.write, p.execute) {
+            (_, true, true) => 0x40,
+            (true, false, true) => 0x20,
+            (false, false, true) => 0x10,
+            (_, true, false) => 4,
+            (true, false, false) => 2,
+            (false, false, false) => 1,
+        };
+        let Some(region) = self
+            .regions()
+            .find(|r| r.range.start().0 <= base && u64::from(base) < r.range.end())
+        else {
+            let end = self
+                .regions()
+                .filter(|r| r.range.start().0 > base)
+                .map(|r| r.range.start().0)
+                .min()
+                .unwrap_or(0x7fff_0000);
+            return [base, 0, 0, end - base, 0x10000, 0, 0];
+        };
+        let page = self.pages.get(&(base / 4096));
+        let current = page.map(|p| p.protection);
+        let mut end = u64::from(base) + GUEST_PAGE_SIZE;
+        if current.is_none() {
+            end = self
+                .pages
+                .range((base / 4096)..)
+                .next()
+                .map_or(region.range.end(), |(number, _)| {
+                    u64::from(*number) * GUEST_PAGE_SIZE
+                })
+                .min(region.range.end());
+        } else {
+            while end < region.range.end()
+                && self
+                    .pages
+                    .get(&((end / GUEST_PAGE_SIZE) as u32))
+                    .map(|p| p.protection)
+                    == current
+            {
+                end += GUEST_PAGE_SIZE;
+            }
+        }
+        let initial = self
+            .regions
+            .get(&region.range.start().0)
+            .and_then(|r| r.initial_protection)
+            .or_else(|| {
+                self.pages
+                    .get(&(region.range.start().0 / 4096))
+                    .map(|p| p.protection)
+            })
+            .map_or(0, protection);
+        [
+            base,
+            region.range.start().0,
+            initial,
+            (end - u64::from(base)) as u32,
+            if current.is_some() { 0x1000 } else { 0x2000 },
+            current.map_or(0, protection),
+            if region.kind == MemoryRegionKind::Image {
+                0x1000000
+            } else {
+                0x20000
+            },
+        ]
+    }
+
     pub(crate) fn image_ranges(
         &self,
     ) -> impl Iterator<Item = Result<GuestRange, GuestMemoryError>> + '_ {
@@ -2832,6 +2916,16 @@ impl GuestMemory {
             pending.generation,
             self.dirty_pages.iter().map(|page| page * 4096).collect(),
         ))
+    }
+
+    #[cfg(feature = "shared-guest-memory")]
+    pub fn offer_shared_data_changes(&mut self) -> Option<(u64, Vec<u32>)> {
+        if !self.initial_reflection_acknowledged {
+            return None;
+        }
+        let (generation, addresses) = self.shared_data_changes()?;
+        self.record_offered_generation(generation, false);
+        Some((generation, addresses))
     }
 
     fn synchronize_shared_permissions(&mut self) {
@@ -2992,14 +3086,185 @@ impl GuestMemory {
         Ok(())
     }
 
-    fn preflight_guest_access(
+    fn check_page_access(
+        &self,
+        page: &PageState,
+        fault_address: GuestAddress,
+        access: MemoryAccess,
+    ) -> Result<(), GuestMemoryError> {
+        let denied = match access {
+            MemoryAccess::Read if !page.protection.read => Some(MemoryFaultReason::ReadDenied),
+            MemoryAccess::Write if !page.protection.write => Some(MemoryFaultReason::WriteDenied),
+            MemoryAccess::Execute if !page.protection.execute => {
+                Some(MemoryFaultReason::ExecuteDenied)
+            }
+            MemoryAccess::Execute
+                if !self
+                    .owners
+                    .get(&page.owner)
+                    .is_some_and(|owner| owner.sealed) =>
+            {
+                Some(MemoryFaultReason::OwnerUnsealed)
+            }
+            _ => None,
+        };
+        if let Some(reason) = denied {
+            return Err(GuestMemoryError::fault(memory_fault(
+                fault_address,
+                access,
+                reason,
+            )));
+        }
+        Ok(())
+    }
+
+    fn check_access_bounds(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+    ) -> Result<GuestRange, GuestMemoryError> {
+        if byte_length == 0 {
+            return Err(GuestMemoryError::invalid_request(
+                "guest access must contain at least one byte",
+            ));
+        }
+        if byte_length > self.limits.max_access_bytes {
+            return Err(GuestMemoryError::resource_limit(format!(
+                "guest access requests {byte_length} bytes; limit is {}",
+                self.limits.max_access_bytes
+            )));
+        }
+        let byte_length_u64 = u64::try_from(byte_length).map_err(|_| {
+            GuestMemoryError::resource_limit(
+                "guest access length does not fit 64-bit range accounting",
+            )
+        })?;
+        GuestRange::new(address, byte_length_u64)
+    }
+
+    fn validate_range_without_synchronization(
         &self,
         address: GuestAddress,
         byte_length: usize,
         access: MemoryAccess,
-    ) -> Result<Vec<AccessSegment>, GuestMemoryError> {
-        self.ensure_synchronized()?;
-        self.preflight_guest_access_without_synchronization(address, byte_length, access)
+    ) -> Result<(), GuestMemoryError> {
+        let range = self.check_access_bounds(address, byte_length)?;
+        let first_page = (u64::from(address.0) / GUEST_PAGE_SIZE) as u32;
+        let last_page = ((range.end() - 1) / GUEST_PAGE_SIZE) as u32;
+        if first_page == last_page {
+            let Some(page) = self.pages.get(&first_page) else {
+                return Err(GuestMemoryError::fault(memory_fault(
+                    address,
+                    access,
+                    MemoryFaultReason::Unmapped,
+                )));
+            };
+            return self.check_page_access(page, address, access);
+        }
+        let mut expected_page = first_page;
+        for (&virtual_page, page) in self.pages.range(first_page..=last_page) {
+            if virtual_page != expected_page {
+                let fault_address = if expected_page == first_page {
+                    address
+                } else {
+                    GuestAddress(expected_page * GUEST_PAGE_SIZE as u32)
+                };
+                return Err(GuestMemoryError::fault(memory_fault(
+                    fault_address,
+                    access,
+                    MemoryFaultReason::Unmapped,
+                )));
+            }
+            let fault_address = if expected_page == first_page {
+                address
+            } else {
+                GuestAddress(expected_page * GUEST_PAGE_SIZE as u32)
+            };
+            self.check_page_access(page, fault_address, access)?;
+            expected_page += 1;
+        }
+        if expected_page <= last_page {
+            let fault_address = if expected_page == first_page {
+                address
+            } else {
+                GuestAddress(expected_page * GUEST_PAGE_SIZE as u32)
+            };
+            return Err(GuestMemoryError::fault(memory_fault(
+                fault_address,
+                access,
+                MemoryFaultReason::Unmapped,
+            )));
+        }
+        Ok(())
+    }
+
+    fn read_range_without_synchronization(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+        access: MemoryAccess,
+    ) -> Result<Vec<u8>, GuestMemoryError> {
+        let range = self.check_access_bounds(address, byte_length)?;
+        let first_page = (u64::from(address.0) / GUEST_PAGE_SIZE) as u32;
+        let last_page = ((range.end() - 1) / GUEST_PAGE_SIZE) as u32;
+        let first_offset = (address.0 as usize) & (GUEST_PAGE_SIZE_USIZE - 1);
+        if first_page == last_page {
+            let Some(page) = self.pages.get(&first_page) else {
+                return Err(GuestMemoryError::fault(memory_fault(
+                    address,
+                    access,
+                    MemoryFaultReason::Unmapped,
+                )));
+            };
+            self.check_page_access(page, address, access)?;
+            let bytes = self.frames.bytes(page.frame)?;
+            return Ok(bytes[first_offset..first_offset + byte_length].to_vec());
+        }
+        let mut output = Vec::with_capacity(byte_length);
+        let mut expected_page = first_page;
+        for (&virtual_page, page) in self.pages.range(first_page..=last_page) {
+            if virtual_page != expected_page {
+                let fault_address = if expected_page == first_page {
+                    address
+                } else {
+                    GuestAddress(expected_page * GUEST_PAGE_SIZE as u32)
+                };
+                return Err(GuestMemoryError::fault(memory_fault(
+                    fault_address,
+                    access,
+                    MemoryFaultReason::Unmapped,
+                )));
+            }
+            let fault_address = if expected_page == first_page {
+                address
+            } else {
+                GuestAddress(expected_page * GUEST_PAGE_SIZE as u32)
+            };
+            self.check_page_access(page, fault_address, access)?;
+            let bytes = self.frames.bytes(page.frame)?;
+            let start = if expected_page == first_page {
+                first_offset
+            } else {
+                0
+            };
+            let remaining = byte_length - output.len();
+            let take = (GUEST_PAGE_SIZE_USIZE - start).min(remaining);
+            output.extend_from_slice(&bytes[start..start + take]);
+            expected_page += 1;
+        }
+        if expected_page <= last_page {
+            let fault_address = if expected_page == first_page {
+                address
+            } else {
+                GuestAddress(expected_page * GUEST_PAGE_SIZE as u32)
+            };
+            return Err(GuestMemoryError::fault(memory_fault(
+                fault_address,
+                access,
+                MemoryFaultReason::Unmapped,
+            )));
+        }
+        Ok(output)
     }
 
     fn preflight_cpu_writeback_page(

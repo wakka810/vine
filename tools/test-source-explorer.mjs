@@ -101,7 +101,7 @@ for (const offset of [4, 5, 0xffff_ffff]) {
 for (const path of [[], ["../other", "data.dat"], ["日本語", ".."], ["日本語", "a/b"]]) {
   await assert.rejects(readSourceRange(sourceRoot, path, 4, 1234, 0, 2));
 }
-for (const [offset, length] of [[-1, 1], [0x1_0000_0000, 1], [0, 2 ** 21 + 1]]) {
+for (const [offset, length] of [[-1, 1], [0x1_0000_0000, 1], [0, 16 * 1024 * 1024 - 27]]) {
   await assert.rejects(readSourceRange(sourceRoot, sourcePath, 4, 1234, offset, length));
 }
 assert.equal(sourceCalls.every((call) => call[2].create === false), true);
@@ -188,3 +188,40 @@ const crowdedRoot = {
 await assert.rejects(listSourceDirectory(crowdedRoot, []), /bounded enumeration/u);
 assert.equal(await inspectSourcePath(selected, Array.from("missing", (c) => c.charCodeAt(0))), null);
 console.log("source explorer: read-only traversal, bounded verified reads, and executable selection passed");
+
+const chunkLimit = 2 * 1024 * 1024;
+const multiChunkSize = 7 * chunkLimit + 17;
+let chunkFailure = false;
+let chunkVersion = 1;
+let changeLastChunk = false;
+const chunks = [];
+const chunkRoot = {
+  async getFileHandle(name, options) {
+    assert.equal(options.create, false);
+    return { async getFile() {
+      return { size: multiChunkSize, lastModified: chunkVersion, slice(start, end) {
+        assert(end - start <= chunkLimit);
+        chunks.push([start, end]);
+        return { async arrayBuffer() {
+          if (chunkFailure && start >= chunkLimit) throw new Error("read failed");
+          if (changeLastChunk && end === multiChunkSize) chunkVersion++;
+          return new Uint8Array(end - start).fill(Math.floor(start / chunkLimit) + 1).buffer;
+        }};
+      }};
+    }};
+  },
+};
+const whole = await readSourceRange(chunkRoot, ["archive.dat"], multiChunkSize, 1, 0, multiChunkSize);
+assert.equal(whole.length, multiChunkSize);
+for (let index = 0; index < 8; index++) assert.equal(whole[index * chunkLimit], index + 1);
+assert.equal(chunks.length, 8);
+const readLimit = 16 * 1024 * 1024 - 28;
+const tail = await readSourceRange(chunkRoot, ["archive.dat"], multiChunkSize, 1, 7 * chunkLimit, readLimit);
+assert.deepEqual(tail, new Uint8Array(17).fill(8));
+await assert.rejects(readSourceRange(chunkRoot, ["archive.dat"], multiChunkSize, 1, 0, readLimit + 1), /Invalid source read range/);
+chunkFailure = true;
+await assert.rejects(readSourceRange(chunkRoot, ["archive.dat"], multiChunkSize, 1, 0, multiChunkSize), /read failed/);
+chunkFailure = false;
+changeLastChunk = true;
+await assert.rejects(readSourceRange(chunkRoot, ["archive.dat"], multiChunkSize, 1, 0, multiChunkSize), /changed during/);
+console.log("source explorer: multi-chunk reads, short EOF and final-chunk failure checks passed");

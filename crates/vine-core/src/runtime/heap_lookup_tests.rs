@@ -49,6 +49,57 @@ fn acknowledge(memory: &mut GuestMemory) {
 }
 
 #[test]
+fn growable_heap_supports_more_than_64k_small_live_blocks() {
+    let (mut heaps, handle, mut memory, mut allocator) = fixture();
+    let storage = allocate(&mut heaps, handle, &mut memory, &mut allocator, 65_536 * 8);
+    // Seed the valid dense starting state in one pass. Calling allocation 64K
+    // times would repeat debug-only whole-heap uniqueness checks quadratically.
+    let backing = heaps.backings.get_mut(&handle).unwrap();
+    backing.allocations = (0..65_536_u32)
+        .map(|index| {
+            let address = GuestAddress(storage.address.0 + index * 8);
+            (
+                address.0,
+                RuntimeHeapAllocation {
+                    id: RuntimeHeapAllocationId(u64::from(index) + 1),
+                    address,
+                    byte_length: 8,
+                    reserved_byte_length: 8,
+                },
+            )
+        })
+        .collect();
+    heaps.heaps.get_mut(&handle).unwrap().live_allocations = 65_536;
+    heaps
+        .next_allocation_ids
+        .insert(handle, RuntimeHeapAllocationId(65_537));
+    let extra = allocate(&mut heaps, handle, &mut memory, &mut allocator, 8);
+    memory.write(extra.address, &[0x5a; 8]).unwrap();
+    acknowledge(&mut memory);
+    let grown = heaps
+        .allocate(
+            &mut memory,
+            &mut allocator,
+            handle,
+            16,
+            RuntimeHeapInitialization::Zeroed,
+            Some(extra.address),
+        )
+        .unwrap()
+        .unwrap();
+    acknowledge(&mut memory);
+    assert_eq!(
+        memory.read(grown.address, 16).unwrap(),
+        [&[0x5a; 8][..], &[0; 8][..]].concat()
+    );
+    assert_eq!(heaps.heap(handle).unwrap().live_allocations, 65_537);
+    heaps
+        .free(&mut memory, &mut allocator, handle, grown.address)
+        .unwrap();
+    assert_eq!(heaps.heap(handle).unwrap().live_allocations, 65_536);
+}
+
+#[test]
 fn lookup_reallocation_preserves_bytes_and_rejects_interior_pointers() {
     let (mut heaps, handle, mut memory, mut allocator) = fixture();
     let original = allocate(&mut heaps, handle, &mut memory, &mut allocator, 32);

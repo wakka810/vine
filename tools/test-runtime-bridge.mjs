@@ -215,6 +215,8 @@ assert.equal(mediaCompleteCalls, 1, "invalid media completions do not consume na
 for (const bad of [
   {sequence:'0', kind:'move', button:'none', x:0, y:0},
   {sequence:'9007199254740992', kind:'down', button:'primary', x:0, y:0},
+  {sequence:'3', kind:'leave', button:'primary', x:0, y:0},
+  {sequence:'3', kind:'leave', button:'none', x:1, y:0},
   {sequence:'3', kind:'move', button:'primary', x:1, y:2},
   {sequence:'3', kind:'up', button:'none', x:1, y:2},
   {sequence:'3', kind:'down', button:'middle', x:1, y:2},
@@ -230,6 +232,9 @@ assert.deepEqual(lastPointerWords, [4, 0, 2, 2, 100, 200]);
 pointerIgnored = true;
 bridge.ingestPointerEvent({sequence:'5', kind:'move', button:'none', x:0, y:0});
 assert.equal(pointerCalls, 3, 'a pointer event with no guest foreground may be ignored explicitly');
+pointerIgnored = false;
+bridge.ingestPointerEvent({sequence:'6', kind:'leave', button:'none', x:0, y:0});
+assert.deepEqual(lastPointerWords, [6, 0, 4, 0, 0, 0]);
 assert.equal(keyboardCalls, 2);
 
 const sharedPage = new Uint8Array(memory.buffer, 65536, 4096);
@@ -456,7 +461,7 @@ console.log("runtime bridge: bounded input/output, owned async receipts, synchro
   assert.equal(grown.presentation.buffer, core.buffer, 'borrow uses the buffer after dispatch-time growth');
   assert.deepEqual([...grown.presentation], bytes);
   for (const operation of [
-    () => bridge.completeCallback(0x70000001, 0),
+    () => bridge.completeCallback(0x70000001, 0, 0x100000),
     () => bridge.completeComAudio(1n, true),
     () => bridge.completeComMedia(1n, { kind: 'acknowledged' }),
     () => bridge.scheduleNextThread(),

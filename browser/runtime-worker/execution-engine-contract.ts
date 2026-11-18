@@ -130,6 +130,7 @@ export interface ExecutionEngine {
   restoreCpuContext(context: Pick<ExecutionCpuContext, "snapshot">): void;
   applyCpuResume(resume: CpuResume): void;
   applyStoppedCpuResume(resume: CpuResume): void;
+  resumeParkedCpuSnapshot?(snapshot: ExecutionBackendSnapshot, resume: CpuResume): ExecutionBackendSnapshot;
   enterGuestCallback(target: number, stackPointer: number): void;
   readGuestU32(address: number): number;
   // A borrowed view is read-only and valid only until the next runtime/engine call.

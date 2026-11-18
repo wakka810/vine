@@ -249,6 +249,51 @@ fn queue_status_queries_current_and_new_by_mask_and_isolates_threads() {
     );
 }
 
+#[test]
+fn wait_message_observes_without_removing_and_new_posts_wake_an_old_queue() {
+    let mut runtime = running_runtime();
+    runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    let first = runtime
+        .post_thread_message(INITIAL_THREAD_ID, 0, 0x401, 1, 2)
+        .unwrap();
+    assert!(runtime.wait_for_current_thread_message().unwrap());
+    assert_eq!(
+        runtime.queued_thread_messages(INITIAL_THREAD_ID).unwrap(),
+        [first]
+    );
+    assert!(!runtime.wait_for_current_thread_message().unwrap());
+    assert_eq!(runtime.message_wait_status(), (true, None));
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingMessage
+    );
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    let second = runtime
+        .post_thread_message(INITIAL_THREAD_ID, 0, 0x402, 3, 4)
+        .unwrap();
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    assert_eq!(
+        runtime.queued_thread_messages(INITIAL_THREAD_ID).unwrap(),
+        [first, second]
+    );
+    assert_eq!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::MessageReady(INITIAL_THREAD_ID))
+    );
+    // The returning wait has observed the arrival, even without a subsequent PeekMessage.
+    assert!(!runtime.wait_for_current_thread_message().unwrap());
+    assert_eq!(
+        runtime.select_next_executable_thread().unwrap(),
+        Some(SECOND_THREAD_ID)
+    );
+}
+
 fn running_runtime() -> Runtime {
     let mut runtime = Runtime::new(
         RuntimeBootstrap {

@@ -606,6 +606,25 @@ impl RuntimeAudio {
         Ok(())
     }
 
+    pub(super) fn share_buffer_samples(
+        &mut self,
+        source: RuntimeComObjectId,
+        destination: RuntimeComObjectId,
+    ) {
+        let source = self
+            .buffer_by_com_object(source)
+            .expect("validated duplicate source");
+        let backing = source.backing;
+        let initialized = source.initialized;
+        let mut controls = source.controls;
+        controls.current_position_bytes = 0;
+        let id = self.buffer_com_object_index[&destination];
+        let destination = self.buffers.get_mut(&id).expect("installed duplicate");
+        destination.backing = backing;
+        destination.initialized = initialized;
+        destination.controls = controls;
+    }
+
     pub(super) fn preview_buffer_lock(
         &self,
         buffer_com_object_id: RuntimeComObjectId,
@@ -618,6 +637,17 @@ impl RuntimeAudio {
         if buffer.descriptor.kind != RuntimeAudioBufferKind::Secondary || flags != 0 {
             return Err(RuntimeStateError::new(
                 "bounded audio locking supports aligned secondary-buffer regions with no Lock flags",
+            ));
+        }
+        if buffer.backing.is_some()
+            && self.buffers.values().any(|other| {
+                other.id != buffer.id
+                    && other.backing == buffer.backing
+                    && (!other.active_locks.is_empty() || other.browser_resource_id.is_some())
+            })
+        {
+            return Err(RuntimeStateError::new(
+                "locking shared samples while another buffer holds a lock or browser resource is not implemented",
             ));
         }
         if buffer.active_locks.len() >= RUNTIME_AUDIO_ACTIVE_LOCK_LIMIT {
@@ -751,6 +781,12 @@ impl RuntimeAudio {
             .expect("selected audio buffer disappeared");
         buffer.active_locks.remove(lock_index);
         buffer.initialized = true;
+        let backing = buffer.backing;
+        for other in self.buffers.values_mut() {
+            if backing.is_some() && other.backing == backing {
+                other.initialized = true;
+            }
+        }
     }
 
     pub(super) fn set_buffer_notifications(
@@ -987,7 +1023,13 @@ impl RuntimeAudio {
                 "audio playback buffer has no matching parent device ownership",
             ));
         }
-        let ready = buffer_ready_for_play(buffer)?;
+        let ready = buffer_ready_for_play(buffer)?
+            && !self.buffers.values().any(|other| {
+                other.id != buffer.id
+                    && buffer.backing.is_some()
+                    && other.backing == buffer.backing
+                    && !other.active_locks.is_empty()
+            });
         if playback != RuntimeAudioPlaybackState::Stopped && !ready {
             return Ok(None);
         }
@@ -1184,6 +1226,8 @@ impl RuntimeAudio {
         &self,
         plan: &RuntimeAudioComRetirement,
     ) -> Vec<(RuntimeAudioBufferBacking, u32)> {
+        let retiring: BTreeSet<_> = plan.buffer_associations.iter().map(|(_, id)| *id).collect();
+        let mut released = BTreeSet::new();
         plan.buffer_associations
             .iter()
             .filter_map(|(_, buffer_id)| {
@@ -1193,6 +1237,12 @@ impl RuntimeAudio {
                     .expect("validated retiring audio buffer disappeared");
                 buffer
                     .backing
+                    .filter(|backing| {
+                        !self.buffers.values().any(|other| {
+                            other.backing == Some(*backing) && !retiring.contains(&other.id)
+                        })
+                    })
+                    .filter(|backing| released.insert(backing.memory_owner))
                     .map(|backing| (backing, buffer.descriptor.byte_length))
             })
             .collect()
@@ -1388,9 +1438,9 @@ fn validate_buffer_descriptor(
             ));
         }
     }
-    if descriptor.flags == 0 {
+    if descriptor.kind == RuntimeAudioBufferKind::Primary && descriptor.flags & 1 == 0 {
         return Err(RuntimeStateError::new(
-            "logical audio buffer flags must identify a bounded DirectSound variant",
+            "primary audio buffer requires PRIMARYBUFFER",
         ));
     }
     Ok(())

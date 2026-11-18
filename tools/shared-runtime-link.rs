@@ -117,7 +117,7 @@ pub extern "C" fn vine_shared_execute_budget(budget: u32, low: u32, high: u32) -
                     calls += 1;
                     // Retain a prompt browser/scheduler boundary even in a tight
                     // API loop; all completed instructions count against the slice.
-                    if calls >= 64 || now - stamp >= 8.0 {
+                    if calls >= 4096 || now - stamp >= 4.0 {
                         return 1;
                     }
                 }

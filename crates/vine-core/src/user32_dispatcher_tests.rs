@@ -586,7 +586,7 @@ impl CursorFixture {
             (0_u32, 0x7f00_u32),
             (0, 0x7f00),
             (0, 0xffff),
-            (0, 0x7f01),
+            (0, 0x7fff),
             (ICON_IMAGE_BASE, 106),
             (0, MEMORY_BASE.0),
             (ICON_IMAGE_BASE, 106),
@@ -916,7 +916,7 @@ impl RegisterClassFixture {
             .write_initialization(
                 runtime_owner,
                 GuestAddress(WINDOW_TITLE_BASE),
-                b"Ethornell - controlled CreateWindowExA fixture\0",
+                b"Test View - controlled CreateWindowExA fixture\0",
             )
             .expect("initialize logical window title");
         write_words(
@@ -3725,6 +3725,207 @@ fn get_cursor_info_failures_preserve_output_and_cursor_authorities() {
 }
 
 #[test]
+fn filtered_peek_preserves_unrelated_messages_and_failed_output_then_retrieves_quit() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_created_window_and_small_icon();
+    let owner = RuntimeThreadId(THREAD_ID);
+    let handle = fixture.runtime.open_current_thread_handle().unwrap();
+    let sender = RuntimeThreadId(THREAD_ID + 1);
+    fixture.runtime.register_thread(sender, 0).unwrap();
+    fixture.runtime.select_thread(sender).unwrap();
+    assert_eq!(fixture.runtime.suspend_thread(handle).unwrap(), Ok(0));
+    for (hwnd, message, value) in [
+        (0, 0x8001, 11),
+        (window, 0x8002, 22),
+        (window, 0x410, 33),
+        (window, 0x411, 44),
+    ] {
+        fixture
+            .runtime
+            .post_thread_message(owner, hwnd, message, value, 0)
+            .unwrap();
+    }
+    assert_eq!(
+        fixture.runtime.scheduler_state_for_thread(owner).unwrap(),
+        SchedulerThreadState::Suspended { count: 1 }
+    );
+    assert_eq!(fixture.runtime.resume_thread(handle).unwrap(), 1);
+    fixture.runtime.select_thread(owner).unwrap();
+    fixture
+        .runtime
+        .set_current_last_error(INITIAL_LAST_ERROR)
+        .unwrap();
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, window, 0x40f, 0x411, 0);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a(), DispatchOutcome::Immediate(ref result) if result.eax == Some(1))
+    );
+    fixture.acknowledge_pending_delta();
+    let words = fixture
+        .runtime
+        .memory
+        .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 12)
+        .unwrap();
+    assert_eq!(
+        words,
+        [
+            window.to_le_bytes(),
+            0x410_u32.to_le_bytes(),
+            33_u32.to_le_bytes()
+        ]
+        .concat()
+    );
+    let before = fixture.runtime.queued_thread_messages(owner).unwrap();
+    fixture.configure_peek_message_a(GuestAddress(u32::MAX - 4), window, 0x40f, 0x411, 1);
+    assert!(matches!(
+        fixture.dispatch_peek_message_a(),
+        DispatchOutcome::Fault(_)
+    ));
+    assert_eq!(
+        fixture.runtime.queued_thread_messages(owner).unwrap(),
+        before
+    );
+    for (filter, min, max, expected) in [
+        (window, 0x40f, 0x411, 33),
+        (window, 0x411, 0x411, 44),
+        (u32::MAX, 0, 0, 11),
+    ] {
+        fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, filter, min, max, 1);
+        assert!(
+            matches!(fixture.dispatch_peek_message_a(), DispatchOutcome::Immediate(ref result) if result.eax == Some(1))
+        );
+        fixture.acknowledge_pending_delta();
+        assert_eq!(
+            fixture
+                .runtime
+                .memory
+                .read(GuestAddress(PEEK_MESSAGE_A_OUTPUT_ADDRESS.0 + 8), 4)
+                .unwrap(),
+            (expected as u32).to_le_bytes()
+        );
+    }
+    assert_eq!(
+        fixture.runtime.queued_thread_messages(owner).unwrap(),
+        vec![before[1]]
+    );
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, window, 0x8002, 0x8001, 1);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a(), DispatchOutcome::Immediate(ref result) if result.eax == Some(0))
+    );
+    fixture
+        .runtime
+        .post_thread_message(owner, 0, 0x12, 7, 0)
+        .unwrap();
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 1, 0x40f, 0x411, 1);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a(), DispatchOutcome::Immediate(ref result) if result.eax == Some(1))
+    );
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .runtime
+            .memory
+            .read(GuestAddress(PEEK_MESSAGE_A_OUTPUT_ADDRESS.0 + 4), 4)
+            .unwrap(),
+        0x12_u32.to_le_bytes()
+    );
+    assert_eq!(
+        fixture.runtime.queued_thread_messages(owner).unwrap(),
+        vec![before[1]]
+    );
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        INITIAL_LAST_ERROR
+    );
+}
+
+#[test]
+fn filtered_timer_delivery_keeps_unrelated_posts_and_only_advances_the_selected_timer() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_created_window_and_small_icon();
+    let callback = fixture.window_procedure;
+    assert!(matches!(
+        fixture.dispatch_set_timer(window, 7, 10, callback),
+        DispatchOutcome::Immediate(_)
+    ));
+    let owner = RuntimeThreadId(THREAD_ID);
+    let posted = fixture
+        .runtime
+        .post_thread_message(owner, 0, 0x8001, 0, 0)
+        .unwrap();
+    fixture.runtime.advance_scheduled_clock_to(100_000).unwrap();
+    fixture.configure_peek_message_a(GuestAddress(u32::MAX), window, 0x40f, 0x411, 1);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a(), DispatchOutcome::Immediate(ref result) if result.eax == Some(0))
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .window_timers()
+            .values()
+            .next()
+            .unwrap()
+            .delivery_count,
+        0
+    );
+    assert!(
+        matches!(dispatch_queue_status_fixture(&mut fixture, 0x10), DispatchOutcome::Immediate(ref value) if value.eax == Some(0x0010_0010))
+    );
+    for remove in [0, 1] {
+        fixture.configure_peek_message_a(
+            PEEK_MESSAGE_A_OUTPUT_ADDRESS,
+            window,
+            0x113,
+            0x113,
+            remove,
+        );
+        assert!(
+            matches!(fixture.dispatch_peek_message_a(), DispatchOutcome::Immediate(ref result) if result.eax == Some(1))
+        );
+        fixture.acknowledge_pending_delta();
+        assert_eq!(
+            fixture
+                .runtime
+                .memory
+                .read(GuestAddress(PEEK_MESSAGE_A_OUTPUT_ADDRESS.0 + 4), 4)
+                .unwrap(),
+            0x113_u32.to_le_bytes()
+        );
+        assert_eq!(
+            fixture
+                .runtime
+                .window_timers()
+                .values()
+                .next()
+                .unwrap()
+                .delivery_count,
+            1
+        );
+    }
+    assert_eq!(
+        fixture.runtime.queued_thread_messages(owner).unwrap(),
+        vec![posted]
+    );
+    fixture.runtime.advance_scheduled_clock_to(200_000).unwrap();
+    assert!(
+        matches!(fixture.dispatch_peek_message_a(), DispatchOutcome::Immediate(ref result) if result.eax == Some(1))
+    );
+    assert_eq!(
+        fixture.runtime.queued_thread_messages(owner).unwrap(),
+        vec![posted]
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .window_timers()
+            .values()
+            .next()
+            .unwrap()
+            .delivery_count,
+        2
+    );
+}
+
+#[test]
 fn peek_message_a_preserves_empty_output_and_commits_remove_with_guest_write_atomically() {
     let mut fixture = RegisterClassFixture::new();
     fixture
@@ -3844,8 +4045,8 @@ fn peek_message_a_preserves_empty_output_and_commits_remove_with_guest_write_ato
         .expect("read output before rejection");
     fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 1, 0, 0, 1);
     match fixture.dispatch_peek_message_a() {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected PeekMessageA filter fault, got {other:?}"),
+        DispatchOutcome::Immediate(result) => assert_eq!(result.eax, Some(0)),
+        other => panic!("expected no matching window message, got {other:?}"),
     };
 
     assert_eq!(
@@ -4125,6 +4326,153 @@ fn due_window_timer_materializes_once_and_dispatches_timerproc_on_the_owner_thre
             .delivery_count,
         1
     );
+}
+
+#[test]
+fn message_timer_survives_kill_only_as_an_already_queued_message() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_created_window_and_small_icon();
+    assert!(
+        matches!(fixture.dispatch_set_timer_basic(window, 1, 20, GuestAddress(0)), DispatchOutcome::Immediate(ref value) if value.eax == Some(1))
+    );
+    fixture.runtime.advance_scheduled_clock_to(200_000).unwrap();
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 0);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a_basic(), DispatchOutcome::Immediate(ref value) if value.eax == Some(1))
+    );
+    fixture.acknowledge_pending_delta();
+    assert!(fixture.runtime.kill_window_timer(window, 1).unwrap());
+    assert!(!fixture.runtime.kill_window_timer(window, 1).unwrap());
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a_basic(), DispatchOutcome::Immediate(ref value) if value.eax == Some(1))
+    );
+    fixture.acknowledge_pending_delta();
+    let message = fixture
+        .runtime
+        .memory
+        .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 16)
+        .unwrap();
+    assert_eq!(
+        message,
+        [window, 0x113, 1, 0]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    fixture.configure_dispatch_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let DispatchOutcome::GuestCallback(call) = fixture.dispatch_dispatch_message_a_basic() else {
+        panic!("message timer must call WndProc");
+    };
+    assert_eq!(call.request.target, fixture.window_procedure);
+    assert_eq!(call.request.arguments[3], GuestCallbackArgument::U32(0));
+    fixture.runtime.advance_scheduled_clock_to(400_000).unwrap();
+    assert!(
+        matches!(fixture.dispatch_peek_message_a_basic(), DispatchOutcome::Immediate(ref value) if value.eax == Some(0))
+    );
+}
+
+#[test]
+fn timer_proc_timer_survives_kill_only_for_already_delivered_callback_authorization() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_created_window_and_small_icon();
+    let timer_proc = fixture.window_procedure;
+    assert!(
+        matches!(fixture.dispatch_set_timer_basic(window, 1, 20, timer_proc), DispatchOutcome::Immediate(ref value) if value.eax == Some(1))
+    );
+    fixture.runtime.advance_scheduled_clock_to(200_000).unwrap();
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a_basic(), DispatchOutcome::Immediate(ref value) if value.eax == Some(1))
+    );
+    fixture.acknowledge_pending_delta();
+
+    // KillTimer after TimerProc delivery succeeds and retains authorization only for timer_proc.
+    assert!(fixture.runtime.kill_window_timer(window, 1).unwrap());
+    assert!(!fixture.runtime.kill_window_timer(window, 1).unwrap());
+
+    fixture.configure_dispatch_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let DispatchOutcome::GuestCallback(call) = fixture.dispatch_dispatch_message_a_basic() else {
+        panic!("delivered TimerProc must remain dispatchable after KillTimer");
+    };
+    assert_eq!(call.request.target, timer_proc);
+
+    // Forged TimerProc pointer in MSG.lParam is still rejected.
+    fixture
+        .runtime
+        .memory
+        .write(
+            GuestAddress(PEEK_MESSAGE_A_OUTPUT_ADDRESS.0 + 12),
+            &(timer_proc.0 + 4).to_le_bytes(),
+        )
+        .unwrap();
+    fixture.acknowledge_pending_delta();
+    assert!(matches!(
+        fixture.dispatch_dispatch_message_a_basic(),
+        DispatchOutcome::Fault(_)
+    ));
+
+    // No further WM_TIMER messages are generated after KillTimer.
+    fixture.runtime.advance_scheduled_clock_to(400_000).unwrap();
+    assert!(
+        matches!(fixture.dispatch_peek_message_a_basic(), DispatchOutcome::Immediate(ref value) if value.eax == Some(0))
+    );
+}
+
+#[test]
+fn wait_message_timer_deadline_wakes_without_consuming_timer_delivery() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_created_window_and_small_icon();
+    assert!(
+        matches!(fixture.dispatch_set_timer_basic(window, 1, 20, GuestAddress(0)), DispatchOutcome::Immediate(ref value) if value.eax == Some(1))
+    );
+    assert!(!fixture.runtime.wait_for_current_thread_message().unwrap());
+    assert_eq!(fixture.runtime.message_wait_status(), (true, Some(20)));
+    fixture
+        .runtime
+        .synchronize_scheduled_clock_for_host_execution(0, 199_999)
+        .unwrap();
+    assert_eq!(
+        fixture.runtime.select_next_executable_thread().unwrap(),
+        None
+    );
+    assert_eq!(fixture.runtime.message_wait_status(), (true, Some(1)));
+    fixture
+        .runtime
+        .synchronize_scheduled_clock_for_host_execution(0, 200_000)
+        .unwrap();
+    assert_eq!(
+        fixture.runtime.select_next_executable_thread().unwrap(),
+        Some(RuntimeThreadId(THREAD_ID))
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .window_timers()
+            .values()
+            .next()
+            .unwrap()
+            .delivery_count,
+        0
+    );
+    fixture.runtime.pop_scheduler_event();
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a(), DispatchOutcome::Immediate(ref value) if value.eax == Some(1))
+    );
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .runtime
+            .window_timers()
+            .values()
+            .next()
+            .unwrap()
+            .delivery_count,
+        1
+    );
+    assert!(!fixture.runtime.wait_for_current_thread_message().unwrap());
+    assert_eq!(fixture.runtime.message_wait_status(), (true, Some(20)));
 }
 
 #[test]
@@ -5004,6 +5352,10 @@ fn monitor_from_window_returns_rust_logical_primary_and_preserves_failures() {
     assert_eq!(fixture.runtime.memory.stats(), memory_before_invalid_window);
 
     fixture.configure_monitor_from_window(window_handle, 2);
+    assert!(
+        matches!(fixture.dispatch_monitor_from_window(), DispatchOutcome::Immediate(ref completion) if completion.eax == Some(RUNTIME_PRIMARY_MONITOR_HANDLE))
+    );
+    fixture.configure_monitor_from_window(window_handle, 3);
     let last_error_before = fixture.runtime.current_last_error().unwrap();
     let memory_before_flags = fixture.runtime.memory.stats();
     match fixture.dispatch_monitor_from_window() {
@@ -5099,24 +5451,26 @@ fn get_monitor_info_a_writes_owned_geometry_and_preserves_all_failure_buffers() 
     fixture
         .configure_get_monitor_info_a(RUNTIME_PRIMARY_MONITOR_HANDLE, MONITOR_INFO_OUTPUT_ADDRESS);
     let last_error_before = fixture.runtime.current_last_error().unwrap();
-    match fixture.dispatch_get_monitor_info_a() {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected MONITORINFOEXA unsupported fault, got {other:?}"),
-    };
+    assert!(
+        matches!(fixture.dispatch_get_monitor_info_a(), DispatchOutcome::Immediate(ref completion) if completion.eax == Some(1))
+    );
+    fixture.acknowledge_pending_delta();
 
     assert_eq!(fixture.runtime.primary_monitor().cloned(), monitor_before);
     assert_eq!(
         fixture.runtime.current_last_error().unwrap(),
         last_error_before
     );
-    assert_eq!(
-        fixture
-            .runtime
-            .memory
-            .read(MONITOR_INFO_OUTPUT_ADDRESS, 80)
-            .expect("read unsupported MONITORINFOEXA output"),
-        monitor_info_ex_before
-    );
+    let extended = fixture
+        .runtime
+        .memory
+        .read(MONITOR_INFO_OUTPUT_ADDRESS, 80)
+        .unwrap();
+    assert_eq!(&extended[..4], &72_u32.to_le_bytes());
+    assert_eq!(&extended[4..40], &expected_bytes[4..40]);
+    assert!(extended[40..72].starts_with(b"\\\\.\\DISPLAY1\0"));
+    assert!(extended[53..72].iter().all(|byte| *byte == 0));
+    assert_eq!(&extended[72..], &monitor_info_ex_before[72..]);
 
     let boundary_output = GuestAddress(MEMORY_BASE.0 + 0x2ffc);
     fixture.initialize_monitor_info_output(boundary_output, 4, 40);
@@ -5485,11 +5839,8 @@ fn basic_set_timer_accepts_bounded_window_callback_timers_and_rejects_bad_target
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 1400);
     assert!(fixture.runtime.window_timers().is_empty());
     assert_eq!(fixture.runtime.window(window).unwrap().id, window_id);
-    for (id, callback_address) in [
-        (0, callback),
-        (7, GuestAddress(0)),
-        (7, GuestAddress(CLASS_NAME_BASE)),
-    ] {
+    {
+        let (id, callback_address) = (7, GuestAddress(CLASS_NAME_BASE));
         assert!(matches!(
             fixture.dispatch_set_timer_basic(window, id, 23, callback_address),
             DispatchOutcome::Fault(_)
@@ -5531,14 +5882,14 @@ fn set_timer_registers_and_replaces_owned_window_timer_atomically() {
     assert_eq!(fixture.runtime.window(window_handle).unwrap().id, window_id);
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 1400);
 
-    for (timer_id, interval) in [(2, 20), (1, 21), (7, 1)] {
+    for (timer_id, interval) in [(0, 250), (2, 20), (1, 21), (7, 1)] {
         let mut arbitrary = RegisterClassFixture::new();
         let (window, _) = arbitrary.prepare_created_window_and_small_icon();
         let completion = match arbitrary.dispatch_set_timer(window, timer_id, interval, callback) {
             DispatchOutcome::Immediate(completion) => completion,
             other => panic!("expected caller-selected SetTimer completion, got {other:?}"),
         };
-        assert_eq!(completion.eax, Some(timer_id));
+        assert_eq!(completion.eax, Some(timer_id.max(1)));
         let timer = arbitrary.runtime.window_timers().values().next().unwrap();
         assert_eq!(timer.timer_id, timer_id);
         assert_eq!(timer.requested_interval_milliseconds, interval);
@@ -5609,6 +5960,29 @@ fn load_icon_a_reuses_process_shared_identity() {
     };
     assert_eq!(second.eax, Some(icon));
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 0);
+}
+
+#[test]
+fn load_icon_w_uses_the_same_module_resource_identity_as_ansi() {
+    let mut fixture = IconFixture::new();
+    let DispatchOutcome::Immediate(ansi) = fixture.dispatch(0) else {
+        panic!("LoadIconA failed")
+    };
+    fixture.endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "LoadIconW".to_owned(),
+    };
+    fixture.dispatcher = ApiDispatcher::from_endpoints([fixture.endpoint.clone()]).unwrap();
+    let DispatchOutcome::Immediate(wide) = fixture.dispatch(1) else {
+        panic!("LoadIconW failed")
+    };
+    assert_eq!(wide.eax, ansi.eax);
+    assert_eq!(wide.stack_pointer, GuestAddress(STACK_POINTER + 0x20 + 12));
+    assert_eq!(fixture.runtime.icons().len(), 1);
+    let DispatchOutcome::Immediate(missing) = fixture.dispatch(2) else {
+        panic!("missing LoadIconW resource did not return normally")
+    };
+    assert_eq!(missing.eax, Some(0));
+    assert_eq!(fixture.runtime.icons().len(), 1);
 }
 
 #[test]
@@ -6050,7 +6424,7 @@ fn create_window_ex_a_runs_ordered_callback_replacement_and_default_nonclient_ge
             .memory
             .read(GuestAddress(title_pointer), 9)
             .expect("read relocated window title"),
-        b"Ethornell"
+        b"Test View"
     );
     assert_eq!(
         fixture
@@ -8374,7 +8748,7 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
         changing.request.completion_policy,
         GuestCallbackCompletionPolicy::SetWindowPos {
             operation: RuntimeSetWindowPosOperation {
-                variant: RuntimeSetWindowPosVariant::FrameChangeMove,
+                variant: RuntimeSetWindowPosVariant::Reposition,
                 ..
             },
             message: RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
@@ -8859,10 +9233,9 @@ fn show_window_rejects_unreached_command_or_handle_and_accepts_visible_window_no
     assert!(invalid_handle.runtime.windows().is_empty());
 
     let last_error_before = invalid_handle.runtime.current_last_error().unwrap();
-    match invalid_handle.dispatch_show_window(0x1234, 5) {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected unsupported ShowWindow command, got {other:?}"),
-    };
+    assert!(
+        matches!(invalid_handle.dispatch_show_window(0x1234, 5), DispatchOutcome::Immediate(ref completion) if completion.eax == Some(0))
+    );
 
     assert!(invalid_handle.runtime.windows().is_empty());
     assert_eq!(
@@ -9567,7 +9940,6 @@ fn register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom
 
     for (index, _) in [
         (9_u32, "register-class-ex-a-windows-932-invalid"),
-        (10, "class-optional-resource-unsupported"),
         (11, "register-class-ex-a-name-bound-exceeded"),
     ] {
         let mut fixture = RegisterClassFixture::new();
@@ -9589,6 +9961,15 @@ fn register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom
         assert!(fixture.runtime.window_classes().is_empty());
         assert_eq!(fixture.runtime.memory.stats().generation, generation);
     }
+
+    let mut invalid_brush = RegisterClassFixture::new();
+    invalid_brush.prepare_resources();
+    let DispatchOutcome::Immediate(completion) = invalid_brush.dispatch_class(10) else {
+        panic!("invalid class brush must fail registration")
+    };
+    assert_eq!(completion.eax, Some(0));
+    assert_eq!(invalid_brush.runtime.current_last_error().unwrap(), 87);
+    assert!(invalid_brush.runtime.window_classes().is_empty());
 
     let mut invalid_pointer = RegisterClassFixture::new();
     invalid_pointer.prepare_resources();
@@ -10151,6 +10532,10 @@ fn queue_status_native_key_and_timer_classes_survive_current_but_clear_new_on_pe
     assert!(
         matches!(dispatch_queue_status_fixture(&mut fixture, 0x108), DispatchOutcome::Immediate(ref value) if value.eax == Some(0x0108_0108))
     );
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, window, 0x40f, 0x411, 1);
+    assert!(
+        matches!(fixture.dispatch_peek_message_a_basic(), DispatchOutcome::Immediate(ref value) if value.eax == Some(0))
+    );
     assert!(
         matches!(dispatch_queue_status_fixture(&mut fixture, 1), DispatchOutcome::Immediate(ref value) if value.eax == Some(0x0001_0001))
     );
@@ -10223,11 +10608,11 @@ fn queue_status_invalid_flags_and_failed_peek_preserve_unobserved_posts() {
             .unwrap(),
         queue
     );
-    for (output, filter) in [
+    for (output, minimum) in [
         (GuestAddress(MEMORY_BASE.0 + 0x3000), 0),
-        (PEEK_MESSAGE_A_OUTPUT_ADDRESS, 1),
+        (PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0x10000),
     ] {
-        fixture.configure_peek_message_a(output, filter, 0, 0, 0);
+        fixture.configure_peek_message_a(output, 0, minimum, 0, 0);
         let memory = fixture.runtime.memory.current_reflection().unwrap();
         assert!(matches!(
             fixture.dispatch_peek_message_a_basic(),
@@ -10954,5 +11339,839 @@ fn message_box_rejections_do_not_publish_and_thread_exit_cancels_pending_dialog(
             crate::complete_user32_message_box(&dispatcher, &call, 1, &mut fixture.runtime),
             DispatchOutcome::Fault(_)
         ));
+    }
+}
+
+#[test]
+fn message_extra_info_keeps_normal_mouse_input_untagged_and_preserves_queue() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    fixture
+        .runtime
+        .post_thread_message(RuntimeThreadId(THREAD_ID), window, 0x0200, 0, 0x00100020)
+        .unwrap();
+    let mut endpoint = fixture.class_endpoint.clone();
+    endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "GetMessageExtraInfo".to_owned(),
+    };
+    let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+    fixture.write_live_words(GuestAddress(STACK_POINTER), &[RETURN_ADDRESS.0]);
+    fixture.acknowledge_pending_delta();
+    let before = fixture
+        .runtime
+        .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+        .unwrap();
+    let last_error = fixture.runtime.current_last_error().unwrap();
+    let outcome = dispatcher.dispatch_owned(
+        ApiOwnedTrap {
+            endpoint_id: endpoint.id,
+            endpoint_address: endpoint.address,
+            stack_pointer: GuestAddress(STACK_POINTER),
+            return_address: RETURN_ADDRESS,
+        },
+        &mut fixture.runtime,
+        None,
+        |frame, runtime, _| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
+    );
+    let DispatchOutcome::Immediate(result) = outcome else {
+        panic!("extra-info query: {outcome:?}");
+    };
+    assert_eq!(result.eax, Some(0));
+    assert_eq!(result.stack_pointer, GuestAddress(STACK_POINTER + 4));
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), last_error);
+    assert_eq!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .unwrap(),
+        before
+    );
+}
+
+fn dispatch_track_mouse_event(
+    fixture: &mut RegisterClassFixture,
+    descriptor: [u32; 4],
+) -> DispatchOutcome {
+    let descriptor_address = GuestAddress(MEMORY_BASE.0 + 0x2e00);
+    let mut endpoint = fixture.class_endpoint.clone();
+    endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "TrackMouseEvent".to_owned(),
+    };
+    let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+    fixture.write_live_words(descriptor_address, &descriptor);
+    fixture.write_live_words(
+        GuestAddress(STACK_POINTER),
+        &[RETURN_ADDRESS.0, descriptor_address.0],
+    );
+    fixture.acknowledge_pending_delta();
+    dispatcher.dispatch_owned(
+        ApiOwnedTrap {
+            endpoint_id: endpoint.id,
+            endpoint_address: endpoint.address,
+            stack_pointer: GuestAddress(STACK_POINTER),
+            return_address: RETURN_ADDRESS,
+        },
+        &mut fixture.runtime,
+        None,
+        |frame, runtime, _| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
+    )
+}
+
+#[test]
+fn track_mouse_event_posts_once_supports_reentry_cancellation_and_outside_registration() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    fixture
+        .runtime
+        .ingest_pointer_position_event(RuntimePointerPositionSourceEvent {
+            sequence: 1,
+            normalized_x: 32768,
+            normalized_y: 32768,
+        })
+        .unwrap();
+    let last_error = fixture.runtime.current_last_error().unwrap();
+    let outcome = dispatch_track_mouse_event(&mut fixture, [16, 2, window, u32::MAX]);
+    let DispatchOutcome::Immediate(result) = outcome else {
+        panic!("track: {outcome:?}")
+    };
+    assert_eq!(result.eax, Some(1));
+    assert_eq!(result.stack_pointer, GuestAddress(STACK_POINTER + 8));
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), last_error);
+    assert!(fixture.runtime.ingest_pointer_leave_event(1).is_err());
+    assert!(fixture.runtime.window(window).unwrap().mouse_leave_tracking);
+    let cursor = fixture.runtime.cursor_position().cloned().unwrap();
+    let leave = fixture
+        .runtime
+        .ingest_pointer_leave_event(2)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (leave.hwnd, leave.message, leave.w_param, leave.l_param),
+        (window, 0x2a3, 0, 0)
+    );
+    assert_eq!(fixture.runtime.cursor_position().unwrap(), &cursor);
+    assert!(!fixture.runtime.window(window).unwrap().mouse_leave_tracking);
+    assert!(
+        fixture
+            .runtime
+            .ingest_pointer_leave_event(3)
+            .unwrap()
+            .is_none()
+    );
+    fixture
+        .runtime
+        .ingest_pointer_position_event(RuntimePointerPositionSourceEvent {
+            sequence: 4,
+            normalized_x: 32768,
+            normalized_y: 32768,
+        })
+        .unwrap();
+    assert!(matches!(
+        dispatch_track_mouse_event(&mut fixture, [16, 2, window, 0]),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert!(matches!(
+        dispatch_track_mouse_event(&mut fixture, [16, 0x8000_0002, window, 0]),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert!(
+        fixture
+            .runtime
+            .ingest_pointer_leave_event(5)
+            .unwrap()
+            .is_none()
+    );
+    let count = fixture
+        .runtime
+        .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+        .unwrap()
+        .len();
+    assert!(matches!(
+        dispatch_track_mouse_event(&mut fixture, [16, 2, window, 0]),
+        DispatchOutcome::Immediate(_)
+    ));
+    let queue = fixture
+        .runtime
+        .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+        .unwrap();
+    assert_eq!(queue.len(), count + 1);
+    assert_eq!(queue.last().unwrap().message, 0x2a3);
+    assert!(!fixture.runtime.window(window).unwrap().mouse_leave_tracking);
+}
+
+#[test]
+fn track_mouse_event_invalid_input_and_full_queue_preserve_live_tracking() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    fixture
+        .runtime
+        .ingest_pointer_position_event(RuntimePointerPositionSourceEvent {
+            sequence: 1,
+            normalized_x: 32768,
+            normalized_y: 32768,
+        })
+        .unwrap();
+    dispatch_track_mouse_event(&mut fixture, [16, 2, window, 0]);
+    for (descriptor, error) in [
+        ([12, 2, window, 0], 87),
+        ([16, 4, window, 0], 87),
+        ([16, 2, 0, 0], 1400),
+    ] {
+        let outcome = dispatch_track_mouse_event(&mut fixture, descriptor);
+        let DispatchOutcome::Immediate(result) = outcome else {
+            panic!("invalid track: {outcome:?}")
+        };
+        assert_eq!(result.eax, Some(0));
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), error);
+        assert!(fixture.runtime.window(window).unwrap().mouse_leave_tracking);
+    }
+    assert!(matches!(
+        dispatch_track_mouse_event(&mut fixture, [16, 1, window, 0]),
+        DispatchOutcome::Fault(_)
+    ));
+    let count = fixture
+        .runtime
+        .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+        .unwrap()
+        .len();
+    for _ in count..4096 {
+        fixture
+            .runtime
+            .post_thread_message(RuntimeThreadId(THREAD_ID), 0, 0x400, 0, 0)
+            .unwrap();
+    }
+    let keyboard = fixture.runtime.keyboard_state().cloned().unwrap();
+    let scheduler = fixture.runtime.scheduler_state().unwrap();
+    assert!(fixture.runtime.ingest_pointer_leave_event(2).is_err());
+    assert_eq!(fixture.runtime.keyboard_state().unwrap(), &keyboard);
+    assert_eq!(fixture.runtime.scheduler_state().unwrap(), scheduler);
+    assert!(fixture.runtime.window(window).unwrap().mouse_leave_tracking);
+    assert_eq!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .unwrap()
+            .len(),
+        4096
+    );
+}
+
+fn fixture_get_key_state(fixture: &mut RegisterClassFixture, key: u32) -> u32 {
+    let mut endpoint = fixture.class_endpoint.clone();
+    endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "GetKeyState".to_owned(),
+    };
+    let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+    fixture.write_live_words(GuestAddress(STACK_POINTER), &[RETURN_ADDRESS.0, key]);
+    fixture.acknowledge_pending_delta();
+    let last_error = fixture.runtime.current_last_error().unwrap();
+    let outcome = dispatcher.dispatch_owned(
+        ApiOwnedTrap {
+            endpoint_id: endpoint.id,
+            endpoint_address: endpoint.address,
+            stack_pointer: GuestAddress(STACK_POINTER),
+            return_address: RETURN_ADDRESS,
+        },
+        &mut fixture.runtime,
+        None,
+        |frame, runtime, _| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
+    );
+    let DispatchOutcome::Immediate(result) = outcome else {
+        panic!("GetKeyState: {outcome:?}")
+    };
+    assert_eq!(result.stack_pointer, GuestAddress(STACK_POINTER + 8));
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), last_error);
+    result.eax.unwrap()
+}
+
+#[test]
+fn get_key_state_follows_consumed_messages_and_retains_toggle_and_modifier_sides() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture.prepare_active_window_with_small_icon();
+    fixture.runtime.set_current_last_error(0x7215).unwrap();
+    for (sequence, key, kind, repeat, previous, expected) in [
+        (
+            1,
+            0xa4,
+            RuntimeKeyboardSourceEventKind::KeyDown,
+            false,
+            0,
+            0xffff8000,
+        ),
+        (
+            2,
+            0xa4,
+            RuntimeKeyboardSourceEventKind::KeyUp,
+            false,
+            0xffff8000,
+            0,
+        ),
+        (
+            3,
+            0x14,
+            RuntimeKeyboardSourceEventKind::KeyDown,
+            false,
+            0,
+            0xffff8001,
+        ),
+        (
+            4,
+            0x14,
+            RuntimeKeyboardSourceEventKind::KeyDown,
+            true,
+            0xffff8001,
+            0xffff8001,
+        ),
+        (
+            5,
+            0x14,
+            RuntimeKeyboardSourceEventKind::KeyUp,
+            false,
+            0xffff8001,
+            1,
+        ),
+        (
+            6,
+            0x14,
+            RuntimeKeyboardSourceEventKind::KeyDown,
+            false,
+            1,
+            0xffff8000,
+        ),
+    ] {
+        fixture
+            .runtime
+            .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+                sequence,
+                virtual_key: Some(key),
+                kind,
+                repeat,
+            })
+            .unwrap();
+        assert_eq!(
+            fixture_get_key_state(&mut fixture, u32::from(key)),
+            previous
+        );
+        fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 0);
+        assert!(matches!(
+            fixture.dispatch_peek_message_a(),
+            DispatchOutcome::Immediate(_)
+        ));
+        assert_eq!(
+            fixture_get_key_state(&mut fixture, u32::from(key)),
+            previous
+        );
+        remove_keyboard_fixture_message(&mut fixture);
+        assert_eq!(
+            fixture_get_key_state(&mut fixture, u32::from(key)),
+            expected
+        );
+        assert_eq!(
+            fixture_get_key_state(&mut fixture, u32::from(key)),
+            expected
+        );
+        if key == 0xa4 {
+            assert_eq!(fixture_get_key_state(&mut fixture, 0x12), expected);
+            assert_eq!(fixture_get_key_state(&mut fixture, 0xa5), 0);
+        }
+    }
+    for key in [0x100, u32::MAX] {
+        assert_eq!(fixture_get_key_state(&mut fixture, key), 0);
+    }
+}
+
+#[test]
+fn get_key_state_mouse_buttons_follow_message_state_without_consuming_async_press() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture.prepare_active_window_with_small_icon();
+    for (sequence, kind, before, after) in [
+        (
+            1,
+            RuntimePointerButtonSourceEventKind::ButtonDown,
+            0,
+            0xffff8000,
+        ),
+        (
+            2,
+            RuntimePointerButtonSourceEventKind::ButtonUp,
+            0xffff8000,
+            0,
+        ),
+    ] {
+        fixture
+            .runtime
+            .ingest_pointer_button_event(RuntimePointerButtonSourceEvent {
+                sequence,
+                kind,
+                button: RuntimePointerButton::Primary,
+                normalized_x: 32768,
+                normalized_y: 32768,
+            })
+            .unwrap();
+        assert_eq!(fixture_get_key_state(&mut fixture, 1), before);
+        remove_keyboard_fixture_message(&mut fixture);
+        assert_eq!(fixture_get_key_state(&mut fixture, 1), after);
+        assert_eq!(fixture_get_key_state(&mut fixture, 2), 0);
+    }
+    assert_eq!(fixture.runtime.query_async_key_state(1).unwrap(), Some(1));
+}
+
+fn dispatch_window_handle_fixture(
+    fixture: &mut RegisterClassFixture,
+    name: &str,
+    handle: u32,
+    stack: u32,
+) -> (ApiDispatcher, DispatchOutcome) {
+    let mut endpoint = fixture.class_endpoint.clone();
+    endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: name.to_owned(),
+    };
+    let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+    let words = if name == "SetCapture" {
+        vec![RETURN_ADDRESS.0, handle]
+    } else {
+        vec![RETURN_ADDRESS.0]
+    };
+    fixture.write_live_words(GuestAddress(stack), &words);
+    fixture.acknowledge_pending_delta();
+    let sentinel = fixture.callback_sentinel;
+    let outcome = dispatcher.dispatch_owned(
+        ApiOwnedTrap {
+            endpoint_id: endpoint.id,
+            endpoint_address: endpoint.address,
+            stack_pointer: GuestAddress(stack),
+            return_address: RETURN_ADDRESS,
+        },
+        &mut fixture.runtime,
+        None,
+        |frame, runtime, _| dispatch_user32_api(sentinel, frame, runtime),
+    );
+    (dispatcher, outcome)
+}
+
+#[test]
+fn mouse_capture_set_get_release_notifies_synchronously_and_keeps_reentrant_capture() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    fixture.runtime.set_current_last_error(0x7215).unwrap();
+    for (name, handle, expected, cleanup) in [
+        ("GetCapture", 0, 0, 4),
+        ("ReleaseCapture", 0, 1, 4),
+        ("SetCapture", window, 0, 8),
+        ("GetCapture", 0, window, 4),
+        ("SetCapture", window, window, 8),
+    ] {
+        let (_, outcome) =
+            dispatch_window_handle_fixture(&mut fixture, name, handle, STACK_POINTER);
+        let DispatchOutcome::Immediate(result) = outcome else {
+            panic!("{name}: {outcome:?}")
+        };
+        assert_eq!(result.eax, Some(expected));
+        assert_eq!(result.stack_pointer, GuestAddress(STACK_POINTER + cleanup));
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x7215);
+    }
+    let (dispatcher, outcome) =
+        dispatch_window_handle_fixture(&mut fixture, "ReleaseCapture", 0, STACK_POINTER);
+    let DispatchOutcome::GuestCallback(call) = outcome else {
+        panic!("release: {outcome:?}")
+    };
+    assert_eq!(
+        call.request.arguments,
+        vec![
+            GuestCallbackArgument::U32(window),
+            GuestCallbackArgument::U32(0x215),
+            GuestCallbackArgument::U32(0),
+            GuestCallbackArgument::U32(0)
+        ]
+    );
+    assert_eq!(fixture.runtime.capture_window_handle().unwrap(), None);
+    let prepared = fixture.runtime.begin_guest_callback(call).unwrap();
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .runtime
+            .memory
+            .read(prepared.stack_pointer, 20)
+            .unwrap(),
+        [fixture.callback_sentinel.0, window, 0x215, 0, 0]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>()
+    );
+    // A guest may reacquire capture inside WM_CAPTURECHANGED. Completion must
+    // not overwrite that newer state or forward the window procedure's result.
+    fixture.runtime.set_capture_window(window).unwrap();
+    let completed = fixture
+        .runtime
+        .complete_guest_callback(&dispatcher, fixture.callback_sentinel, 0xabcdef)
+        .unwrap();
+    assert!(
+        matches!(completed, vine_core::GuestCallbackReturn::Completed(ref completion) if completion.eax == Some(1))
+    );
+    assert_eq!(
+        fixture.runtime.capture_window_handle().unwrap(),
+        Some(window)
+    );
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x7215);
+}
+
+#[test]
+fn mouse_capture_invalid_window_and_failed_callback_preflight_preserve_capture() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    dispatch_window_handle_fixture(&mut fixture, "SetCapture", window, STACK_POINTER);
+    let (_, outcome) =
+        dispatch_window_handle_fixture(&mut fixture, "SetCapture", 0xdeadbeef, STACK_POINTER);
+    assert!(matches!(outcome, DispatchOutcome::Immediate(ref result) if result.eax == Some(0)));
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 1400);
+    assert_eq!(
+        fixture.runtime.capture_window_handle().unwrap(),
+        Some(window)
+    );
+    let (_, outcome) =
+        dispatch_window_handle_fixture(&mut fixture, "ReleaseCapture", 0, MEMORY_BASE.0 + 4);
+    assert!(matches!(outcome, DispatchOutcome::Fault(_)));
+    assert_eq!(
+        fixture.runtime.capture_window_handle().unwrap(),
+        Some(window)
+    );
+}
+
+#[test]
+fn mouse_capture_owner_exit_releases_capture_and_mouse_tracking() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    fixture
+        .runtime
+        .ingest_pointer_position_event(RuntimePointerPositionSourceEvent {
+            sequence: 1,
+            normalized_x: 32768,
+            normalized_y: 32768,
+        })
+        .unwrap();
+    dispatch_track_mouse_event(&mut fixture, [16, 2, window, 0]);
+    fixture.runtime.set_capture_window(window).unwrap();
+    fixture.runtime.request_current_thread_exit(0).unwrap();
+    assert_eq!(fixture.runtime.capture_window_handle().unwrap(), None);
+    assert!(!fixture.runtime.window(window).unwrap().mouse_leave_tracking);
+}
+
+#[test]
+fn window_from_point_uses_signed_screen_coordinates_visible_enabled_bounds_and_point_abi() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    let geometry = fixture.runtime.window(window).unwrap().creation.geometry;
+    let style = fixture
+        .runtime
+        .window(window)
+        .unwrap()
+        .creation
+        .effective_style;
+    let mut endpoint = fixture.class_endpoint.clone();
+    endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "WindowFromPoint".to_owned(),
+    };
+    let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+    for (x, y, expected) in [
+        (geometry.x, geometry.y, window),
+        (geometry.client_x, geometry.client_y, window),
+        (
+            geometry.x + geometry.width as i32 - 1,
+            geometry.y + geometry.height as i32 - 1,
+            window,
+        ),
+        (geometry.x + geometry.width as i32, geometry.y, 0),
+        (geometry.x, geometry.y + geometry.height as i32, 0),
+        (-1, -1, 0),
+        (i32::MAX, i32::MIN, 0),
+    ] {
+        fixture.write_live_words(
+            GuestAddress(STACK_POINTER),
+            &[RETURN_ADDRESS.0, x as u32, y as u32],
+        );
+        fixture.acknowledge_pending_delta();
+        let last_error = fixture.runtime.current_last_error().unwrap();
+        let outcome = dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: endpoint.id,
+                endpoint_address: endpoint.address,
+                stack_pointer: GuestAddress(STACK_POINTER),
+                return_address: RETURN_ADDRESS,
+            },
+            &mut fixture.runtime,
+            None,
+            |frame, runtime, _| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
+        );
+        let DispatchOutcome::Immediate(result) = outcome else {
+            panic!("point: {outcome:?}")
+        };
+        assert_eq!(result.eax, Some(expected));
+        assert_eq!(result.stack_pointer, GuestAddress(STACK_POINTER + 12));
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), last_error);
+    }
+    fixture
+        .runtime
+        .set_window_style(window, style | 0x0800_0000)
+        .unwrap();
+    assert_eq!(
+        fixture
+            .runtime
+            .window_from_point(geometry.client_x, geometry.client_y)
+            .unwrap(),
+        None
+    );
+    fixture
+        .runtime
+        .set_window_style(window, style & !0x1000_0000)
+        .unwrap();
+    assert_eq!(
+        fixture
+            .runtime
+            .window_from_point(geometry.client_x, geometry.client_y)
+            .unwrap(),
+        None
+    );
+    fixture.runtime.set_window_style(window, style).unwrap();
+    assert_eq!(
+        fixture
+            .runtime
+            .window_from_point(geometry.client_x, geometry.client_y)
+            .unwrap(),
+        Some(window)
+    );
+}
+
+#[test]
+fn default_client_hit_test_and_cursor_selection_use_owned_geometry_and_class_cursor() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    let geometry = fixture.runtime.window(window).unwrap().creation.geometry;
+    let point = |x: i32, y: i32| u32::from(x as u16) | (u32::from(y as u16) << 16);
+    for (x, y, expected) in [(geometry.client_x, geometry.client_y, 1), (-1, -1, 0)] {
+        let outcome = fixture.dispatch_def_window_proc(window, 0x84, point(x, y));
+        assert!(
+            matches!(outcome, DispatchOutcome::Immediate(ref result) if result.eax == Some(expected))
+        );
+    }
+    assert!(matches!(
+        fixture.dispatch_def_window_proc(window, 0x84, point(geometry.x, geometry.y)),
+        DispatchOutcome::Fault(_)
+    ));
+    let class = fixture.runtime.window(window).unwrap().creation.class.atom;
+    let cursor = fixture
+        .runtime
+        .window_class(class)
+        .unwrap()
+        .registration
+        .cursor
+        .as_ref()
+        .map(|cursor| cursor.handle);
+    fixture.runtime.set_current_cursor(None).unwrap();
+    let outcome = fixture.dispatch_def_window_proc_args(window, 0x20, window, 0x0200_0001);
+    assert!(
+        matches!(outcome, DispatchOutcome::Immediate(ref result) if result.eax == Some(u32::from(cursor.is_some())))
+    );
+    assert_eq!(
+        fixture.runtime.set_current_cursor(None).unwrap(),
+        cursor.unwrap_or(0)
+    );
+}
+
+#[test]
+fn screen_client_point_conversion_round_trips_signed_coordinates_and_preserves_failed_output() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    let geometry = fixture.runtime.window(window).unwrap().creation.geometry;
+    let point_address = GuestAddress(MEMORY_BASE.0 + 0x2e00);
+    let invoke =
+        |fixture: &mut RegisterClassFixture, name: &str, handle: u32, output: GuestAddress| {
+            let mut endpoint = fixture.class_endpoint.clone();
+            endpoint.symbol = crate::api::ApiSymbol::Name {
+                name: name.to_owned(),
+            };
+            let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+            fixture.write_live_words(
+                GuestAddress(STACK_POINTER),
+                &[RETURN_ADDRESS.0, handle, output.0],
+            );
+            fixture.acknowledge_pending_delta();
+            let outcome = dispatcher.dispatch_owned(
+                ApiOwnedTrap {
+                    endpoint_id: endpoint.id,
+                    endpoint_address: endpoint.address,
+                    stack_pointer: GuestAddress(STACK_POINTER),
+                    return_address: RETURN_ADDRESS,
+                },
+                &mut fixture.runtime,
+                None,
+                |frame, runtime, _| dispatch_user32_api(CALLBACK_SENTINEL, frame, runtime),
+            );
+            fixture.acknowledge_pending_delta();
+            outcome
+        };
+    fixture.runtime.set_current_last_error(0x7215).unwrap();
+    for (x, y) in [(0, 0), (-30, -40), (1280, 720)] {
+        fixture.write_live_words(point_address, &[x as u32, y as u32]);
+        let outcome = invoke(&mut fixture, "ClientToScreen", window, point_address);
+        let DispatchOutcome::Immediate(result) = outcome else {
+            panic!("to screen: {outcome:?}")
+        };
+        assert_eq!(result.eax, Some(1));
+        assert_eq!(result.stack_pointer, GuestAddress(STACK_POINTER + 12));
+        let expected = [x + geometry.client_x, y + geometry.client_y]
+            .into_iter()
+            .flat_map(i32::to_le_bytes)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            fixture.runtime.memory.read(point_address, 8).unwrap(),
+            expected
+        );
+        let outcome = invoke(&mut fixture, "ScreenToClient", window, point_address);
+        assert!(matches!(outcome, DispatchOutcome::Immediate(ref result) if result.eax == Some(1)));
+        assert_eq!(
+            fixture.runtime.memory.read(point_address, 8).unwrap(),
+            [x, y]
+                .into_iter()
+                .flat_map(i32::to_le_bytes)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x7215);
+    }
+    fixture.write_live_words(point_address, &[i32::MIN as u32, 0]);
+    fixture.acknowledge_pending_delta();
+    let before = fixture
+        .runtime
+        .memory
+        .read(point_address, 8)
+        .unwrap()
+        .to_vec();
+    let outcome = invoke(&mut fixture, "ScreenToClient", window, point_address);
+    assert!(matches!(outcome, DispatchOutcome::Immediate(ref result) if result.eax == Some(0)));
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 87);
+    assert_eq!(
+        fixture.runtime.memory.read(point_address, 8).unwrap(),
+        before
+    );
+    let outcome = invoke(&mut fixture, "ScreenToClient", 0xdeadbeef, point_address);
+    assert!(matches!(outcome, DispatchOutcome::Immediate(ref result) if result.eax == Some(0)));
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 1400);
+    assert_eq!(
+        fixture.runtime.memory.read(point_address, 8).unwrap(),
+        before
+    );
+    let partial = GuestAddress(MEMORY_BASE.0 + 0x2ffc);
+    fixture.write_live_words(partial, &[0x61728394]);
+    let outcome = invoke(&mut fixture, "ScreenToClient", window, partial);
+    assert!(matches!(outcome, DispatchOutcome::Fault(_)));
+    assert_eq!(
+        fixture.runtime.memory.read(partial, 4).unwrap(),
+        0x61728394_u32.to_le_bytes()
+    );
+}
+
+#[test]
+fn mouse_leave_ingress_wakes_owner_while_selected_guest_thread_is_waiting() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window, _) = fixture.prepare_active_window_with_small_icon();
+    fixture
+        .runtime
+        .ingest_pointer_position_event(RuntimePointerPositionSourceEvent {
+            sequence: 1,
+            normalized_x: 32768,
+            normalized_y: 32768,
+        })
+        .unwrap();
+    dispatch_track_mouse_event(&mut fixture, [16, 2, window, 0]);
+    fixture.runtime.receive_current_thread_message().unwrap();
+    fixture.runtime.receive_current_thread_message().unwrap();
+    assert_eq!(
+        fixture.runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingMessage
+    );
+    let other = RuntimeThreadId(8193);
+    fixture.runtime.register_thread(other, 0).unwrap();
+    fixture.runtime.select_thread(other).unwrap();
+    fixture.runtime.receive_current_thread_message().unwrap();
+    assert_eq!(
+        fixture.runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingMessage
+    );
+    assert!(
+        fixture
+            .runtime
+            .post_thread_message(RuntimeThreadId(THREAD_ID), window, 0x400, 0, 0)
+            .is_err()
+    );
+    let leave = fixture
+        .runtime
+        .ingest_pointer_leave_event(2)
+        .unwrap()
+        .unwrap();
+    assert_eq!((leave.hwnd, leave.message), (window, 0x2a3));
+    assert_eq!(fixture.runtime.current_thread_id(), other);
+    assert_eq!(
+        fixture.runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingMessage
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .scheduler_state_for_thread(RuntimeThreadId(THREAD_ID))
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .unwrap(),
+        vec![leave]
+    );
+    assert!(
+        fixture
+            .runtime
+            .queued_thread_messages(other)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(!fixture.runtime.window(window).unwrap().mouse_leave_tracking);
+    assert_eq!(
+        fixture
+            .runtime
+            .keyboard_state()
+            .unwrap()
+            .last_event_sequence,
+        2
+    );
+}
+
+#[test]
+fn get_cursor_preserves_identity_while_hidden_and_reports_null_after_clear() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture.prepare_active_window_with_small_icon();
+    let cursor = fixture.runtime.current_cursor().unwrap().unwrap().handle;
+    fixture.runtime.set_current_last_error(0x7215).unwrap();
+    for selected in [Some(cursor), None, Some(cursor)] {
+        fixture.runtime.set_current_cursor(selected).unwrap();
+        fixture.runtime.show_cursor(false).unwrap();
+        let count = fixture
+            .runtime
+            .current_thread_cursor_display_count()
+            .unwrap();
+        let (_, outcome) =
+            dispatch_window_handle_fixture(&mut fixture, "GetCursor", 0, STACK_POINTER);
+        let DispatchOutcome::Immediate(result) = outcome else {
+            panic!("cursor: {outcome:?}")
+        };
+        assert_eq!(result.eax, Some(selected.unwrap_or(0)));
+        assert_eq!(result.stack_pointer, GuestAddress(STACK_POINTER + 4));
+        assert_eq!(
+            fixture
+                .runtime
+                .current_thread_cursor_display_count()
+                .unwrap(),
+            count
+        );
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x7215);
     }
 }

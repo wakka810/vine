@@ -1,5 +1,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(test)]
+#[path = "../../vine-core/tests/support/mod.rs"]
+mod core_test_support;
+
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -31,8 +35,8 @@ use vine_core::{
     build_pe32_load_plan, complete_gdi32_text_raster, complete_kernel32_audio_notification_wait,
     complete_kernel32_object_wait, complete_kernel32_opfs_open, complete_kernel32_opfs_write,
     complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
-    complete_opfs_file_operation, complete_user32_message_box, install_initial_thread_stack,
-    install_runtime_return_sentinels, materialize_pe32_image,
+    complete_opfs_file_operation, complete_user32_message_box, install_runtime_return_sentinels,
+    materialize_pe32_image,
 };
 
 const MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -133,13 +137,21 @@ impl From<Vec<u8>> for RuntimeOutputBytes {
 
 fn append_presentation_pixels(
     bytes: &mut RuntimeOutputBytes,
+    seen_snapshots: &mut BTreeMap<usize, (usize, Arc<Vec<u8>>)>,
     snapshot: &Arc<Vec<u8>>,
     pitch: Option<u32>,
 ) -> Value {
     if snapshot.is_empty() {
         Value::Null
     } else {
-        let offset = bytes.append_snapshot(snapshot);
+        let key = Arc::as_ptr(snapshot) as usize;
+        let offset = if let Some((existing_offset, _)) = seen_snapshots.get(&key) {
+            *existing_offset
+        } else {
+            let new_offset = bytes.append_snapshot(snapshot);
+            seen_snapshots.insert(key, (new_offset, Arc::clone(snapshot)));
+            new_offset
+        };
         json!({ "offset": offset, "length": snapshot.len(),
             "pitch": pitch.expect("captured texture pitch") })
     }
@@ -430,12 +442,20 @@ impl Bridge {
         let (executable, relative_path) = input.split_at(executable_length);
         let relative_path = std::str::from_utf8(relative_path)
             .map_err(|_| "selected executable path is not UTF-8".to_owned())?;
-        let (runtime, metadata, reflection) = BrowserRuntime::prepare_executable(
+        let (mut runtime, metadata, reflection) = BrowserRuntime::prepare_executable(
             executable.to_vec(),
             relative_path,
             std::mem::take(&mut self.source_dlls),
             encoded_pointer_cookie,
         )?;
+        match self.input.get(total_length..) {
+            Some([]) => {}
+            Some(seed) if seed.len() == 32 => runtime
+                .runtime
+                .configure_guid_seed(seed.try_into().expect("32-byte process entropy"))
+                .map_err(error_string)?,
+            _ => return Err("selected executable entropy must be exactly 32 bytes".to_owned()),
+        }
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
     }
@@ -561,6 +581,7 @@ struct BrowserRuntime {
     prepared_source_trap: Option<(RuntimeThreadId, GuestAddress, GuestAddress, GuestAddress)>,
     pending_source_lookup: Option<(u32, Vec<u8>)>,
     pending_source_search: Option<PendingSourceSearch>,
+    pending_source_library: Option<Vec<u8>>,
 }
 
 struct StopContext {
@@ -626,6 +647,16 @@ impl BrowserRuntime {
         normalized_x: u16,
         normalized_y: u16,
     ) -> Result<Value, String> {
+        if kind == 4 && button == 0 && normalized_x == 0 && normalized_y == 0 {
+            let receipt = self
+                .runtime
+                .ingest_pointer_leave_event(sequence)
+                .map_err(error_string)?;
+            return Ok(
+                json!({"kind": "pointer-event-ingested", "sequence": sequence,
+                "message": receipt.map(|message| message.message), "windowHandle": receipt.map(|message| message.hwnd)}),
+            );
+        }
         if self
             .runtime
             .foreground_window_handle()
@@ -824,16 +855,13 @@ impl BrowserRuntime {
         let sentinels =
             install_runtime_return_sentinels(process.runtime.memory_mut(), &callback_allocation)
                 .map_err(error_string)?;
-        let stack = install_initial_thread_stack(
-            process.runtime.memory_mut(),
-            &sentinels.process_entry_return,
-            plan.image.stack_reserve,
-            plan.image.stack_commit,
-        )
-        .map_err(error_string)?;
-        process
+        let stack = process
             .runtime
-            .register_initial_thread_stack(&stack)
+            .install_initial_thread_stack(
+                &sentinels.process_entry_return,
+                plan.image.stack_reserve,
+                plan.image.stack_commit,
+            )
             .map_err(error_string)?;
         let command_line = relative_path.replace('/', "\\");
         let command_line = if command_line.contains(' ') {
@@ -880,6 +908,11 @@ impl BrowserRuntime {
                 }
             }
         }
+        for export in process.runtime.runtime_system_export_endpoints() {
+            endpoint_by_address
+                .entry(export.address)
+                .or_insert_with(|| ApiEndpointIdentity::from_runtime_system_export(export));
+        }
         let endpoints = endpoint_by_address.into_values().collect::<Vec<_>>();
         let dispatcher = ApiDispatcher::from_endpoints(endpoints).map_err(api_fault_string)?;
         let reflection_buffers = process
@@ -923,6 +956,7 @@ impl BrowserRuntime {
                 prepared_source_trap: None,
                 pending_source_lookup: None,
                 pending_source_search: None,
+                pending_source_library: None,
             },
             metadata,
             reflection_buffers,
@@ -995,6 +1029,88 @@ impl BrowserRuntime {
             );
         }
         Ok(())
+    }
+
+    fn complete_source_library(&mut self, bytes: Option<Vec<u8>>) -> Result<Value, String> {
+        let path = self
+            .pending_source_library
+            .as_ref()
+            .ok_or("no pending library read")?
+            .clone();
+        let (thread, endpoint, stack, return_address) = self
+            .prepared_source_trap
+            .ok_or("library read lost its guest call")?;
+        let route = self
+            .dispatcher
+            .endpoint(endpoint)
+            .ok_or("library endpoint is no longer registered")?;
+        if self.runtime.current_thread_id() != thread
+            || self.runtime.memory().read(stack, 4).map_err(error_string)?
+                != return_address.0.to_le_bytes()
+            || self
+                .runtime
+                .prepare_api_source_lookup(route, stack)
+                .map_err(api_fault_string)?
+                != Some(vine_core::ApiSourceLookup::Library {
+                    relative_path_a: path.clone(),
+                })
+        {
+            return Err("library completion belongs to a changed guest call".to_owned());
+        }
+        if let Some(bytes) = bytes {
+            if bytes.len() > MAX_INPUT_BYTES {
+                return Err("source DLL exceeds the input limit".to_owned());
+            }
+            let snapshot =
+                ModuleSnapshot::from_bytes(bytes, &Pe32Limits::default()).map_err(error_string)?;
+            let loader =
+                build_pe32_load_plan(&snapshot, Pe32Limits::default()).map_err(error_string)?;
+            let imports = runtime_catalog_for_load_plan(&[&loader])?;
+            let mut exports = self
+                .runtime
+                .runtime_system_export_endpoints()
+                .map(|endpoint| endpoint.export.clone())
+                .collect::<Vec<_>>();
+            let mut seen = exports.iter().cloned().collect::<BTreeSet<_>>();
+            for export in imports.exports() {
+                if seen.insert(export.clone()) {
+                    exports.push(export.clone());
+                }
+            }
+            let catalog = RuntimeExportCatalog::new(exports).map_err(error_string)?;
+            let dispatcher = self
+                .dispatcher
+                .with_runtime_catalog(&catalog)
+                .map_err(api_fault_string)?;
+            let base = guest_image_load_base(
+                self.runtime.memory(),
+                loader.image.preferred_image_base,
+                loader.image.size_of_image,
+            )?;
+            let path = SHIFT_JIS
+                .decode_without_bom_handling_and_without_replacement(&path)
+                .ok_or("DLL path is not Windows-932")?;
+            let requested_name = format!("C:\\Vine\\{path}");
+            let systems = loader
+                .imports
+                .iter()
+                .filter(|module| runtime_system_module(&module.name))
+                .map(|module| module.name.clone())
+                .collect::<Vec<_>>();
+            self.runtime
+                .load_dynamic_library(
+                    &snapshot,
+                    &loader,
+                    &requested_name,
+                    base,
+                    &catalog,
+                    &systems,
+                )
+                .map_err(error_string)?;
+            self.dispatcher = dispatcher;
+        }
+        self.pending_source_library = None;
+        Ok(json!({ "kind": "source-library-complete" }))
     }
 
     fn complete_source_lookup(&mut self, result: Option<Value>) -> Result<Value, String> {
@@ -1088,6 +1204,9 @@ impl BrowserRuntime {
                 .runtime
                 .source_search_matches(&search.pattern, &segments, &names)
                 .map_err(error_string)?;
+            self.runtime
+                .register_source_directory_listing(&segments, &names)
+                .map_err(error_string)?;
             let metadata = json!({ "kind": "source-search-matches", "entries": selected.iter()
                 .map(|(path, _)| path).collect::<Vec<_>>() });
             search.parent = actual_parent;
@@ -1123,6 +1242,9 @@ impl BrowserRuntime {
                 .map_err(error_string)?;
             true
         } else {
+            self.runtime
+                .register_missing_source_path(path)
+                .map_err(error_string)?;
             false
         };
         self.pending_source_lookup = None;
@@ -1147,7 +1269,10 @@ impl BrowserRuntime {
         if self.pending_com_audio.is_some() {
             return Err("COM audio handoff must finish before guest dispatch".to_owned());
         }
-        if self.pending_source_lookup.is_some() || self.pending_source_search.is_some() {
+        if self.pending_source_lookup.is_some()
+            || self.pending_source_search.is_some()
+            || self.pending_source_library.is_some()
+        {
             return Err("source lookup must finish before guest API dispatch".to_owned());
         }
         let identity = (
@@ -1170,6 +1295,12 @@ impl BrowserRuntime {
                 .map_err(api_fault_string)?
         {
             let metadata = match lookup {
+                vine_core::ApiSourceLookup::Library { relative_path_a } => {
+                    let metadata =
+                        json!({ "kind": "source-library", "relativePathA": relative_path_a });
+                    self.pending_source_library = Some(relative_path_a);
+                    metadata
+                }
                 vine_core::ApiSourceLookup::Search { pattern, parent } => {
                     let metadata = json!({ "kind": "source-search", "relativeDirectoryA": parent });
                     self.pending_source_search = Some(PendingSourceSearch {
@@ -1252,7 +1383,10 @@ impl BrowserRuntime {
                 } else {
                     None
                 };
-                let opfs_write = if call.request.service == "browser.opfs-write" {
+                let opfs_write = if matches!(
+                    call.request.service.as_str(),
+                    "browser.opfs-write" | "browser.opfs-truncate"
+                ) {
                     Some(
                         self.runtime
                             .opfs_write_host_info(call.request.request_id)
@@ -1273,6 +1407,7 @@ impl BrowserRuntime {
                 let opfs_path = if matches!(
                     call.request.service.as_str(),
                     "browser.opfs-create-directory"
+                        | "browser.opfs-ensure-directory"
                         | "browser.opfs-delete-file"
                         | "browser.opfs-stat"
                         | "browser.opfs-open"
@@ -1289,7 +1424,7 @@ impl BrowserRuntime {
                             .get(3..)
                             .ok_or_else(|| "OPFS file open path is missing".to_owned())?;
                         if !matches!(header[0], 2..=4)
-                            || !matches!(header[1], 2 | 3)
+                            || !matches!(header[1], 0 | 2 | 3)
                             || usize::from(header[2])
                                 > path.iter().filter(|byte| **byte == b'/').count()
                         {
@@ -1301,12 +1436,16 @@ impl BrowserRuntime {
                         "browser.opfs-stat"
                             | "browser.opfs-delete-file"
                             | "browser.opfs-create-directory"
+                            | "browser.opfs-ensure-directory"
                     ) {
                         let (missing, path) =
                             call.request.payload.split_first().ok_or_else(|| {
                                 "OPFS source result or path is missing".to_owned()
                             })?;
-                        if call.request.service == "browser.opfs-create-directory" {
+                        if matches!(
+                            call.request.service.as_str(),
+                            "browser.opfs-create-directory" | "browser.opfs-ensure-directory"
+                        ) {
                             if usize::from(*missing)
                                 > path.iter().filter(|byte| **byte == b'/').count()
                             {
@@ -1335,7 +1474,10 @@ impl BrowserRuntime {
                         .iter()
                         .map(|byte| u32::from(*byte))
                         .collect()
-                } else if call.request.service == "browser.opfs-create-directory" {
+                } else if matches!(
+                    call.request.service.as_str(),
+                    "browser.opfs-create-directory" | "browser.opfs-ensure-directory"
+                ) {
                     vec![u32::from(call.request.payload[0])]
                 } else if opfs_path.is_some() || message_box.is_some() {
                     Vec::new()
@@ -1415,9 +1557,11 @@ impl BrowserRuntime {
                 } else {
                     None
                 };
-                let selection = if completion.execution_boundary
-                    == vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread
-                {
+                let selection = if matches!(
+                    completion.execution_boundary,
+                    vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread
+                        | vine_core::RuntimeApiBoundaryDisposition::TerminateProcess
+                ) {
                     None
                 } else if completion.execution_boundary
                     == vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread
@@ -1426,6 +1570,8 @@ impl BrowserRuntime {
                         self.runtime.scheduler_state().map_err(error_string)?,
                         SchedulerThreadState::WaitingCriticalSection { .. }
                             | SchedulerThreadState::WaitingObject { .. }
+                            | SchedulerThreadState::WaitingMessage
+                            | SchedulerThreadState::Suspended { .. }
                     ) {
                         return Err(
                             "blocking API completion has no matching scheduler wait".to_owned()
@@ -1529,6 +1675,7 @@ impl BrowserRuntime {
                         .runtime
                         .presented_graphics_frame(device_id)
                         .map_err(|error| error.to_string())?;
+                    let mut seen_snapshots = BTreeMap::new();
                     let draws: Vec<Value> = frame
                         .draw_submissions
                         .iter()
@@ -1545,19 +1692,42 @@ impl BrowserRuntime {
                                 })
                                 .collect();
                             let pixels = append_presentation_pixels(
-                                &mut presentation_bytes, &draw.texture_data, draw.texture_pitch,
+                                &mut presentation_bytes,
+                                &mut seen_snapshots,
+                                &draw.texture_data,
+                                draw.texture_pitch,
                             );
                             json!({
                                 "vertices": draw.vertex_data,
+                                "clip": draw.clip_rect.map(|r|json!({"left":r.left,"top":r.top,"right":r.right,"bottom":r.bottom})),
+                                "fragment":draw.fragment.as_ref().map(|f|json!({
+                                    "textureAlpha":f.texture_alpha,
+                                    "diffuseAlpha":f.diffuse_alpha,
+                                    "blend":f.blend,
+                                    "additive":f.additive_blend,
+                                    "colorAdd":f.color_add,
+                                    "alphaTest":f.alpha_test.map(|(compare,reference)|json!({"compare":compare,"reference":reference})),
+                                    "fog":f.fog.map(|fog|json!({"colorArgb":fog.color_argb,"start":f32::from_bits(fog.start),"end":f32::from_bits(fog.end)})),
+                                })),
+                                "depth": draw.depth.map(|depth|json!({"write":depth.write,"compare":depth.compare})),
+                                "sampling": {
+                                    "minFilter": match draw.min_filter { vine_core::RuntimeGraphicsTextureFilter::Point => "point", vine_core::RuntimeGraphicsTextureFilter::Linear => "linear" },
+                                    "magFilter": match draw.mag_filter { vine_core::RuntimeGraphicsTextureFilter::Point => "point", vine_core::RuntimeGraphicsTextureFilter::Linear => "linear" },
+                                    "addressU": match draw.address_u { vine_core::RuntimeGraphicsTextureAddress::Wrap => "wrap", vine_core::RuntimeGraphicsTextureAddress::Clamp => "clamp" },
+                                    "addressV": match draw.address_v { vine_core::RuntimeGraphicsTextureAddress::Wrap => "wrap", vine_core::RuntimeGraphicsTextureAddress::Clamp => "clamp" },
+                                },
                                 "texture": { "width": draw.texture_width,
-                                    "height": draw.texture_height, "fills": fills, "pixels": pixels },
+                                    "height": draw.texture_height, "fills": fills, "pixels": pixels, "alpha":draw.texture_alpha },
                             })
                         })
                         .collect();
                     metadata["presentation"] = json!({
                         "width": width,
                         "height": height,
+                        "preserve": frame.preserve_previous,
                         "colorArgb": frame.clear_color,
+                        "colorClearBeforeDraw": frame.color_clear_before_draw,
+                        "depthClears":frame.depth_clears.iter().map(|clear|json!({"beforeDraw":clear.before_draw,"value":f32::from_bits(clear.depth)})).collect::<Vec<_>>(),
                         "draws": draws,
                     });
                 }
@@ -1765,8 +1935,10 @@ impl BrowserRuntime {
             .pending_host
             .get(&request_id)
             .ok_or_else(|| "OPFS write completion has no pending call".to_owned())?;
-        if pending.call.request.service != "browser.opfs-write"
-            || pending.call.request.request_id != request_id
+        if !matches!(
+            pending.call.request.service.as_str(),
+            "browser.opfs-write" | "browser.opfs-truncate"
+        ) || pending.call.request.request_id != request_id
         {
             return Err("OPFS write completion has the wrong host identity".to_owned());
         }
@@ -1801,7 +1973,7 @@ impl BrowserRuntime {
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
             .map_err(error_string)?
-            .is_executable()
+            .has_execution_continuation()
         {
             return Err("OPFS write did not resume its guest thread".to_owned());
         }
@@ -1863,7 +2035,7 @@ impl BrowserRuntime {
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
             .map_err(error_string)?
-            .is_executable()
+            .has_execution_continuation()
         {
             return Err("OPFS open did not resume its guest thread".to_owned());
         }
@@ -1876,6 +2048,13 @@ impl BrowserRuntime {
     }
 
     fn complete_host(&mut self, request_id: u64, result: u32) -> Result<Value, String> {
+        if self
+            .pending_host
+            .get(&request_id)
+            .is_some_and(|pending| pending.call.request.service == "browser.message-wait")
+        {
+            return self.complete_paced_object_or_timer_wait(request_id, result, false);
+        }
         if self
             .pending_host
             .get(&request_id)
@@ -1903,37 +2082,43 @@ impl BrowserRuntime {
         // Decode browser outcomes before consuming the pending call or changing
         // scheduler state. These are host observations, not Windows error codes.
         let opfs_result = if let Some(pending) = self.pending_host.get(&request_id) {
-            let operation = match pending.call.request.service.as_str() {
-                "browser.opfs-create-directory" => Some(OpfsFileOperation::CreateDirectory),
-                "browser.opfs-delete-file" => Some(OpfsFileOperation::DeleteFile {
-                    source_missing: *pending
-                        .call
-                        .request
-                        .payload
-                        .first()
-                        .ok_or_else(|| "OPFS delete source result is missing".to_owned())?,
-                }),
-                "browser.opfs-stat" => Some(OpfsFileOperation::Attributes {
-                    source_missing: *pending
-                        .call
-                        .request
-                        .payload
-                        .first()
-                        .ok_or_else(|| "OPFS stat source result is missing".to_owned())?,
-                }),
-                _ => None,
-            };
-            operation
-                .map(|operation| {
-                    let preserved = self
-                        .runtime
-                        .thread_state(pending.thread_id)
-                        .map_err(error_string)?
-                        .last_error;
-                    complete_opfs_file_operation(operation, result, preserved)
-                        .map_err(api_fault_string)
-                })
-                .transpose()?
+            if pending.call.request.service == "browser.opfs-ensure-directory" {
+                Some(
+                    vine_core::complete_shell32_special_folder(
+                        &pending.call,
+                        result,
+                        &self.runtime,
+                    )
+                    .map_err(api_fault_string)?,
+                )
+            } else {
+                let operation = match pending.call.request.service.as_str() {
+                    "browser.opfs-create-directory" => Some(OpfsFileOperation::CreateDirectory),
+                    "browser.opfs-delete-file" => Some(OpfsFileOperation::DeleteFile {
+                        source_missing: *pending
+                            .call
+                            .request
+                            .payload
+                            .first()
+                            .ok_or_else(|| "OPFS delete source result is missing".to_owned())?,
+                    }),
+                    "browser.opfs-stat" => Some(
+                        OpfsFileOperation::attributes(&pending.call).map_err(api_fault_string)?,
+                    ),
+                    _ => None,
+                };
+                operation
+                    .map(|operation| {
+                        let preserved = self
+                            .runtime
+                            .thread_state(pending.thread_id)
+                            .map_err(error_string)?
+                            .last_error;
+                        complete_opfs_file_operation(operation, result, preserved)
+                            .map_err(api_fault_string)
+                    })
+                    .transpose()?
+            }
         } else {
             None
         };
@@ -1987,11 +2172,37 @@ impl BrowserRuntime {
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
             .map_err(error_string)?;
-        if !scheduler.is_executable() {
+        if !scheduler.has_execution_continuation() {
             return Err("Rust scheduler did not resume the completed host request".to_owned());
         }
         restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
-        self.pending_host.remove(&request_id);
+        self.runtime
+            .commit_pending_current_directory(request_id, completion.eax == Some(1))
+            .map_err(error_string)?;
+        if let Some(removed) = self.pending_host.remove(&request_id) {
+            let service = removed.call.request.service.as_str();
+            if service == "browser.opfs-delete-file" && result == 0 {
+                if let Some(Ok(path)) = removed
+                    .call
+                    .request
+                    .payload
+                    .get(1..)
+                    .map(std::str::from_utf8)
+                {
+                    self.runtime.record_opfs_file_deleted(path);
+                }
+            } else if ((service == "browser.opfs-create-directory" && matches!(result, 0 | 1))
+                || (service == "browser.opfs-ensure-directory" && result == 0))
+                && let Some(Ok(path)) = removed
+                    .call
+                    .request
+                    .payload
+                    .get(1..)
+                    .map(std::str::from_utf8)
+            {
+                self.runtime.record_opfs_directory_created(path);
+            }
+        }
         Ok(json!({
             "kind": "host-complete",
             "threadId": owner_thread_id.0,
@@ -2045,7 +2256,7 @@ impl BrowserRuntime {
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
             .map_err(error_string)?
-            .is_executable()
+            .has_execution_continuation()
         {
             return Err("message box completion did not resume its guest thread".to_owned());
         }
@@ -2080,7 +2291,13 @@ impl BrowserRuntime {
         acknowledgement: u32,
         object_wait: bool,
     ) -> Result<Value, String> {
-        let service = if object_wait {
+        let message_wait = self
+            .pending_host
+            .get(&request_id)
+            .is_some_and(|pending| pending.call.request.service == "browser.message-wait");
+        let service = if message_wait {
+            "browser.message-wait"
+        } else if object_wait {
             RUNTIME_OBJECT_WAIT_SERVICE
         } else {
             RUNTIME_WAITABLE_TIMER_PACING_SERVICE
@@ -2100,7 +2317,9 @@ impl BrowserRuntime {
                 .select_thread(owner_thread_id)
                 .map_err(error_string)?;
         }
-        let complete = if object_wait {
+        let complete = if message_wait {
+            vine_core::complete_user32_message_wait
+        } else if object_wait {
             complete_kernel32_object_wait
         } else {
             complete_kernel32_waitable_timer_pacing
@@ -2178,7 +2397,7 @@ impl BrowserRuntime {
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
             .map_err(error_string)?;
-        if !scheduler.is_executable() {
+        if !scheduler.has_execution_continuation() {
             return Err("Rust scheduler did not resume the timer pacing request".to_owned());
         }
         restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
@@ -2296,7 +2515,7 @@ impl BrowserRuntime {
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
             .map_err(error_string)?;
-        if !scheduler.is_executable() {
+        if !scheduler.has_execution_continuation() {
             return Err("Rust scheduler did not resume the audio notification request".to_owned());
         }
         restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
@@ -2333,6 +2552,30 @@ impl BrowserRuntime {
             complete_kernel32_source_read(dispatcher, &pending.call, response, &mut self.runtime);
         let completion = match outcome {
             DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Deferred(retry) => {
+                if retry.request.request_id != request_id
+                    || retry.request.service != "storage.source-read"
+                    || retry.request.payload.len() != 20
+                {
+                    return Err("invalid MMIO source continuation".to_owned());
+                }
+                let arguments: Vec<u32> = retry
+                    .request
+                    .payload
+                    .chunks_exact(4)
+                    .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+                    .collect();
+                self.pending_host
+                    .get_mut(&request_id)
+                    .expect("live MMIO open")
+                    .call = retry;
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Ok((
+                    json!({"kind":"host-retry", "threadId":owner_thread_id.0,
+                    "requestId":request_id.to_string(), "service":"storage.source-read", "arguments":arguments}),
+                    None,
+                ));
+            }
             DispatchOutcome::Fault(fault) => {
                 restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
                 return Err(api_fault_string(fault));
@@ -2353,7 +2596,7 @@ impl BrowserRuntime {
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
             .map_err(error_string)?;
-        if !scheduler.is_executable() {
+        if !scheduler.has_execution_continuation() {
             return Err("Rust scheduler did not resume the source read request".to_owned());
         }
         restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
@@ -2418,7 +2661,7 @@ impl BrowserRuntime {
             .runtime
             .scheduler_state_for_thread(owner_thread_id)
             .map_err(error_string)?;
-        if !scheduler.is_executable() {
+        if !scheduler.has_execution_continuation() {
             return Err("Rust scheduler did not resume the text raster request".to_owned());
         }
         restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
@@ -2435,7 +2678,11 @@ impl BrowserRuntime {
         &mut self,
         sentinel: GuestAddress,
         result: u32,
+        stack_pointer: GuestAddress,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>, RuntimeOutputBytes), String> {
+        self.runtime
+            .synchronize_exception_callback_stack(stack_pointer)
+            .map_err(api_fault_string)?;
         let outcome = self
             .runtime
             .complete_guest_callback(&self.dispatcher, sentinel, result)
@@ -2490,12 +2737,16 @@ impl BrowserRuntime {
             .select_next_executable_thread()
             .map_err(error_string)?
         else {
+            let (message_wait_pending, message_wait_delay_ms) = self.runtime.message_wait_status();
             return Ok(json!({
                 "kind": "scheduler-idle",
                 "audioEndPending": self.runtime.has_browser_audio_end_pending(),
+                "messageWaitPending": message_wait_pending,
+                "messageWaitDelayMs": message_wait_delay_ms,
                 "previousThreadId": previous_thread_id.0,
             }));
         };
+        acknowledge_thread_wakes(&mut self.runtime);
         Ok(json!({
             "kind": "thread-scheduled",
             "threadId": selection.0,
@@ -2619,9 +2870,16 @@ fn runtime_system_module(name: &str) -> bool {
             | "ole32.dll"
             | "atl.dll"
             | "d3d9.dll"
+            | "d3d8.dll"
+            | "mscoree.dll"
+            | "dinput.dll"
             | "dinput8.dll"
             | "dsound.dll"
             | "winmm.dll"
+            | "version.dll"
+            | "mpr.dll"
+            | "shlwapi.dll"
+            | "dbghelp.dll"
     )
 }
 
@@ -2659,6 +2917,46 @@ fn runtime_catalog_for_load_plan(
             }
         }
     }
+    // These system exports are also resolved by guest loaders through GetProcAddress.
+    // Publishing an endpoint does not claim its behavior is implemented: invoking an
+    // unsupported export still stops in the ordinary API dispatcher.
+    for name in [
+        "FlushInstructionCache",
+        "SetHandleCount",
+        "GetStartupInfoA",
+        "FreeEnvironmentStringsA",
+        "GetEnvironmentStrings",
+        "GetLocaleInfoA",
+        "GetStringTypeA",
+        "LCMapStringA",
+        "InitializeCriticalSectionEx",
+        "FlsAlloc",
+        "FlsGetValue",
+        "FlsSetValue",
+        "LCMapStringEx",
+        "InitializeConditionVariable",
+        "SleepConditionVariableCS",
+        "WakeAllConditionVariable",
+    ] {
+        let export = RuntimeExport::named("kernel32.dll", name);
+        if keys.insert(export.clone()) {
+            exports.push(export);
+        }
+    }
+    for (module, name) in [
+        ("dinput.dll", "DirectInputCreateA"),
+        ("d3d9.dll", "Direct3DCreate9"),
+        ("d3d8.dll", "Direct3DCreate8"),
+        ("mscoree.dll", "CorExitProcess"),
+        ("dsound.dll", "DirectSoundCreate"),
+        ("dsound.dll", "DirectSoundCreate8"),
+        ("dsound.dll", "DirectSoundEnumerateW"),
+    ] {
+        let export = RuntimeExport::named(module, name);
+        if keys.insert(export.clone()) {
+            exports.push(export);
+        }
+    }
     RuntimeExportCatalog::new(exports).map_err(error_string)
 }
 
@@ -2668,40 +2966,55 @@ fn guest_image_load_base(
     size_of_image: u32,
 ) -> Result<GuestAddress, String> {
     let length = u64::from(size_of_image);
+    let address_limit = 0x7fff_0000_u64;
+    let thread_stacks = u64::from(vine_core::RUNTIME_GUEST_THREAD_STACK_ARENA_BASE.0);
+    let mut occupied = vec![
+        (0x0100_0000_u64, 0x1000_0000_u64),
+        (0x2000_0000, 0x4e00_0000),
+        // Import/callback/export pages, thread environments and callback scratch.
+        (0x7f00_0000, 0x7fc8_0000),
+        (
+            thread_stacks,
+            thread_stacks + vine_core::RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
+        ),
+    ];
+    occupied.extend(
+        memory
+            .regions()
+            .map(|region| (u64::from(region.range.start().0), region.range.end())),
+    );
+    occupied.sort_unstable();
     let available = |base: u32| {
         let start = u64::from(base);
-        let Some(end) = start.checked_add(length) else {
-            return false;
-        };
-        let thread_stacks = u64::from(vine_core::RUNTIME_GUEST_THREAD_STACK_ARENA_BASE.0);
+        let end = start + length;
         start >= 0x0001_0000
             && base.is_multiple_of(0x1_0000)
             && length != 0
-            && end <= 0x7fff_0000
-            && ![
-                (0x0100_0000_u64, 0x1000_0000_u64),
-                (0x2000_0000, 0x4e00_0000),
-                // Import/callback/export pages, thread environments and callback scratch.
-                (0x7f00_0000, 0x7fc8_0000),
-                (
-                    thread_stacks,
-                    thread_stacks + vine_core::RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
-                ),
-            ]
-            .iter()
-            .any(|&(left, right)| start < right && left < end)
-            && memory
-                .regions()
-                .all(|region| start >= region.range.end() || region.range.start().0 as u64 >= end)
+            && end <= address_limit
+            && !occupied
+                .iter()
+                .any(|&(left, right)| start < right && left < end)
     };
     if available(preferred) {
         return Ok(GuestAddress(preferred));
     }
-    // Leave the entire guest thread-stack arena free even before any thread exists.
-    for slot in 0..16_u32 {
-        let base = 0x6000_0000 + slot * 0x0100_0000;
-        if available(base) {
-            return Ok(GuestAddress(base));
+    // Search actual gaps at Windows allocation granularity. Sampling sixteen
+    // 16-MiB slots falsely exhausted the address space after small DLL loads.
+    // The reserved arenas above remain unavailable before they are materialized.
+    if length != 0 {
+        for (start, limit) in [(0x6000_0000, address_limit), (0x0001_0000, 0x6000_0000)] {
+            let mut candidate = start;
+            for &(left, right) in &occupied {
+                if candidate + length <= left || candidate + length > limit {
+                    break;
+                }
+                if right > candidate {
+                    candidate = (right + 0xffff) & !0xffff;
+                }
+            }
+            if candidate + length <= limit {
+                return Ok(GuestAddress(candidate as u32));
+            }
         }
     }
     Err("no free PE32 guest image range outside runtime-owned memory".to_owned())
@@ -2947,6 +3260,9 @@ fn cpu_resume_metadata(completion: &ApiImmediateCompletion) -> Value {
         }
         vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread => {
             resume["executionBoundary"] = json!("terminate-current-thread");
+        }
+        vine_core::RuntimeApiBoundaryDisposition::TerminateProcess => {
+            resume["executionBoundary"] = json!("terminate-process");
         }
     }
     resume
@@ -3204,11 +3520,10 @@ pub fn dispatch_shared(
         let mut bridge = cell.borrow_mut();
         let result = (|| -> Result<SharedDispatch, String> {
             let runtime = bridge.runtime_mut()?;
-            if runtime
-                .dispatcher
-                .endpoint(GuestAddress(context.eip))
-                .is_none()
-            {
+            let endpoint_address = GuestAddress(context.eip);
+            let is_api = runtime.dispatcher.endpoint(endpoint_address).is_some();
+            let is_com = !is_api && runtime.runtime.is_com_endpoint(endpoint_address);
+            if !is_api && !is_com {
                 return Ok(SharedDispatch::Unhandled);
             }
             let return_bytes = runtime
@@ -3219,8 +3534,59 @@ pub fn dispatch_shared(
             let return_address =
                 u32::from_le_bytes(return_bytes.try_into().expect("four-byte return address"));
             runtime.synchronize_forward_clock(retired, elapsed)?;
+            if is_com {
+                if runtime.pending_com_audio.is_some() {
+                    return Err("COM audio handoff must finish before guest dispatch".to_owned());
+                }
+                if runtime.pending_source_lookup.is_some()
+                    || runtime.pending_source_search.is_some()
+                    || runtime.pending_source_library.is_some()
+                    || runtime.prepared_source_trap.is_some()
+                {
+                    return Err("source lookup must finish before guest COM dispatch".to_owned());
+                }
+                runtime.advance_clock_for_dispatch(retired)?;
+                let trap = ComCallTrap {
+                    endpoint_address,
+                    stack_pointer: GuestAddress(context.esp),
+                    return_address: GuestAddress(return_address),
+                    call_site: GuestAddress(return_address),
+                };
+                let outcome = runtime.runtime.dispatch_com_call(trap);
+                if let ComDispatchOutcome::Completed(ref completion) = outcome
+                    && completion.created_thread.is_none()
+                    && completion.presented_device.is_none()
+                {
+                    let resume = [
+                        completion.instruction_pointer.0,
+                        completion.stack_pointer.0,
+                        completion.eax,
+                        1,
+                    ];
+                    acknowledge_thread_wakes(&mut runtime.runtime);
+                    if !runtime.runtime.memory().has_pending_delta() {
+                        return Ok(SharedDispatch::Resume(resume));
+                    }
+                    if let Some((generation, addresses)) =
+                        runtime.runtime.memory_mut().offer_shared_data_changes()
+                    {
+                        if addresses.is_empty() {
+                            invalidate(None);
+                        }
+                        for address in addresses {
+                            invalidate(Some(address));
+                        }
+                        runtime.acknowledge_fast(generation)?;
+                        return Ok(SharedDispatch::Resume(resume));
+                    }
+                }
+                let (metadata, delta, bytes) = runtime.com_outcome(outcome, endpoint_address)?;
+                bridge.clear_output();
+                bridge.set_runtime_output(metadata, delta, bytes)?;
+                return Ok(SharedDispatch::Output);
+            }
             let (metadata, delta, bytes) = runtime.dispatch(
-                GuestAddress(context.eip),
+                endpoint_address,
                 GuestAddress(context.esp),
                 GuestAddress(return_address),
                 retired,
@@ -3481,6 +3847,31 @@ pub extern "C" fn vine_bridge_prepare_executable(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_source_library(input_length: u32, found: u32) -> u32 {
+    run_bridge(|bridge| {
+        if input_length as usize > MAX_INPUT_BYTES || found > 1 || (found == 0 && input_length != 0)
+        {
+            return Err("invalid source DLL completion".to_owned());
+        }
+        let bytes = if found == 1 {
+            Some(
+                bridge
+                    .input
+                    .get(..input_length as usize)
+                    .ok_or("source DLL completion exceeds input")?
+                    .to_vec(),
+            )
+        } else {
+            None
+        };
+        let browser = bridge.runtime_mut()?;
+        let metadata = browser.complete_source_library(bytes)?;
+        let delta = browser.pending_delta()?;
+        bridge.set_runtime_output(metadata, delta, RuntimeOutputBytes::new())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_complete_source_lookup(input_length: u32) -> u32 {
     run_bridge(|bridge| {
         let input = bridge
@@ -3494,6 +3885,101 @@ pub extern "C" fn vine_bridge_complete_source_lookup(input_length: u32) -> u32 {
             serde_json::from_slice(input).map_err(|error| error.to_string())?;
         let metadata = bridge.runtime_mut()?.complete_source_lookup(result)?;
         bridge.set_output(metadata, Vec::new(), Vec::new())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_register_source_directory_listing(input_length: u32) -> u32 {
+    run_bridge(|bridge| {
+        let input = bridge
+            .input
+            .get(..input_length as usize)
+            .ok_or_else(|| "source directory listing exceeds the input buffer".to_owned())?;
+        if input.len() > 2 * 1024 * 1024 {
+            return Err("source directory listing is too large".to_owned());
+        }
+        let Some(list): Option<Value> =
+            serde_json::from_slice(input).map_err(|error| error.to_string())?
+        else {
+            bridge.set_output(json!({"kind": "ok"}), Vec::new(), Vec::new())?;
+            return Ok(());
+        };
+        let segments = list
+            .get("pathSegments")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "source directory spelling is missing".to_owned())?
+            .iter()
+            .map(|part| {
+                part.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| "source directory component is invalid".to_owned())
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let names = list
+            .get("entries")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "source directory listing must be an array".to_owned())?
+            .iter()
+            .map(|entry| {
+                let name = entry
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "source directory entry name is missing".to_owned())?;
+                let kind = entry.get("kind").and_then(Value::as_str);
+                if !matches!(kind, Some("file" | "directory")) {
+                    return Err("source directory entry kind is invalid".to_owned());
+                }
+                Ok((name.to_owned(), kind == Some("file")))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        bridge
+            .runtime_mut()?
+            .runtime
+            .register_source_directory_listing(&segments, &names)
+            .map_err(error_string)?;
+        bridge.set_output(json!({"kind": "ok"}), Vec::new(), Vec::new())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_register_opfs_snapshot(input_length: u32) -> u32 {
+    run_bridge(|bridge| {
+        let input = bridge
+            .input
+            .get(..input_length as usize)
+            .ok_or_else(|| "OPFS snapshot exceeds the input buffer".to_owned())?;
+        if input.len() > 2 * 1024 * 1024 {
+            return Err("OPFS snapshot is too large".to_owned());
+        }
+        let snapshot: Value = serde_json::from_slice(input).map_err(|error| error.to_string())?;
+        let files = snapshot
+            .get("files")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "OPFS snapshot files must be an array".to_owned())?
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| "OPFS snapshot file path must be a string".to_owned())
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let directories = snapshot
+            .get("directories")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "OPFS snapshot directories must be an array".to_owned())?
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| "OPFS snapshot directory path must be a string".to_owned())
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        bridge
+            .runtime_mut()?
+            .runtime
+            .register_opfs_snapshot(&files, &directories)
+            .map_err(error_string)?;
+        bridge.set_output(json!({"kind": "ok"}), Vec::new(), Vec::new())
     })
 }
 
@@ -3747,7 +4233,8 @@ pub extern "C" fn vine_bridge_complete_host(
     run_bridge(|bridge| {
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         let metadata = bridge.runtime_mut()?.complete_host(request_id, result)?;
-        bridge.set_output(metadata, Vec::new(), Vec::new())
+        let delta = bridge.runtime_mut()?.pending_delta()?;
+        bridge.set_runtime_output(metadata, delta, RuntimeOutputBytes::new())
     })
 }
 
@@ -3827,9 +4314,10 @@ pub extern "C" fn vine_bridge_ingest_pointer_event(
             .map_err(|_| "pointer x is outside the normalized client range".to_owned())?;
         let y = u16::try_from(y)
             .map_err(|_| "pointer y is outside the normalized client range".to_owned())?;
-        if !(1..=3).contains(&kind)
-            || (kind == 1 && button != 0)
-            || (kind != 1 && !matches!(button, 1 | 2))
+        if !(1..=4).contains(&kind)
+            || (matches!(kind, 1 | 4) && button != 0)
+            || (matches!(kind, 2 | 3) && !matches!(button, 1 | 2))
+            || (kind == 4 && (x != 0 || y != 0))
         {
             return Err("pointer event kind or button is outside the bridge ABI".to_owned());
         }
@@ -3901,11 +4389,17 @@ pub extern "C" fn vine_bridge_finish_thread(exit_code: u32) -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_complete_callback(sentinel: u32, result: u32) -> u32 {
+pub extern "C" fn vine_bridge_complete_callback(
+    sentinel: u32,
+    result: u32,
+    stack_pointer: u32,
+) -> u32 {
     run_bridge(|bridge| {
-        let (metadata, delta, bytes) = bridge
-            .runtime_mut()?
-            .complete_callback(GuestAddress(sentinel), result)?;
+        let (metadata, delta, bytes) = bridge.runtime_mut()?.complete_callback(
+            GuestAddress(sentinel),
+            result,
+            GuestAddress(stack_pointer),
+        )?;
         bridge.set_runtime_output(metadata, delta, bytes)
     })
 }
@@ -3922,18 +4416,22 @@ mod tests {
         let snapshot = Arc::new(vec![1, 2, 3, 4, 5, 6, 7, 8]);
         let original_pointer = snapshot.as_ptr();
         let mut bytes = RuntimeOutputBytes::new();
+        let mut seen = BTreeMap::new();
         assert_eq!(
-            append_presentation_pixels(&mut bytes, &empty, None),
+            append_presentation_pixels(&mut bytes, &mut seen, &empty, None),
             Value::Null
         );
-        let pixels = append_presentation_pixels(&mut bytes, &snapshot, Some(8));
+        let pixels = append_presentation_pixels(&mut bytes, &mut seen, &snapshot, Some(8));
         assert_eq!(pixels["offset"], 0);
         assert_eq!(pixels["length"], 8);
         assert_eq!(pixels["pitch"], 8);
+        let repeated = append_presentation_pixels(&mut bytes, &mut seen, &snapshot, Some(8));
+        assert_eq!(repeated["offset"], 0);
         assert_eq!(
-            append_presentation_pixels(&mut bytes, &empty, None),
+            append_presentation_pixels(&mut bytes, &mut seen, &empty, None),
             Value::Null
         );
+        drop(seen);
         assert_eq!(
             bytes.as_ptr(),
             original_pointer,
@@ -3962,24 +4460,31 @@ mod tests {
     fn multiple_pixel_payloads_keep_order_and_clear_does_not_mutate_snapshots() {
         let first = Arc::new(vec![1, 2, 3, 4]);
         let second = Arc::new(vec![5, 6, 7, 8]);
+        let third = Arc::new(vec![1, 2, 3, 4]);
         let empty = Arc::new(Vec::new());
         let mut bytes = RuntimeOutputBytes::new();
+        let mut seen = BTreeMap::new();
         assert_eq!(
-            append_presentation_pixels(&mut bytes, &first, Some(4))["offset"],
+            append_presentation_pixels(&mut bytes, &mut seen, &first, Some(4))["offset"],
             0
         );
         assert_eq!(
-            append_presentation_pixels(&mut bytes, &empty, None),
+            append_presentation_pixels(&mut bytes, &mut seen, &empty, None),
             Value::Null
         );
         assert_eq!(
-            append_presentation_pixels(&mut bytes, &second, Some(4))["offset"],
+            append_presentation_pixels(&mut bytes, &mut seen, &second, Some(4))["offset"],
             4
         );
         assert_eq!(
-            append_presentation_pixels(&mut bytes, &first, Some(4))["offset"],
+            append_presentation_pixels(&mut bytes, &mut seen, &first, Some(4))["offset"],
+            0
+        );
+        assert_eq!(
+            append_presentation_pixels(&mut bytes, &mut seen, &third, Some(4))["offset"],
             8
         );
+        drop(seen);
         assert!(matches!(&bytes, RuntimeOutputBytes::Owned(_)));
         assert_eq!(&*bytes, &[1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4]);
         assert_ne!(bytes.as_ptr(), first.as_ptr());
@@ -4035,6 +4540,174 @@ mod tests {
     }
 
     #[test]
+    fn sleep_completion_parks_a_suspended_thread_until_it_is_resumed() {
+        let mut fixture = crate::core_test_support::Fixture::new(&[
+            ("kernel32.dll", "Sleep"),
+            ("kernel32.dll", "SuspendThread"),
+            ("kernel32.dll", "ResumeThread"),
+        ]);
+        let second = fixture.runtime.current_thread_id();
+        let initial = RuntimeThreadId(second.0 + 1);
+        let handle = fixture.runtime.register_thread(initial, 0).unwrap();
+        fixture.runtime.select_thread(initial).unwrap();
+        let DispatchOutcome::Deferred(call) = fixture.dispatch("kernel32.dll", "Sleep", &[10])
+        else {
+            panic!("expected sleep delay")
+        };
+        let request_id = call.request.request_id;
+        fixture.runtime.select_thread(second).unwrap();
+        // Keep the parked Sleep frame intact while the other thread suspends it.
+        let DispatchOutcome::Immediate(result) = fixture.dispatch_at(
+            "kernel32.dll",
+            "SuspendThread",
+            GuestAddress(crate::core_test_support::STACK.0 + 0x100),
+            &[handle.0],
+        ) else {
+            panic!("expected suspend completion")
+        };
+        assert_eq!(result.eax, Some(0));
+        fixture.ack();
+        let resume = fixture
+            .dispatcher
+            .endpoint(fixture.endpoint_address("kernel32.dll", "ResumeThread"))
+            .unwrap()
+            .clone();
+        let mut browser = BrowserRuntime {
+            runtime: fixture.runtime,
+            dispatcher: fixture.dispatcher,
+            callback_sentinel: crate::core_test_support::SENTINEL,
+            pending_host: BTreeMap::from([(
+                request_id,
+                PendingHostCall {
+                    thread_id: initial,
+                    call,
+                },
+            )]),
+            pending_com_audio: None,
+            pending_com_media: BTreeMap::new(),
+            prepared_source_trap: None,
+            pending_source_lookup: None,
+            pending_source_search: None,
+            pending_source_library: None,
+        };
+        let completion = browser.complete_host(request_id, 0).unwrap();
+        assert_eq!(completion["kind"], "host-complete");
+        assert_eq!(completion["threadId"], initial.0);
+        assert_eq!(
+            browser.runtime.scheduler_state_for_thread(initial).unwrap(),
+            SchedulerThreadState::Suspended { count: 1 }
+        );
+        assert_eq!(
+            browser.runtime.select_next_executable_thread().unwrap(),
+            Some(second)
+        );
+        assert!(browser.pending_host.is_empty());
+        let stack = GuestAddress(crate::core_test_support::STACK.0 + 0x200);
+        browser
+            .runtime
+            .memory_mut()
+            .write(
+                stack,
+                &[
+                    crate::core_test_support::RETURN.0.to_le_bytes(),
+                    handle.0.to_le_bytes(),
+                ]
+                .concat(),
+            )
+            .unwrap();
+        browser.runtime.memory_mut().pending_delta_binary().unwrap();
+        let generation = browser.runtime.memory().stats().generation;
+        browser
+            .runtime
+            .memory_mut()
+            .acknowledge_delta(generation)
+            .unwrap();
+        let DispatchOutcome::Immediate(result) = browser.runtime.dispatch_api_call(
+            &browser.dispatcher,
+            ApiOwnedTrap {
+                endpoint_id: resume.id,
+                endpoint_address: resume.address,
+                stack_pointer: stack,
+                return_address: crate::core_test_support::RETURN,
+            },
+            browser.callback_sentinel,
+            None,
+        ) else {
+            panic!("expected resume completion")
+        };
+        assert_eq!(result.eax, Some(1));
+        assert_eq!(
+            browser.runtime.select_next_executable_thread().unwrap(),
+            Some(initial)
+        );
+    }
+
+    #[test]
+    fn host_completion_exports_guest_writes_before_cpu_resume() {
+        let mut fixture =
+            crate::core_test_support::Fixture::new(&[("shell32.dll", "SHGetSpecialFolderPathW")]);
+        fixture
+            .runtime
+            .register_source_snapshot(RuntimeSourceSnapshotManifest {
+                mount: RuntimeSourceMountManifest {
+                    source_id: 1,
+                    root_path_a: b"C:\\Vine\0".to_vec(),
+                },
+                files: vec![RuntimeSourceFileManifest {
+                    object_id: 1,
+                    relative_path_a: b"fixture.exe".to_vec(),
+                    byte_length: 4096,
+                }],
+            })
+            .unwrap();
+        let output = crate::core_test_support::OUTPUT;
+        let DispatchOutcome::Deferred(call) = fixture.dispatch(
+            "shell32.dll",
+            "SHGetSpecialFolderPathW",
+            &[0, output.0, 5, 0],
+        ) else {
+            panic!("expected provisioning")
+        };
+        let request_id = call.request.request_id;
+        let thread_id = fixture.runtime.current_thread_id();
+        BRIDGE.with(|cell| {
+            let mut bridge = Bridge::new();
+            bridge.runtime = Some(BrowserRuntime {
+                runtime: fixture.runtime,
+                dispatcher: fixture.dispatcher,
+                callback_sentinel: crate::core_test_support::SENTINEL,
+                pending_host: BTreeMap::from([(request_id, PendingHostCall { thread_id, call })]),
+                pending_com_audio: None,
+                pending_com_media: BTreeMap::new(),
+                prepared_source_trap: None,
+                pending_source_lookup: None,
+                pending_source_search: None,
+                pending_source_library: None,
+            });
+            *cell.borrow_mut() = bridge;
+        });
+        assert_eq!(
+            vine_bridge_complete_host(request_id as u32, (request_id >> 32) as u32, 0),
+            0
+        );
+        BRIDGE.with(|cell| {
+            let mut bridge = cell.borrow_mut();
+            let metadata: Value = serde_json::from_slice(&bridge.metadata).unwrap();
+            assert_eq!(metadata["kind"], "host-complete");
+            assert!(!bridge.control.is_empty());
+            assert!(!bridge.payload.is_empty());
+            let runtime = &mut bridge.runtime.as_mut().unwrap().runtime;
+            assert!(runtime.memory().read(output, 2).is_err());
+            let generation = runtime.memory().stats().generation;
+            runtime.memory_mut().acknowledge_delta(generation).unwrap();
+            assert_eq!(
+                runtime.memory().read(output, 4).unwrap(),
+                [b'C', 0, b':', 0]
+            );
+        });
+    }
+
+    #[test]
     fn cpu_snapshot_exports_keep_opaque_owned_bytes_and_reject_stale_or_malformed_handoffs() {
         let runtime = running_test_runtime();
         let thread_id = runtime.current_thread_id().0;
@@ -4051,6 +4724,7 @@ mod tests {
                 prepared_source_trap: None,
                 pending_source_lookup: None,
                 pending_source_search: None,
+                pending_source_library: None,
             });
             *cell.borrow_mut() = bridge;
         });
@@ -4156,6 +4830,7 @@ mod tests {
                 prepared_source_trap: None,
                 pending_source_lookup: None,
                 pending_source_search: None,
+                pending_source_library: None,
             });
             bridge.control = vec![1];
             bridge.payload = vec![2];
@@ -4306,6 +4981,7 @@ mod tests {
                 prepared_source_trap: None,
                 pending_source_lookup: None,
                 pending_source_search: None,
+                pending_source_library: None,
             });
             *cell.borrow_mut() = bridge;
         });
@@ -4445,6 +5121,66 @@ mod tests {
     }
 
     #[test]
+    fn executable_process_dispatches_system_exports_without_an_iat_entry() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.work/toolchain-spike/fls-get-value.exe");
+        let (mut browser, metadata, _) = BrowserRuntime::prepare_executable(
+            std::fs::read(fixture).unwrap(),
+            "fixture.exe",
+            vec![],
+            0xec02_5c47,
+        )
+        .unwrap();
+        let generation = browser.runtime.memory().stats().generation;
+        browser.acknowledge_fast(generation).unwrap();
+        let export = browser.runtime.runtime_system_export_endpoints()
+            .find(|endpoint| matches!(&endpoint.export, RuntimeExport::Name { name, .. } if name == "GetStartupInfoA"))
+            .unwrap().clone();
+        let route = browser.dispatcher.endpoint(export.address).unwrap();
+        assert_eq!(route.iat_address, None);
+        assert_eq!(
+            browser.runtime.memory().fetch(export.address, 2).unwrap(),
+            [0x0f, 0x0b]
+        );
+        let return_address = GuestAddress(metadata["entryPoint"].as_u64().unwrap() as u32);
+        let stack = GuestAddress(metadata["initialStackPointer"].as_u64().unwrap() as u32 - 0x100);
+        let output = GuestAddress(stack.0 + 0x40);
+        browser
+            .runtime
+            .memory_mut()
+            .write(
+                stack,
+                &[return_address.0.to_le_bytes(), output.0.to_le_bytes()].concat(),
+            )
+            .unwrap();
+        browser.runtime.memory_mut().pending_delta_binary().unwrap();
+        let generation = browser.runtime.memory().stats().generation;
+        browser.acknowledge_fast(generation).unwrap();
+        let outcome = browser.runtime.dispatch_api_call(
+            &browser.dispatcher,
+            ApiOwnedTrap {
+                endpoint_id: export.id,
+                endpoint_address: export.address,
+                stack_pointer: stack,
+                return_address,
+            },
+            browser.callback_sentinel,
+            None,
+        );
+        assert!(
+            matches!(outcome, DispatchOutcome::Immediate(_)),
+            "{outcome:?}"
+        );
+        browser.runtime.memory_mut().pending_delta_binary().unwrap();
+        let generation = browser.runtime.memory().stats().generation;
+        browser.acknowledge_fast(generation).unwrap();
+        assert_eq!(
+            browser.runtime.memory().read(output, 4).unwrap(),
+            68_u32.to_le_bytes()
+        );
+    }
+
+    #[test]
     fn stop_context_reads_current_thread_and_exact_api_without_acknowledging_memory() {
         let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../.work/toolchain-spike/message-box.exe");
@@ -4496,6 +5232,7 @@ mod tests {
             prepared_source_trap: None,
             pending_source_lookup: None,
             pending_source_search: None,
+            pending_source_library: None,
         });
         let before = bridge.runtime.as_ref().unwrap().runtime.memory().stats();
         assert!(
@@ -4628,6 +5365,7 @@ mod tests {
             prepared_source_trap: None,
             pending_source_lookup: None,
             pending_source_search: None,
+            pending_source_library: None,
         };
         browser.runtime.set_current_last_error(0x1234).unwrap();
         let context = X86CpuContext {
@@ -4746,6 +5484,7 @@ mod tests {
             prepared_source_trap: Some(identity),
             pending_source_lookup: Some((12, b"missing.dat".to_vec())),
             pending_source_search: None,
+            pending_source_library: None,
         };
         let context = X86CpuContext {
             eax: 0,
@@ -4822,6 +5561,288 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_system_library_loads_without_a_static_import() {
+        let bytes = core_test_support::imported_pe(&[
+            ("kernel32.dll", "LoadLibraryW"),
+            ("kernel32.dll", "LoadLibraryExW"),
+            ("kernel32.dll", "GetModuleHandleW"),
+            ("kernel32.dll", "GetProcAddress"),
+            ("kernel32.dll", "FreeLibrary"),
+        ]);
+        let (mut browser, prepared, _) =
+            BrowserRuntime::prepare_executable(bytes, "fixture.exe", Vec::new(), 123).unwrap();
+        let generation = browser.runtime.memory().stats().generation;
+        browser.acknowledge_fast(generation).unwrap();
+        let initial_stack = prepared["initialStackPointer"].as_u64().unwrap() as u32;
+        let stack = GuestAddress(initial_stack - 0x300);
+        let path = GuestAddress(initial_stack - 0x200);
+        let procedure = GuestAddress(initial_stack - 0x100);
+        let return_address = GuestAddress(prepared["entryPoint"].as_u64().unwrap() as u32);
+        browser
+            .runtime
+            .memory_mut()
+            .write(
+                path,
+                &"D3D9.DLL\0"
+                    .encode_utf16()
+                    .flat_map(u16::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        browser
+            .runtime
+            .memory_mut()
+            .write(procedure, b"Direct3DCreate9\0")
+            .unwrap();
+        let call = |browser: &mut BrowserRuntime, module: &str, name: &str, args: &[u32]| {
+            let export = browser
+                .runtime
+                .runtime_system_export_endpoints()
+                .find(|endpoint| endpoint.export == RuntimeExport::named(module, name))
+                .unwrap()
+                .clone();
+            let words = std::iter::once(return_address.0)
+                .chain(args.iter().copied())
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>();
+            browser.runtime.memory_mut().write(stack, &words).unwrap();
+            browser.pending_delta().unwrap();
+            let generation = browser.runtime.memory().stats().generation;
+            browser.acknowledge_fast(generation).unwrap();
+            let endpoint = browser.dispatcher.endpoint(export.address).unwrap();
+            assert!(
+                browser
+                    .runtime
+                    .prepare_api_source_lookup(endpoint, stack)
+                    .unwrap()
+                    .is_none(),
+                "system DLL resolution must not read a selected-directory replacement"
+            );
+            let outcome = browser.runtime.dispatch_api_call(
+                &browser.dispatcher,
+                ApiOwnedTrap {
+                    endpoint_id: export.id,
+                    endpoint_address: export.address,
+                    stack_pointer: stack,
+                    return_address,
+                },
+                browser.callback_sentinel,
+                None,
+            );
+            let DispatchOutcome::Immediate(completed) = outcome else {
+                panic!("{outcome:?}")
+            };
+            if browser.pending_delta().unwrap().is_some() {
+                let generation = browser.runtime.memory().stats().generation;
+                browser.acknowledge_fast(generation).unwrap();
+            }
+            completed.eax.unwrap()
+        };
+        assert_eq!(
+            call(&mut browser, "kernel32.dll", "GetModuleHandleW", &[path.0]),
+            0
+        );
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 126);
+        let handle = call(&mut browser, "kernel32.dll", "LoadLibraryW", &[path.0]);
+        assert_ne!(handle, 0);
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 126);
+        assert_eq!(
+            call(&mut browser, "kernel32.dll", "GetModuleHandleW", &[path.0]),
+            handle
+        );
+        assert_eq!(
+            call(
+                &mut browser,
+                "kernel32.dll",
+                "LoadLibraryExW",
+                &[path.0, 0, 0x800]
+            ),
+            handle
+        );
+        let address = call(
+            &mut browser,
+            "kernel32.dll",
+            "GetProcAddress",
+            &[handle, procedure.0],
+        );
+        let expected = browser
+            .runtime
+            .runtime_system_export_endpoints()
+            .find(|endpoint| endpoint.export == RuntimeExport::named("d3d9.dll", "Direct3DCreate9"))
+            .unwrap()
+            .address
+            .0;
+        assert_eq!(address, expected);
+        assert_ne!(call(&mut browser, "d3d9.dll", "Direct3DCreate9", &[32]), 0);
+        assert_eq!(
+            call(&mut browser, "kernel32.dll", "FreeLibrary", &[handle]),
+            1
+        );
+        assert_eq!(
+            call(&mut browser, "kernel32.dll", "GetModuleHandleW", &[path.0]),
+            handle
+        );
+        assert_eq!(
+            call(
+                &mut browser,
+                "kernel32.dll",
+                "GetProcAddress",
+                &[handle, procedure.0]
+            ),
+            address
+        );
+        browser
+            .runtime
+            .memory_mut()
+            .write(procedure, b"UnimplementedExport\0")
+            .unwrap();
+        assert_eq!(
+            call(
+                &mut browser,
+                "kernel32.dll",
+                "GetProcAddress",
+                &[handle, procedure.0]
+            ),
+            0
+        );
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 127);
+    }
+
+    #[test]
+    fn dynamic_library_completion_reflects_memory_before_resuming_the_guest_call() {
+        let bytes = core_test_support::imported_pe(&[("kernel32.dll", "LoadLibraryW")]);
+        let (mut browser, prepared, _) =
+            BrowserRuntime::prepare_executable(bytes, "fixture.exe", Vec::new(), 123).unwrap();
+        let generation = browser.runtime.memory().stats().generation;
+        browser.acknowledge_fast(generation).unwrap();
+        let endpoint = browser
+            .runtime
+            .runtime_system_export_endpoints()
+            .find(|endpoint| {
+                endpoint.export == RuntimeExport::named("kernel32.dll", "LoadLibraryW")
+            })
+            .unwrap()
+            .clone();
+        let original_endpoint = browser
+            .dispatcher
+            .endpoint(endpoint.address)
+            .unwrap()
+            .clone();
+        let initial_stack = prepared["initialStackPointer"].as_u64().unwrap() as u32;
+        let stack = GuestAddress(initial_stack - 0x200);
+        let path = GuestAddress(initial_stack - 0x100);
+        let return_address = GuestAddress(prepared["entryPoint"].as_u64().unwrap() as u32);
+        browser
+            .runtime
+            .memory_mut()
+            .write(
+                path,
+                &"C:\\Vine\\plugin\\fixture.dll\0"
+                    .encode_utf16()
+                    .flat_map(u16::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        browser
+            .runtime
+            .memory_mut()
+            .write(
+                stack,
+                &[return_address.0.to_le_bytes(), path.0.to_le_bytes()].concat(),
+            )
+            .unwrap();
+        browser.pending_delta().unwrap();
+        let generation = browser.runtime.memory().stats().generation;
+        browser.acknowledge_fast(generation).unwrap();
+        let context = X86CpuContext {
+            eax: 0,
+            ecx: 0,
+            edx: 0,
+            ebx: 0,
+            esp: stack.0,
+            ebp: 0,
+            esi: 0,
+            edi: 0,
+            eip: endpoint.address.0,
+            eflags: 0x202,
+            es: 0,
+            cs: 0,
+            ss: 0,
+            ds: 0,
+            fs: 0,
+            gs: 0,
+        };
+        let (DispatchMetadata::Json(request), _, _) = browser
+            .dispatch(endpoint.address, stack, return_address, 0, context)
+            .unwrap()
+        else {
+            panic!("DLL request expected")
+        };
+        assert_eq!(request["kind"], "source-library");
+        assert_eq!(
+            request["relativePathA"],
+            json!(b"plugin\\fixture.dll".to_vec())
+        );
+        let mut dll = core_test_support::imported_pe(&[("kernel32.dll", "GetACP")]);
+        dll[0x96..0x98].copy_from_slice(&0x2103_u16.to_le_bytes());
+        dll[0x98 + 28..0x98 + 32].copy_from_slice(&0x6000_0000_u32.to_le_bytes());
+        let length = dll.len() as u32;
+        BRIDGE.with(|cell| {
+            let mut bridge = Bridge::new();
+            bridge.runtime = Some(browser);
+            bridge.input = dll;
+            *cell.borrow_mut() = bridge;
+        });
+        assert_eq!(vine_bridge_complete_source_library(length, 1), 0);
+        BRIDGE.with(|cell| {
+            let mut bridge = cell.borrow_mut();
+            assert!(!bridge.control.is_empty());
+            assert!(!bridge.payload.is_empty());
+            let browser = bridge.runtime.as_mut().unwrap();
+            assert!(browser.runtime.memory().read(stack, 4).is_err());
+            assert_eq!(
+                browser.dispatcher.endpoint(endpoint.address),
+                Some(&original_endpoint)
+            );
+            let generation = browser.runtime.memory().stats().generation;
+            browser.acknowledge_fast(generation).unwrap();
+            let (DispatchMetadata::Json(callback), _, _) = browser
+                .dispatch(endpoint.address, stack, return_address, 0, context)
+                .unwrap()
+            else {
+                panic!("DllMain callback expected")
+            };
+            assert_eq!(callback["kind"], "guest-callback");
+            assert_eq!(callback["target"], 0x6000_1000_u32);
+            let generation = browser.runtime.memory().stats().generation;
+            browser.acknowledge_fast(generation).unwrap();
+            let callback_stack = GuestAddress(callback["stackPointer"].as_u64().unwrap() as u32);
+            let words = browser
+                .runtime
+                .memory()
+                .read(GuestAddress(callback_stack.0 + 4), 12)
+                .unwrap();
+            assert_eq!(
+                words,
+                [
+                    0x6000_0000_u32.to_le_bytes(),
+                    1_u32.to_le_bytes(),
+                    0_u32.to_le_bytes()
+                ]
+                .concat()
+            );
+            let (completed, _, _) = browser
+                .complete_callback(
+                    browser.callback_sentinel,
+                    1,
+                    GuestAddress(callback_stack.0 + 16),
+                )
+                .unwrap();
+            assert_eq!(completed["completion"]["eax"], 0x6000_0000_u32);
+        });
+    }
+
+    #[test]
     fn guest_image_fallback_avoids_unmapped_runtime_arenas_and_existing_images() {
         let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
         assert_eq!(
@@ -4841,12 +5862,12 @@ mod tests {
             .unwrap();
         assert_eq!(
             guest_image_load_base(&memory, 0x5000_0000, 0x2000).unwrap(),
-            GuestAddress(0x6100_0000)
+            GuestAddress(0x6001_0000)
         );
         // The guest private-heap band is reserved even before backing is committed.
         assert_eq!(
             guest_image_load_base(&memory, 0x3000_0000, 0x2000).unwrap(),
-            GuestAddress(0x6100_0000)
+            GuestAddress(0x6001_0000)
         );
         assert_eq!(
             guest_image_load_base(&memory, 0x4e00_0000, 0x2000).unwrap(),
@@ -4859,9 +5880,67 @@ mod tests {
         for preferred in [0x3200_0000, 0x7f00_0000, 0x7f03_0000, 0x7fc4_0000, 0x400001] {
             assert_eq!(
                 guest_image_load_base(&memory, preferred, 0x2000).unwrap(),
-                GuestAddress(0x6100_0000)
+                GuestAddress(0x6001_0000)
             );
         }
+    }
+
+    #[test]
+    fn guest_image_placement_uses_small_gaps_and_released_ranges() {
+        let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+        let owner = memory
+            .create_owner(vine_core::MemoryOwnerKind::Runtime)
+            .unwrap();
+        // Every old sampled slot is occupied, but most address space is free.
+        for slot in 0..16 {
+            memory
+                .reserve_fixed(
+                    owner,
+                    vine_core::MemoryRegionKind::Image,
+                    GuestAddress(0x6000_0000 + slot * 0x0100_0000),
+                    0x3e000,
+                )
+                .unwrap();
+        }
+        let generation = memory.stats().generation;
+        assert_eq!(
+            guest_image_load_base(&memory, 0x6000_0000, 0x3e000).unwrap(),
+            GuestAddress(0x6004_0000),
+        );
+        assert_eq!(memory.stats().generation, generation);
+        memory
+            .release_region(owner, GuestAddress(0x6000_0000))
+            .unwrap();
+        assert_eq!(
+            guest_image_load_base(&memory, 0x6000_0000, 0x3e000).unwrap(),
+            GuestAddress(0x6000_0000),
+        );
+        assert!(guest_image_load_base(&memory, 0x6000_0000, 0).is_err());
+        assert!(guest_image_load_base(&memory, 0xffff_0000, u32::MAX).is_err());
+
+        let mut full = GuestMemory::new(MemoryLimits::default()).unwrap();
+        let owner = full
+            .create_owner(vine_core::MemoryOwnerKind::Runtime)
+            .unwrap();
+        full.reserve_fixed(
+            owner,
+            vine_core::MemoryRegionKind::Runtime,
+            GuestAddress(0x6000_0000),
+            0x1fff_0000,
+        )
+        .unwrap();
+        assert_eq!(
+            guest_image_load_base(&full, 0x6000_0000, 0x1000).unwrap(),
+            GuestAddress(0x0001_0000)
+        );
+        full.reserve_fixed(
+            owner,
+            vine_core::MemoryRegionKind::Runtime,
+            GuestAddress(0x0001_0000),
+            0x5fff_0000,
+        )
+        .unwrap();
+        assert!(guest_image_load_base(&full, 0x6000_0000, 0x1000).is_err());
     }
 
     #[test]
@@ -5038,6 +6117,7 @@ mod tests {
             prepared_source_trap: None,
             pending_source_lookup: None,
             pending_source_search: None,
+            pending_source_library: None,
         };
         let reflection = browser.runtime.memory_mut().pending_reflection().unwrap();
         browser
@@ -5258,6 +6338,7 @@ mod tests {
                 prepared_source_trap: None,
                 pending_source_lookup: None,
                 pending_source_search: None,
+                pending_source_library: None,
             };
             let reflection = browser.runtime.memory_mut().pending_reflection().unwrap();
             browser
@@ -5529,6 +6610,7 @@ mod tests {
             prepared_source_trap: None,
             pending_source_lookup: None,
             pending_source_search: None,
+            pending_source_library: None,
         };
         let identity = snapshot.identity();
         browser
@@ -5704,6 +6786,7 @@ mod tests {
             prepared_source_trap: None,
             pending_source_lookup: None,
             pending_source_search: None,
+            pending_source_library: None,
         };
         browser.runtime.set_current_last_error(77).unwrap();
         let before = browser.runtime.memory().stats();

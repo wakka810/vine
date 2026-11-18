@@ -19,6 +19,7 @@ pub enum RuntimeApiBoundaryDisposition {
     YieldCurrentThread,
     BlockCurrentThread,
     TerminateCurrentThread,
+    TerminateProcess,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +55,18 @@ impl SchedulerThreadState {
     pub const fn is_executable(self) -> bool {
         matches!(self, Self::Runnable | Self::InCallback { .. })
     }
+
+    /// A completed API can park its CPU continuation while the thread remains
+    /// suspended. This does not make the thread eligible for guest execution.
+    pub const fn has_execution_continuation(self) -> bool {
+        self.is_executable() || matches!(self, Self::Suspended { .. })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeThreadSuspension {
+    count: u32,
+    resume_state: SchedulerThreadState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +105,7 @@ impl RuntimeSchedulerEvent {
 pub struct RuntimeScheduler {
     current_thread_id: RuntimeThreadId,
     threads: BTreeMap<RuntimeThreadId, SchedulerThreadState>,
+    suspensions: BTreeMap<RuntimeThreadId, RuntimeThreadSuspension>,
     completed_api_boundaries_in_quantum: u32,
     waits: RuntimeWaits,
     events: VecDeque<RuntimeSchedulerEvent>,
@@ -104,6 +118,7 @@ impl RuntimeScheduler {
         Self {
             current_thread_id: initial_thread_id,
             threads: BTreeMap::from([(initial_thread_id, SchedulerThreadState::Initialized)]),
+            suspensions: BTreeMap::new(),
             completed_api_boundaries_in_quantum: 0,
             waits: RuntimeWaits::default(),
             events: VecDeque::new(),
@@ -179,27 +194,91 @@ impl RuntimeScheduler {
             previous.is_none(),
             "scheduler registration must be validated before insertion"
         );
+        if let SchedulerThreadState::Suspended { count } = state {
+            self.suspensions.insert(
+                thread_id,
+                RuntimeThreadSuspension {
+                    count,
+                    resume_state: SchedulerThreadState::Runnable,
+                },
+            );
+        }
+    }
+
+    pub(super) fn suspend_thread(
+        &mut self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<Result<u32, u32>, RuntimeStateError> {
+        let state = self.state(thread_id)?;
+        if matches!(
+            state,
+            SchedulerThreadState::Initialized
+                | SchedulerThreadState::Terminating { .. }
+                | SchedulerThreadState::Terminated { .. }
+        ) {
+            return Ok(Err(5));
+        }
+        let previous = self
+            .suspensions
+            .get(&thread_id)
+            .map_or(0, |entry| entry.count);
+        if previous >= 127 {
+            return Ok(Err(156)); // ERROR_SIGNAL_REFUSED / STATUS_SUSPEND_COUNT_EXCEEDED
+        }
+        let suspension = self
+            .suspensions
+            .entry(thread_id)
+            .or_insert(RuntimeThreadSuspension {
+                count: 0,
+                resume_state: state,
+            });
+        suspension.count += 1;
+        if state.has_execution_continuation() {
+            *self
+                .threads
+                .get_mut(&thread_id)
+                .expect("validated scheduler lane") = SchedulerThreadState::Suspended {
+                count: suspension.count,
+            };
+        }
+        // A live wait keeps its identity. Its eventual completion parks the
+        // continuation instead of making a suspended thread executable.
+        Ok(Ok(previous))
     }
 
     pub(super) fn resume_thread(
         &mut self,
         thread_id: RuntimeThreadId,
     ) -> Result<u32, RuntimeStateError> {
-        match self.state(thread_id)? {
-            SchedulerThreadState::Suspended { count } if count != 0 => {
-                let remaining = count - 1;
+        let state = self.state(thread_id)?;
+        if let Some(suspension) = self.suspensions.get(&thread_id).copied() {
+            let count = suspension.count;
+            let remaining = count
+                .checked_sub(1)
+                .ok_or_else(|| RuntimeStateError::new("suspend count is zero"))?;
+            if remaining == 0 {
+                self.suspensions.remove(&thread_id);
+            } else {
+                self.suspensions
+                    .get_mut(&thread_id)
+                    .expect("validated suspension")
+                    .count = remaining;
+            }
+            if matches!(state, SchedulerThreadState::Suspended { .. }) {
                 *self
                     .threads
                     .get_mut(&thread_id)
                     .expect("validated scheduler lane") = if remaining == 0 {
-                    SchedulerThreadState::Runnable
+                    suspension.resume_state
                 } else {
                     SchedulerThreadState::Suspended { count: remaining }
                 };
-                Ok(count)
             }
+            return Ok(count);
+        }
+        match state {
             SchedulerThreadState::Suspended { .. } => Err(RuntimeStateError::new(
-                "suspended scheduler state contains a zero suspend count",
+                "suspended scheduler state has no suspend count",
             )),
             SchedulerThreadState::Runnable
             | SchedulerThreadState::WaitingHost { .. }
@@ -226,8 +305,23 @@ impl RuntimeScheduler {
     pub(super) fn set_validated_state(
         &mut self,
         thread_id: RuntimeThreadId,
-        next: SchedulerThreadState,
+        mut next: SchedulerThreadState,
     ) {
+        if matches!(
+            next,
+            SchedulerThreadState::Initialized
+                | SchedulerThreadState::Terminating { .. }
+                | SchedulerThreadState::Terminated { .. }
+        ) {
+            self.suspensions.remove(&thread_id);
+        } else if next.is_executable()
+            && let Some(suspension) = self.suspensions.get_mut(&thread_id)
+        {
+            suspension.resume_state = next;
+            next = SchedulerThreadState::Suspended {
+                count: suspension.count,
+            };
+        }
         *self
             .threads
             .get_mut(&thread_id)
@@ -717,6 +811,77 @@ mod tests {
 
     const INITIAL: RuntimeThreadId = RuntimeThreadId(7);
     const SECOND: RuntimeThreadId = RuntimeThreadId(8);
+
+    #[test]
+    fn suspension_preserves_waits_callback_continuations_and_count_limits() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        scheduler.start_initial_thread(INITIAL);
+        scheduler.register(SECOND, SchedulerThreadState::Runnable);
+        for state in [
+            SchedulerThreadState::Runnable,
+            SchedulerThreadState::InCallback { depth: 2 },
+            SchedulerThreadState::WaitingMessage,
+            SchedulerThreadState::WaitingCriticalSection { address: 0x1000 },
+            SchedulerThreadState::WaitingObject {
+                registration_id: RuntimeWaitRegistrationId(1),
+                object_id: RuntimeObjectId(2),
+            },
+        ] {
+            scheduler.set_validated_state(SECOND, state);
+            assert_eq!(scheduler.suspend_thread(SECOND), Ok(Ok(0)));
+            assert_eq!(scheduler.suspend_thread(SECOND), Ok(Ok(1)));
+            assert!(!scheduler.state(SECOND).unwrap().is_executable());
+            assert_eq!(scheduler.resume_thread(SECOND), Ok(2));
+            assert_eq!(scheduler.resume_thread(SECOND), Ok(1));
+            assert_eq!(scheduler.state(SECOND), Ok(state));
+        }
+        scheduler.set_validated_state(SECOND, SchedulerThreadState::InCallback { depth: 2 });
+        for previous in 0..127 {
+            assert_eq!(scheduler.suspend_thread(SECOND), Ok(Ok(previous)));
+        }
+        let before = scheduler.clone();
+        assert_eq!(scheduler.suspend_thread(SECOND), Ok(Err(156)));
+        assert_eq!(scheduler, before);
+        for previous in (1..=127).rev() {
+            assert_eq!(scheduler.resume_thread(SECOND), Ok(previous));
+        }
+        assert_eq!(
+            scheduler.state(SECOND),
+            Ok(SchedulerThreadState::InCallback { depth: 2 })
+        );
+    }
+
+    #[test]
+    fn suspended_host_wait_completes_without_becoming_executable() {
+        let mut scheduler = RuntimeScheduler::new(INITIAL);
+        scheduler.start_initial_thread(INITIAL);
+        let request = scheduler
+            .checked_host_request("fixture.delay".to_owned())
+            .unwrap();
+        scheduler.publish_host_request(request.clone());
+        assert_eq!(scheduler.suspend_thread(INITIAL), Ok(Ok(0)));
+        assert_eq!(
+            scheduler.state(INITIAL),
+            Ok(SchedulerThreadState::WaitingHost {
+                request_id: request.request_id
+            })
+        );
+        let validated = scheduler
+            .validate_host_completion(request.request_id)
+            .unwrap();
+        scheduler.commit_host_completion(validated);
+        assert_eq!(
+            scheduler.state(INITIAL),
+            Ok(SchedulerThreadState::Suspended { count: 1 })
+        );
+        assert!(scheduler.host_requests().is_empty());
+        assert_eq!(scheduler.resume_thread(INITIAL), Ok(1));
+        assert_eq!(scheduler.state(INITIAL), Ok(SchedulerThreadState::Runnable));
+        scheduler.suspend_thread(INITIAL).unwrap().unwrap();
+        scheduler.set_validated_state(INITIAL, SchedulerThreadState::Terminated { exit_code: 0 });
+        assert!(scheduler.suspensions.is_empty());
+        assert_eq!(scheduler.suspend_thread(INITIAL), Ok(Err(5)));
+    }
 
     #[test]
     fn resume_decrements_the_suspend_count_without_consuming_other_waits() {

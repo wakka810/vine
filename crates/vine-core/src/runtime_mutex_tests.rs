@@ -1,5 +1,5 @@
 use crate::runtime::{
-    RuntimeMutexId, RuntimeMutexNameA, RuntimeObjectKind, RuntimeWaitDisposition,
+    RuntimeMutexId, RuntimeMutexName, RuntimeObjectKind, RuntimeWaitDisposition,
     X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 use crate::{
@@ -16,7 +16,7 @@ fn named_mutex_identity_owner_and_handle_lifetime_are_atomic() {
     let mut runtime = running_runtime();
     let mut caller_bytes = b"Vine named mutex\0".to_vec();
     let (first, already_exists) = runtime
-        .create_mutex_a(Some(mutex_name(&caller_bytes)), true)
+        .create_mutex(Some(mutex_name(&caller_bytes)), true)
         .expect("create initially owned named mutex");
     assert_eq!(first.0, 0x5801_0001);
     assert!(!already_exists);
@@ -25,14 +25,14 @@ fn named_mutex_identity_owner_and_handle_lifetime_are_atomic() {
     let first_id = mutex.id;
     assert_eq!(first_id, RuntimeMutexId(1));
     assert_eq!(
-        mutex.name_a.as_ref().unwrap().bytes_with_nul,
-        b"Vine named mutex\0"
+        mutex.name.as_ref().unwrap().utf16_units_with_nul,
+        "Vine named mutex\0".encode_utf16().collect::<Vec<_>>()
     );
     assert_eq!(mutex.owning_thread_id, Some(THREAD_ID));
     assert_eq!(mutex.recursion_count, 1);
 
     let (duplicate, already_exists) = runtime
-        .create_mutex_a(Some(mutex_name(b"Vine named mutex\0")), true)
+        .create_mutex(Some(mutex_name(b"Vine named mutex\0")), true)
         .expect("open existing named mutex");
     assert_eq!(duplicate.0, 0x5801_0002);
     assert_eq!(runtime.mutex_for_handle(duplicate).unwrap().id, first_id);
@@ -142,7 +142,7 @@ fn named_mutex_identity_owner_and_handle_lifetime_are_atomic() {
     assert!(runtime.mutex_for_handle(duplicate).is_err());
 
     let (recreated, already_exists) = runtime
-        .create_mutex_a(Some(mutex_name(b"Vine named mutex\0")), false)
+        .create_mutex(Some(mutex_name(b"Vine named mutex\0")), false)
         .expect("recreate retired named mutex");
     assert_eq!(
         runtime.mutex_for_handle(recreated).unwrap().id,
@@ -157,14 +157,28 @@ fn named_mutex_identity_owner_and_handle_lifetime_are_atomic() {
             .owning_thread_id,
         None
     );
+
+    let (owned, _) = runtime
+        .create_mutex(None, true)
+        .expect("create owned unnamed mutex");
+    runtime.register_thread(CONTENDER_THREAD_ID, 55).ok();
+    runtime.select_thread(CONTENDER_THREAD_ID).unwrap();
+    assert_eq!(runtime.try_release_mutex(owned).unwrap(), Err(288));
+    runtime.select_thread(THREAD_ID).unwrap();
+    assert_eq!(
+        runtime
+            .try_release_mutex(crate::runtime::RuntimeHandle(0xdead_beef))
+            .unwrap(),
+        Err(6)
+    );
+    assert_eq!(runtime.try_release_mutex(owned).unwrap(), Ok(()));
+    assert_eq!(runtime.try_release_mutex(owned).unwrap(), Err(288));
+    runtime.close_handle(owned).unwrap();
 }
 
-fn mutex_name(bytes_with_nul: &[u8]) -> RuntimeMutexNameA {
-    RuntimeMutexNameA::new(
-        bytes_with_nul.to_vec(),
-        bytes_with_nul.iter().map(|byte| u16::from(*byte)).collect(),
-    )
-    .expect("valid ASCII mutex name")
+fn mutex_name(bytes_with_nul: &[u8]) -> RuntimeMutexName {
+    RuntimeMutexName::new(bytes_with_nul.iter().map(|byte| u16::from(*byte)).collect())
+        .expect("valid ASCII mutex name")
 }
 
 fn running_runtime() -> Runtime {

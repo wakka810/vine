@@ -240,6 +240,12 @@ launchButton.addEventListener("click", async () => {
     if (kind !== "move") event.preventDefault();
   };
   canvas.addEventListener("pointermove", event => sendPointer(event, "move"));
+  canvas.addEventListener("pointerleave", event => {
+    if (!gameInputReady || gameWorker !== running || !event.isPrimary) return;
+    gameWorker.postMessage({ type: "pointer-input", input: {
+      sequence: String(++inputSequence), kind: "leave", button: "none", x: 0, y: 0,
+    } satisfies RuntimePointerInputEvent });
+  });
   canvas.addEventListener("pointerdown", event => {
     if (!gameInputReady || gameWorker !== running || gameMessageBox !== null || !event.isPrimary || (event.button !== 0 && event.button !== 2)) return;
     canvas.focus({ preventScroll: true });

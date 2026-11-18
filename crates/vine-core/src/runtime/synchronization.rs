@@ -20,20 +20,14 @@ pub struct RuntimeCriticalSection {
 pub struct RuntimeMutexId(pub u64);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeMutexNameA {
-    pub bytes_with_nul: Vec<u8>,
+pub struct RuntimeMutexName {
     pub utf16_units_with_nul: Vec<u16>,
 }
 
-impl RuntimeMutexNameA {
-    pub fn new(
-        bytes_with_nul: Vec<u8>,
-        utf16_units_with_nul: Vec<u16>,
-    ) -> Result<Self, RuntimeStateError> {
-        if bytes_with_nul.len() < 2
-            || bytes_with_nul.last() != Some(&0)
-            || bytes_with_nul[..bytes_with_nul.len() - 1].contains(&0)
-            || utf16_units_with_nul.len() < 2
+impl RuntimeMutexName {
+    pub fn new(utf16_units_with_nul: Vec<u16>) -> Result<Self, RuntimeStateError> {
+        if utf16_units_with_nul.len() < 2
+            || utf16_units_with_nul.len() > 260
             || utf16_units_with_nul.last() != Some(&0)
             || utf16_units_with_nul[..utf16_units_with_nul.len() - 1].contains(&0)
         {
@@ -42,7 +36,6 @@ impl RuntimeMutexNameA {
             ));
         }
         Ok(Self {
-            bytes_with_nul,
             utf16_units_with_nul,
         })
     }
@@ -55,7 +48,7 @@ impl RuntimeMutexNameA {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeMutex {
     pub id: RuntimeMutexId,
-    pub name_a: Option<RuntimeMutexNameA>,
+    pub name: Option<RuntimeMutexName>,
     pub owning_thread_id: Option<RuntimeThreadId>,
     pub recursion_count: u32,
     pub abandoned: bool,
@@ -306,9 +299,9 @@ impl RuntimeSynchronization {
 
     pub(super) fn validate_mutex_creation(
         &self,
-        name_a: Option<&RuntimeMutexNameA>,
+        name: Option<&RuntimeMutexName>,
     ) -> Result<(RuntimeMutexId, bool), RuntimeStateError> {
-        let name_identity = name_a.map(RuntimeMutexNameA::identity);
+        let name_identity = name.map(RuntimeMutexName::identity);
         if let Some(id) = name_identity
             .as_ref()
             .and_then(|identity| self.named_mutexes.get(identity))
@@ -342,19 +335,19 @@ impl RuntimeSynchronization {
     pub(super) fn insert_mutex(
         &mut self,
         id: RuntimeMutexId,
-        name_a: Option<RuntimeMutexNameA>,
+        name: Option<RuntimeMutexName>,
         initial_owner: bool,
         current_thread_id: RuntimeThreadId,
     ) {
         self.next_mutex_id += 1;
-        if let Some(name) = name_a.as_ref() {
+        if let Some(name) = name.as_ref() {
             self.named_mutexes.insert(name.identity(), id);
         }
         self.mutexes.insert(
             id,
             RuntimeMutex {
                 id,
-                name_a,
+                name,
                 owning_thread_id: initial_owner.then_some(current_thread_id),
                 recursion_count: u32::from(initial_owner),
                 abandoned: false,
@@ -397,7 +390,6 @@ impl RuntimeSynchronization {
         Ok((next.recursion_count, abandoned_acquisition))
     }
 
-    #[cfg(test)]
     pub(super) fn release_mutex(
         &mut self,
         id: RuntimeMutexId,
@@ -423,7 +415,7 @@ impl RuntimeSynchronization {
         id: RuntimeMutexId,
     ) -> Result<(), RuntimeStateError> {
         let mutex = self.mutex(id)?;
-        if let Some(name) = mutex.name_a.as_ref()
+        if let Some(name) = mutex.name.as_ref()
             && self.named_mutexes.get(&name.identity()) != Some(&id)
         {
             return Err(RuntimeStateError::new(
@@ -439,7 +431,7 @@ impl RuntimeSynchronization {
             .mutexes
             .remove(&id)
             .expect("validated mutex retirement");
-        if let Some(name) = removed.name_a {
+        if let Some(name) = removed.name {
             self.named_mutexes.remove(&name.identity());
         }
     }
@@ -665,7 +657,7 @@ mod tests {
             id,
             RuntimeMutex {
                 id,
-                name_a: None,
+                name: None,
                 owning_thread_id: None,
                 recursion_count: 0,
                 abandoned: true,
@@ -722,11 +714,7 @@ mod tests {
     #[test]
     fn named_mutex_retirement_invalidates_old_identity_and_allows_recreation() {
         let mut synchronization = RuntimeSynchronization::default();
-        let name = RuntimeMutexNameA::new(
-            b"Vine mutex\0".to_vec(),
-            "Vine mutex\0".encode_utf16().collect(),
-        )
-        .unwrap();
+        let name = RuntimeMutexName::new("Vine mutex\0".encode_utf16().collect()).unwrap();
         let (id, _) = synchronization
             .validate_mutex_creation(Some(&name))
             .unwrap();
@@ -744,11 +732,7 @@ mod tests {
     #[test]
     fn mutex_creation_copies_names_preserves_existing_owner_and_rejects_contention() {
         let mut synchronization = RuntimeSynchronization::default();
-        let name = RuntimeMutexNameA::new(
-            b"Vine mutex\0".to_vec(),
-            "Vine mutex\0".encode_utf16().collect(),
-        )
-        .unwrap();
+        let name = RuntimeMutexName::new("Vine mutex\0".encode_utf16().collect()).unwrap();
         let before = synchronization.clone();
         let (id, already_exists) = synchronization
             .validate_mutex_creation(Some(&name))

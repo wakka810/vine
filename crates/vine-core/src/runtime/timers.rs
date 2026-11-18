@@ -1,5 +1,5 @@
 use crate::winmm::{TIMERR_NOCANDO, TIMERR_NOERROR};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{RuntimeStateError, RuntimeThreadId, RuntimeWindowId};
 use crate::memory::GuestAddress;
@@ -48,6 +48,7 @@ pub struct RuntimeWindowTimer {
     pub registration_generation: u64,
     pub armed_at_time_100ns: u64,
     pub next_deadline_time_100ns: u64,
+    pub(crate) message_observed: bool,
     pub delivery_count: u64,
     pub last_delivery: Option<RuntimeWindowTimerDeliveryState>,
 }
@@ -77,6 +78,7 @@ pub(super) struct RuntimeTimers {
     next_waitable_timer_id: u64,
     window_timers: BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer>,
     window_timer_index: BTreeMap<(RuntimeWindowId, u32), RuntimeWindowTimerId>,
+    delivered_timer_callbacks: BTreeSet<(RuntimeWindowId, u32, u32, RuntimeThreadId, GuestAddress)>,
     next_window_timer_id: u64,
 }
 
@@ -88,12 +90,20 @@ impl Default for RuntimeTimers {
             next_waitable_timer_id: 1,
             window_timers: BTreeMap::new(),
             window_timer_index: BTreeMap::new(),
+            delivered_timer_callbacks: BTreeSet::new(),
             next_window_timer_id: 1,
         }
     }
 }
 
 impl RuntimeTimers {
+    pub(super) fn retire_window(&mut self, id: RuntimeWindowId) {
+        self.window_timers.retain(|_, timer| timer.window_id != id);
+        self.window_timer_index
+            .retain(|(window, _), _| *window != id);
+        self.delivered_timer_callbacks
+            .retain(|(window, ..)| *window != id);
+    }
     pub(super) fn new_waitable_timer(
         &self,
         manual_reset: bool,
@@ -242,14 +252,10 @@ impl RuntimeTimers {
         request: RuntimeWindowTimerRegistrationRequest,
         clock: u64,
     ) -> Result<u32, RuntimeStateError> {
-        if request.window_id.0 == 0
-            || request.window_handle == 0
-            || request.timer_id == 0
-            || request.owner_thread_id.0 == 0
-            || request.callback_address.0 == 0
+        if request.window_id.0 == 0 || request.window_handle == 0 || request.owner_thread_id.0 == 0
         {
             return Err(RuntimeStateError::new(
-                "logical window timer registration requires nonzero window, timer, thread, and callback identities",
+                "logical window timer registration requires nonzero window and thread identities",
             ));
         }
         let key = (request.window_id, request.timer_id);
@@ -338,19 +344,102 @@ impl RuntimeTimers {
             registration_generation,
             armed_at_time_100ns: clock,
             next_deadline_time_100ns,
+            message_observed: false,
             delivery_count: previous.map_or(0, |timer| timer.delivery_count),
             last_delivery: previous.and_then(|timer| timer.last_delivery),
         };
+        if let Some(previous) = previous
+            && previous.callback_address.0 != 0
+            && previous.last_delivery.is_some()
+        {
+            self.delivered_timer_callbacks.insert((
+                previous.window_id,
+                previous.window_handle,
+                previous.timer_id,
+                previous.owner_thread_id,
+                previous.callback_address,
+            ));
+        }
         self.next_window_timer_id = next_window_timer_id;
         self.window_timers.insert(id, next);
         self.window_timer_index.insert(key, id);
-        Ok(request.timer_id)
+        // With a window, nIDEvent (including zero) is the message identity.
+        // The return value is only a nonzero success token in this case.
+        Ok(request.timer_id.max(1))
     }
 
+    pub(crate) fn kill_window_timer(
+        &mut self,
+        window_id: RuntimeWindowId,
+        timer_id: u32,
+        owner: RuntimeThreadId,
+    ) -> Result<bool, RuntimeStateError> {
+        let key = (window_id, timer_id);
+        let Some(id) = self.window_timer_index.get(&key).copied() else {
+            return Ok(false);
+        };
+        let timer = *self
+            .window_timers
+            .get(&id)
+            .ok_or_else(|| RuntimeStateError::new("timer index has no live registration"))?;
+        if timer.id != id
+            || timer.window_id != window_id
+            || timer.timer_id != timer_id
+            || timer.owner_thread_id != owner
+        {
+            return Err(RuntimeStateError::new(
+                "timer removal does not match its live owner and identity",
+            ));
+        }
+        if timer.callback_address.0 != 0 && timer.last_delivery.is_some() {
+            self.delivered_timer_callbacks.insert((
+                timer.window_id,
+                timer.window_handle,
+                timer.timer_id,
+                timer.owner_thread_id,
+                timer.callback_address,
+            ));
+        }
+        self.window_timer_index.remove(&key);
+        self.window_timers.remove(&id);
+        Ok(true)
+    }
+
+    pub(crate) fn has_delivered_timer_callback(
+        &self,
+        window_id: RuntimeWindowId,
+        window_handle: u32,
+        timer_id: u32,
+        owner_thread_id: RuntimeThreadId,
+        callback_address: GuestAddress,
+    ) -> bool {
+        self.delivered_timer_callbacks.contains(&(
+            window_id,
+            window_handle,
+            timer_id,
+            owner_thread_id,
+            callback_address,
+        ))
+    }
+
+    #[cfg(test)]
     pub(crate) fn preview_due_window_timer_delivery(
         &self,
         owner_thread_id: RuntimeThreadId,
         clock: u64,
+    ) -> Result<Option<RuntimeWindowTimer>, RuntimeStateError> {
+        self.preview_due_window_timer_delivery_filtered(
+            owner_thread_id,
+            clock,
+            super::RuntimeMessageFilter::default(),
+        )
+    }
+
+    pub(crate) fn preview_due_window_timer_delivery_filtered(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+        clock: u64,
+        filter: super::RuntimeMessageFilter,
     ) -> Result<Option<RuntimeWindowTimer>, RuntimeStateError> {
         if owner_thread_id.0 == 0 {
             return Err(RuntimeStateError::new(
@@ -361,7 +450,9 @@ impl RuntimeTimers {
             .window_timers
             .iter()
             .filter(|(_, timer)| {
-                timer.owner_thread_id == owner_thread_id && timer.next_deadline_time_100ns <= clock
+                timer.owner_thread_id == owner_thread_id
+                    && timer.next_deadline_time_100ns <= clock
+                    && filter.matches(timer.window_handle, 0x0113)
             })
             .min_by_key(|(id, timer)| (timer.next_deadline_time_100ns, **id))
             .map(|(id, timer)| (*id, *timer))
@@ -400,9 +491,18 @@ impl RuntimeTimers {
         let mut next = previous;
         next.armed_at_time_100ns = clock;
         next.next_deadline_time_100ns = next_deadline_time_100ns;
+        next.message_observed = false;
         next.delivery_count = delivery_count;
         next.last_delivery = Some(delivery);
         Ok(Some(next))
+    }
+
+    pub(super) fn observe_window_timers(&mut self, owner: RuntimeThreadId, clock: u64) {
+        for timer in self.window_timers.values_mut() {
+            if timer.owner_thread_id == owner && timer.next_deadline_time_100ns <= clock {
+                timer.message_observed = true;
+            }
+        }
     }
 
     pub(crate) fn publish_window_timer_delivery(&mut self, timer: RuntimeWindowTimer) {
@@ -557,7 +657,7 @@ mod tests {
         timers
             .register_window_timer(
                 RuntimeWindowTimerRegistrationRequest {
-                    callback_address: GuestAddress(0),
+                    window_handle: 0,
                     ..request
                 },
                 clock,

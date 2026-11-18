@@ -1,24 +1,33 @@
 //! Windows userspace subsystem ownership and coordination.
 
 mod address_space;
+mod atoms;
+pub(crate) use atoms::{RuntimeAtomName, RuntimeGlobalAtoms};
 mod audio;
 mod clock;
 mod com;
 mod displays;
 mod files;
+mod font_resources;
+pub(crate) use font_resources::FONT_RESOURCE_MAX_BYTES;
 mod gdi;
 mod gdiplus;
 mod graphics;
 mod heaps;
 mod imm32;
 mod input;
+pub(crate) use input::{keyboard_key_name, keyboard_virtual_key_scan_code};
+pub(crate) const RUNTIME_KEYBOARD_LAYOUT: u32 = 0x0411_0411;
 mod kernel;
 mod messages;
 pub(crate) use messages::RUNTIME_QUEUE_STATUS_VALID_FLAGS;
 mod modules;
+pub(crate) use modules::{RuntimeModules, api_set_host};
+mod menus;
 mod objects;
 mod process;
 mod registries;
+mod registry;
 mod scheduler;
 mod synchronization;
 mod thread;
@@ -63,8 +72,9 @@ pub use files::{
 pub(crate) use files::{RuntimeFileBacking, RuntimeSourceFileId};
 #[cfg(test)]
 pub(crate) use gdi::RuntimeGdiObjectKind;
+pub(crate) use gdi::RuntimeGetDcResult;
 pub use gdi::{
-    RUNTIME_GDI_BLACK_BRUSH_INDEX, RUNTIME_GDI_DIB_BI_RGB, RUNTIME_GDI_DIB_RGB_COLORS,
+    RUNTIME_GDI_DIB_BI_BITFIELDS, RUNTIME_GDI_DIB_BI_RGB, RUNTIME_GDI_DIB_RGB_COLORS,
     RUNTIME_LOG_FONT_A_BYTE_LENGTH, RUNTIME_LOG_FONT_A_FACE_CAPACITY, RuntimeDeviceContextTarget,
     RuntimeGdiDibSectionDescriptor, RuntimeGdiRgbQuad, RuntimeGdiTextRasterTarget, RuntimeLogFontA,
 };
@@ -76,7 +86,8 @@ pub use graphics::{
     RuntimeGraphicsBlendFactor, RuntimeGraphicsBlendOperation, RuntimeGraphicsColorFormat,
     RuntimeGraphicsCullMode, RuntimeGraphicsFlexibleVertexFormat, RuntimeGraphicsPresentMode,
     RuntimeGraphicsRenderStateUpdate, RuntimeGraphicsSamplerStateUpdate,
-    RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureFilter,
+    RuntimeGraphicsTextureAddress, RuntimeGraphicsTextureArgument,
+    RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureFilter,
     RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
     RuntimeGraphicsTextureStageStateUpdate, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferDescriptor, RuntimeGraphicsVertexBufferPool,
@@ -93,9 +104,10 @@ pub use input::{
 };
 pub(crate) use kernel::RuntimeFindFirstFileOutcome;
 pub use kernel::{Runtime, RuntimeBootstrap, RuntimeStateError};
+pub(crate) use menus::RuntimeMenuItem;
 #[cfg(test)]
 pub(crate) use messages::RuntimeMessageReceiveDisposition;
-pub(crate) use messages::RuntimeThreadMessage;
+pub(crate) use messages::{RuntimeMessageFilter, RuntimeThreadMessage};
 pub(crate) use modules::RuntimeSystemExportTable;
 pub use modules::{
     RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeGuestImport,
@@ -119,7 +131,7 @@ pub use scheduler::{
     SchedulerThreadState,
 };
 pub use synchronization::{
-    RuntimeCriticalSection, RuntimeMutexId, RuntimeMutexNameA, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    RuntimeCriticalSection, RuntimeMutexId, RuntimeMutexName, X86_CRITICAL_SECTION_BYTE_LENGTH,
 };
 pub(crate) use thread::RuntimeCreateThreadRequest;
 pub(crate) use thread::TLS_OUT_OF_INDEXES;
@@ -134,20 +146,21 @@ pub use timers::RuntimeWaitableTimer;
 pub(crate) use timers::{
     RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
 };
+pub(crate) use user32::RuntimeAccelerator;
 pub use user32::{
-    RUNTIME_MESSAGE_BOX_SERVICE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
-    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_LIMIT, RUNTIME_WINDOW_STYLE_VISIBLE,
-    RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeCursorResource, RuntimeCursorSource,
-    RuntimeIconResource, RuntimeImeStatusWindowRequest, RuntimeMessageBox, RuntimeMessageBoxButton,
-    RuntimeMessageBoxIcon, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
-    RuntimeSetWindowPosVariant, RuntimeSystemCursorKind, RuntimeUpdateWindowOperation,
-    RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassCursorReference,
-    RuntimeWindowClassIconReference, RuntimeWindowClassModule, RuntimeWindowClassReference,
-    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowGeometry,
-    RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
+    RUNTIME_MESSAGE_BOX_SERVICE, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_LIMIT,
+    RUNTIME_WINDOW_STYLE_VISIBLE, RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeCursorResource,
+    RuntimeCursorSource, RuntimeIconResource, RuntimeImeStatusWindowRequest, RuntimeMessageBox,
+    RuntimeMessageBoxButton, RuntimeMessageBoxIcon, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
+    RuntimeSystemCursorKind, RuntimeUpdateWindowOperation, RuntimeWindow, RuntimeWindowClass,
+    RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
+    RuntimeWindowClassReference, RuntimeWindowClassRegistration,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
+    RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowId, RuntimeWindowLifecycle,
+    RuntimeWindowNameA, RuntimeWindowProcedure,
 };
 pub use waits::{
     RUNTIME_OBJECT_WAIT_SERVICE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitCompletion,

@@ -418,11 +418,10 @@ fn commit_outside_reservation_fails_without_mapping_or_allocator_changes() {
 
 #[test]
 fn invalid_reservation_inputs_return_windows_errors_without_publication() {
-    for arguments in [
-        [0, 0, MEM_RESERVE | MEM_TOP_DOWN, READ_WRITE],
-        [DATA.0, 4096, MEM_RESERVE | MEM_TOP_DOWN, READ_WRITE],
-        [0, u32::MAX, MEM_RESERVE | MEM_TOP_DOWN, READ_WRITE],
-        [0, 4096, MEM_COMMIT, READ_WRITE],
+    for (arguments, error) in [
+        ([0, 0, MEM_RESERVE | MEM_TOP_DOWN, READ_WRITE], 87),
+        ([DATA.0, 4096, MEM_RESERVE | MEM_TOP_DOWN, READ_WRITE], 487),
+        ([0, u32::MAX, MEM_RESERVE | MEM_TOP_DOWN, READ_WRITE], 87),
     ] {
         let mut fixture = Fixture::new();
         fixture.prepare(&arguments);
@@ -432,7 +431,7 @@ fn invalid_reservation_inputs_return_windows_errors_without_publication() {
             panic!("missing failure")
         };
         assert_eq!(result.eax, Some(0));
-        assert_eq!(fixture.runtime.current_last_error().unwrap(), 87);
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), error);
         assert_eq!(fixture.runtime.process_address_space_allocator(), &records);
         assert_eq!(fixture.runtime.memory.stats(), stats);
     }
@@ -441,8 +440,8 @@ fn invalid_reservation_inputs_return_windows_errors_without_publication() {
 #[test]
 fn unsupported_protection_and_allocation_flags_do_not_mutate_authority() {
     for arguments in [
-        [0, 4096, MEM_RESERVE, READ_WRITE],
-        [0, 4096, MEM_RESERVE | MEM_TOP_DOWN, 0x40],
+        [0, 4096, MEM_RESERVE | 0x80000, READ_WRITE],
+        [0, 4096, MEM_RESERVE | MEM_TOP_DOWN, 0x100],
     ] {
         let mut fixture = Fixture::new();
         fixture.prepare(&arguments);
@@ -473,7 +472,7 @@ fn unsupported_protection_and_allocation_flags_do_not_mutate_authority() {
 
 #[test]
 fn decommit_invalid_ranges_fail_without_memory_changes() {
-    for (offset, size, expected_error) in [(1, 4096, 87), (0, 0, 87), (7 * 4096, 4096, 487)] {
+    for (offset, size, expected_error) in [(0, 0, 87), (7 * 4096, 4096, 487)] {
         let mut fixture = Fixture::new();
         let base = fixture.reserve();
         fixture.prepare(&[base + offset, size, MEM_DECOMMIT]);
@@ -621,5 +620,281 @@ fn guest_region_overlap_does_not_publish_a_process_allocation_or_consume_owner_i
             .create_owner(MemoryOwnerKind::Anonymous)
             .unwrap(),
         MemoryOwnerId(owner.0 + 1)
+    );
+}
+
+#[test]
+fn embedded_image_allocation_recommit_protection_and_release_preserve_authority() {
+    let mut fixture = Fixture::new();
+    let initial_pages = fixture.runtime.memory.stats().committed_pages;
+    let base = 0x1001_0000;
+    let old_output = GuestAddress(DATA.0 + 0x800);
+    assert_eq!(
+        fixture
+            .call(
+                "VirtualAlloc",
+                &[base + 3, 0x1ffd, MEM_RESERVE | MEM_COMMIT, READ_WRITE]
+            )
+            .eax,
+        Some(base)
+    );
+    fixture
+        .runtime
+        .memory
+        .write(GuestAddress(base), &[0x90, 0xc3])
+        .unwrap();
+    assert_eq!(
+        fixture
+            .call("VirtualAlloc", &[base + 1, 0x1000, MEM_COMMIT, READ_WRITE])
+            .eax,
+        Some(base)
+    );
+    assert_eq!(
+        fixture.runtime.memory.read(GuestAddress(base), 2).unwrap(),
+        [0x90, 0xc3]
+    );
+    assert_eq!(
+        fixture.runtime.memory.stats().committed_pages,
+        initial_pages + 2
+    );
+    assert_eq!(
+        fixture
+            .call("VirtualProtect", &[base + 1, 0x1000, 0x20, old_output.0])
+            .eax,
+        Some(1)
+    );
+    fixture.acknowledge();
+    assert_eq!(
+        fixture.runtime.memory.read(old_output, 4).unwrap(),
+        4_u32.to_le_bytes()
+    );
+    assert!(
+        fixture
+            .runtime
+            .memory
+            .write(GuestAddress(base), &[0])
+            .is_err()
+    );
+    assert!(
+        fixture
+            .runtime
+            .memory
+            .committed_page(GuestAddress(base + 4096))
+            .unwrap()
+            .unwrap()
+            .1
+            .execute
+    );
+    assert_eq!(
+        fixture
+            .call("VirtualAlloc", &[base, 4096, MEM_COMMIT, READ_WRITE])
+            .eax,
+        Some(base)
+    );
+    assert!(
+        fixture
+            .runtime
+            .memory
+            .write(GuestAddress(base), &[0])
+            .is_err()
+    );
+    assert_eq!(
+        fixture
+            .call("VirtualFree", &[base + 4096, 4096, MEM_DECOMMIT])
+            .eax,
+        Some(1)
+    );
+    fixture.acknowledge();
+    assert_eq!(
+        fixture
+            .call("VirtualFree", &[base + 4096, 4096, MEM_DECOMMIT])
+            .eax,
+        Some(1)
+    );
+    assert!(
+        fixture
+            .runtime
+            .process_address_space_allocator()
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::VirtualMemory)
+            .unwrap()
+            .executable
+    );
+    assert_eq!(
+        fixture.call("VirtualFree", &[base + 4096, 0, 0x8000]).eax,
+        Some(0)
+    );
+    assert_eq!(fixture.call("VirtualFree", &[base, 0, 0x8000]).eax, Some(1));
+    fixture.acknowledge();
+    assert_eq!(
+        fixture.runtime.memory.stats().committed_pages,
+        initial_pages
+    );
+    assert!(fixture.runtime.memory.read(GuestAddress(base), 1).is_err());
+    assert_eq!(
+        fixture
+            .call(
+                "VirtualAlloc",
+                &[base, 4096, MEM_RESERVE | MEM_COMMIT, READ_WRITE]
+            )
+            .eax,
+        Some(base)
+    );
+    fixture.acknowledge();
+    assert_eq!(
+        fixture.runtime.memory.read(GuestAddress(base), 2).unwrap(),
+        [0, 0]
+    );
+}
+
+#[test]
+fn virtual_protection_failure_preserves_pages_and_output() {
+    let mut fixture = Fixture::new();
+    let base = fixture.reserve();
+    let output = GuestAddress(DATA.0 + 0x800);
+    fixture.call("VirtualAlloc", &[base, 4096, MEM_COMMIT, READ_WRITE]);
+    fixture
+        .runtime
+        .memory
+        .write(output, &0x12345678_u32.to_le_bytes())
+        .unwrap();
+    assert_eq!(
+        fixture
+            .call("VirtualProtect", &[base, 8192, 0x20, output.0])
+            .eax,
+        Some(0)
+    );
+    assert_eq!(
+        fixture.runtime.memory.read(output, 4).unwrap(),
+        0x12345678_u32.to_le_bytes()
+    );
+    assert!(
+        fixture
+            .runtime
+            .memory
+            .write(GuestAddress(base), &[42])
+            .is_ok()
+    );
+    fixture.prepare(&[base, 4096, 0x20, base + 4096]);
+    let before = fixture.runtime.memory.stats();
+    assert!(matches!(
+        fixture.dispatch("VirtualProtect"),
+        DispatchOutcome::Fault(_)
+    ));
+    assert_eq!(fixture.runtime.memory.stats(), before);
+    assert!(
+        fixture
+            .runtime
+            .memory
+            .write(GuestAddress(base), &[43])
+            .is_ok()
+    );
+    assert_eq!(
+        fixture.call("VirtualProtect", &[base, 4096, 2, base]).eax,
+        Some(1)
+    );
+    fixture.acknowledge();
+    assert_eq!(
+        fixture.runtime.memory.read(GuestAddress(base), 4).unwrap(),
+        4_u32.to_le_bytes()
+    );
+    assert!(
+        fixture
+            .runtime
+            .memory
+            .write(GuestAddress(base), &[44])
+            .is_err()
+    );
+}
+
+#[test]
+fn combined_commit_capacity_failure_does_not_publish_reservation() {
+    let mut fixture = Fixture::with_limits(MemoryLimits {
+        max_physical_pages: 4,
+        max_regions: 4,
+        max_owners: 4,
+        max_access_bytes: 0x4000,
+    });
+    fixture.prepare(&[0, 4096, MEM_COMMIT | MEM_RESERVE, READ_WRITE]);
+    let before = fixture.runtime.memory.stats();
+    let allocations = fixture.runtime.process_address_space_allocator().clone();
+    assert!(
+        matches!(fixture.dispatch("VirtualAlloc"), DispatchOutcome::Immediate(result) if result.eax == Some(0))
+    );
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 8);
+    assert_eq!(fixture.runtime.memory.stats(), before);
+    assert_eq!(
+        fixture.runtime.process_address_space_allocator(),
+        &allocations
+    );
+}
+
+#[test]
+fn null_commit_allocates_executable_pages_and_decommit_invalidates_code() {
+    let mut fixture = Fixture::new();
+    let base = fixture
+        .call("VirtualAlloc", &[0, 0x3200, MEM_COMMIT, 0x40])
+        .eax
+        .unwrap();
+    assert_ne!(base, 0);
+    let delta = fixture.runtime.memory.pending_delta().unwrap();
+    assert!(delta.cache_effects.invalidate_generated_code);
+    fixture.acknowledge();
+    fixture
+        .runtime
+        .memory
+        .write(GuestAddress(base), &[0xc3])
+        .unwrap();
+    fixture.acknowledge();
+    assert_eq!(
+        fixture.runtime.memory.fetch(GuestAddress(base), 1).unwrap(),
+        [0xc3]
+    );
+    assert_eq!(
+        fixture
+            .call("VirtualFree", &[base, 0x3200, MEM_DECOMMIT])
+            .eax,
+        Some(1)
+    );
+    let delta = fixture.runtime.memory.pending_delta().unwrap();
+    assert!(delta.cache_effects.invalidate_generated_code);
+    fixture.acknowledge();
+    assert!(fixture.runtime.memory.fetch(GuestAddress(base), 1).is_err());
+    assert!(
+        !fixture
+            .runtime
+            .process_address_space_allocator()
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::VirtualMemory)
+            .unwrap()
+            .executable
+    );
+}
+
+#[test]
+fn instruction_cache_flush_requires_a_valid_process_and_publishes_cpu_invalidation() {
+    let mut fixture = Fixture::new();
+    let process = fixture.call("GetCurrentProcess", &[]).eax.unwrap();
+    assert_eq!(process, u32::MAX);
+    fixture.prepare(&[0, DATA.0, 128]);
+    let before = fixture.runtime.memory.stats();
+    assert!(
+        matches!(fixture.dispatch("FlushInstructionCache"), DispatchOutcome::Immediate(result) if result.eax == Some(0))
+    );
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 6);
+    assert_eq!(fixture.runtime.memory.stats(), before);
+    assert_eq!(
+        fixture
+            .call("FlushInstructionCache", &[process, DATA.0, 128])
+            .eax,
+        Some(1)
+    );
+    let delta = fixture.runtime.memory.pending_delta().unwrap();
+    assert!(delta.cache_effects.invalidate_instruction_fetch);
+    assert!(delta.cache_effects.invalidate_generated_code);
+    assert!(delta.mapping_operations.is_empty());
+    fixture.acknowledge();
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 6);
+    assert_eq!(
+        fixture.call("FlushInstructionCache", &[process, 0, 0]).eax,
+        Some(1)
     );
 }

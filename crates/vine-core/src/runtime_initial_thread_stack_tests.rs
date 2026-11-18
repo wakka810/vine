@@ -248,14 +248,9 @@ fn prepared_runtime_stack_with_limits(
         .clone();
     let sentinels =
         install_runtime_return_sentinels(&mut runtime.memory, &callback_allocation).unwrap();
-    let stack = install_initial_thread_stack(
-        &mut runtime.memory,
-        &sentinels.process_entry_return,
-        reserve_size,
-        commit_size,
-    )
-    .unwrap();
-    runtime.register_initial_thread_stack(&stack).unwrap();
+    runtime
+        .install_initial_thread_stack(&sentinels.process_entry_return, reserve_size, commit_size)
+        .unwrap();
     runtime.start_initial_thread().unwrap();
     let reflection = runtime.memory.pending_reflection().unwrap();
     runtime
@@ -263,6 +258,125 @@ fn prepared_runtime_stack_with_limits(
         .acknowledge_delta(reflection.invalidation.generation)
         .unwrap();
     runtime
+}
+
+#[test]
+fn initial_stack_avoids_a_large_image_and_keeps_its_bytes_and_permissions() {
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let owner = memory
+        .create_owner(crate::MemoryOwnerKind::Image {
+            source_sha256: "0".repeat(64),
+        })
+        .unwrap();
+    let image = memory
+        .reserve_fixed(
+            owner,
+            crate::MemoryRegionKind::Image,
+            GuestAddress(0x0040_0000),
+            0x0050_0000,
+        )
+        .unwrap();
+    let page = crate::GuestRange::new(GuestAddress(0x0060_0000), GUEST_PAGE_SIZE).unwrap();
+    let protection = crate::PageProtection {
+        read: true,
+        write: false,
+        execute: true,
+    };
+    memory.commit(owner, page, protection).unwrap();
+    memory
+        .write_initialization(owner, page.start(), &[0x90, 0xc3])
+        .unwrap();
+    memory.seal_owner(owner).unwrap();
+    let mut runtime = Runtime::new(runtime_bootstrap(), memory).unwrap();
+    let callback = runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::CallbackReturns)
+        .unwrap()
+        .clone();
+    let sentinels = install_runtime_return_sentinels(&mut runtime.memory, &callback).unwrap();
+    let stack = runtime
+        .install_initial_thread_stack(&sentinels.process_entry_return, STACK_RESERVE, STACK_COMMIT)
+        .unwrap();
+    assert!(
+        stack.stack_range.end() <= u64::from(image.start().0)
+            || image.end() <= u64::from(stack.stack_range.start().0)
+    );
+    runtime.start_initial_thread().unwrap();
+    let reflection = runtime.memory.pending_reflection().unwrap();
+    runtime
+        .memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    assert_eq!(runtime.memory.read(page.start(), 2).unwrap(), [0x90, 0xc3]);
+    assert!(
+        runtime
+            .memory
+            .validate_access(page.start(), 1, crate::memory::MemoryAccess::Write)
+            .is_err()
+    );
+    let registered = runtime.thread_stack(runtime.current_thread_id()).unwrap();
+    assert_eq!(registered.reserved_range, stack.stack_range);
+    assert_eq!(registered.memory_owner, stack.owner);
+    assert_eq!(registered.initial_stack_pointer, stack.initial_esp);
+    let allocations = runtime.process_address_space_allocator().clone();
+    let before = runtime.memory.current_reflection().unwrap();
+    assert!(
+        runtime
+            .install_initial_thread_stack(
+                &sentinels.process_entry_return,
+                STACK_RESERVE,
+                STACK_COMMIT
+            )
+            .is_err()
+    );
+    assert_eq!(runtime.process_address_space_allocator(), &allocations);
+    assert_eq!(runtime.memory.current_reflection().unwrap(), before);
+    let guard = stack.guard_page.unwrap().start();
+    runtime.service_page_fault(guard, 6).unwrap();
+    assert_eq!(
+        runtime
+            .thread_stack(runtime.current_thread_id())
+            .unwrap()
+            .committed_range
+            .start(),
+        guard
+    );
+}
+
+#[test]
+fn initial_stack_installation_failure_keeps_memory_allocator_and_thread_unmodified() {
+    let memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 1,
+        ..MemoryLimits::default()
+    })
+    .unwrap();
+    let mut runtime = Runtime::new(runtime_bootstrap(), memory).unwrap();
+    let callback = runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::CallbackReturns)
+        .unwrap()
+        .clone();
+    let sentinels = install_runtime_return_sentinels(&mut runtime.memory, &callback).unwrap();
+    let before = runtime.memory.current_reflection().unwrap();
+    let stats = runtime.memory.stats();
+    let allocations = runtime.process_address_space_allocator().clone();
+    for (reserve, commit) in [
+        (0, 0),
+        (0x1000, 0x2000),
+        (0x1001, 0x1000),
+        (0x8000_0000, 0x1000),
+        (STACK_RESERVE, STACK_COMMIT),
+    ] {
+        assert!(
+            runtime
+                .install_initial_thread_stack(&sentinels.process_entry_return, reserve, commit)
+                .is_err()
+        );
+        assert_eq!(runtime.memory.current_reflection().unwrap(), before);
+        assert_eq!(runtime.memory.stats(), stats);
+        assert_eq!(runtime.process_address_space_allocator(), &allocations);
+        assert!(runtime.thread_stack(runtime.current_thread_id()).is_err());
+    }
 }
 
 fn assert_rejected_without_mutation(runtime: &mut Runtime, address: GuestAddress, error_code: u32) {

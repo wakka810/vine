@@ -8,7 +8,7 @@ const { outputFiles } = await build({
   platform: "node",
   format: "esm",
 });
-const { openWritableTree } = await import(
+const { openWritableTree, WritableTree } = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].contents).toString("base64")}`
 );
 
@@ -18,8 +18,10 @@ let failNextDelete = false;
 function directory() {
   const children = new Map();
   return {
+    kind: "directory",
     children,
     async *keys() { yield* children.keys(); },
+    async *entries() { yield* children.entries(); },
     async getDirectoryHandle(name, { create }) {
       let child = children.get(name);
       if (child === undefined && create) children.set(name, child = directory());
@@ -41,6 +43,7 @@ function directory() {
 function file() {
   let stored = new Uint8Array();
   return {
+    kind: "file",
     async getFile() { return new Blob([stored]); },
     async createWritable({ keepExistingData }) {
       let pending = keepExistingData ? new Uint8Array(stored) : new Uint8Array();
@@ -48,6 +51,10 @@ function file() {
       let aborted = false;
       return {
         async seek(offset) { position = offset; },
+        async truncate(length) {
+          if (failNextWrite) { failNextWrite = false; throw new DOMException("Full", "QuotaExceededError"); }
+          const next = new Uint8Array(length); next.set(pending.subarray(0,length)); pending = next;
+        },
         async write(bytes) {
           if (failNextWrite) { failNextWrite = false; throw new DOMException("Full", "QuotaExceededError"); }
           const next = new Uint8Array(Math.max(pending.length, position + bytes.length));
@@ -95,6 +102,7 @@ await tree.writeExisting("save\\slot.dat", Uint8Array.of(1, 2), 0);
 assert.deepEqual(await tree.stat("save/slot.dat"), { kind: "file", byteLength: 2 });
 assert.deepEqual(await read(tree, "save/slot.dat"), Uint8Array.of(1, 2));
 assert.deepEqual(await tree.read("save/slot.dat", 1, 1), Uint8Array.of(2));
+assert.deepEqual(await tree.read("save/slot.dat", 0, 16 * 1024 * 1024 - 28), Uint8Array.of(1, 2));
 await tree.writeExisting("save/slot.dat", Uint8Array.of(3), 1);
 assert.deepEqual(await read(tree, "save/slot.dat"), Uint8Array.of(1, 3));
 await tree.writeExisting("save/slot.dat", Uint8Array.of(4), 2);
@@ -122,9 +130,20 @@ for (const offset of [-1, 0.5, Number.MAX_SAFE_INTEGER]) {
 }
 await assert.rejects(tree.writeExisting("save/slot.dat", new Uint8Array(2 ** 21 + 1), 0));
 assert.deepEqual(await tree.read("save/slot.dat", 0, 4), Uint8Array.of(7, 3, 4));
-for (const [offset, length] of [[-1, 1], [0, 2 ** 21 + 1], [Number.MAX_SAFE_INTEGER, 1]]) {
+for (const [offset, length] of [[-1, 1], [0, 16 * 1024 * 1024 - 27], [Number.MAX_SAFE_INTEGER, 1]]) {
   await assert.rejects(tree.read("save/slot.dat", offset, length));
 }
+await tree.createEmpty("save/truncate.dat");
+await tree.writeExisting("save/truncate.dat", Uint8Array.of(1,2,3), 0);
+failNextWrite = true;
+await assert.rejects(tree.truncateExisting("save/truncate.dat",1), {name:"QuotaExceededError"});
+assert.deepEqual(await tree.read("save/truncate.dat",0,8),Uint8Array.of(1,2,3));
+await tree.truncateExisting("SAVE/TRUNCATE.DAT",1);
+assert.deepEqual(await tree.read("save/truncate.dat",0,8),Uint8Array.of(1));
+await tree.truncateExisting("save/truncate.dat",4);
+assert.deepEqual(await tree.read("save/truncate.dat",0,8),Uint8Array.of(1,0,0,0));
+await tree.removeFile("save/truncate.dat");
+await assert.rejects(tree.truncateExisting("save/absent.dat",0),{name:"NotFoundError"});
 const restarted = await openWritableTree(id);
 assert.deepEqual(await restarted.read("save/slot.dat", 0, 4), Uint8Array.of(7, 3, 4));
 assert.deepEqual(await restarted.stat("save/slot.dat"), { kind: "file", byteLength: 3 });
@@ -175,4 +194,24 @@ for (const path of ["", "/abs", "C:\\abs", "../other", "save/../other", "save//f
 assert.equal(root.children.size, 1, "invalid paths must not create entries outside the game root");
 await restarted.remove("SAVE/SLOT.DAT");
 assert.equal(await read(tree, "save/slot.dat"), null);
+
+const largeRoot = directory();
+const largeTree = new WritableTree(largeRoot);
+for (let index = 0; index < 4096; index++) largeRoot.children.set(`slot${index}.dat`, file());
+assert.equal((await largeTree.listEntries()).files.length, 4096);
+largeRoot.children.set("last.dat", file());
+assert.equal(await largeTree.listEntries(), null, "an incomplete index must not hide an existing save");
+assert.deepEqual(await largeTree.stat("last.dat"), { kind: "file", byteLength: 0 });
+
+const deepRoot = directory();
+let nested = deepRoot;
+for (let depth = 0; depth < 33; depth++) {
+  const child = directory();
+  nested.children.set("save", child);
+  nested = child;
+}
+nested.children.set("deep.dat", file());
+const deepTree = new WritableTree(deepRoot);
+assert.equal(await deepTree.listEntries(), null);
+assert.deepEqual(await deepTree.stat(`${"save/".repeat(33)}deep.dat`), { kind: "file", byteLength: 0 });
 console.log("writable tree: sandbox, reopen, failure preservation, and deletion passed");

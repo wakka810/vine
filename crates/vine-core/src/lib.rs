@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+mod advapi32;
 mod api;
 mod bootstrap;
 mod callbacks;
 mod com;
+mod d3d8;
 mod d3d9;
 mod dinput8;
 pub mod directshow;
@@ -21,12 +23,20 @@ mod materialize;
 mod memory;
 mod module_graph;
 mod module_images;
+mod mpr;
 mod ole32;
 mod pe32;
+mod process_exit;
+mod resources;
 mod runtime;
 mod shell32;
+mod shlwapi;
 mod snapshot;
+mod text_layout;
 mod user32;
+mod user32_wait;
+pub use user32_wait::complete_user32_message_wait;
+mod version;
 mod win32;
 mod winmm;
 
@@ -62,15 +72,16 @@ pub use runtime::{
     RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES, RUNTIME_WAITABLE_TIMER_PACING_SERVICE, Runtime,
     RuntimeApiBoundaryDisposition, RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA,
     RuntimeCursorPositionProfile, RuntimeDisplayProfile, RuntimeDllLifecycleAction,
-    RuntimeDllLifecyclePhase, RuntimeGuestImportBinding, RuntimeInputProfile,
-    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeMessageBox,
-    RuntimeMessageBoxButton, RuntimeMessageBoxIcon, RuntimeModule, RuntimePointerButton,
-    RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind,
-    RuntimePointerPositionSourceEvent, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
-    RuntimeSchedulerEvent, RuntimeSourceFileManifest, RuntimeSourceMountManifest,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo,
-    RuntimeThreadId, RuntimeThreadLifecycleState, SchedulerThreadState,
+    RuntimeDllLifecyclePhase, RuntimeGraphicsTextureAddress, RuntimeGraphicsTextureFilter,
+    RuntimeGuestImportBinding, RuntimeInputProfile, RuntimeKeyboardSourceEvent,
+    RuntimeKeyboardSourceEventKind, RuntimeMessageBox, RuntimeMessageBoxButton,
+    RuntimeMessageBoxIcon, RuntimeModule, RuntimePointerButton, RuntimePointerButtonSourceEvent,
+    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent, RuntimeProcessId,
+    RuntimeProcessImagePathA, RuntimeRect, RuntimeSchedulerEvent, RuntimeSourceFileManifest,
+    RuntimeSourceMountManifest, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
+    RuntimeStartupInfo, RuntimeThreadId, RuntimeThreadLifecycleState, SchedulerThreadState,
 };
+pub use shell32::complete_shell32_special_folder;
 pub(crate) use snapshot::ModuleIdentity;
 pub use snapshot::ModuleSnapshot;
 pub use user32::complete_user32_message_box;
@@ -175,3 +186,4 @@ mod runtime_waitable_timer_tests;
 
 #[cfg(test)]
 mod runtime_wait_queue_tests;
+pub use winmm::complete_winmm_source_read;

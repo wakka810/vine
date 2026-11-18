@@ -20,7 +20,7 @@ pub const LAST_ERROR: u32 = 0x1234_5678;
 
 // A real PE32 import table lets external tests obtain endpoint identities through
 // the same public load/bind path used by the browser, without exporting test APIs.
-fn imported_pe(imports: &[(&str, &str)]) -> Vec<u8> {
+pub fn imported_pe(imports: &[(&str, &str)]) -> Vec<u8> {
     let mut bytes = vec![0; 0x3200];
     let word = |bytes: &mut [u8], offset: usize, value: u16| {
         bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
@@ -105,11 +105,16 @@ pub struct Fixture {
     pub runtime: Runtime,
     pub dispatcher: ApiDispatcher,
     pub owner: MemoryOwnerId,
+    pub image_owner: MemoryOwnerId,
     endpoints: BTreeMap<(String, String), ApiEndpointIdentity>,
 }
 
 impl Fixture {
     pub fn new(imports: &[(&str, &str)]) -> Self {
+        Self::with_pe_bytes(imports, imported_pe(imports))
+    }
+
+    pub fn with_pe_bytes(imports: &[(&str, &str)], bytes: Vec<u8>) -> Self {
         let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
         let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
         let range = memory
@@ -128,7 +133,7 @@ impl Fixture {
             .unwrap();
         memory.seal_owner(owner).unwrap();
         let limits = Pe32Limits::default();
-        let snapshot = ModuleSnapshot::from_bytes(imported_pe(imports), &limits).unwrap();
+        let snapshot = ModuleSnapshot::from_bytes(bytes, &limits).unwrap();
         let plan = build_pe32_load_plan(&snapshot, limits).unwrap();
         let image =
             materialize_pe32_image(&mut memory, &snapshot, &plan, GuestAddress(0x0040_0000))
@@ -209,6 +214,7 @@ impl Fixture {
             runtime,
             dispatcher,
             owner,
+            image_owner: image.layout.owner,
             endpoints,
         };
         fixture.ack();
@@ -224,6 +230,10 @@ impl Fixture {
             let generation = memory.stats().generation;
             memory.acknowledge_delta(generation).unwrap();
         }
+    }
+
+    pub fn endpoint_address(&self, module: &str, name: &str) -> GuestAddress {
+        self.endpoints[&(module.to_ascii_lowercase(), name.to_owned())].address
     }
 
     pub fn write(&mut self, address: GuestAddress, bytes: &[u8]) {

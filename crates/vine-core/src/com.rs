@@ -434,12 +434,21 @@ impl Runtime {
                     frame,
                 };
                 match class {
+                    RuntimeComClass::D3d8
+                    | RuntimeComClass::D3d8Device
+                    | RuntimeComClass::D3d8Surface
+                    | RuntimeComClass::D3d8BackBuffer
+                    | RuntimeComClass::D3d8Texture
+                    | RuntimeComClass::D3d8TextureSurface
+                    | RuntimeComClass::D3d8VertexBuffer => crate::d3d8::dispatch_d3d8_com(call),
                     RuntimeComClass::D3d9
                     | RuntimeComClass::D3d9Device
                     | RuntimeComClass::D3d9Texture
                     | RuntimeComClass::D3d9Surface
                     | RuntimeComClass::D3d9VertexBuffer => crate::d3d9::dispatch_d3d9_com(call),
-                    RuntimeComClass::DirectInput8A => crate::dinput8::dispatch_dinput8_com(call),
+                    RuntimeComClass::DirectInput8A | RuntimeComClass::DirectInputKeyboard => {
+                        crate::dinput8::dispatch_dinput8_com(call)
+                    }
                     RuntimeComClass::DirectSound8 | RuntimeComClass::DirectSoundBuffer8 => {
                         crate::dsound::dispatch_dsound_com(call)
                     }

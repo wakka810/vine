@@ -34,7 +34,7 @@ pub struct RuntimeResolvedExport {
     pub dependencies: Vec<(RuntimeModuleId, RuntimeModuleId)>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct RuntimeModuleImageRegistry {
     images: BTreeMap<RuntimeModuleId, RuntimeModuleImage>,
     canonical_index: BTreeMap<String, RuntimeModuleId>,
@@ -43,6 +43,14 @@ pub(crate) struct RuntimeModuleImageRegistry {
 }
 
 impl RuntimeModuleImageRegistry {
+    pub(crate) fn remove(&mut self, id: RuntimeModuleId) {
+        if let Some(image) = self.images.remove(&id) {
+            self.canonical_index.remove(&image.canonical_name);
+            self.handle_index.remove(&image.handle);
+            self.load_base_index.remove(&image.image_range.start());
+        }
+    }
+
     pub fn register(
         &mut self,
         memory: &GuestMemory,
@@ -307,6 +315,12 @@ fn validate_resource_addresses(
         return Ok(());
     };
     for entry in &resources.entries {
+        if u64::from(entry.descriptor_rva.0) + 16 > materialization.layout.image_range.byte_length()
+        {
+            return Err(RuntimeModuleImageError::new(
+                "resource descriptor is outside its materialized image",
+            ));
+        }
         let start = materialization
             .layout
             .image_range
@@ -344,18 +358,11 @@ fn normalize_module_identity(
     name: &str,
     append_dll_extension: bool,
 ) -> Result<String, RuntimeModuleImageError> {
-    if name.is_empty()
-        || name.len() > 260
-        || !name.is_ascii()
-        || name
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || matches!(byte, b'/' | b'\\' | b':'))
-    {
-        return Err(RuntimeModuleImageError::new(
-            "mapped module identity must be a bounded ASCII basename",
-        ));
-    }
-    let mut canonical = name.to_ascii_lowercase();
+    let mut canonical = crate::module_graph::normalize_module_lookup(name).ok_or_else(|| {
+        RuntimeModuleImageError::new(
+            "mapped module identity must be a bounded Windows-932 basename",
+        )
+    })?;
     if append_dll_extension && !canonical.ends_with(".dll") {
         canonical.push_str(".dll");
     }
@@ -365,6 +372,19 @@ fn normalize_module_identity(
         ));
     }
     Ok(canonical)
+}
+
+#[test]
+fn module_identity_accepts_cp932_basenames_without_accepting_paths() {
+    for name in ["試験用.EXE", "表.dll"] {
+        assert_eq!(
+            normalize_module_identity(name, false).unwrap(),
+            name.to_ascii_lowercase()
+        );
+    }
+    for name in ["..\\表.dll", "C:表.dll", "a/b.dll", "bad\0.exe", "😀.exe"] {
+        assert!(normalize_module_identity(name, false).is_err());
+    }
 }
 
 fn export_lookup_label(lookup: &ExportLookup) -> String {

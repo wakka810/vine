@@ -10,7 +10,7 @@ export interface RuntimeKeyboardInputEvent {
 
 export interface RuntimePointerInputEvent {
   sequence: string;
-  kind: "move" | "down" | "up";
+  kind: "move" | "down" | "up" | "leave";
   button: "none" | "primary" | "secondary";
   x: number; // normalized client coordinate, 0..65535
   y: number;

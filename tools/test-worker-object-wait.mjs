@@ -40,6 +40,9 @@ const scenarios=[
   {name:'parked-owner-resume-and-thread-exit-clock',parked:true},
   {name:'natural-thread-exit-completes-finite-join',parked:true,joinOnExit:true},
   {name:'no-object-wait-no-ready-query',sleep:true},
+  {name:'message-input-wakes',message:'input'},
+  {name:'message-deadline-wakes',message:'timer'},
+  {name:'message-input-cancels-deadline',message:'input-timer'},
   {name:'unknown-ready-request',badReady:true,error:'Ready object wait has no pending browser request'},
   {name:'wrong-completion-owner',badOwner:true,error:'Browser completion disagrees with its guest thread'},
   {name:'retry-with-different-id',badRetry:true,error:'Browser timer retry disagrees with its pending request'},
@@ -66,7 +69,7 @@ try {
     globalThis.setTimeout=(callback,ms)=>{
       assert.equal(typeof callback,'function');assert(ms===5||ms===7);
       const id=nextTimer++;timers.set(id,callback);timerDelays.push(ms);event('arm',id);
-      if(!signal&&!scenario.badReady)queueMicrotask(()=>{
+      if(!signal&&!scenario.badReady&&!(scenario.message?.startsWith('input')))queueMicrotask(()=>{
         if(!timers.has(id))return;
         timers.delete(id);now+=ms;event('timer',id);
         if(scenario.signalAfterTimer)ready=1n;
@@ -74,7 +77,7 @@ try {
       });
       return id;
     };
-    globalThis.clearTimeout=id=>{assert(timers.has(id),'Cancel only a live timer');timers.delete(id);event('cancel',id);};
+    globalThis.clearTimeout=id=>{if(scenario.message&&!timers.has(id))return;assert(timers.has(id),'Cancel only a live timer');timers.delete(id);event('cancel',id);};
     Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>now}});
     globalThis.self={addEventListener(type,callback){assert.equal(type,'message');listener=callback;},postMessage(message){if(message.type==='game-exit'||message.type==='game-error')resolveTerminal(message);}};
     globalThis.OffscreenCanvas=class OffscreenCanvas {};
@@ -100,6 +103,7 @@ try {
         synchronizeForwardClock(instructions,elapsed){assert(instructions>0);assert.equal(elapsed,now);event('clock',{instructions,elapsed,owner:runtimeOwner,retiredOther});},
         dispatch(){
           dispatches++;event('dispatch',context.thread);
+          if(scenario.message)return output({kind:'api-complete',completion:{...completion,executionBoundary:'block-current-thread'}});
           if(scenario.parked&&dispatches===1)return output({kind:'api-complete',createdThread:{threadId:other,entryPoint:otherIp,initialStackPointer:0xa000,fsBase:0xb000,returnSentinel:entrySentinel},completion:{instructionPointer:waitIp,stackPointer:0x9000,eax:0}});
           if(scenario.parked&&context.thread===other){if(!scenario.joinOnExit)ready=1n;return output({kind:'api-complete',completion:{instructionPointer:entrySentinel,stackPointer:0xa000,eax:0}});}
           assert.equal(context.thread,main);assert(!hostPending);hostPending=true;if(scenario.signal)ready=1n;
@@ -116,10 +120,16 @@ try {
           return output({kind:'host-complete',threadId:main,completion});
         },
         scheduleNextThread(){
+          if(scenario.message){
+            if(completed||(scenario.message==='timer'&&now>=5))return output({kind:'thread-scheduled',threadId:main});
+            if(scenario.message.startsWith('input'))queueMicrotask(()=>listener({data:{type:'keyboard-input',input:{sequence:1}}}));
+            event('idle');return output({kind:'scheduler-idle',messageWaitPending:true,messageWaitDelayMs:scenario.message==='input'?null:5});
+          }
           if(scenario.parked&&!retiredOther){runtimeOwner=other;return output({kind:'thread-scheduled',threadId:other});}
           if(completed){runtimeOwner=main;return output({kind:'thread-scheduled',threadId:main});}
           event('idle');return output({kind:'scheduler-idle'});
         },
+        ingestKeyboardEvent(input){assert(scenario.message?.startsWith('input'));assert.equal(input.sequence,1);assert.equal(events.at(-1).name,'clock');completed=true;event('input');},
         finishThread(code){assert.equal(code,0);assert.equal(context.thread,other);assert.equal(events.at(-1).name,'clock','Thread exit must refresh clock before Rust signal');assert.equal(events.at(-1).detail.elapsed,now);retiredOther=true;parkedSnapshots.delete(other);event('exit-other');if(scenario.joinOnExit){assert(hostPending);assert.equal(attempts,0);ready=1n;now+=1;}return output({kind:'thread-exited'});},
         stopContext:instructionPointer=>({kind:'stop-context',threadId:runtimeOwner,instructionPointer,lastError:0,module:null,symbol:null}),
       },
@@ -141,7 +151,11 @@ try {
     let watchdog;const message=await Promise.race([terminal,new Promise((_,reject)=>{watchdog=nativeSetTimeout(()=>reject(Error('Worker did not finish '+scenario.name)),2000);})]).finally(()=>nativeClearTimeout(watchdog));
     assert.equal(timers.size,0,'Completed/failed worker releases every browser timer');
     if(scenario.error){assert.equal(message.type,'game-error');assert(message.detail.startsWith(scenario.error),message.detail);assert.equal(resumes.filter(x=>x.kind==='host').length,0);}
-    else {assert.equal(message.type,'game-exit',message.detail);assert.equal(message.exitCode,0);assert.equal(resumes.filter(x=>x.kind==='host').length,1);}
+    else {assert.equal(message.type,'game-exit',message.detail);assert.equal(message.exitCode,0);assert.equal(resumes.filter(x=>x.kind==='host').length,scenario.message?0:1);}
+    if(scenario.message){assert.equal(dispatches,1);assert.equal(attempts,0);assert(events.some(x=>x.name==='idle'));assert.equal(resumes.filter(x=>x.kind==='api').length,1);}
+    if(scenario.message==='input'){assert.equal(timerDelays.length,0);assert(events.some(x=>x.name==='input'));}
+    if(scenario.message==='timer'){assert.deepEqual(timerDelays,[5]);assert.equal(events.filter(x=>x.name==='timer').length,1);}
+    if(scenario.message==='input-timer'){assert.deepEqual(timerDelays,[5]);assert.equal(events.filter(x=>x.name==='cancel').length,1);assert.equal(events.filter(x=>x.name==='timer').length,0);}
     if(scenario.signal){assert.deepEqual(acks,[0]);assert.equal(events.filter(x=>x.name==='timer').length,0);assert.equal(events.filter(x=>x.name==='cancel').length,1);}
     if(scenario.retry){assert.deepEqual(acks,[1,1]);assert.deepEqual(timerDelays,[5,7]);assert.equal(events.filter(x=>x.name==='timer').length,2);}
     if(scenario.signalAfterTimer)assert.deepEqual(acks,[0],'Latched Rust winner overrides an already queued timeout');

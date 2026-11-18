@@ -19,7 +19,7 @@ use crate::runtime::{
     RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
     RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest, RuntimeCriticalSection,
     RuntimeFileBacking, RuntimeFindFirstFileOutcome, RuntimeHandle, RuntimeHeapInitialization,
-    RuntimeMutexNameA, RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
+    RuntimeMutexName, RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
     RuntimeThreadPriority, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin,
     RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState, X86_CRITICAL_SECTION_BYTE_LENGTH,
 };
@@ -37,6 +37,7 @@ const WINDOWS_932_CODE_PAGE: u32 = 932;
 const WINDOWS_VERSION_MAJOR: u32 = 10;
 const WINDOWS_VERSION_MINOR: u32 = 0;
 const WINDOWS_VERSION_BUILD: u32 = 19045;
+const JAPAN_UTC_OFFSET_MINUTES: i32 = 540;
 const ERROR_SUCCESS: u32 = 0;
 const ERROR_FILE_NOT_FOUND: u32 = 2;
 const ERROR_PATH_NOT_FOUND: u32 = 3;
@@ -51,6 +52,7 @@ const ERROR_INVALID_NAME: u32 = 123;
 const ERROR_MOD_NOT_FOUND: u32 = 126;
 const ERROR_PROC_NOT_FOUND: u32 = 127;
 const ERROR_ALREADY_EXISTS: u32 = 183;
+const ERROR_NO_UNICODE_TRANSLATION: u32 = 1113;
 pub(crate) const ERROR_NEGATIVE_SEEK: u32 = 131;
 const INVALID_HANDLE_VALUE: u32 = u32::MAX;
 const WAIT_OBJECT_0: u32 = 0;
@@ -62,13 +64,13 @@ const EXCEPTION_CONTINUE_EXECUTION: u32 = 0;
 const EXCEPTION_CONTINUE_SEARCH: u32 = 1;
 const EXCEPTION_NESTED_EXCEPTION: u32 = 2;
 const EXCEPTION_COLLIDED_UNWIND: u32 = 3;
+const STATUS_UNWIND: u32 = 0xc000_0027;
 const EXCEPTION_MAXIMUM_PARAMETERS: usize = 15;
 const X86_EXCEPTION_RECORD_BYTES: usize = 80;
 const X86_CONTEXT_BYTES: usize = 716;
 const X86_CONTEXT_OFFSET: u32 = X86_EXCEPTION_RECORD_BYTES as u32;
 const X86_CONTEXT_FULL_CONTROL_INTEGER_SEGMENTS: u32 = 0x0001_0007;
 const X86_OS_VERSION_INFO_A_BASE_BYTES: u32 = 148;
-const X86_OS_VERSION_INFO_EX_A_BYTES: u32 = 156;
 pub const MEM_RESERVE: u32 = 0x0000_2000;
 pub const MEM_COMMIT: u32 = 0x0000_1000;
 pub const MEM_DECOMMIT: u32 = 0x0000_4000;
@@ -84,24 +86,45 @@ pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<
     };
     Some(match name.as_str() {
         "GetCurrentProcessId"
+        | "GetCurrentProcess"
         | "GetCurrentThreadId"
         | "GetCurrentThread"
         | "GetLastError"
         | "GetACP"
+        | "GetOEMCP"
         | "GetVersion"
         | "GetSystemDefaultLangID"
+        | "GetUserDefaultUILanguage"
+        | "GetSystemDefaultUILanguage"
         | "GetTickCount"
         | "GetCommandLineA"
+        | "GetCommandLineW"
         | "GetEnvironmentStringsW"
+        | "GetEnvironmentStrings"
+        | "GetProcessHeap"
         | "TlsAlloc" => 0,
         "GetSystemTimeAsFileTime"
         | "GetSystemTime"
         | "GetLocalTime"
+        | "GetTimeZoneInformation"
         | "ExitThread"
+        | "ExitProcess"
+        | "UnhandledExceptionFilter"
         | "ResumeThread"
+        | "SuspendThread"
         | "GetSystemInfo"
+        | "GetNativeSystemInfo"
         | "GlobalMemoryStatus"
+        | "GlobalMemoryStatusEx"
+        | "GlobalFree"
+        | "LocalFree"
+        | "IsBadCodePtr"
+        | "HeapDestroy"
+        | "GlobalAddAtomA"
+        | "GlobalDeleteAtom"
         | "GetVersionExA"
+        | "GetVersionExW"
+        | "IsDBCSLeadByte"
         | "SetLastError"
         | "GetDriveTypeA"
         | "IsProcessorFeaturePresent"
@@ -110,12 +133,17 @@ pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<
         | "GetFileType"
         | "SetHandleCount"
         | "FreeEnvironmentStringsW"
+        | "FreeEnvironmentStringsA"
         | "SetCurrentDirectoryA"
         | "GetFileAttributesA"
+        | "GetFileAttributesW"
         | "FindClose"
         | "DeleteFileA"
         | "FlushFileBuffers"
+        | "SetEndOfFile"
         | "CloseHandle"
+        | "GetThreadPriority"
+        | "LockResource"
         | "SetEvent"
         | "ResetEvent"
         | "Sleep"
@@ -124,9 +152,12 @@ pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<
         | "GetStartupInfoA"
         | "GetStartupInfoW"
         | "LoadLibraryA"
+        | "LoadLibraryW"
+        | "FreeLibrary"
         | "GetModuleHandleA"
         | "GetModuleHandleW"
         | "TlsGetValue"
+        | "TlsFree"
         | "EncodePointer"
         | "DecodePointer"
         | "FlsAlloc"
@@ -135,17 +166,32 @@ pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<
         | "InterlockedIncrement"
         | "InterlockedDecrement"
         | "InitializeCriticalSection"
+        | "InitializeConditionVariable"
+        | "InitializeSListHead"
+        | "WakeAllConditionVariable"
         | "EnterCriticalSection"
         | "LeaveCriticalSection"
-        | "DeleteCriticalSection" => 1,
+        | "DeleteCriticalSection"
+        | "ReleaseMutex" => 1,
         "GetExitCodeThread"
+        | "GlobalAlloc"
+        | "LocalAlloc"
+        | "GetCurrentDirectoryA"
+        | "SetEnvironmentVariableA"
+        | "SetStdHandle"
+        | "HeapCompact"
         | "SetThreadAffinityMask"
         | "SetThreadPriority"
         | "GetCPInfo"
+        | "GetTempPathW"
         | "FindFirstFileA"
+        | "FindFirstFileW"
         | "FindNextFileA"
+        | "FindNextFileW"
         | "CreateDirectoryA"
+        | "CreateDirectoryW"
         | "GetFileSize"
+        | "TerminateProcess"
         | "GetProcAddress"
         | "TlsSetValue"
         | "IsBadReadPtr"
@@ -153,28 +199,52 @@ pub(crate) fn kernel32_argument_words(endpoint: &ApiEndpointIdentity) -> Option<
         | "FlsSetValue"
         | "InitializeCriticalSectionAndSpinCount"
         | "WaitForSingleObject" => 2,
+        "LoadResource" | "SizeofResource" => 2,
         "VirtualFree"
+        | "MulDiv"
+        | "InterlockedCompareExchange"
+        | "LoadLibraryExA"
+        | "LoadLibraryExW"
+        | "InitializeCriticalSectionEx"
+        | "FlushInstructionCache"
+        | "OpenProcess"
+        | "FindResourceW"
+        | "GetProcessAffinityMask"
         | "CreateMutexA"
+        | "CreateMutexW"
         | "CreateWaitableTimerA"
         | "WaitForSingleObjectEx"
         | "HeapCreate"
         | "HeapAlloc"
         | "HeapFree"
         | "HeapSize"
-        | "GetModuleFileNameA" => 3,
+        | "GetModuleFileNameA"
+        | "GetModuleFileNameW" => 3,
+        "VirtualQuery" => 3,
         "RaiseException"
+        | "GetFileTime"
         | "RtlUnwind"
         | "VirtualAlloc"
+        | "VirtualProtect"
         | "CreateEventA"
+        | "CreateEventW"
         | "SetFilePointer"
         | "WaitForMultipleObjects"
         | "GetStringTypeW"
+        | "GetLocaleInfoA"
+        | "GetLocaleInfoW"
+        | "GetFullPathNameW"
         | "HeapSetInformation"
         | "HeapReAlloc" => 4,
-        "ReadFile" | "WriteFile" => 5,
-        "CreateThread" | "MultiByteToWideChar" | "SetWaitableTimer" | "LCMapStringW" => 6,
-        "CreateFileA" => 7,
+        "ReadFile" | "WriteFile" | "GetStringTypeA" => 5,
+        "CreateThread"
+        | "MultiByteToWideChar"
+        | "SetWaitableTimer"
+        | "LCMapStringW"
+        | "LCMapStringA" => 6,
+        "CreateFileA" | "CreateFileW" => 7,
         "WideCharToMultiByte" => 8,
+        "LCMapStringEx" => 9,
         _ => return None,
     })
 }
@@ -189,6 +259,37 @@ fn handle_get_system_time_as_file_time(
         GuestAddress(output),
         runtime.clock().wall_clock_file_time.to_le_bytes().to_vec(),
     ))
+}
+
+fn handle_get_file_time(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "file handle")?);
+    if !runtime
+        .is_live_object_handle(handle, RuntimeObjectKind::File)
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?
+    {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    runtime
+        .source_file_for_handle(handle)
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    // The mounted filesystem does not expose Windows creation/access/write times.
+    // As on filesystems without these fields, GetFileTime returns zero for them.
+    let mut result = ApiImmediate::new(Some(1));
+    for index in 1..=3 {
+        let pointer = required_argument(endpoint, frame, index, "optional FILETIME output")?;
+        if pointer != 0 {
+            runtime
+                .memory
+                .validate_access(GuestAddress(pointer), 8, MemoryAccess::Write)
+                .map_err(|e| ApiFault::from_memory(e, endpoint))?;
+            result = result.with_guest_write(GuestAddress(pointer), vec![0; 8]);
+        }
+    }
+    Ok(result)
 }
 
 fn handle_raise_exception(
@@ -207,18 +308,20 @@ fn handle_rtl_unwind(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
+    cpu: Option<(crate::api::X86CpuContext, GuestAddress)>,
 ) -> ApiHandlerResult {
-    match rtl_unwind_current_seh_frame(endpoint, frame, runtime) {
-        Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+    match prepare_rtl_unwind(endpoint, frame, runtime, cpu) {
+        Ok(result) => result,
         Err(fault) => ApiHandlerResult::Fault(fault),
     }
 }
 
-fn rtl_unwind_current_seh_frame(
+fn prepare_rtl_unwind(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
-    runtime: &mut crate::runtime::Runtime,
-) -> Result<ApiImmediate, ApiFault> {
+    runtime: &crate::runtime::Runtime,
+    cpu: Option<(crate::api::X86CpuContext, GuestAddress)>,
+) -> Result<ApiHandlerResult, ApiFault> {
     let target_frame = GuestAddress(required_argument(endpoint, frame, 0, "target frame")?);
     let target_ip = GuestAddress(required_argument(endpoint, frame, 1, "target instruction")?);
     let exception_record = GuestAddress(required_argument(endpoint, frame, 2, "exception record")?);
@@ -235,25 +338,36 @@ fn rtl_unwind_current_seh_frame(
         .memory
         .validate_access(target_ip, 1, MemoryAccess::Execute)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    if exception_record.0 == 0 {
-        return Err(ApiFault::new(
-            "RtlUnwind with a generated exception record is not implemented",
-        ));
-    }
     let teb_address = runtime
         .current_thread_teb_address()
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
     let current_head = GuestAddress(read_guest_u32(&runtime.memory, teb_address, endpoint)?);
-    if current_head != target_frame {
-        return Err(ApiFault::new(
-            "RtlUnwind currently supports a target equal to the current SEH chain head",
-        ));
+    validate_unwind_chain(runtime, current_head, target_frame, endpoint)?;
+    let registration = read_x86_exception_registration(runtime, current_head, endpoint)?;
+    let generated_record = exception_record.0 == 0;
+    if generated_record && current_head == target_frame {
+        return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(
+            return_value,
+        ))));
     }
-    let registration = read_x86_exception_registration(runtime, target_frame, endpoint)?;
-    let exception_bytes = runtime
-        .memory
-        .read(exception_record, X86_EXCEPTION_RECORD_BYTES)
-        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let (exception_record, exception_bytes) = if generated_record {
+        let record = crate::api::callback_stack_scratch_address(
+            frame.stack_pointer,
+            (X86_EXCEPTION_RECORD_BYTES + X86_CONTEXT_BYTES + 4) as u32,
+        )?;
+        let mut bytes = vec![0; X86_EXCEPTION_RECORD_BYTES];
+        write_scratch_u32(&mut bytes, 0, STATUS_UNWIND);
+        write_scratch_u32(&mut bytes, 12, frame.return_address.0);
+        (record, bytes)
+    } else {
+        (
+            exception_record,
+            runtime
+                .memory
+                .read(exception_record, X86_EXCEPTION_RECORD_BYTES)
+                .map_err(|error| ApiFault::from_memory(error, endpoint))?,
+        )
+    };
     runtime
         .memory
         .validate_access(
@@ -277,21 +391,257 @@ fn rtl_unwind_current_seh_frame(
         .checked_add(4)
         .map(GuestAddress)
         .ok_or_else(|| ApiFault::new("RtlUnwind exception flags cross the x86 address limit"))?;
-    let writes = [
-        ApiGuestWrite {
-            address: teb_address,
-            bytes: registration.next.0.to_le_bytes().to_vec(),
-        },
-        ApiGuestWrite {
-            address: exception_flags_address,
-            bytes: (exception_flags | EXCEPTION_UNWINDING)
-                .to_le_bytes()
-                .to_vec(),
-        },
-    ];
-    commit_indirect_guest_writes(&mut runtime.memory, &writes)
+    if current_head == target_frame {
+        return Ok(ApiHandlerResult::Immediate(
+            ApiImmediate::new(Some(return_value)).with_guest_write(
+                exception_flags_address,
+                (exception_flags | EXCEPTION_UNWINDING)
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+        ));
+    }
+    let (context, sentinel) = cpu
+        .ok_or_else(|| ApiFault::new("RtlUnwind handlers require an authoritative x86 context"))?;
+    if context.esp != frame.stack_pointer.0 || context.eip != endpoint.address.0 {
+        return Err(ApiFault::new(
+            "RtlUnwind context does not identify the trapped frame",
+        ));
+    }
+    let record_end = u64::from(exception_record.0) + X86_EXCEPTION_RECORD_BYTES as u64;
+    let exception_region = runtime
+        .memory
+        .regions()
+        .find(|region| {
+            region.range.start().0 <= exception_record.0 && region.range.end() >= record_end
+        })
+        .ok_or_else(|| ApiFault::new("RtlUnwind record must belong to one live guest region"))?;
+    let state = X86ExceptionUnwind {
+        frame: registration.frame,
+        next_frame: registration.next,
+        target_frame,
+        previous_frame: None,
+        exception_record,
+        exception_region,
+        generated_record,
+        return_value,
+        dispatch_frame: None,
+    };
+    let mut scratch = x86_exception_dispatch_scratch(0, 0, &[], frame, context)?;
+    scratch[..X86_EXCEPTION_RECORD_BYTES].copy_from_slice(&exception_bytes);
+    scratch.extend_from_slice(&registration.frame.0.to_le_bytes());
+    Ok(ApiHandlerResult::GuestCallback(Box::new(
+        exception_unwind_callback_request(registration.handler, state, scratch, sentinel),
+    )))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct X86ExceptionUnwind {
+    frame: GuestAddress,
+    next_frame: GuestAddress,
+    target_frame: GuestAddress,
+    previous_frame: Option<GuestAddress>,
+    exception_record: GuestAddress,
+    exception_region: crate::memory::MemoryRegionInfo,
+    generated_record: bool,
+    return_value: u32,
+    pub(crate) dispatch_frame: Option<crate::runtime::RuntimeCallbackFrameId>,
+}
+
+fn validate_unwind_chain(
+    runtime: &crate::runtime::Runtime,
+    mut current: GuestAddress,
+    target: GuestAddress,
+    endpoint: &ApiEndpointIdentity,
+) -> Result<(), ApiFault> {
+    for _ in 0..1024 {
+        let registration = read_x86_exception_registration(runtime, current, endpoint)?;
+        if current == target {
+            return Ok(());
+        }
+        if current.0 > target.0 || registration.next.0 == u32::MAX {
+            return Err(ApiFault::new(
+                "RtlUnwind target is not in the current thread SEH chain",
+            ));
+        }
+        current = registration.next;
+    }
+    Err(ApiFault::new(
+        "RtlUnwind exceeds the bounded SEH frame depth",
+    ))
+}
+
+fn exception_unwind_callback_request(
+    handler: GuestAddress,
+    state: X86ExceptionUnwind,
+    scratch: Vec<u8>,
+    sentinel: GuestAddress,
+) -> GuestCallbackRequest {
+    GuestCallbackRequest {
+        target: handler,
+        arguments: vec![
+            GuestCallbackArgument::U32(state.exception_record.0),
+            GuestCallbackArgument::U32(state.frame.0),
+            GuestCallbackArgument::ScratchPointer {
+                offset: X86_CONTEXT_OFFSET,
+            },
+            GuestCallbackArgument::ScratchPointer {
+                offset: (X86_EXCEPTION_RECORD_BYTES + X86_CONTEXT_BYTES) as u32,
+            },
+        ],
+        scratch,
+        scratch_pointer_relocations: Vec::new(),
+        return_sentinel: sentinel,
+        completion_policy: GuestCallbackCompletionPolicy::ExceptionUnwind { state },
+    }
+}
+
+fn validate_unwind_record(
+    runtime: &crate::runtime::Runtime,
+    state: X86ExceptionUnwind,
+    endpoint: &ApiEndpointIdentity,
+    initializing: bool,
+) -> Result<u32, ApiFault> {
+    if !runtime
+        .memory
+        .regions()
+        .any(|region| region == state.exception_region)
+    {
+        return Err(ApiFault::new(
+            "SEH unwind exception region was retired or replaced",
+        ));
+    }
+    runtime
+        .memory
+        .validate_access(
+            state.exception_record,
+            X86_EXCEPTION_RECORD_BYTES,
+            MemoryAccess::Write,
+        )
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    Ok(ApiImmediate::new(Some(return_value)))
+    let flags = if initializing && state.generated_record && state.previous_frame.is_none() {
+        0
+    } else {
+        read_guest_u32(
+            &runtime.memory,
+            GuestAddress(state.exception_record.0 + 4),
+            endpoint,
+        )?
+    };
+    if flags & !(EXCEPTION_NONCONTINUABLE | EXCEPTION_UNWINDING) != 0 {
+        return Err(ApiFault::new(
+            "SEH unwind record has unsupported exception flags",
+        ));
+    }
+    Ok(flags)
+}
+
+pub(crate) fn exception_unwind_entry_writes(
+    call: &ApiGuestCallbackCall,
+    runtime: &crate::runtime::Runtime,
+) -> Result<Vec<ApiGuestWrite>, ApiFault> {
+    let GuestCallbackCompletionPolicy::ExceptionUnwind { state } = call.request.completion_policy
+    else {
+        return Ok(Vec::new());
+    };
+    let endpoint = &call.frame.endpoint;
+    let teb = runtime
+        .current_thread_teb_address()
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let head = GuestAddress(read_guest_u32(&runtime.memory, teb, endpoint)?);
+    if head != state.previous_frame.unwrap_or(state.frame) {
+        return Err(ApiFault::new(
+            "SEH unwind callback no longer owns the chain head",
+        ));
+    }
+    if let Some(previous) = state.previous_frame
+        && read_x86_exception_registration(runtime, previous, endpoint)?.next != state.frame
+    {
+        return Err(ApiFault::new(
+            "SEH unwind predecessor changed during callback handoff",
+        ));
+    }
+    validate_unwind_chain(runtime, state.frame, state.target_frame, endpoint)?;
+    let current = read_x86_exception_registration(runtime, state.frame, endpoint)?;
+    if current.next != state.next_frame || current.handler != call.request.target {
+        return Err(ApiFault::new(
+            "SEH unwind handler identity changed during callback handoff",
+        ));
+    }
+    let flags = validate_unwind_record(runtime, state, endpoint, true)?;
+    Ok(vec![
+        ApiGuestWrite {
+            address: teb,
+            bytes: state.frame.0.to_le_bytes().to_vec(),
+        },
+        ApiGuestWrite {
+            address: GuestAddress(state.exception_record.0 + 4),
+            bytes: (flags | EXCEPTION_UNWINDING).to_le_bytes().to_vec(),
+        },
+    ])
+}
+
+pub(crate) fn resolve_exception_unwind_callback(
+    call: &ApiGuestCallbackCall,
+    result: u32,
+    runtime: &crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    let resolve = || -> Result<ApiHandlerResult, ApiFault> {
+        let GuestCallbackCompletionPolicy::ExceptionUnwind { mut state } =
+            call.request.completion_policy
+        else {
+            return Err(ApiFault::new(
+                "SEH unwind continuation has the wrong policy",
+            ));
+        };
+        if result != EXCEPTION_CONTINUE_SEARCH {
+            return Err(ApiFault::new(format!(
+                "SEH unwind handler disposition {result} is not implemented"
+            )));
+        }
+        let endpoint = &call.frame.endpoint;
+        let teb = runtime
+            .current_thread_teb_address()
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        if read_guest_u32(&runtime.memory, teb, endpoint)? != state.frame.0 {
+            return Err(ApiFault::new(
+                "SEH unwind handler changed the active chain head",
+            ));
+        }
+        let current = read_x86_exception_registration(runtime, state.frame, endpoint)?;
+        if current.next != state.next_frame || current.handler != call.request.target {
+            return Err(ApiFault::new(
+                "SEH unwind registration changed while its handler ran",
+            ));
+        }
+        validate_unwind_record(runtime, state, endpoint, false)?;
+        validate_unwind_chain(runtime, state.next_frame, state.target_frame, endpoint)?;
+        if state.next_frame == state.target_frame {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(state.return_value))
+                    .with_guest_write(teb, state.target_frame.0.to_le_bytes().to_vec()),
+            ));
+        }
+        let next = read_x86_exception_registration(runtime, state.next_frame, endpoint)?;
+        state.previous_frame = Some(state.frame);
+        state.frame = next.frame;
+        state.next_frame = next.next;
+        let mut scratch = call.request.scratch.clone();
+        let offset = X86_EXCEPTION_RECORD_BYTES + X86_CONTEXT_BYTES;
+        scratch[offset..offset + 4].copy_from_slice(&next.frame.0.to_le_bytes());
+        Ok(ApiHandlerResult::GuestCallback(Box::new(
+            exception_unwind_callback_request(
+                next.handler,
+                state,
+                scratch,
+                call.request.return_sentinel,
+            ),
+        )))
+    };
+    match resolve() {
+        Ok(result) => result,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
 }
 
 fn prepare_raise_exception_callback(
@@ -621,10 +971,31 @@ fn handle_get_local_time(
 
 fn local_file_time(file_time: u64) -> Result<u64, ApiFault> {
     // Fixed Japanese environment: UTC+09:00, without daylight saving.
-    const JAPAN_OFFSET_TICKS: u64 = 540 * 600_000_000;
+    const JAPAN_OFFSET_TICKS: u64 = JAPAN_UTC_OFFSET_MINUTES as u64 * 600_000_000;
     file_time.checked_add(JAPAN_OFFSET_TICKS).ok_or_else(|| {
         ApiFault::new("runtime wall clock cannot be projected to Japanese local time")
     })
+}
+
+fn handle_get_time_zone_information(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        0,
+        "TIME_ZONE_INFORMATION output",
+    )?);
+    let mut bytes = vec![0; 172];
+    bytes[..4].copy_from_slice(&(-JAPAN_UTC_OFFSET_MINUTES).to_le_bytes());
+    for (offset, name) in [(4, "Tokyo Standard Time"), (88, "Tokyo Daylight Time")] {
+        for (index, unit) in name.encode_utf16().enumerate() {
+            bytes[offset + index * 2..offset + index * 2 + 2].copy_from_slice(&unit.to_le_bytes());
+        }
+    }
+    // No daylight-saving transitions: TIME_ZONE_ID_UNKNOWN, with a valid bias.
+    Ok(ApiImmediate::new(Some(0)).with_guest_write(output, bytes))
 }
 
 fn system_time_bytes(file_time: u64) -> Vec<u8> {
@@ -733,18 +1104,14 @@ fn handle_virtual_alloc_basic(
     let size = required_argument(endpoint, frame, 1, "reservation size")?;
     let allocation_type = required_argument(endpoint, frame, 2, "allocation type")?;
     let protection = required_argument(endpoint, frame, 3, "protection")?;
-    if protection != PAGE_READWRITE
-        || (allocation_type != MEM_COMMIT && allocation_type != (MEM_RESERVE | MEM_TOP_DOWN))
-    {
+    let kind = allocation_type & !MEM_TOP_DOWN;
+    if !matches!(kind, MEM_COMMIT | MEM_RESERVE | 0x3000) {
         return Err(ApiFault::new(
-            "VirtualAlloc currently supports read/write top-down reserve and commit inside a reservation",
+            "VirtualAlloc requires supported reserve/commit flags",
         ));
     }
-    if size == 0
-        || (allocation_type == (MEM_RESERVE | MEM_TOP_DOWN) && preferred != 0)
-        || (allocation_type == MEM_COMMIT
-            && (preferred == 0 || !preferred.is_multiple_of(crate::memory::GUEST_PAGE_SIZE as u32)))
-    {
+    let page_protection = virtual_page_protection(protection)?;
+    if size == 0 {
         return virtual_memory_failure(Some(0), ERROR_INVALID_PARAMETER);
     }
     let page = crate::memory::GUEST_PAGE_SIZE as u32;
@@ -752,15 +1119,18 @@ fn handle_virtual_alloc_basic(
     let Some(rounded_size) = rounded_size else {
         return virtual_memory_failure(Some(0), ERROR_INVALID_PARAMETER);
     };
-    let page_protection = crate::memory::PageProtection {
-        read: true,
-        write: true,
-        execute: false,
-    };
-    let result = if allocation_type == MEM_COMMIT {
+    let result = if kind == MEM_COMMIT && preferred != 0 {
         runtime.commit_virtual_memory(GuestAddress(preferred), size, page_protection)
-    } else {
+    } else if allocation_type == (MEM_RESERVE | MEM_TOP_DOWN) && preferred == 0 {
         runtime.reserve_virtual_memory(rounded_size)
+    } else {
+        runtime.allocate_virtual_memory(
+            GuestAddress(preferred),
+            size,
+            allocation_type & MEM_TOP_DOWN != 0,
+            kind & MEM_COMMIT != 0,
+            page_protection,
+        )
     };
     match result {
         Ok(Ok(address)) => Ok(ApiImmediate::new(Some(address.0))),
@@ -777,12 +1147,22 @@ fn handle_virtual_free_basic(
     let address = required_argument(endpoint, frame, 0, "decommit address")?;
     let size = required_argument(endpoint, frame, 1, "decommit size")?;
     let free_type = required_argument(endpoint, frame, 2, "free type")?;
+    if free_type == 0x8000 {
+        if address == 0 || size != 0 {
+            return virtual_memory_failure(Some(0), ERROR_INVALID_PARAMETER);
+        }
+        return match runtime.release_virtual_memory(GuestAddress(address)) {
+            Ok(Ok(())) => Ok(ApiImmediate::new(Some(1))),
+            Ok(Err(error)) => virtual_memory_failure(Some(0), error),
+            Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
+        };
+    }
     if free_type != MEM_DECOMMIT {
         return Err(ApiFault::new(
             "VirtualFree currently supports nonempty decommit inside a reservation",
         ));
     }
-    if address == 0 || size == 0 || !address.is_multiple_of(crate::memory::GUEST_PAGE_SIZE as u32) {
+    if address == 0 || size == 0 {
         return virtual_memory_failure(Some(u32::from(false)), ERROR_INVALID_PARAMETER);
     }
     match runtime.decommit_virtual_memory(GuestAddress(address), size) {
@@ -794,6 +1174,79 @@ fn handle_virtual_free_basic(
 
 fn virtual_memory_failure(value: Option<u32>, last_error: u32) -> Result<ApiImmediate, ApiFault> {
     Ok(ApiImmediate::new(value).with_last_error(last_error))
+}
+
+fn handle_virtual_protect(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(endpoint, frame, 0, "protected address")?);
+    let length = required_argument(endpoint, frame, 1, "protected length")?;
+    let flags = required_argument(endpoint, frame, 2, "new protection")?;
+    let output = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        3,
+        "old protection output",
+    )?);
+    match runtime.protect_virtual_memory(address, length, virtual_page_protection(flags)?, output) {
+        Ok(Ok(())) => Ok(ApiImmediate::new(Some(1))),
+        Ok(Err(error)) => virtual_memory_failure(Some(0), error),
+        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
+    }
+}
+
+fn handle_flush_instruction_cache(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let process = RuntimeHandle(required_argument(endpoint, frame, 0, "process handle")?);
+    let address = required_argument(endpoint, frame, 1, "cache range base")?;
+    let length = required_argument(endpoint, frame, 2, "cache range length")?;
+    if process.0 != u32::MAX {
+        if runtime
+            .is_current_process_query_handle(process)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        {
+            return Err(ApiFault::new(
+                "FlushInstructionCache access checks for opened process handles are not implemented",
+            ));
+        }
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    if address != 0 && u64::from(address) + u64::from(length) > 1_u64 << 32 {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
+    }
+    // Flushing the process cache also covers a requested subrange. No guest
+    // bytes are read or modified; the CPU must acknowledge this invalidation.
+    runtime
+        .memory
+        .flush_instruction_cache()
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    Ok(ApiImmediate::new(Some(1)))
+}
+
+fn virtual_page_protection(flags: u32) -> Result<crate::memory::PageProtection, ApiFault> {
+    let (read, write, execute) = match flags {
+        1 => (false, false, false),
+        2 => (true, false, false),
+        PAGE_READWRITE => (true, true, false),
+        0x10 => (false, false, true),
+        0x20 => (true, false, true),
+        0x40 => (true, true, true),
+        _ => {
+            return Err(ApiFault::new(
+                "virtual memory protection flags are not implemented",
+            ));
+        }
+    };
+    Ok(crate::memory::PageProtection {
+        read,
+        write,
+        execute,
+    })
 }
 
 fn handle_set_thread_affinity_mask_basic(
@@ -809,6 +1262,21 @@ fn handle_set_thread_affinity_mask_basic(
     {
         Ok(previous_mask) => Ok(ApiImmediate::new(Some(previous_mask))),
         Err(last_error) => Ok(ApiImmediate::new(Some(0)).with_last_error(last_error)),
+    }
+}
+
+fn get_thread_priority_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "thread handle")?);
+    match runtime
+        .thread_priority_for_handle(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        Some(priority) => Ok(ApiImmediate::new(Some(priority.win32_value() as u32))),
+        None => Ok(ApiImmediate::new(Some(0x7fff_ffff)).with_last_error(ERROR_INVALID_HANDLE)),
     }
 }
 
@@ -909,6 +1377,30 @@ fn handle_resume_thread(
     })
 }
 
+fn handle_suspend_thread(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "thread handle")?);
+    let previous = runtime
+        .suspend_thread(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let previous = match previous {
+        Ok(count) => count,
+        Err(error) => return Ok(ApiImmediate::new(Some(u32::MAX)).with_last_error(error)),
+    };
+    let mut immediate = ApiImmediate::new(Some(previous));
+    if !runtime
+        .scheduler_state()
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        .is_executable()
+    {
+        immediate.execution_boundary = RuntimeApiBoundaryDisposition::BlockCurrentThread;
+    }
+    Ok(immediate)
+}
+
 fn handle_get_system_info_basic(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
@@ -943,6 +1435,16 @@ fn handle_global_memory_status_basic(
     )?);
     let limits = memory.limits();
     let stats = memory.stats();
+    let extended =
+        matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "GlobalMemoryStatusEx");
+    if extended
+        && memory
+            .read(output, 4)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?
+            != 64_u32.to_le_bytes()
+    {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
+    }
     // The physical figures describe this process's bounded guest-memory budget,
     // not the browser host's memory or the v86 execution mirror.
     let total_physical = (limits.max_physical_pages as u64)
@@ -967,6 +1469,22 @@ fn handle_global_memory_status_basic(
         ((u64::from(total_physical - available_physical) * 100) / u64::from(total_physical)) as u32
     };
     let mut bytes = Vec::with_capacity(32);
+    if extended {
+        bytes.extend_from_slice(&64_u32.to_le_bytes());
+        bytes.extend_from_slice(&memory_load.to_le_bytes());
+        for value in [
+            total_physical,
+            available_physical,
+            total_physical,
+            available_physical,
+            TOTAL_VIRTUAL,
+            available_virtual,
+            0,
+        ] {
+            bytes.extend_from_slice(&u64::from(value).to_le_bytes());
+        }
+        return Ok(ApiImmediate::new(Some(1)).with_guest_write(output, bytes));
+    }
     for word in [
         32,
         memory_load,
@@ -986,6 +1504,7 @@ fn handle_get_version_ex_a_basic(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     memory: &GuestMemory,
+    wide: bool,
 ) -> Result<ApiImmediate, ApiFault> {
     let output = GuestAddress(required_argument(
         endpoint,
@@ -1001,10 +1520,13 @@ fn handle_get_version_ex_a_basic(
             .try_into()
             .expect("checked OSVERSIONINFOA size field has DWORD width"),
     );
-    if !matches!(
-        declared_size,
-        X86_OS_VERSION_INFO_A_BASE_BYTES | X86_OS_VERSION_INFO_EX_A_BYTES
-    ) {
+    let base_size = if wide {
+        276
+    } else {
+        X86_OS_VERSION_INFO_A_BASE_BYTES
+    };
+    let extended_size = base_size + 8;
+    if declared_size != base_size && declared_size != extended_size {
         return Ok(
             ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INSUFFICIENT_BUFFER)
         );
@@ -1013,21 +1535,29 @@ fn handle_get_version_ex_a_basic(
     let mut bytes = memory
         .read(output, declared_size as usize)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    merge_os_version_info_a(&mut bytes);
+    merge_os_version_info_a(&mut bytes, wide);
     Ok(ApiImmediate::new(Some(u32::from(true))).with_guest_write(output, bytes))
 }
 
-fn merge_os_version_info_a(bytes: &mut [u8]) {
+fn merge_os_version_info_a(bytes: &mut [u8], wide: bool) {
     // Fixed NT 10.0 / build 19045 workstation, independent of the browser host.
     bytes[4..8].copy_from_slice(&WINDOWS_VERSION_MAJOR.to_le_bytes());
     bytes[8..12].copy_from_slice(&WINDOWS_VERSION_MINOR.to_le_bytes());
     bytes[12..16].copy_from_slice(&WINDOWS_VERSION_BUILD.to_le_bytes());
     bytes[16..20].copy_from_slice(&2_u32.to_le_bytes());
     bytes[20] = 0; // Empty service-pack string; preserve its unused tail.
-    if bytes.len() == X86_OS_VERSION_INFO_EX_A_BYTES as usize {
-        bytes[148..154].fill(0);
-        bytes[154] = 1; // VER_NT_WORKSTATION
-        bytes[155] = 0;
+    if wide {
+        bytes[21] = 0;
+    }
+    let base = if wide {
+        276
+    } else {
+        X86_OS_VERSION_INFO_A_BASE_BYTES as usize
+    };
+    if bytes.len() == base + 8 {
+        bytes[base..base + 6].fill(0);
+        bytes[base + 6] = 1; // VER_NT_WORKSTATION
+        bytes[base + 7] = 0;
     }
 }
 
@@ -1096,6 +1626,61 @@ fn handle_get_drive_type_a_basic(
         1 // DRIVE_NO_ROOT_DIR
     };
     Ok(ApiImmediate::new(Some(drive_type)))
+}
+
+fn handle_get_locale_info(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let locale = required_argument(endpoint, frame, 0, "locale identifier")?;
+    let kind = required_argument(endpoint, frame, 1, "locale information type")?;
+    let output = GuestAddress(required_argument(endpoint, frame, 2, "locale data output")?);
+    let capacity = required_argument(endpoint, frame, 3, "locale data capacity")? as i32;
+    if capacity < 0 || (capacity > 0 && output.0 == 0) {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
+    }
+    if !matches!(locale, 0 | 0x0011 | 0x0400 | 0x0800 | 0x0411) {
+        return Err(ApiFault::new(format!(
+            "GetLocaleInfo locale {locale:#x} is not implemented"
+        )));
+    }
+    if kind & 0x1fff_0000 != 0 {
+        return Err(ApiFault::new("GetLocaleInfo flags are not implemented"));
+    }
+    // The fixed Japanese environment has no per-user locale overrides.
+    let field = kind & 0xffff;
+    let text = match field {
+        0x1001 => "Japanese", // LOCALE_SENGLANGUAGE
+        0x1004 => "932",      // LOCALE_IDEFAULTANSICODEPAGE
+        _ => {
+            return Err(ApiFault::new(format!(
+                "GetLocaleInfo information type {field:#x} is not implemented"
+            )));
+        }
+    };
+    let unicode = matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "GetLocaleInfoW");
+    let numeric = kind & 0x2000_0000 != 0;
+    if numeric && field != 0x1004 {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(1004)); // ERROR_INVALID_FLAGS
+    }
+    let bytes: Vec<u8> = if numeric {
+        WINDOWS_932_CODE_PAGE.to_le_bytes().to_vec()
+    } else if unicode {
+        text.encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect()
+    } else {
+        text.bytes().chain([0]).collect()
+    };
+    let required = bytes.len() as u32 / if unicode { 2 } else { 1 };
+    if capacity == 0 {
+        return Ok(ApiImmediate::new(Some(required)));
+    }
+    if (capacity as u32) < required {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INSUFFICIENT_BUFFER));
+    }
+    Ok(ApiImmediate::new(Some(required)).with_guest_write(output, bytes))
 }
 
 fn handle_get_cp_info_basic(
@@ -1198,47 +1783,123 @@ fn handle_set_handle_count_basic(
     )?)))
 }
 
-fn handle_get_command_line_a(
+fn handle_get_command_line(
     endpoint: &ApiEndpointIdentity,
     runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
     let command_line = runtime
         .process_command_line()
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let wide = matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "GetCommandLineW");
+    let (address, length) = if wide {
+        (
+            command_line.wide_buffer_address,
+            command_line.wide_byte_length_with_nul,
+        )
+    } else {
+        (
+            command_line.ansi_buffer_address,
+            command_line.ansi_byte_length_with_nul,
+        )
+    };
     let bytes = runtime
         .memory
-        .read(
-            command_line.ansi_buffer_address,
-            usize::try_from(command_line.ansi_byte_length_with_nul).map_err(|_| {
-                ApiFault::new("runtime ANSI command-line length does not fit host accounting")
-            })?,
-        )
+        .read(address, length as usize)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    if bytes.last() != Some(&0) || bytes[..bytes.len().saturating_sub(1)].contains(&0) {
+    let terminated = if wide {
+        bytes.len() >= 2
+            && bytes.len().is_multiple_of(2)
+            && bytes.ends_with(&[0, 0])
+            && bytes[..bytes.len() - 2]
+                .chunks_exact(2)
+                .all(|unit| unit != [0, 0])
+    } else {
+        bytes.last() == Some(&0) && !bytes[..bytes.len().saturating_sub(1)].contains(&0)
+    };
+    if !terminated {
         return Err(ApiFault::new(
-            "the process-owned ANSI command-line view no longer has its bounded NUL-terminated shape",
+            "the process command-line view lost its bounded NUL termination",
         ));
     }
-    Ok(ApiImmediate::new(Some(command_line.ansi_buffer_address.0)))
+    Ok(ApiImmediate::new(Some(address.0)))
 }
 
-fn handle_get_module_file_name_a_basic(
+fn handle_get_module_file_name(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &crate::runtime::Runtime,
+    wide: bool,
 ) -> Result<ApiImmediate, ApiFault> {
     const MAXIMUM_CAPACITY: u32 = 32768;
     let module_handle = required_argument(endpoint, frame, 0, "module handle")?;
-    let output_address = required_argument(endpoint, frame, 1, "ANSI module file-name output")?;
-    let capacity = required_argument(endpoint, frame, 2, "ANSI module file-name capacity")?;
-    if module_handle != 0 {
-        return Err(ApiFault::new(
-            "GetModuleFileNameA currently supports only the current process image",
-        ));
-    }
+    let output_address = required_argument(endpoint, frame, 1, "module file-name output")?;
+    let capacity = required_argument(endpoint, frame, 2, "module file-name character capacity")?;
+    let image_path = if module_handle == 0 {
+        runtime.process_image_path_a().bytes_with_nul.clone()
+    } else {
+        let image = runtime
+            .module_image_by_load_base(GuestAddress(module_handle))
+            .map_err(|error| ApiFault::new(error.to_string()))?;
+        let Some(image) = image else {
+            if runtime
+                .module_option(module_handle)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+                .is_some_and(|module| module.runtime_system_module)
+            {
+                return Err(ApiFault::new(
+                    "GetModuleFileName for runtime system modules is not implemented",
+                ));
+            }
+            return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_MOD_NOT_FOUND));
+        };
+        let module = runtime
+            .module(image.handle)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        if module.handle
+            == runtime
+                .main_module()
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+                .handle
+        {
+            runtime.process_image_path_a().bytes_with_nul.clone()
+        } else {
+            let name = &module.requested_name;
+            let absolute = name.as_bytes().get(1) == Some(&b':')
+                && name
+                    .as_bytes()
+                    .get(2)
+                    .is_some_and(|byte| matches!(byte, b'\\' | b'/'));
+            let path = if absolute {
+                name.clone()
+            } else if !name.contains(['\\', '/', ':']) {
+                // Static imports are resolved beside the executable. Do not use
+                // the mutable current directory when querying an already loaded DLL.
+                let process_path =
+                    decode_windows_932(&runtime.process_image_path_a().bytes_with_nul);
+                let process_path = String::from_utf16(&process_path[..process_path.len() - 1])
+                    .map_err(|_| ApiFault::new("process image path is not Unicode"))?;
+                let (directory, _) = process_path
+                    .rsplit_once(['\\', '/'])
+                    .ok_or_else(|| ApiFault::new("process image path has no directory"))?;
+                format!("{directory}\\{name}")
+            } else {
+                return Err(ApiFault::new("loaded module has no recorded absolute path"));
+            };
+            if path.contains('\0') {
+                return Err(ApiFault::new("loaded module path contains NUL"));
+            }
+            let (bytes, _, replaced) = encoding_rs::SHIFT_JIS.encode(&path);
+            if replaced {
+                return Err(ApiFault::new("loaded module path is not Windows-932"));
+            }
+            let mut bytes = bytes.into_owned();
+            bytes.push(0);
+            bytes
+        }
+    };
     if capacity > MAXIMUM_CAPACITY {
         return Err(ApiFault::new(format!(
-            "ANSI module file-name capacity {capacity} exceeds the limit of {MAXIMUM_CAPACITY} bytes"
+            "module file-name capacity {capacity} exceeds the limit of {MAXIMUM_CAPACITY} characters"
         )));
     }
     if capacity == 0 {
@@ -1248,75 +1909,282 @@ fn handle_get_module_file_name_a_basic(
         return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER));
     }
 
-    let image_path = runtime.process_image_path_a();
+    let bytes = if wide {
+        decode_windows_932(&image_path)
+            .into_iter()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>()
+    } else {
+        image_path
+    };
+    let character_bytes = if wide { 2 } else { 1 };
     let capacity = usize::try_from(capacity).map_err(|_| {
         ApiFault::new("validated ANSI module file-name capacity does not fit host accounting")
     })?;
     let output = GuestAddress(output_address);
     runtime
         .memory
-        .validate_access(output, capacity, MemoryAccess::Write)
+        .validate_access(output, capacity * character_bytes, MemoryAccess::Write)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    let path_length = image_path.bytes_with_nul.len() - 1;
+    let path_length = bytes.len() / character_bytes - 1;
     if capacity <= path_length {
-        let mut truncated = image_path.bytes_with_nul[..capacity].to_vec();
-        *truncated
-            .last_mut()
-            .expect("positive GetModuleFileNameA capacity") = 0;
+        let mut truncated = bytes[..capacity * character_bytes].to_vec();
+        truncated[(capacity - 1) * character_bytes..].fill(0);
         return Ok(ApiImmediate::new(Some(capacity as u32))
             .with_last_error(ERROR_INSUFFICIENT_BUFFER)
             .with_guest_write(output, truncated));
     }
     Ok(ApiImmediate::new(Some(path_length as u32))
         .with_last_error(ERROR_SUCCESS)
-        .with_guest_write(output, image_path.bytes_with_nul.clone()))
+        .with_guest_write(output, bytes))
 }
 
-fn handle_get_environment_strings_w(
+fn handle_get_temp_path_w(
     endpoint: &ApiEndpointIdentity,
-    runtime: &mut crate::runtime::Runtime,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let environment = runtime
-        .process_environment_strings()
-        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
-        .clone();
-    let byte_length = usize::try_from(environment.byte_length_with_double_nul).map_err(|_| {
-        ApiFault::new("runtime wide environment length does not fit host accounting")
-    })?;
-    let authority = runtime
-        .memory
-        .read(environment.authority_buffer_address, byte_length)
-        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    let copy = runtime
-        .memory
-        .read(environment.copy_buffer_address, byte_length)
-        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    if authority != [0, 0, 0, 0] || copy != authority {
+    let capacity = required_argument(endpoint, frame, 0, "temporary path capacity")?;
+    let output = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        1,
+        "temporary path output",
+    )?);
+    if capacity > 32768 {
         return Err(ApiFault::new(
-            "the controlled wide environment authority or copy no longer has its empty double-NUL shape",
+            "temporary path output exceeds the bounded UTF-16 capacity",
         ));
     }
-    let copy = runtime
-        .acquire_environment_strings_w()
+    // The controlled environment uses the game's existing writable overlay
+    // root for temporary files. This query does not create a directory/file;
+    // subsequent opens still enforce source immutability and OPFS completion.
+    let root = runtime
+        .source_root_path_a()
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
-    Ok(ApiImmediate::new(Some(copy.0)))
+    let mut path = decode_windows_932(&root);
+    path.pop();
+    // Test characters, not CP932 bytes: a DBCS trail byte may also be 0x5c.
+    if path.last() != Some(&0x5c) {
+        path.push(0x5c);
+    }
+    let length = path.len() as u32;
+    if length > 260 {
+        return Err(ApiFault::new("temporary path exceeds MAX_PATH"));
+    }
+    let result = if capacity <= length {
+        length + 1
+    } else {
+        length
+    };
+    if capacity == 0 {
+        return Ok(ApiImmediate::new(Some(result)));
+    }
+    let mut bytes = vec![0; capacity as usize * 2];
+    if capacity >= length {
+        for (index, unit) in path.into_iter().enumerate() {
+            bytes[index * 2..index * 2 + 2].copy_from_slice(&unit.to_le_bytes());
+        }
+    }
+    Ok(ApiImmediate::new(Some(result)).with_guest_write(output, bytes))
 }
 
-fn handle_free_environment_strings_w(
+fn handle_get_full_path_name_w(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let source = GuestAddress(required_argument(endpoint, frame, 0, "file name")?);
+    let capacity = required_argument(endpoint, frame, 1, "path capacity")?;
+    let output = GuestAddress(required_argument(endpoint, frame, 2, "path output")?);
+    let part = GuestAddress(required_argument(endpoint, frame, 3, "file part output")?);
+    let path = read_nul_terminated_source_path(endpoint, &runtime.memory, source, 32768)?;
+    let full = runtime
+        .full_path_a(&path)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    let mut units = decode_windows_932(&full);
+    let input = decode_windows_932(&path);
+    if input.len() > 1
+        && matches!(input[input.len() - 2], 0x2f | 0x5c)
+        && units[units.len() - 2] != 0x5c
+    {
+        units.insert(units.len() - 1, 0x5c);
+    }
+    let length = units.len() as u32 - 1;
+    if capacity <= length {
+        return Ok(ApiImmediate::new(Some(length + 1)));
+    }
+    if capacity > 32768 {
+        return Err(ApiFault::new(
+            "full path output exceeds the bounded UTF-16 capacity",
+        ));
+    }
+    runtime
+        .memory
+        .validate_access(output, capacity as usize * 2, MemoryAccess::Write)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let mut result = ApiImmediate::new(Some(length)).with_guest_write(
+        output,
+        units.iter().flat_map(|unit| unit.to_le_bytes()).collect(),
+    );
+    if part.0 != 0 {
+        runtime
+            .memory
+            .validate_access(part, 4, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        let index = units[..units.len() - 1]
+            .iter()
+            .rposition(|&unit| unit == 0x5c)
+            .map_or(0, |index| index + 1);
+        let pointer = if index == length as usize {
+            0
+        } else {
+            output
+                .0
+                .checked_add(index as u32 * 2)
+                .ok_or_else(|| ApiFault::new("file part pointer overflowed"))?
+        };
+        result = result.with_guest_write(part, pointer.to_le_bytes().to_vec());
+    }
+    Ok(result)
+}
+
+fn environment_units(
+    endpoint: &ApiEndpointIdentity,
+    runtime: &crate::runtime::Runtime,
+) -> Result<Vec<u16>, ApiFault> {
+    let environment = runtime
+        .process_environment_strings()
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    let bytes = runtime
+        .memory
+        .read(
+            environment.authority_buffer_address,
+            environment.byte_length_with_double_nul as usize,
+        )
+        .map_err(|e| ApiFault::from_memory(e, endpoint))?;
+    if bytes.len() < 4 || bytes.len() % 2 != 0 || bytes[bytes.len() - 4..] != [0; 4] {
+        return Err(ApiFault::new(
+            "process environment has an invalid double-NUL terminator",
+        ));
+    }
+    Ok(bytes
+        .chunks_exact(2)
+        .map(|b| u16::from_le_bytes(b.try_into().unwrap()))
+        .collect())
+}
+
+fn handle_get_environment_strings(
+    endpoint: &ApiEndpointIdentity,
+    runtime: &mut crate::runtime::Runtime,
+    wide: bool,
+) -> Result<ApiImmediate, ApiFault> {
+    let units = environment_units(endpoint, runtime)?;
+    let bytes: Vec<u8> = if wide {
+        units.into_iter().flat_map(u16::to_le_bytes).collect()
+    } else {
+        encode_windows_932(&units)?
+            .into_iter()
+            .flat_map(|unit| unit.bytes)
+            .collect()
+    };
+    let address = runtime
+        .allocate_environment_copy(&bytes, wide)
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    Ok(match address {
+        Some(address) => ApiImmediate::new(Some(address.0)),
+        None => ApiImmediate::new(Some(0)).with_last_error(ERROR_NOT_ENOUGH_MEMORY),
+    })
+}
+
+fn handle_free_environment_strings(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+    wide: bool,
+) -> Result<ApiImmediate, ApiFault> {
+    let pointer = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        0,
+        "environment snapshot",
+    )?);
+    let freed = runtime
+        .free_environment_copy(pointer, wide)
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    Ok(if freed {
+        ApiImmediate::new(Some(1))
+    } else {
+        ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER)
+    })
+}
+
+fn handle_set_environment_variable_a(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
 ) -> Result<ApiImmediate, ApiFault> {
-    let buffer_address = GuestAddress(required_argument(
-        endpoint,
-        frame,
-        0,
-        "wide environment-string copy",
-    )?);
-    runtime
-        .free_environment_strings_w(buffer_address)
-        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
-    Ok(ApiImmediate::new(Some(u32::from(true))))
+    let name_pointer = required_argument(endpoint, frame, 0, "environment variable name")?;
+    let value_pointer = required_argument(endpoint, frame, 1, "environment variable value")?;
+    if name_pointer == 0 {
+        return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
+    }
+    let decode = |pointer| -> Result<String, ApiFault> {
+        let bytes =
+            read_multi_byte_source(endpoint, &runtime.memory, GuestAddress(pointer), -1, 32768)?;
+        let (units, invalid) = decode_windows_932_with_errors(&bytes[..bytes.len() - 1]);
+        if invalid {
+            return Err(ApiFault::new("environment variable is not valid CP932"));
+        }
+        String::from_utf16(&units)
+            .map_err(|_| ApiFault::new("environment variable contains malformed UTF-16"))
+    };
+    let name = decode(name_pointer)?;
+    if name.is_empty() || name.contains('=') {
+        return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
+    }
+    let value = if value_pointer == 0 {
+        None
+    } else {
+        Some(decode(value_pointer)?)
+    };
+    let units = environment_units(endpoint, runtime)?;
+    let mut entries = std::collections::BTreeMap::<String, (String, String)>::new();
+    for entry in units.split(|u| *u == 0).filter(|s| !s.is_empty()) {
+        let text = String::from_utf16(entry)
+            .map_err(|_| ApiFault::new("environment authority contains malformed UTF-16"))?;
+        let (key, value) = text
+            .split_once('=')
+            .ok_or_else(|| ApiFault::new("environment authority contains an invalid entry"))?;
+        entries.insert(key.to_lowercase(), (key.to_owned(), value.to_owned()));
+    }
+    let key = name.to_lowercase();
+    if let Some(value) = value {
+        entries.insert(key, (name, value));
+    } else if entries.remove(&key).is_none() {
+        return Ok(lc_map_string_failure(203));
+    }
+    let mut output = Vec::new();
+    for (name, value) in entries.into_values() {
+        output.extend(format!("{name}={value}").encode_utf16());
+        output.push(0);
+    }
+    if output.is_empty() {
+        output.push(0);
+    }
+    output.push(0);
+    if output.len() > 32767 {
+        return Ok(lc_map_string_failure(ERROR_NOT_ENOUGH_MEMORY));
+    }
+    let bytes: Vec<u8> = output.into_iter().flat_map(u16::to_le_bytes).collect();
+    let changed = runtime
+        .replace_environment_strings(&bytes)
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    Ok(if changed {
+        ApiImmediate::new(Some(1))
+    } else {
+        lc_map_string_failure(ERROR_NOT_ENOUGH_MEMORY)
+    })
 }
 
 #[derive(Debug)]
@@ -1584,7 +2452,7 @@ fn handle_multi_byte_to_wide_char_basic(
     } else {
         code_page
     };
-    if effective_code_page != WINDOWS_932_CODE_PAGE || !matches!(flags, 0 | 1) {
+    if effective_code_page != WINDOWS_932_CODE_PAGE || !matches!(flags, 0 | 1 | 8 | 9) {
         return Err(ApiFault::new(format!(
             "Windows-932 conversion does not support code page {code_page} and flags {flags:#010x}"
         )));
@@ -1625,7 +2493,10 @@ fn handle_multi_byte_to_wide_char_basic(
         return Ok(multi_byte_failure(ERROR_INVALID_PARAMETER));
     }
 
-    let decoded = decode_windows_932(&source);
+    let (decoded, had_errors) = decode_windows_932_with_errors(&source);
+    if flags & 8 != 0 && had_errors {
+        return Ok(multi_byte_failure(ERROR_NO_UNICODE_TRANSLATION));
+    }
     let decoded_length = u32::try_from(decoded.len()).map_err(|_| {
         ApiFault::new("Windows-932 UTF-16 output length does not fit the x86 return value")
     })?;
@@ -1659,6 +2530,92 @@ fn handle_multi_byte_to_wide_char_basic(
         immediate = immediate.with_guest_write(GuestAddress(destination_address), output);
     }
     Ok(immediate)
+}
+
+fn handle_set_current_directory_a_opfs(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    if runtime.source_root_path_a().is_err() {
+        return match handle_set_current_directory_a_basic(endpoint, frame, runtime) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        };
+    }
+    let result = (|| {
+        let address = required_argument(endpoint, frame, 0, "ANSI directory path")?;
+        if address == 0 {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_PARAMETER),
+            ));
+        }
+        let path =
+            read_nul_terminated_ansi_path(endpoint, &runtime.memory, GuestAddress(address), 32768)?;
+        if path == [0] {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_NAME),
+            ));
+        }
+        let Ok(target) = runtime.full_path_a(&path) else {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_NAME),
+            ));
+        };
+        let resolution = runtime
+            .resolve_file_system_path_a(&target)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        let source_missing = match resolution {
+            RuntimePathResolution::Directory => {
+                runtime
+                    .set_resolved_current_directory_a(&target)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(
+                    u32::from(true),
+                ))));
+            }
+            RuntimePathResolution::RegularFile => {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(Some(u32::from(false))).with_last_error(267),
+                ));
+            }
+            RuntimePathResolution::MissingFile => ERROR_FILE_NOT_FOUND,
+            RuntimePathResolution::MissingPath => ERROR_PATH_NOT_FOUND,
+        };
+        let Ok(relative) = runtime.opfs_relative_path(&target) else {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(u32::from(false))).with_last_error(source_missing),
+            ));
+        };
+        if let Some(observation) = runtime.try_resolve_unshadowed_opfs_stat(&relative) {
+            let preserved = runtime
+                .current_last_error()
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+            return complete_opfs_file_operation(
+                OpfsFileOperation::SetCurrentDirectory {
+                    source_missing: source_missing as u8,
+                },
+                observation,
+                preserved,
+            )
+            .map(ApiHandlerResult::Immediate);
+        }
+        let request = runtime
+            .begin_host_request("browser.opfs-stat")
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+        runtime.record_pending_current_directory(request.request_id, target);
+        let mut payload = vec![source_missing as u8];
+        payload.extend_from_slice(relative.as_bytes());
+        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+            request_id: request.request_id,
+            service: request.service,
+            payload,
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
 }
 
 fn handle_set_current_directory_a_basic(
@@ -1711,8 +2668,41 @@ fn read_nul_terminated_ansi_path(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpfsFileOperation {
     Attributes { source_missing: u8 },
+    PathExists { source_missing: u8 },
+    PathIsDirectory { source_missing: u8 },
+    SetCurrentDirectory { source_missing: u8 },
     CreateDirectory,
     DeleteFile { source_missing: u8 },
+}
+
+impl OpfsFileOperation {
+    pub fn attributes(call: &ApiDeferredCall) -> Result<Self, ApiFault> {
+        if call.request.service != "browser.opfs-stat" {
+            return Err(ApiFault::new("attribute completion is not an OPFS stat"));
+        }
+        let source_missing = *call
+            .request
+            .payload
+            .first()
+            .ok_or_else(|| ApiFault::new("OPFS stat source result is missing"))?;
+        match &call.frame.endpoint.symbol {
+            ApiSymbol::Name { name } if name == "PathFileExistsW" => {
+                Ok(Self::PathExists { source_missing })
+            }
+            ApiSymbol::Name { name } if name == "PathIsDirectoryW" => {
+                Ok(Self::PathIsDirectory { source_missing })
+            }
+            ApiSymbol::Name { name } if name == "SetCurrentDirectoryA" => {
+                Ok(Self::SetCurrentDirectory { source_missing })
+            }
+            ApiSymbol::Name { name }
+                if matches!(name.as_str(), "GetFileAttributesA" | "GetFileAttributesW") =>
+            {
+                Ok(Self::Attributes { source_missing })
+            }
+            _ => Err(ApiFault::new("OPFS stat has no supported attribute query")),
+        }
+    }
 }
 
 pub fn complete_opfs_file_operation(
@@ -1722,6 +2712,18 @@ pub fn complete_opfs_file_operation(
 ) -> Result<ApiImmediate, ApiFault> {
     let invalid = || ApiFault::new("browser returned an invalid OPFS result");
     let (value, last_error) = match operation {
+        OpfsFileOperation::PathExists { source_missing }
+        | OpfsFileOperation::PathIsDirectory { source_missing } => {
+            let attributes = complete_opfs_file_operation(
+                OpfsFileOperation::Attributes { source_missing },
+                observation,
+                previous_last_error,
+            )?;
+            return Ok(path_query_result(
+                attributes,
+                matches!(operation, OpfsFileOperation::PathIsDirectory { .. }),
+            ));
+        }
         OpfsFileOperation::Attributes { source_missing } => {
             if !matches!(source_missing, 2 | 3) {
                 return Err(invalid());
@@ -1735,6 +2737,19 @@ pub fn complete_opfs_file_operation(
                 _ => return Err(invalid()),
             };
             return Ok(ApiImmediate::new(Some(attributes)).with_last_error(error));
+        }
+        OpfsFileOperation::SetCurrentDirectory { source_missing } => {
+            if !matches!(source_missing, 2 | 3) {
+                return Err(invalid());
+            }
+            match observation {
+                2 => (true, previous_last_error),
+                1 => (false, 267),
+                3 => (false, ERROR_FILE_NOT_FOUND),
+                4 => (false, u32::from(source_missing)),
+                5 => (false, ERROR_ACCESS_DENIED),
+                _ => return Err(invalid()),
+            }
         }
         OpfsFileOperation::CreateDirectory => match observation {
             0 => (true, previous_last_error),
@@ -1777,13 +2792,13 @@ pub fn complete_kernel32_opfs_open(
             .endpoint
             .module
             .eq_ignore_ascii_case("kernel32.dll")
-        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "CreateFileA")
+        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if matches!(name.as_str(), "CreateFileA" | "CreateFileW"))
     {
         return DispatchOutcome::Fault(ApiFault::new(
-            "OPFS file open does not identify CreateFileA",
+            "OPFS file open does not identify CreateFile",
         ));
     }
-    let (handle, disposition, source_missing) =
+    let (handle, disposition, source_missing, has_source_fallback) =
         match runtime.preflight_opfs_file_open_completion(request_id, &call.request.payload) {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -1795,12 +2810,20 @@ pub fn complete_kernel32_opfs_open(
         || (observation != 1 && byte_length != 0)
         || (observation == 1 && disposition == 2 && byte_length != 0)
         || (observation == 0 && disposition == 3)
-        || observation > 6
+        || observation > 7
+        || (observation == 7 && (!has_source_fallback || disposition != 3))
     {
         return DispatchOutcome::Fault(invalid());
     }
     let (opened, last_error) = match observation {
-        0 => (Some(0), Some(ERROR_SUCCESS)),
+        0 => (
+            Some(0),
+            Some(if source_missing == 0 {
+                ERROR_ALREADY_EXISTS
+            } else {
+                ERROR_SUCCESS
+            }),
+        ),
         1 => (
             Some(byte_length),
             if disposition == 3 {
@@ -1810,9 +2833,17 @@ pub fn complete_kernel32_opfs_open(
             },
         ),
         2 => (None, Some(ERROR_FILE_NOT_FOUND)),
-        3 => (None, Some(u32::from(source_missing))),
+        3 => (
+            None,
+            Some(if source_missing == 0 {
+                ERROR_PATH_NOT_FOUND
+            } else {
+                u32::from(source_missing)
+            }),
+        ),
         4 | 6 => (None, Some(ERROR_ACCESS_DENIED)),
         5 => (None, Some(ERROR_DISK_FULL)),
+        7 => (Some(0), None),
         _ => unreachable!("validated OPFS observation"),
     };
     let mut immediate = ApiImmediate::new(Some(opened.map_or(INVALID_HANDLE_VALUE, |_| handle.0)));
@@ -1828,12 +2859,12 @@ pub fn complete_kernel32_opfs_open(
         runtime,
     );
     if matches!(outcome, DispatchOutcome::Immediate(_)) {
-        runtime.commit_opfs_file_open(request_id, opened);
+        runtime.commit_opfs_file_open(request_id, opened, observation == 7);
     }
     outcome
 }
 
-fn handle_get_file_attributes_a_opfs(
+pub(crate) fn handle_get_file_attributes_a_opfs(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
@@ -1859,6 +2890,19 @@ fn handle_get_file_attributes_a_opfs(
             return Err(ApiFault::new(
                 "source lookup returned an unexpected Windows error",
             ));
+        }
+        if let Some(observation) = runtime.try_resolve_unshadowed_opfs_stat(&relative) {
+            let preserved = runtime
+                .current_last_error()
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+            return complete_opfs_file_operation(
+                OpfsFileOperation::Attributes {
+                    source_missing: source_missing as u8,
+                },
+                observation,
+                preserved,
+            )
+            .map(ApiHandlerResult::Immediate);
         }
         let request = runtime
             .begin_host_request("browser.opfs-stat")
@@ -1946,7 +2990,7 @@ fn handle_delete_file_a_basic(
 // The selected-executable path uses the Rust VFS search directly. A search only
 // enumerates paths already registered with the source mount; browser discovery
 // remains a separate, read-only operation.
-fn handle_find_first_file_a_basic(
+fn handle_find_first_file_basic(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
@@ -1960,7 +3004,8 @@ fn handle_find_first_file_a_basic(
     let output = GuestAddress(required_argument(endpoint, frame, 1, "find data output")?);
     let pattern =
         read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
-    match runtime.find_first_file_a(&pattern, output) {
+    let unicode = matches!(&endpoint.symbol, ApiSymbol::Name { name } if name.ends_with('W'));
+    match runtime.find_first_file(&pattern, output, unicode) {
         Ok(RuntimeFindFirstFileOutcome::Found(handle)) => Ok(ApiImmediate::new(Some(handle.0))),
         Ok(RuntimeFindFirstFileOutcome::NotFound(windows_error)) => {
             Ok(ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(windows_error))
@@ -1969,7 +3014,7 @@ fn handle_find_first_file_a_basic(
     }
 }
 
-fn handle_find_next_file_a_basic(
+fn handle_find_next_file_basic(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
@@ -1982,7 +3027,8 @@ fn handle_find_next_file_a_basic(
         return Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_INVALID_HANDLE));
     }
     let output = GuestAddress(required_argument(endpoint, frame, 1, "find data output")?);
-    match runtime.find_next_file_a(handle, output) {
+    let unicode = matches!(&endpoint.symbol, ApiSymbol::Name { name } if name.ends_with('W'));
+    match runtime.find_next_file(handle, output, unicode) {
         Ok(true) => Ok(ApiImmediate::new(Some(u32::from(true)))),
         Ok(false) => {
             Ok(ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_NO_MORE_FILES))
@@ -2077,16 +3123,15 @@ fn handle_create_file_a_basic(
         }
         let access = required_argument(endpoint, frame, 1, "desired access")?;
         let sharing = required_argument(endpoint, frame, 2, "share mode")?;
-        let security = required_argument(endpoint, frame, 3, "security attributes")?;
+        let inheritable = file_security_attributes(endpoint, frame, &runtime.memory)?;
         let disposition = required_argument(endpoint, frame, 4, "creation disposition")?;
         let attributes = required_argument(endpoint, frame, 5, "file attributes")?;
         let template = required_argument(endpoint, frame, 6, "template file")?;
-        let read_open = access == 0x8000_0000 && matches!(sharing, 0 | 1) && disposition == 3;
+        let read_open = access == 0x8000_0000 && sharing <= 3 && disposition == 3;
         let write_open = matches!(access, 0x4000_0000 | 0xc000_0000)
-            && matches!(sharing, 0 | 1)
+            && sharing <= 3
             && matches!(disposition, 2..=4);
-        if security != 0
-            || template != 0
+        if template != 0
             || attributes & !(0x0800_0000 | 0x80 | 0x20) != 0
             || !(read_open || write_open)
         {
@@ -2095,16 +3140,25 @@ fn handle_create_file_a_basic(
         }
         let path =
             read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
-        if matches!(
-            runtime.resolve_file_system_path_a(&path),
-            Ok(RuntimePathResolution::RegularFile)
-        ) && matches!(runtime.source_lookup_relative_path(&path), Ok(None))
+        if read_open
+            && let Some(resolved) = runtime
+                .try_resolve_unshadowed_opfs_read_open(
+                    &path,
+                    access,
+                    sharing,
+                    disposition,
+                    attributes,
+                    inheritable,
+                )
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
         {
-            return handle_create_file_a_source_basic(endpoint, frame, runtime)
-                .map(ApiHandlerResult::Immediate);
+            return Ok(ApiHandlerResult::Immediate(match resolved {
+                Ok(handle) => ApiImmediate::new(Some(handle.0)),
+                Err(error) => ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(error),
+            }));
         }
         let request = match runtime
-            .begin_opfs_file_open(&path, access, sharing, disposition, attributes)
+            .begin_opfs_file_open(&path, access, sharing, disposition, attributes, inheritable)
             .map_err(|error| ApiFault::from_runtime(error, endpoint))?
         {
             Ok(open) => open,
@@ -2135,13 +3189,12 @@ fn handle_create_file_a_source_basic(
     }
     let access = required_argument(endpoint, frame, 1, "desired access")?;
     let sharing = required_argument(endpoint, frame, 2, "share mode")?;
-    let security = required_argument(endpoint, frame, 3, "security attributes")?;
+    let inheritable = file_security_attributes(endpoint, frame, &runtime.memory)?;
     let disposition = required_argument(endpoint, frame, 4, "creation disposition")?;
     let attributes = required_argument(endpoint, frame, 5, "file attributes")?;
     let template = required_argument(endpoint, frame, 6, "template file")?;
     if access != 0x8000_0000
-        || !matches!(sharing, 0 | 1)
-        || security != 0
+        || sharing > 3
         || disposition != 3
         || attributes & !(0x0800_0000 | 0x80 | 0x20) != 0
         || template != 0
@@ -2172,7 +3225,10 @@ fn handle_create_file_a_source_basic(
     let path =
         read_nul_terminated_source_path(endpoint, &runtime.memory, GuestAddress(address), 260)?;
     match runtime.open_file_a(&path, access, sharing, disposition, attributes) {
-        Ok(Ok(Some(opened))) => Ok(ApiImmediate::new(Some(opened.0))),
+        Ok(Ok(Some(opened))) => {
+            runtime.set_new_file_handle_inheritable(opened, inheritable);
+            Ok(ApiImmediate::new(Some(opened.0)))
+        }
         Ok(Ok(None)) => {
             Ok(ApiImmediate::new(Some(INVALID_HANDLE_VALUE)).with_last_error(ERROR_FILE_NOT_FOUND))
         }
@@ -2181,6 +3237,33 @@ fn handle_create_file_a_source_basic(
         }
         Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
     }
+}
+
+fn file_security_attributes(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    memory: &GuestMemory,
+) -> Result<bool, ApiFault> {
+    let address = required_argument(endpoint, frame, 3, "security attributes")?;
+    if address == 0 {
+        return Ok(false);
+    }
+    let bytes = memory
+        .read(GuestAddress(address), 12)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let word = |offset| {
+        u32::from_le_bytes(
+            bytes[offset..offset + 4]
+                .try_into()
+                .expect("SECURITY_ATTRIBUTES DWORD"),
+        )
+    };
+    if word(0) != 12 || word(4) != 0 {
+        return Err(ApiFault::new(
+            "file SECURITY_ATTRIBUTES requires the x86 size and default security descriptor",
+        ));
+    }
+    Ok(word(8) != 0)
 }
 
 fn handle_get_file_size_basic(
@@ -2294,7 +3377,9 @@ fn handle_write_file_basic(
         let file = runtime
             .source_file_for_handle(handle)
             .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
-        if matches!(file.backing, RuntimeFileBacking::ImmutableSource { .. }) {
+        if matches!(file.backing, RuntimeFileBacking::ImmutableSource { .. })
+            || file.desired_access & 0x4000_0000 == 0
+        {
             return Ok(ApiHandlerResult::Immediate(
                 ApiImmediate::new(Some(u32::from(false))).with_last_error(ERROR_ACCESS_DENIED),
             ));
@@ -2304,19 +3389,34 @@ fn handle_write_file_basic(
         let count = GuestAddress(required_argument(endpoint, frame, 3, "bytes written")?);
         let overlapped = required_argument(endpoint, frame, 4, "overlapped")?;
         if count.0 == 0
-            || buffer.0 == 0
-            || requested == 0
+            || (buffer.0 == 0 && requested != 0)
             || requested > RUNTIME_WRITABLE_FILE_MAX_IO_BYTES
             || overlapped != 0
         {
-            return Err(ApiFault::new(
-                "WriteFile requires a nonempty bounded synchronous write and byte-count output",
-            ));
+            return Err(ApiFault::new(format!(
+                "WriteFile requires a bounded synchronous write and byte-count output (length={requested}, buffer={:#x}, count={:#x}, overlapped={overlapped:#x})",
+                buffer.0, count.0
+            )));
         }
         runtime
             .memory
             .validate_access(count, 4, MemoryAccess::Write)
             .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        if requested == 0 {
+            if runtime
+                .opfs_write_pending(handle)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+            {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(Some(0)).with_last_error(32),
+                ));
+            }
+            // A null write neither extends/truncates the file nor advances its cursor.
+            // No browser write is necessary; prior nonempty writes are already durable.
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(1)).with_guest_write(count, 0_u32.to_le_bytes().to_vec()),
+            ));
+        }
         let bytes = runtime
             .memory
             .read(buffer, requested as usize)
@@ -2350,13 +3450,16 @@ pub fn complete_kernel32_opfs_write(
     observation: u32,
     runtime: &mut crate::runtime::Runtime,
 ) -> DispatchOutcome {
-    if call.request.service != "browser.opfs-write"
-        || !call
-            .frame
-            .endpoint
-            .module
-            .eq_ignore_ascii_case("kernel32.dll")
-        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == "WriteFile")
+    let truncate = call.request.service == "browser.opfs-truncate";
+    if !matches!(
+        call.request.service.as_str(),
+        "browser.opfs-write" | "browser.opfs-truncate"
+    ) || !call
+        .frame
+        .endpoint
+        .module
+        .eq_ignore_ascii_case("kernel32.dll")
+        || !matches!(&call.frame.endpoint.symbol, ApiSymbol::Name { name } if name == if truncate { "SetEndOfFile" } else { "WriteFile" })
         || observation > 3
     {
         return DispatchOutcome::Fault(ApiFault::new(
@@ -2372,9 +3475,14 @@ pub fn complete_kernel32_opfs_write(
             }
         };
     let immediate = if observation == 0 {
-        ApiImmediate::new(Some(u32::from(true)))
-            .with_guest_write(count, transferred.to_le_bytes().to_vec())
-            .with_last_error(ERROR_SUCCESS)
+        let immediate = ApiImmediate::new(Some(1));
+        if truncate {
+            immediate
+        } else {
+            immediate
+                .with_guest_write(count, transferred.to_le_bytes().to_vec())
+                .with_last_error(ERROR_SUCCESS)
+        }
     } else {
         let error = match observation {
             1 => ERROR_FILE_NOT_FOUND,
@@ -2515,6 +3623,9 @@ pub fn complete_kernel32_source_read(
     response: RuntimeSourceReadHostResponse,
     runtime: &mut crate::runtime::Runtime,
 ) -> DispatchOutcome {
+    if call.frame.endpoint.module.eq_ignore_ascii_case("winmm.dll") {
+        return crate::winmm::complete_winmm_source_read(dispatcher, call, response, runtime);
+    }
     if !call
         .frame
         .endpoint
@@ -2757,12 +3868,30 @@ pub fn complete_kernel32_audio_notification_wait(
     outcome
 }
 
-fn read_nul_terminated_source_path(
+pub(crate) fn read_nul_terminated_source_path(
     endpoint: &ApiEndpointIdentity,
     memory: &GuestMemory,
     source: GuestAddress,
     maximum_path_bytes: u32,
 ) -> Result<Vec<u8>, ApiFault> {
+    if matches!(&endpoint.symbol, ApiSymbol::Name { name } if name.ends_with('W')) {
+        let text = read_utf16_nul(endpoint, memory, source, maximum_path_bytes as usize)?;
+        let units: Vec<_> = text.encode_utf16().collect();
+        let encoded = encode_windows_932(&units)?;
+        if encoded.iter().any(|unit| unit.used_default) {
+            return Err(ApiFault::new(
+                "wide file path cannot be represented in the Windows-932 filesystem",
+            ));
+        }
+        let mut bytes: Vec<_> = encoded.into_iter().flat_map(|unit| unit.bytes).collect();
+        if decode_windows_932(&bytes) != units {
+            return Err(ApiFault::new(
+                "wide file path does not round-trip through Windows-932",
+            ));
+        }
+        bytes.push(0);
+        return Ok(bytes);
+    }
     let maximum = usize::try_from(maximum_path_bytes).map_err(|_| {
         ApiFault::new("validated source file path limit does not fit host accounting")
     })?;
@@ -2782,7 +3911,19 @@ fn read_nul_terminated_source_path(
     )))
 }
 
-fn handle_create_mutex_a_basic(
+pub(crate) fn path_query_result(mut attributes: ApiImmediate, directory: bool) -> ApiImmediate {
+    let value = attributes.eax.expect("file attributes returns a DWORD");
+    attributes.eax = Some(if value == u32::MAX {
+        0
+    } else if directory {
+        value & 0x10
+    } else {
+        1
+    });
+    attributes
+}
+
+fn handle_create_mutex_basic(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
@@ -2790,34 +3931,39 @@ fn handle_create_mutex_a_basic(
     const MAXIMUM_NAME_BYTES: usize = 260;
     let security_attributes = required_argument(endpoint, frame, 0, "security attributes")?;
     let initial_owner = required_argument(endpoint, frame, 1, "initial owner")? != 0;
-    let name_address = required_argument(endpoint, frame, 2, "ANSI mutex name")?;
+    let name_address = required_argument(endpoint, frame, 2, "mutex name")?;
     if security_attributes != 0 {
         return Err(ApiFault::new(
-            "CreateMutexA currently supports only null security attributes",
+            "CreateMutex currently supports only null security attributes",
         ));
     }
-    let name_a = if name_address == 0 {
+    let name = if name_address == 0 {
         None
     } else {
-        let bytes_with_nul = read_nul_terminated_ansi_mutex_name(
-            endpoint,
-            &runtime.memory,
-            GuestAddress(name_address),
-            MAXIMUM_NAME_BYTES,
-        )?;
-        if bytes_with_nul == [0] {
-            return Err(ApiFault::new(
-                "empty object-manager names are not yet supported",
-            ));
-        }
-        let utf16_units_with_nul = decode_windows_932(&bytes_with_nul);
+        let units = if matches!(&endpoint.symbol, ApiSymbol::Name { name } if name.ends_with('W')) {
+            let text = read_utf16_nul(
+                endpoint,
+                &runtime.memory,
+                GuestAddress(name_address),
+                MAXIMUM_NAME_BYTES,
+            )?;
+            text.encode_utf16().chain([0]).collect()
+        } else {
+            let bytes = read_nul_terminated_ansi_mutex_name(
+                endpoint,
+                &runtime.memory,
+                GuestAddress(name_address),
+                MAXIMUM_NAME_BYTES,
+            )?;
+            decode_windows_932(&bytes)
+        };
         Some(
-            RuntimeMutexNameA::new(bytes_with_nul, utf16_units_with_nul)
+            RuntimeMutexName::new(units)
                 .map_err(|error| ApiFault::from_runtime(error, endpoint))?,
         )
     };
     let (handle, already_exists) = runtime
-        .create_mutex_a(name_a, initial_owner)
+        .create_mutex(name, initial_owner)
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
     Ok(
         ApiImmediate::new(Some(handle.0)).with_last_error(if already_exists {
@@ -2828,7 +3974,80 @@ fn handle_create_mutex_a_basic(
     )
 }
 
-fn handle_create_event_a(
+fn handle_release_mutex_basic(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "mutex handle")?);
+    let result = runtime
+        .try_release_mutex(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(match result {
+        Ok(()) => ApiImmediate::new(Some(1)),
+        Err(error_code) => ApiImmediate::new(Some(0)).with_last_error(error_code),
+    })
+}
+
+fn handle_open_process(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let access = required_argument(endpoint, frame, 0, "desired access")?;
+    let inherit = required_argument(endpoint, frame, 1, "inherit handle")?;
+    let process_id = required_argument(endpoint, frame, 2, "process ID")?;
+    if !matches!(access, 0x0400 | 0x1000 | 0x1400) || inherit != 0 {
+        return Err(ApiFault::new(
+            "OpenProcess supports non-inherited process query handles",
+        ));
+    }
+    let handle = runtime
+        .open_process_query_handle(process_id)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(match handle {
+        Some(handle) => ApiImmediate::new(Some(handle.0)),
+        None => ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER),
+    })
+}
+
+fn handle_get_process_affinity_mask(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(endpoint, frame, 0, "process handle")?);
+    let process_mask = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        1,
+        "process affinity mask",
+    )?);
+    let system_mask = GuestAddress(required_argument(
+        endpoint,
+        frame,
+        2,
+        "system affinity mask",
+    )?);
+    if !runtime
+        .is_current_process_query_handle(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+    {
+        return Ok(ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE));
+    }
+    for destination in [process_mask, system_mask] {
+        runtime
+            .memory
+            .validate_access(destination, 4, MemoryAccess::Write)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    }
+    // The fixed runtime environment exposes one logical processor (GetSystemInfo).
+    Ok(ApiImmediate::new(Some(1))
+        .with_guest_write(process_mask, 1_u32.to_le_bytes().to_vec())
+        .with_guest_write(system_mask, 1_u32.to_le_bytes().to_vec()))
+}
+
+fn handle_create_event(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
@@ -2836,15 +4055,15 @@ fn handle_create_event_a(
     let security_attributes = required_argument(endpoint, frame, 0, "security attributes")?;
     let manual_reset = required_argument(endpoint, frame, 1, "manual reset")? != 0;
     let initial_state = required_argument(endpoint, frame, 2, "initial state")? != 0;
-    let name = required_argument(endpoint, frame, 3, "ANSI event name")?;
+    let name = required_argument(endpoint, frame, 3, "event name")?;
     if security_attributes != 0 {
         return Err(ApiFault::new(
-            "bounded CreateEventA supports null security attributes",
+            "bounded CreateEvent supports null security attributes",
         ));
     }
     if name != 0 {
         return Err(ApiFault::new(
-            "bounded CreateEventA supports the reached unnamed event variant",
+            "bounded CreateEvent supports the reached unnamed event variant",
         ));
     }
     let handle = runtime
@@ -3320,6 +4539,82 @@ fn handle_get_string_type_w_basic(
     Ok(ApiImmediate::new(Some(u32::from(true))).with_guest_write(output, output_bytes))
 }
 
+fn handle_ansi_locale_string(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    memory: &GuestMemory,
+    classify: bool,
+) -> Result<ApiImmediate, ApiFault> {
+    let locale = required_argument(endpoint, frame, 0, "locale")?;
+    let flags = required_argument(endpoint, frame, 1, "character operation")?;
+    let source = required_argument(endpoint, frame, 2, "ANSI source")?;
+    let count = required_argument(endpoint, frame, 3, "ANSI source length")? as i32;
+    let output = required_argument(endpoint, frame, 4, "output")?;
+    if !matches!(locale, 0 | 0x400 | 0x800 | 0x411 | 0x409) {
+        return Err(ApiFault::new(
+            "ANSI locale operation requires a supported locale",
+        ));
+    }
+    let operation = flags & !0x4000_0000; // LOCALE_USE_CP_ACP is the fixed CP932.
+    if (classify && flags != 1) || (!classify && !matches!(operation, 0x100 | 0x200)) {
+        return Err(ApiFault::new(
+            "ANSI locale operation flags are not implemented",
+        ));
+    }
+    if count == 0 || count < -1 || source == 0 {
+        return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
+    }
+    let bytes = read_multi_byte_source(endpoint, memory, GuestAddress(source), count, 65536)?;
+    let (units, invalid) = decode_windows_932_with_errors(&bytes);
+    if invalid {
+        return Ok(lc_map_string_failure(ERROR_NO_UNICODE_TRANSLATION));
+    }
+    let result = if classify {
+        let mut bytes = Vec::with_capacity(units.len() * 2);
+        for unit in units {
+            let kind = classify_windows_ctype1(unit).ok_or_else(|| {
+                ApiFault::new(format!(
+                    "ANSI classification does not cover UTF-16 unit {unit:#06x}"
+                ))
+            })?;
+            bytes.extend_from_slice(&kind.to_le_bytes());
+        }
+        bytes
+    } else {
+        let mut bytes = Vec::new();
+        for unit in units {
+            let mapped = map_windows_lc_string_unit(operation, unit).ok_or_else(|| {
+                ApiFault::new(format!(
+                    "ANSI locale mapping does not cover UTF-16 unit {unit:#06x}"
+                ))
+            })?;
+            let encoded = encode_windows_932(&[mapped])?.remove(0);
+            if encoded.used_default {
+                return Ok(lc_map_string_failure(ERROR_NO_UNICODE_TRANSLATION));
+            }
+            bytes.extend(encoded.bytes);
+        }
+        bytes
+    };
+    if !classify {
+        let capacity = required_argument(endpoint, frame, 5, "output capacity")? as i32;
+        if capacity < 0 {
+            return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
+        }
+        if capacity == 0 {
+            return Ok(ApiImmediate::new(Some(result.len() as u32)));
+        }
+        if (capacity as usize) < result.len() {
+            return Ok(lc_map_string_failure(ERROR_INSUFFICIENT_BUFFER));
+        }
+    }
+    if output == 0 {
+        return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
+    }
+    let returned = if classify { 1 } else { result.len() as u32 };
+    Ok(ApiImmediate::new(Some(returned)).with_guest_write(GuestAddress(output), result))
+}
+
 fn classify_windows_ctype1(unit: u16) -> Option<u16> {
     const C1_UPPER: u16 = 0x0001;
     const C1_LOWER: u16 = 0x0002;
@@ -3407,7 +4702,31 @@ fn handle_lc_map_string_w_basic(
     memory: &GuestMemory,
 ) -> Result<ApiImmediate, ApiFault> {
     const MAXIMUM_SOURCE_CODE_UNITS: usize = 65_536;
-    let locale = required_argument(endpoint, frame, 0, "locale")?;
+    let locale_argument = required_argument(endpoint, frame, 0, "locale")?;
+    let locale = if matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "LCMapStringEx")
+    {
+        if required_argument(endpoint, frame, 6, "NLS version")? != 0
+            || required_argument(endpoint, frame, 7, "reserved pointer")? != 0
+            || required_argument(endpoint, frame, 8, "sort handle")? != 0
+        {
+            return Err(ApiFault::new(
+                "LCMapStringEx versioned mapping and sort handles are not implemented",
+            ));
+        }
+        if locale_argument == 0 {
+            0x0400
+        } else {
+            let name = read_utf16_nul(endpoint, memory, GuestAddress(locale_argument), 85)?;
+            if !name.eq_ignore_ascii_case("ja-JP") {
+                return Err(ApiFault::new(format!(
+                    "LCMapStringEx locale {name:?} is not implemented"
+                )));
+            }
+            0x0411
+        }
+    } else {
+        locale_argument
+    };
     let flags = required_argument(endpoint, frame, 1, "mapping flags")?;
     let source_address = required_argument(endpoint, frame, 2, "UTF-16 source")?;
     let source_count = required_argument(endpoint, frame, 3, "UTF-16 source length")? as i32;
@@ -3468,10 +4787,10 @@ fn handle_lc_map_string_w_basic(
         output_bytes.extend_from_slice(&mapped.to_le_bytes());
     }
 
-    if destination_address == 0 && destination_count == 0 {
+    if destination_count == 0 {
         return Ok(ApiImmediate::new(Some(source_count as u32)));
     }
-    if destination_address == 0 || destination_count == 0 {
+    if destination_address == 0 {
         return Ok(lc_map_string_failure(ERROR_INVALID_PARAMETER));
     }
     let destination_units = usize::try_from(destination_count).map_err(|_| {
@@ -3553,8 +4872,13 @@ fn read_multi_byte_source(
         .map_err(|error| ApiFault::from_memory(error, endpoint))
 }
 
-fn decode_windows_932(source: &[u8]) -> Vec<u16> {
+pub(crate) fn decode_windows_932(source: &[u8]) -> Vec<u16> {
+    decode_windows_932_with_errors(source).0
+}
+
+fn decode_windows_932_with_errors(source: &[u8]) -> (Vec<u16>, bool) {
     let mut output = Vec::with_capacity(source.len());
+    let mut had_errors = false;
     let mut index = 0;
     while index < source.len() {
         let first = source[index];
@@ -3564,7 +4888,8 @@ fn decode_windows_932(source: &[u8]) -> Vec<u16> {
                 .is_some_and(|&second| is_windows_932_trail_byte(second))
         {
             let pair = &source[index..index + 2];
-            let (decoded, _) = SHIFT_JIS.decode_without_bom_handling(pair);
+            let (decoded, invalid) = SHIFT_JIS.decode_without_bom_handling(pair);
+            had_errors |= invalid;
             output.extend(decoded.encode_utf16());
             index += 2;
             continue;
@@ -3575,13 +4900,15 @@ fn decode_windows_932(source: &[u8]) -> Vec<u16> {
             0xfe => output.push(0xf8f2),
             0xff => output.push(0xf8f3),
             _ => {
-                let (decoded, _) = SHIFT_JIS.decode_without_bom_handling(&source[index..index + 1]);
+                let (decoded, invalid) =
+                    SHIFT_JIS.decode_without_bom_handling(&source[index..index + 1]);
+                had_errors |= invalid;
                 output.extend(decoded.encode_utf16());
             }
         }
         index += 1;
     }
-    output
+    (output, had_errors)
 }
 
 fn is_windows_932_lead_byte(byte: u8) -> bool {
@@ -3660,7 +4987,11 @@ fn handle_is_bad_pointer(
     access: MemoryAccess,
 ) -> Result<ApiImmediate, ApiFault> {
     let mut address = required_argument(endpoint, frame, 0, "memory pointer")?;
-    let mut remaining = required_argument(endpoint, frame, 1, "byte count")?;
+    let mut remaining = if access == MemoryAccess::Execute {
+        1
+    } else {
+        required_argument(endpoint, frame, 1, "byte count")?
+    };
     if u64::from(address) + u64::from(remaining) > (1_u64 << 32) {
         return Ok(ApiImmediate::new(Some(1)));
     }
@@ -3714,6 +5045,31 @@ fn handle_heap_set_information(
     let information_class = required_argument(endpoint, frame, 1, "heap information class")?;
     let information = required_argument(endpoint, frame, 2, "heap information")?;
     let information_length = required_argument(endpoint, frame, 3, "heap information length")?;
+    if information_class == 0 {
+        if information_length != 4 {
+            return Err(ApiFault::new(
+                "heap compatibility requires a ULONG-sized information buffer",
+            ));
+        }
+        let bytes = runtime
+            .memory
+            .read(GuestAddress(information), 4)
+            .map_err(|e| ApiFault::from_memory(e, endpoint))?;
+        if u32::from_le_bytes(bytes.try_into().unwrap()) != 2 {
+            return Ok(ApiImmediate::new(Some(0)).with_last_error(31));
+        }
+        if runtime.heap(heap).is_err() {
+            return Ok(ApiImmediate::new(Some(0)).with_last_error(6));
+        }
+        let enabled = runtime
+            .enable_low_fragmentation_heap(heap)
+            .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+        return Ok(if enabled {
+            ApiImmediate::new(Some(1))
+        } else {
+            ApiImmediate::new(Some(0)).with_last_error(87)
+        });
+    }
     if heap != 0
         || information_class != HEAP_ENABLE_TERMINATION_ON_CORRUPTION
         || information != 0
@@ -3725,6 +5081,20 @@ fn handle_heap_set_information(
     }
     runtime.set_heap_termination_on_corruption(true);
     Ok(ApiImmediate::new(Some(u32::from(true))))
+}
+
+fn handle_get_process_heap(
+    endpoint: &ApiEndpointIdentity,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = runtime
+        .process_heap()
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(if handle == 0 {
+        ApiImmediate::new(Some(0)).with_last_error(ERROR_NOT_ENOUGH_MEMORY)
+    } else {
+        ApiImmediate::new(Some(handle))
+    })
 }
 
 fn handle_heap_create(
@@ -3745,10 +5115,31 @@ fn handle_heap_create(
     let heap = runtime
         .allocate_private_heap(initial_size, maximum_size)
         .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    if heap != 0 && creation_flags & HEAP_NO_SERIALIZE != 0 {
+        runtime
+            .configure_heap_serialization(heap, false)
+            .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    }
     Ok(if heap == 0 {
         ApiImmediate::new(Some(0)).with_last_error(ERROR_NOT_ENOUGH_MEMORY)
     } else {
         ApiImmediate::new(Some(heap))
+    })
+}
+
+fn handle_heap_destroy(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = required_argument(endpoint, frame, 0, "heap handle")?;
+    let destroyed = runtime
+        .destroy_private_heap(handle)
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+    Ok(if destroyed {
+        ApiImmediate::new(Some(1))
+    } else {
+        ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER)
     })
 }
 
@@ -3780,6 +5171,60 @@ fn handle_heap_alloc_basic(
     Ok(ApiImmediate::new(Some(
         allocation.map_or(0, |allocation| allocation.address.0),
     )))
+}
+
+fn handle_global_alloc(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let flags = required_argument(endpoint, frame, 0, "global allocation flags")?;
+    let size = required_argument(endpoint, frame, 1, "global allocation size")?;
+    if flags & !0x40 != 0 {
+        return Err(ApiFault::new(
+            "GlobalAlloc currently supports fixed blocks, optionally zero initialized",
+        ));
+    }
+    let heap = runtime
+        .process_heap()
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    let initialization = if flags & 0x40 != 0 {
+        RuntimeHeapInitialization::Zeroed
+    } else {
+        RuntimeHeapInitialization::Uninitialized
+    };
+    let allocation = runtime
+        .allocate_private_heap_block(heap, size.max(1), initialization)
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    Ok(match allocation {
+        Some(block) => ApiImmediate::new(Some(block.address.0)),
+        None => ApiImmediate::new(Some(0)).with_last_error(8),
+    })
+}
+
+fn handle_global_free(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(endpoint, frame, 0, "global allocation")?);
+    if address.0 == 0 {
+        return Ok(ApiImmediate::new(Some(0)));
+    }
+    let heap = runtime
+        .process_heap()
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    if runtime
+        .private_heap_allocation_option(heap, address)
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?
+        .is_none()
+    {
+        return Ok(ApiImmediate::new(Some(address.0)).with_last_error(6));
+    }
+    runtime
+        .free_private_heap_block(heap, address)
+        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+    Ok(ApiImmediate::new(Some(0)))
 }
 
 fn handle_heap_realloc_basic(
@@ -3865,85 +5310,209 @@ fn handle_heap_size_basic(
     Ok(ApiImmediate::new(Some(allocation.byte_length)))
 }
 
-fn handle_load_library_a_basic(
+pub(crate) fn read_library_name(
     endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
+    address: GuestAddress,
+) -> Result<(String, Vec<u8>), ApiFault> {
+    let mut path = read_nul_terminated_source_path(
+        endpoint,
+        memory,
+        address,
+        MAX_LOAD_LIBRARY_MODULE_NAME_BYTES as u32,
+    )?;
+    path.pop();
+    let mut name = SHIFT_JIS
+        .decode_without_bom_handling_and_without_replacement(&path)
+        .ok_or_else(|| ApiFault::new("DLL path is not Windows-932"))?
+        .into_owned();
+    if !name.is_empty()
+        && !name
+            .rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(&name)
+            .contains('.')
+    {
+        name.push_str(".dll");
+        path.extend_from_slice(b".dll");
+    }
+    path.push(0);
+    Ok((name, path))
+}
+
+pub(crate) fn dispatch_load_library(
+    sentinel: GuestAddress,
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
-) -> Result<ApiImmediate, ApiFault> {
-    let name_address = required_argument(endpoint, frame, 0, "module name")?;
-    if name_address == 0 {
-        return Ok(load_library_a_failure(ERROR_INVALID_PARAMETER));
-    }
-    let name = read_load_library_a_name(
-        endpoint,
-        &runtime.memory,
-        GuestAddress(name_address),
-        MAX_LOAD_LIBRARY_MODULE_NAME_BYTES,
-    )?;
-    if name.is_empty() {
-        return Ok(load_library_a_failure(ERROR_INVALID_PARAMETER));
-    }
-    if !name.to_ascii_lowercase().ends_with(".dll")
-        || name
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || matches!(byte, b'/' | b'\\' | b':'))
-    {
-        return Err(ApiFault::new(
-            "LoadLibraryA requires a DLL basename until the full Windows search path is implemented",
-        ));
-    }
-    match runtime.module_by_name(&name) {
-        Ok(Some(module)) if module.runtime_system_module => {
-            let canonical_name = module.canonical_name.clone();
-            let loaded = runtime
-                .load_current_thread_runtime_system_module(name, canonical_name)
-                .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
-            Ok(ApiImmediate::new(Some(loaded)))
+) -> ApiHandlerResult {
+    let endpoint = &frame.endpoint;
+    let mut run = || -> Result<ApiHandlerResult, ApiFault> {
+        let extended = matches!(&endpoint.symbol, ApiSymbol::Name { name } if name.starts_with("LoadLibraryEx"));
+        let flags = if extended {
+            if required_argument(endpoint, frame, 1, "reserved file handle")? != 0 {
+                return Ok(ApiHandlerResult::Immediate(load_library_a_failure(
+                    ERROR_INVALID_PARAMETER,
+                )));
+            }
+            let flags = required_argument(endpoint, frame, 2, "load flags")?;
+            if !matches!(flags, 0 | 0x800) {
+                return Err(ApiFault::new(format!(
+                    "LoadLibraryEx flags {flags:#x} are not implemented"
+                )));
+            }
+            flags
+        } else {
+            0
+        };
+        let address = required_argument(endpoint, frame, 0, "module name")?;
+        if address == 0 {
+            return Ok(ApiHandlerResult::Immediate(load_library_a_failure(
+                ERROR_INVALID_PARAMETER,
+            )));
         }
-        Ok(Some(module)) => {
-            let handle = module.handle;
+        let (name, _) = read_library_name(endpoint, &runtime.memory, GuestAddress(address))?;
+        if name.is_empty() {
+            return Ok(ApiHandlerResult::Immediate(load_library_a_failure(
+                ERROR_INVALID_PARAMETER,
+            )));
+        }
+        let basename = name.rsplit(['\\', '/']).next().unwrap_or(&name);
+        let Some(module) = runtime
+            .module_by_name(basename)
+            .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        else {
+            if runtime.has_runtime_system_exports_for_module(basename) {
+                if name != basename {
+                    return Err(ApiFault::new(
+                        "explicit system DLL paths are not implemented",
+                    ));
+                }
+                let canonical = basename.to_ascii_lowercase();
+                let handle = runtime
+                    .load_current_thread_runtime_system_module(name, canonical)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(handle))));
+            }
+            return Ok(ApiHandlerResult::Immediate(load_library_a_failure(
+                ERROR_MOD_NOT_FOUND,
+            )));
+        };
+        let handle = module.handle;
+        if flags == 0x800 && !module.runtime_system_module {
+            return Err(ApiFault::new(
+                "system-only loading of guest DLLs is not implemented",
+            ));
+        }
+        if name != basename {
+            if module.runtime_system_module {
+                return Err(ApiFault::new(
+                    "explicit system DLL paths are not implemented",
+                ));
+            }
+            let normalize = |name: &str| -> Result<String, ApiFault> {
+                let (encoded, _, errors) = SHIFT_JIS.encode(name);
+                if errors {
+                    return Err(ApiFault::new("DLL path is not Windows-932"));
+                }
+                let mut path = encoded.into_owned();
+                path.push(0);
+                let relative = runtime
+                    .source_library_relative_path(&path)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                Ok(SHIFT_JIS
+                    .decode_without_bom_handling_and_without_replacement(&relative)
+                    .ok_or_else(|| ApiFault::new("DLL path is not Windows-932"))?
+                    .to_ascii_lowercase())
+            };
+            if normalize(&name)? != normalize(&module.requested_name)? {
+                return Err(ApiFault::new(
+                    "a different DLL with the same basename is already loaded",
+                ));
+            }
+        }
+        if module.runtime_system_module {
             let node = runtime
                 .module_graph()
                 .module_by_handle(handle)
                 .map_err(|error| ApiFault::new(error.to_string()))?;
-            if node.class != RuntimeModuleClass::GuestDynamicLibrary
-                || !matches!(node.state, RuntimeModuleLoadState::ProcessAttached { .. })
-                || runtime.module_images().image(node.id).is_err()
-            {
-                return Err(ApiFault::new(
-                    "LoadLibraryA requires a materialized and attached guest DLL",
-                ));
+            if !matches!(node.state, RuntimeModuleLoadState::ProcessAttached { .. }) {
+                return Err(ApiFault::new("system DLL is not attached"));
             }
-            let guest_handle = runtime
-                .module_images()
-                .image(node.id)
-                .map_err(|error| ApiFault::new(error.to_string()))?
-                .image_range
-                .start()
-                .0;
+            if runtime.modules.has_pending_dynamic_library() {
+                runtime
+                    .add_current_thread_module_reference(handle)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+            } else {
+                let canonical = module.canonical_name.clone();
+                runtime
+                    .load_current_thread_runtime_system_module(name, canonical)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+            }
+            return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(handle))));
+        }
+        let node = runtime
+            .module_graph()
+            .module_by_handle(handle)
+            .map_err(|error| ApiFault::new(error.to_string()))?;
+        if node.class != RuntimeModuleClass::GuestDynamicLibrary {
+            return Err(ApiFault::new("LoadLibrary requires a guest DLL"));
+        }
+        let state = node.state;
+        let image = runtime
+            .module_images()
+            .image(node.id)
+            .map_err(|error| ApiFault::new(error.to_string()))?;
+        let base = image.image_range.start().0;
+        if matches!(state, RuntimeModuleLoadState::ProcessAttached { .. }) {
             runtime
                 .add_current_thread_module_reference(handle)
                 .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
-            Ok(ApiImmediate::new(Some(guest_handle)))
+            return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(base))));
         }
-        Ok(None) => {
-            let mut path = name.into_bytes();
-            path.push(0);
-            match runtime
-                .resolve_file_system_path_a(&path)
-                .map_err(|error| ApiFault::from_runtime(error, endpoint))?
-            {
-                RuntimePathResolution::RegularFile => Err(ApiFault::new(
-                    "LoadLibraryA found an immutable DLL but guest module loading is not implemented",
-                )),
-                RuntimePathResolution::Directory
-                | RuntimePathResolution::MissingFile
-                | RuntimePathResolution::MissingPath => {
-                    Ok(load_library_a_failure(ERROR_MOD_NOT_FOUND))
-                }
-            }
+        let Some(callback) = runtime.dynamic_library_callback(handle, sentinel)? else {
+            let value = runtime
+                .finish_dynamic_library(handle, true)
+                .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+            return Ok(ApiHandlerResult::Immediate(ApiImmediate::new(Some(value))));
+        };
+        runtime.preflight_guest_callback(frame, &callback)?;
+        Ok(ApiHandlerResult::GuestCallback(Box::new(callback)))
+    };
+    match run() {
+        Ok(result) => result,
+        Err(error) => ApiHandlerResult::Fault(error),
+    }
+}
+
+fn dispatch_free_library(
+    sentinel: GuestAddress,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+) -> ApiHandlerResult {
+    let mut run = || -> Result<ApiHandlerResult, ApiFault> {
+        let guest_handle = required_argument(&frame.endpoint, frame, 0, "module handle")?;
+        let handle = runtime
+            .module_image_by_load_base(GuestAddress(guest_handle))
+            .map_err(|error| ApiFault::new(error.to_string()))?
+            .map_or(guest_handle, |image| image.handle);
+        let Some(module) = runtime
+            .module_option(handle)
+            .map_err(|error| ApiFault::from_runtime(error, &frame.endpoint))?
+        else {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE),
+            ));
+        };
+        if !module.runtime_system_module && guest_handle == handle {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_HANDLE),
+            ));
         }
-        Err(error) => Err(ApiFault::from_runtime(error, endpoint)),
+        runtime.free_library(handle, frame, sentinel)
+    };
+    match run() {
+        Ok(result) => result,
+        Err(error) => ApiHandlerResult::Fault(error),
     }
 }
 
@@ -4043,6 +5612,34 @@ fn handle_get_proc_address(
         ExportLookup::Name { name }
     };
     if module.runtime_system_module {
+        let installed = runtime.runtime_system_export_endpoints().find(|endpoint| {
+            match (&endpoint.export, &lookup) {
+                (
+                    crate::RuntimeExport::Name {
+                        module: export_module,
+                        name: export_name,
+                    },
+                    ExportLookup::Name { name },
+                ) => {
+                    export_module.eq_ignore_ascii_case(&module.canonical_name)
+                        && export_name == name
+                }
+                (
+                    crate::RuntimeExport::Ordinal {
+                        module: export_module,
+                        ordinal: export_ordinal,
+                    },
+                    ExportLookup::Ordinal { ordinal },
+                ) => {
+                    export_module.eq_ignore_ascii_case(&module.canonical_name)
+                        && u32::from(*export_ordinal) == *ordinal
+                }
+                _ => false,
+            }
+        });
+        if let Some(export) = installed {
+            return Ok(ApiImmediate::new(Some(export.address.0)));
+        }
         let export = match lookup {
             ExportLookup::Name { name } => {
                 runtime.dynamic_endpoint_by_name(&module.canonical_name, &name)
@@ -4067,6 +5664,56 @@ fn handle_get_proc_address(
 
 fn get_proc_address_failure(last_error: u32) -> ApiImmediate {
     ApiImmediate::new(Some(0)).with_last_error(last_error)
+}
+
+pub(crate) fn read_atom_name_a(
+    endpoint: &ApiEndpointIdentity,
+    memory: &GuestMemory,
+    pointer: u32,
+) -> Result<Result<crate::runtime::RuntimeAtomName, u32>, ApiFault> {
+    use crate::runtime::RuntimeAtomName;
+    if pointer <= 0xffff {
+        return Ok(Ok(RuntimeAtomName::Integer(pointer as u16)));
+    }
+    let mut bytes = Vec::new();
+    // A Windows-932 atom can contain 255 UTF-16 characters (510 ANSI bytes).
+    for offset in 0..=510 {
+        let address = pointer
+            .checked_add(offset)
+            .ok_or_else(|| ApiFault::new("atom name address overflowed"))?;
+        let byte = memory
+            .read(GuestAddress(address), 1)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
+        if byte == 0 {
+            let name = SHIFT_JIS
+                .decode_without_bom_handling_and_without_replacement(&bytes)
+                .ok_or_else(|| ApiFault::new("atom name is not valid Windows-932"))?;
+            return Ok(RuntimeAtomName::from_string(name.into_owned()));
+        }
+        bytes.push(byte);
+    }
+    Ok(Err(ERROR_INVALID_PARAMETER))
+}
+
+fn handle_global_atom(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    runtime: &mut crate::runtime::Runtime,
+    add: bool,
+) -> Result<ApiImmediate, ApiFault> {
+    let argument = required_argument(endpoint, frame, 0, "atom or name")?;
+    let result = if add {
+        match read_atom_name_a(endpoint, &runtime.memory, argument)? {
+            Ok(name) => runtime.global_atoms.add(name).map(u32::from),
+            Err(error) => Err(error),
+        }
+    } else {
+        runtime.global_atoms.delete(argument as u16).map(|()| 0)
+    };
+    Ok(match result {
+        Ok(value) => ApiImmediate::new(Some(value)),
+        Err(error) => ApiImmediate::new(Some(0)).with_last_error(error),
+    })
 }
 
 fn handle_tls_alloc(
@@ -4148,11 +5795,34 @@ pub(crate) fn dispatch_kernel32_api(
         crate::api::ApiSymbol::Name { name }
             if endpoint.module.eq_ignore_ascii_case("kernel32.dll") =>
         {
+            if matches!(
+                name.as_str(),
+                "LoadLibraryA" | "LoadLibraryW" | "LoadLibraryExA" | "LoadLibraryExW"
+            ) {
+                return dispatch_load_library(
+                    cpu.map_or(
+                        crate::callbacks::CALLBACK_RETURN_ARENA_BASE,
+                        |(_, sentinel)| sentinel,
+                    ),
+                    frame,
+                    runtime,
+                );
+            }
             if name == "RaiseException" {
                 return handle_raise_exception(endpoint, frame, runtime, cpu);
             }
+            if name == "FreeLibrary" {
+                return dispatch_free_library(
+                    cpu.map_or(
+                        crate::callbacks::CALLBACK_RETURN_ARENA_BASE,
+                        |(_, sentinel)| sentinel,
+                    ),
+                    frame,
+                    runtime,
+                );
+            }
             if name == "RtlUnwind" {
-                return handle_rtl_unwind(endpoint, frame, runtime);
+                return handle_rtl_unwind(endpoint, frame, runtime, cpu);
             }
             if name == "WaitForMultipleObjects" {
                 return handle_wait_for_multiple_objects(endpoint, frame, runtime);
@@ -4160,20 +5830,23 @@ pub(crate) fn dispatch_kernel32_api(
             if name == "ReadFile" {
                 return handle_read_file_basic(endpoint, frame, runtime);
             }
-            if name == "CreateFileA" {
+            if matches!(name.as_str(), "CreateFileA" | "CreateFileW") {
                 return handle_create_file_a_basic(endpoint, frame, runtime);
             }
             if name == "WriteFile" {
                 return handle_write_file_basic(endpoint, frame, runtime);
             }
-            if name == "CreateDirectoryA" {
+            if matches!(name.as_str(), "CreateDirectoryA" | "CreateDirectoryW") {
                 return handle_create_directory_a_basic(endpoint, frame, runtime);
             }
             if name == "DeleteFileA" {
                 return handle_delete_file_a_basic(endpoint, frame, runtime);
             }
-            if name == "GetFileAttributesA" {
+            if matches!(name.as_str(), "GetFileAttributesA" | "GetFileAttributesW") {
                 return handle_get_file_attributes_a_opfs(endpoint, frame, runtime);
+            }
+            if name == "SetCurrentDirectoryA" {
+                return handle_set_current_directory_a_opfs(endpoint, frame, runtime);
             }
             match name.as_str() {
                 "FlsAlloc" => handle_fls_alloc(endpoint, frame, runtime),
@@ -4182,8 +5855,21 @@ pub(crate) fn dispatch_kernel32_api(
                 "FlsSetValue" => handle_fls_set_value(endpoint, frame, runtime),
                 "CreateThread" => handle_create_thread_basic(endpoint, frame, runtime),
                 "ResumeThread" => handle_resume_thread(endpoint, frame, runtime),
+                "SuspendThread" => handle_suspend_thread(endpoint, frame, runtime),
                 "SetThreadPriority" => set_thread_priority_basic(endpoint, frame, runtime),
+                "GetThreadPriority" => get_thread_priority_basic(endpoint, frame, runtime),
                 "ExitThread" => handle_exit_thread(endpoint, frame, runtime),
+                "TerminateProcess" => (|| {
+                    let handle = required_argument(endpoint, frame, 0, "process handle")?;
+                    let code = required_argument(endpoint, frame, 1, "exit code")?;
+                    Ok(if handle == u32::MAX {
+                        ApiImmediate::new(Some(code)).with_execution_boundary(
+                            RuntimeApiBoundaryDisposition::TerminateProcess,
+                        )
+                    } else {
+                        ApiImmediate::new(Some(0)).with_last_error(6)
+                    })
+                })(),
                 "WaitForSingleObject" => {
                     return handle_wait_for_single_object(endpoint, frame, runtime);
                 }
@@ -4192,6 +5878,9 @@ pub(crate) fn dispatch_kernel32_api(
                 }
                 "GetExitCodeThread" => handle_get_exit_code_thread(endpoint, frame, runtime),
                 "CloseHandle" => handle_close_handle_basic(endpoint, frame, runtime),
+                "FindResourceW" | "LoadResource" | "LockResource" | "SizeofResource" => {
+                    crate::resources::handle(endpoint, frame, runtime, name)
+                }
                 "GetLastError" => handle_get_last_error(endpoint, runtime),
                 "SetLastError" => handle_set_last_error(endpoint, frame),
                 "GetCurrentProcessId" => Ok(ApiImmediate::new(Some(runtime.process_id().0))),
@@ -4200,6 +5889,7 @@ pub(crate) fn dispatch_kernel32_api(
                 "GetSystemTimeAsFileTime" => {
                     handle_get_system_time_as_file_time(endpoint, frame, runtime)
                 }
+                "GetFileTime" => handle_get_file_time(endpoint, frame, runtime),
                 "GetSystemTime" => handle_get_system_time(endpoint, frame, runtime),
                 "Sleep" => return handle_sleep_basic(endpoint, frame, runtime),
                 "GetTickCount" => handle_get_tick_count(endpoint, runtime),
@@ -4217,10 +5907,60 @@ pub(crate) fn dispatch_kernel32_api(
                 "IsBadWritePtr" => {
                     handle_is_bad_pointer(endpoint, frame, runtime, MemoryAccess::Write)
                 }
+                "IsBadCodePtr" => {
+                    handle_is_bad_pointer(endpoint, frame, runtime, MemoryAccess::Execute)
+                }
                 "HeapSetInformation" => handle_heap_set_information(endpoint, frame, runtime),
                 "HeapCreate" => handle_heap_create(endpoint, frame, runtime),
+                "HeapDestroy" => handle_heap_destroy(endpoint, frame, runtime),
+                "GlobalAddAtomA" => handle_global_atom(endpoint, frame, runtime, true),
+                "GlobalDeleteAtom" => handle_global_atom(endpoint, frame, runtime, false),
+                "GetProcessHeap" => handle_get_process_heap(endpoint, runtime),
+                "GetCurrentProcess" => Ok(ApiImmediate::new(Some(u32::MAX))),
+                "FlushInstructionCache" => handle_flush_instruction_cache(endpoint, frame, runtime),
                 "HeapAlloc" => handle_heap_alloc_basic(endpoint, frame, runtime),
+                "GlobalAlloc" | "LocalAlloc" => handle_global_alloc(endpoint, frame, runtime),
+                "GlobalFree" | "LocalFree" => handle_global_free(endpoint, frame, runtime),
+                "HeapCompact" => (|| {
+                    let handle = required_argument(endpoint, frame, 0, "heap")?;
+                    let flags = required_argument(endpoint, frame, 1, "heap access flags")?;
+                    if flags & !HEAP_NO_SERIALIZE != 0 {
+                        return Err(ApiFault::new("HeapCompact flags are not implemented"));
+                    }
+                    if runtime.heap(handle).is_err() {
+                        return Ok(ApiImmediate::new(Some(0)).with_last_error(6));
+                    }
+                    let available = runtime
+                        .largest_committed_heap_free_block(handle)
+                        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+                    Ok(if available == 0 {
+                        ApiImmediate::new(Some(0)).with_last_error(0)
+                    } else {
+                        ApiImmediate::new(Some(available))
+                    })
+                })(),
+                "MulDiv" => handle_mul_div(endpoint, frame),
+                "InterlockedCompareExchange" => {
+                    handle_interlocked_compare_exchange(endpoint, frame, &runtime.memory)
+                }
                 "VirtualAlloc" => handle_virtual_alloc_basic(endpoint, frame, runtime),
+                "VirtualProtect" => handle_virtual_protect(endpoint, frame, runtime),
+                "VirtualQuery" => (|| {
+                    let address = required_argument(endpoint, frame, 0, "query address")?;
+                    let output = required_argument(endpoint, frame, 1, "MEMORY_BASIC_INFORMATION")?;
+                    let size = required_argument(endpoint, frame, 2, "output size")?;
+                    if size < 28 {
+                        return Ok(ApiImmediate::new(Some(0)).with_last_error(24));
+                    }
+                    if address >= 0x7fff_0000 {
+                        return Ok(ApiImmediate::new(Some(0)).with_last_error(87));
+                    }
+                    let info = runtime.memory.query_windows_memory(GuestAddress(address));
+                    Ok(ApiImmediate::new(Some(28)).with_guest_write(
+                        GuestAddress(output),
+                        info.into_iter().flat_map(u32::to_le_bytes).collect(),
+                    ))
+                })(),
                 "VirtualFree" => handle_virtual_free_basic(endpoint, frame, runtime),
                 "HeapReAlloc" => handle_heap_realloc_basic(endpoint, frame, runtime),
                 "HeapFree" => handle_heap_free_basic(endpoint, frame, runtime),
@@ -4232,15 +5972,33 @@ pub(crate) fn dispatch_kernel32_api(
                     handle_set_unhandled_exception_filter(endpoint, frame, runtime)
                 }
                 "GetStdHandle" => handle_get_std_handle_basic(endpoint, frame, runtime),
+                "SetStdHandle" => (|| {
+                    let selector =
+                        required_argument(endpoint, frame, 0, "standard handle selector")?;
+                    let handle = required_argument(endpoint, frame, 1, "new standard handle")?;
+                    let changed = runtime
+                        .set_standard_handle(selector, handle)
+                        .map_err(|e| ApiFault::from_runtime(e, endpoint))?;
+                    Ok(if changed {
+                        ApiImmediate::new(Some(1))
+                    } else {
+                        ApiImmediate::new(Some(0)).with_last_error(87)
+                    })
+                })(),
                 "GetFileType" => handle_get_file_type_basic(endpoint, frame, runtime),
                 "SetHandleCount" => handle_set_handle_count_basic(endpoint, frame),
-                "GetCommandLineA" => handle_get_command_line_a(endpoint, runtime),
-                "GetModuleFileNameA" => {
-                    handle_get_module_file_name_a_basic(endpoint, frame, runtime)
+                "GetCommandLineA" | "GetCommandLineW" => handle_get_command_line(endpoint, runtime),
+                "GetFullPathNameW" => handle_get_full_path_name_w(endpoint, frame, runtime),
+                "GetTempPathW" => handle_get_temp_path_w(endpoint, frame, runtime),
+                "GetModuleFileNameA" | "GetModuleFileNameW" => {
+                    handle_get_module_file_name(endpoint, frame, runtime, name.ends_with('W'))
                 }
                 "GetLocalTime" => handle_get_local_time(endpoint, frame, runtime),
-                "GetSystemInfo" => handle_get_system_info_basic(endpoint, frame),
-                "GlobalMemoryStatus" => {
+                "GetTimeZoneInformation" => handle_get_time_zone_information(endpoint, frame),
+                "GetSystemInfo" | "GetNativeSystemInfo" => {
+                    handle_get_system_info_basic(endpoint, frame)
+                }
+                "GlobalMemoryStatus" | "GlobalMemoryStatusEx" => {
                     handle_global_memory_status_basic(endpoint, frame, &runtime.memory)
                 }
                 "GetVersion" => Ok(ApiImmediate::new(Some(
@@ -4248,23 +6006,81 @@ pub(crate) fn dispatch_kernel32_api(
                         | (WINDOWS_VERSION_MINOR << 8)
                         | WINDOWS_VERSION_MAJOR,
                 ))),
-                "GetVersionExA" => handle_get_version_ex_a_basic(endpoint, frame, &runtime.memory),
+                "GetVersionExA" | "GetVersionExW" => handle_get_version_ex_a_basic(
+                    endpoint,
+                    frame,
+                    &runtime.memory,
+                    name.ends_with('W'),
+                ),
+                "IsDBCSLeadByte" => {
+                    required_argument(endpoint, frame, 0, "test byte").map(|byte| {
+                        ApiImmediate::new(Some(u32::from(is_windows_932_lead_byte(byte as u8))))
+                    })
+                }
                 "GetDriveTypeA" => handle_get_drive_type_a_basic(endpoint, frame, runtime),
                 "SetCurrentDirectoryA" => {
                     handle_set_current_directory_a_basic(endpoint, frame, runtime)
                 }
-                "CreateMutexA" => handle_create_mutex_a_basic(endpoint, frame, runtime),
-                "CreateEventA" => handle_create_event_a(endpoint, frame, runtime),
+                "GetCurrentDirectoryA" => (|| {
+                    let capacity = required_argument(endpoint, frame, 0, "directory capacity")?;
+                    let output = required_argument(endpoint, frame, 1, "directory output")?;
+                    let bytes = &runtime.current_directory_a().bytes_with_nul;
+                    Ok(if capacity < bytes.len() as u32 {
+                        ApiImmediate::new(Some(bytes.len() as u32))
+                    } else {
+                        ApiImmediate::new(Some(bytes.len() as u32 - 1))
+                            .with_guest_write(GuestAddress(output), bytes.clone())
+                    })
+                })(),
+                "CreateMutexA" | "CreateMutexW" => {
+                    handle_create_mutex_basic(endpoint, frame, runtime)
+                }
+                "ReleaseMutex" => handle_release_mutex_basic(endpoint, frame, runtime),
+                "CreateEventA" | "CreateEventW" => handle_create_event(endpoint, frame, runtime),
+                "OpenProcess" => handle_open_process(endpoint, frame, runtime),
+                "GetProcessAffinityMask" => {
+                    handle_get_process_affinity_mask(endpoint, frame, runtime)
+                }
                 "SetEvent" => handle_set_event(endpoint, frame, runtime, true),
                 "ResetEvent" => handle_set_event(endpoint, frame, runtime, false),
                 "GetFileAttributesA" => {
                     handle_get_file_attributes_a_basic(endpoint, frame, runtime)
                 }
-                "FindFirstFileA" => handle_find_first_file_a_basic(endpoint, frame, runtime),
-                "FindNextFileA" => handle_find_next_file_a_basic(endpoint, frame, runtime),
+                "FindFirstFileA" | "FindFirstFileW" => {
+                    handle_find_first_file_basic(endpoint, frame, runtime)
+                }
+                "FindNextFileA" | "FindNextFileW" => {
+                    handle_find_next_file_basic(endpoint, frame, runtime)
+                }
                 "FindClose" => handle_find_close_basic(endpoint, frame, runtime),
                 "GetFileSize" => handle_get_file_size_basic(endpoint, frame, runtime),
                 "FlushFileBuffers" => handle_flush_file_buffers_basic(endpoint, frame, runtime),
+                "SetEndOfFile" => {
+                    let handle = RuntimeHandle(frame.argument_u32(0).expect("decoded file handle"));
+                    return match runtime.is_live_object_handle(handle, RuntimeObjectKind::File) {
+                        Ok(false) => ApiHandlerResult::Immediate(
+                            ApiImmediate::new(Some(0)).with_last_error(6),
+                        ),
+                        Err(error) => {
+                            ApiHandlerResult::Fault(ApiFault::from_runtime(error, endpoint))
+                        }
+                        Ok(true) => match runtime.begin_opfs_truncate(handle) {
+                            Ok(Ok(request)) => {
+                                ApiHandlerResult::Deferred(crate::api::HostRequest {
+                                    request_id: request.request_id,
+                                    service: request.service,
+                                    payload: Vec::new(),
+                                })
+                            }
+                            Ok(Err(error)) => ApiHandlerResult::Immediate(
+                                ApiImmediate::new(Some(0)).with_last_error(error),
+                            ),
+                            Err(error) => {
+                                ApiHandlerResult::Fault(ApiFault::from_runtime(error, endpoint))
+                            }
+                        },
+                    };
+                }
                 "SetFilePointer" => handle_set_file_pointer_basic(endpoint, frame, runtime),
                 "CreateWaitableTimerA" => {
                     handle_create_waitable_timer_a_basic(endpoint, frame, runtime)
@@ -4273,33 +6089,60 @@ pub(crate) fn dispatch_kernel32_api(
                 "SetThreadAffinityMask" => {
                     handle_set_thread_affinity_mask_basic(endpoint, frame, runtime)
                 }
-                "GetEnvironmentStringsW" => handle_get_environment_strings_w(endpoint, runtime),
+                "GetEnvironmentStringsW" => handle_get_environment_strings(endpoint, runtime, true),
+                "GetEnvironmentStrings" => handle_get_environment_strings(endpoint, runtime, false),
+                "SetEnvironmentVariableA" => {
+                    handle_set_environment_variable_a(endpoint, frame, runtime)
+                }
                 "WideCharToMultiByte" => {
                     handle_wide_char_to_multi_byte_basic(endpoint, frame, &runtime.memory)
                 }
                 "MultiByteToWideChar" => {
                     handle_multi_byte_to_wide_char_basic(endpoint, frame, &runtime.memory)
                 }
-                "GetACP" => Ok(ApiImmediate::new(Some(WINDOWS_932_CODE_PAGE))),
-                "GetSystemDefaultLangID" => Ok(ApiImmediate::new(Some(0x0411))),
+                "GetACP" | "GetOEMCP" => Ok(ApiImmediate::new(Some(WINDOWS_932_CODE_PAGE))),
+                "GetSystemDefaultLangID"
+                | "GetUserDefaultUILanguage"
+                | "GetSystemDefaultUILanguage" => Ok(ApiImmediate::new(Some(0x0411))),
+                "GetLocaleInfoA" | "GetLocaleInfoW" => handle_get_locale_info(endpoint, frame),
                 "GetCPInfo" => handle_get_cp_info_basic(endpoint, frame),
                 "GetStringTypeW" => {
                     handle_get_string_type_w_basic(endpoint, frame, &runtime.memory)
                 }
-                "LCMapStringW" => handle_lc_map_string_w_basic(endpoint, frame, &runtime.memory),
-                "FreeEnvironmentStringsW" => {
-                    handle_free_environment_strings_w(endpoint, frame, runtime)
+                "GetStringTypeA" => {
+                    handle_ansi_locale_string(endpoint, frame, &runtime.memory, true)
+                }
+                "LCMapStringA" => {
+                    handle_ansi_locale_string(endpoint, frame, &runtime.memory, false)
+                }
+                "LCMapStringW" | "LCMapStringEx" => {
+                    handle_lc_map_string_w_basic(endpoint, frame, &runtime.memory)
+                }
+                "InitializeSListHead" => {
+                    handle_initialize_slist_head(endpoint, frame, &runtime.memory)
+                }
+                "InitializeConditionVariable" | "WakeAllConditionVariable" => {
+                    handle_empty_condition_variable(endpoint, frame, &runtime.memory)
+                }
+                "FreeEnvironmentStringsW" | "FreeEnvironmentStringsA" => {
+                    handle_free_environment_strings(endpoint, frame, runtime, name.ends_with('W'))
                 }
                 "GetModuleHandleA" => handle_get_module_handle(endpoint, frame, runtime, false),
                 "GetModuleHandleW" => handle_get_module_handle(endpoint, frame, runtime, true),
-                "LoadLibraryA" => handle_load_library_a_basic(endpoint, frame, runtime),
                 "GetProcAddress" => handle_get_proc_address(endpoint, frame, runtime),
                 "TlsAlloc" => handle_tls_alloc(endpoint, runtime),
+                "TlsFree" => required_argument(endpoint, frame, 0, "TLS index").map(|index| {
+                    if runtime.free_tls_index(index) {
+                        ApiImmediate::new(Some(1))
+                    } else {
+                        ApiImmediate::new(Some(0)).with_last_error(ERROR_INVALID_PARAMETER)
+                    }
+                }),
                 "TlsGetValue" => handle_tls_get_value(endpoint, frame, runtime),
                 "TlsSetValue" => handle_tls_set_value(endpoint, frame, runtime),
                 "EncodePointer" => handle_encode_pointer(endpoint, frame, runtime),
                 "DecodePointer" => handle_decode_pointer(endpoint, frame, runtime),
-                "InitializeCriticalSectionAndSpinCount" => {
+                "InitializeCriticalSectionAndSpinCount" | "InitializeCriticalSectionEx" => {
                     handle_initialize_critical_section_and_spin_count(endpoint, frame, runtime)
                 }
                 "InitializeCriticalSection" => {
@@ -4443,6 +6286,103 @@ fn handle_interlocked_long_update(
         .with_guest_write(address, updated.to_le_bytes().to_vec()))
 }
 
+fn handle_interlocked_compare_exchange(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    memory: &GuestMemory,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(endpoint, frame, 0, "LONG target")?);
+    let exchange = required_argument(endpoint, frame, 1, "exchange")?;
+    let compare = required_argument(endpoint, frame, 2, "comparand")?;
+    if address.0 == 0 || !address.0.is_multiple_of(4) {
+        return Err(ApiFault::new(
+            "Interlocked LONG target requires a nonnull DWORD-aligned address",
+        ));
+    }
+    memory
+        .validate_access(address, 4, MemoryAccess::Write)
+        .map_err(|e| ApiFault::from_memory(e, endpoint))?;
+    let bytes = memory
+        .read(address, 4)
+        .map_err(|e| ApiFault::from_memory(e, endpoint))?;
+    let previous = u32::from_le_bytes(bytes.try_into().unwrap());
+    let result = ApiImmediate::new(Some(previous));
+    // All guest threads execute through the one Runtime. Comparison and the
+    // checked completion write finish before the next scheduler boundary.
+    Ok(if previous == compare {
+        result.with_guest_write(address, exchange.to_le_bytes().to_vec())
+    } else {
+        result
+    })
+}
+
+fn handle_mul_div(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let a = i64::from(required_argument(endpoint, frame, 0, "multiplicand")? as i32);
+    let b = i64::from(required_argument(endpoint, frame, 1, "multiplier")? as i32);
+    let denominator = i64::from(required_argument(endpoint, frame, 2, "denominator")? as i32);
+    if denominator == 0 {
+        return Ok(ApiImmediate::new(Some(u32::MAX)));
+    }
+    let product = a * b;
+    let magnitude = (product.abs() + denominator.abs() / 2) / denominator.abs();
+    let value = if magnitude > i64::from(i32::MAX) {
+        -1
+    } else if (product < 0) != (denominator < 0) {
+        -(magnitude as i32)
+    } else {
+        magnitude as i32
+    };
+    Ok(ApiImmediate::new(Some(value as u32)))
+}
+
+fn handle_initialize_slist_head(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    memory: &GuestMemory,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(endpoint, frame, 0, "SLIST_HEADER")?);
+    if address.0 == 0 || !address.0.is_multiple_of(8) {
+        return Err(ApiFault::new(
+            "PE32 SLIST_HEADER requires a nonnull eight-byte-aligned address",
+        ));
+    }
+    memory
+        .validate_access(address, 8, MemoryAccess::Write)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    // x86: Next (DWORD), Depth (WORD), Sequence (WORD).
+    Ok(ApiImmediate::new(None).with_guest_write(address, vec![0; 8]))
+}
+
+fn handle_empty_condition_variable(
+    endpoint: &ApiEndpointIdentity,
+    frame: &ApiCallFrame,
+    memory: &GuestMemory,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(endpoint, frame, 0, "condition variable")?);
+    memory
+        .validate_access(address, 4, MemoryAccess::Write)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    if matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "InitializeConditionVariable")
+    {
+        return Ok(ApiImmediate::new(None).with_guest_write(address, vec![0; 4]));
+    }
+    // A zero-initialized CONDITION_VARIABLE has no waiting threads. Sleeping
+    // remains an explicit unsupported call, so no waiter can be lost here.
+    if memory
+        .read(address, 4)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?
+        != [0; 4]
+    {
+        return Err(ApiFault::new(
+            "condition-variable wait state is not implemented",
+        ));
+    }
+    Ok(ApiImmediate::new(None))
+}
+
 fn handle_initialize_critical_section_and_spin_count(
     endpoint: &ApiEndpointIdentity,
     frame: &ApiCallFrame,
@@ -4455,6 +6395,13 @@ fn handle_initialize_critical_section_and_spin_count(
         "critical section storage",
     )?);
     let spin_count = required_argument(endpoint, frame, 1, "critical section spin count")?;
+    if matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "InitializeCriticalSectionEx")
+        && required_argument(endpoint, frame, 2, "critical section flags")? != 0
+    {
+        return Err(ApiFault::new(
+            "InitializeCriticalSectionEx nonzero flags are not implemented",
+        ));
+    }
     runtime
         .memory
         .validate_access(
@@ -4659,36 +6606,7 @@ fn read_ascii_nul(
     Err(ApiFault::new("guest export name exceeds its bounded read"))
 }
 
-fn read_load_library_a_name(
-    endpoint: &ApiEndpointIdentity,
-    memory: &GuestMemory,
-    address: GuestAddress,
-    maximum_bytes: usize,
-) -> Result<String, ApiFault> {
-    let mut bytes = Vec::new();
-    for offset in 0..maximum_bytes {
-        let current = add_guest_offset(endpoint, address, offset)?;
-        let byte = memory
-            .read(current, 1)
-            .map_err(|error| ApiFault::from_memory(error, endpoint))?[0];
-        if byte == 0 {
-            return String::from_utf8(bytes).map_err(|_| {
-                ApiFault::new("LoadLibraryA currently accepts only ASCII module names")
-            });
-        }
-        if !byte.is_ascii() {
-            return Err(ApiFault::new(
-                "LoadLibraryA currently accepts only ASCII module names",
-            ));
-        }
-        bytes.push(byte);
-    }
-    Err(ApiFault::new(
-        "LoadLibraryA module name exceeds its bounded read",
-    ))
-}
-
-fn read_utf16_nul(
+pub(crate) fn read_utf16_nul(
     endpoint: &ApiEndpointIdentity,
     memory: &GuestMemory,
     address: GuestAddress,

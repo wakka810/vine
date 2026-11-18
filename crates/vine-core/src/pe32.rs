@@ -130,8 +130,18 @@ pub struct Pe32LoadPlan {
     pub sections: Vec<SectionMappingPlan>,
     pub(crate) exports: Option<ExportDirectoryPlan>,
     pub(crate) resources: Option<ResourceDirectoryPlan>,
+    pub(crate) tls: Option<TlsDirectoryPlan>,
     pub imports: Vec<ImportModulePlan>,
     pub(crate) relocations: Vec<Rva>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TlsDirectoryPlan {
+    pub template_rva: Rva,
+    pub template_size: u32,
+    pub zero_fill: u32,
+    pub index_rva: Rva,
+    pub alignment: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,12 +200,15 @@ pub enum ResourceIdentifier {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceDataEntryPlan {
+    pub descriptor_rva: Rva,
     pub resource_type: ResourceIdentifier,
     pub name: ResourceIdentifier,
     pub language: ResourceIdentifier,
     pub data_rva: Rva,
     pub size: u32,
     pub code_page: u32,
+    // File-version queries read the immutable file, not a guest-modified image.
+    pub(crate) version_bytes: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -447,15 +460,11 @@ pub fn build_pe32_load_plan(
             "CLR runtime header is present; managed images are outside the active scope",
         ));
     }
-    if optional.data_directories.data_directories[IMAGE_DIRECTORY_ENTRY_TLS].is_some() {
-        return Err(LoaderError::new(
-            "TLS templates and callbacks are not implemented",
-        ));
-    }
     if optional.data_directories.data_directories[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT].is_some() {
         return Err(LoaderError::new("delay imports are not implemented"));
     }
 
+    let tls = parse_tls(optional, &layout, image_base)?;
     let exports = parse_exports(optional, &layout, &limits)?;
     let resources = parse_resources(optional, &layout, &limits)?;
     let imports = parse_imports(optional, &layout, &limits)?;
@@ -527,6 +536,7 @@ pub fn build_pe32_load_plan(
         sections,
         exports,
         resources,
+        tls,
         imports,
         relocations,
     };
@@ -766,6 +776,100 @@ struct ResourceParseState {
     visited_directories: BTreeSet<u32>,
 }
 
+// PE TLS uses preferred virtual addresses, unlike most PE directories. Keep
+// RVAs in the plan so relocation cannot turn metadata into an unchecked pointer.
+fn parse_tls(
+    optional: &goblin::pe::optional_header::OptionalHeader,
+    layout: &ValidatedLayout<'_>,
+    image_base: u32,
+) -> Result<Option<TlsDirectoryPlan>, LoaderError> {
+    let Some((_, directory)) =
+        optional.data_directories.data_directories[IMAGE_DIRECTORY_ENTRY_TLS]
+    else {
+        return Ok(None);
+    };
+    if directory.size < 24 {
+        return Err(LoaderError::new("PE32 TLS directory is truncated"));
+    }
+    let bytes = layout.file_span(directory.virtual_address, 24)?;
+    let word = |offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+    let rva = |va: u32| {
+        va.checked_sub(image_base)
+            .ok_or_else(|| LoaderError::new("TLS virtual address precedes its image"))
+    };
+    let start = word(0);
+    let end = word(4);
+    let template_size = end
+        .checked_sub(start)
+        .ok_or_else(|| LoaderError::new("TLS template has a reversed range"))?;
+    let template_rva = if start == 0 && end == 0 {
+        0
+    } else {
+        rva(start)?
+    };
+    if template_rva > layout.size_of_image {
+        return Err(LoaderError::new(
+            "TLS template address is outside its image",
+        ));
+    }
+    if template_size != 0 {
+        if !layout.mapped_contains(template_rva, template_size) {
+            return Err(LoaderError::new(
+                "TLS template is outside mapped image bytes",
+            ));
+        }
+        layout.file_span(template_rva, template_size)?;
+    }
+    let zero_fill = word(16);
+    if template_size
+        .checked_add(zero_fill)
+        .is_none_or(|size| size > 1024 * 1024)
+    {
+        return Err(LoaderError::new(
+            "TLS template exceeds the one MiB per-module limit",
+        ));
+    }
+    let index_rva = rva(word(8))?;
+    if !layout
+        .section_containing_mapped(index_rva, 4)
+        .is_some_and(|section| section.plan.final_protection.write)
+    {
+        return Err(LoaderError::new(
+            "TLS index must lie in writable image data",
+        ));
+    }
+    let characteristics = word(20);
+    let alignment_code = (characteristics >> 20) & 15;
+    if characteristics & !0x00f0_0000 != 0 || alignment_code == 15 {
+        return Err(LoaderError::new(
+            "TLS alignment characteristics are invalid",
+        ));
+    }
+    let alignment = if alignment_code == 0 {
+        4
+    } else {
+        1 << (alignment_code - 1)
+    };
+    if word(12) != 0 {
+        let callbacks = rva(word(12))?;
+        if !layout.mapped_contains(callbacks, 4) {
+            return Err(LoaderError::new("TLS callback array is outside the image"));
+        }
+        if layout.file_span(callbacks, 4)? != [0, 0, 0, 0] {
+            return Err(LoaderError::new(
+                "nonempty PE TLS callback arrays are not implemented",
+            ));
+        }
+    }
+    Ok(Some(TlsDirectoryPlan {
+        template_rva: Rva(template_rva),
+        template_size,
+        zero_fill,
+        index_rva: Rva(index_rva),
+        alignment,
+    }))
+}
+
 fn parse_resources(
     optional: &goblin::pe::optional_header::OptionalHeader,
     layout: &ValidatedLayout<'_>,
@@ -864,7 +968,7 @@ fn parse_resources(
                         "resource data entry reserved field is nonzero",
                     ));
                 }
-                layout.file_span(data_rva, size)?;
+                let resource_bytes = layout.file_span(data_rva, size)?;
                 let identity = (
                     type_entry.identifier.clone(),
                     name_entry.identifier.clone(),
@@ -876,6 +980,13 @@ fn parse_resources(
                     ));
                 }
                 entries.push(ResourceDataEntryPlan {
+                    version_bytes: (matches!(identity.0, ResourceIdentifier::Id { id: 16 })
+                        && size <= u32::from(u16::MAX))
+                    .then(|| resource_bytes.to_vec()),
+                    descriptor_rva: Rva(directory
+                        .virtual_address
+                        .checked_add(language_entry.target_offset)
+                        .ok_or_else(|| LoaderError::new("resource descriptor RVA overflowed"))?),
                     resource_type: identity.0,
                     name: identity.1,
                     language: identity.2,

@@ -76,6 +76,9 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_ready_object_wait_request_id(): bigint;
   vine_bridge_register_source_dll(imageLength: number, pathLength: number): number;
   vine_bridge_complete_source_lookup(length: number): number;
+  vine_bridge_register_source_directory_listing(length: number): number;
+  vine_bridge_register_opfs_snapshot(length: number): number;
+  vine_bridge_complete_source_library(length: number, found: number): number;
   vine_bridge_synchronize_forward_clock(low: number, high: number, elapsedLow: number, elapsedHigh: number): number;
   vine_bridge_read_timestamp_counter(low: number, high: number, elapsedLow: number, elapsedHigh: number): number;
   vine_bridge_acknowledge_fast(low: number, high: number): number;
@@ -102,7 +105,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_cpu_snapshot_put(threadId: number, revisionLow: number, revisionHigh: number,
     backendTag: number, abiVersion: number, inputLength: number): number;
   vine_bridge_cpu_snapshot_get(threadId: number): number;
-  vine_bridge_complete_callback(sentinel: number, result: number): number;
+  vine_bridge_complete_callback(sentinel: number, result: number, stackPointer: number): number;
   vine_bridge_stop_context(instructionPointer: number): number;
   vine_bridge_stop_context_ptr(): number;
   vine_bridge_stop_context_len(): number;
@@ -184,7 +187,7 @@ export class RuntimeBridge {
 
   prepareExecutable(executable: Uint8Array, relativePath: string): BridgeOutput<ExecutablePreparedMetadata> {
     const path = new TextEncoder().encode(relativePath);
-    this.#setInput([executable, path]);
+    this.#setInput([executable, path, crypto.getRandomValues(new Uint8Array(32))]);
     return this.#invoke(() => this.#exports.vine_bridge_prepare_executable(
       executable.length, path.length, pointerCookie(),
     ));
@@ -198,6 +201,13 @@ export class RuntimeBridge {
     return BigInt.asUintN(64, id);
   }
 
+  completeSourceLibrary(bytes: Uint8Array | null): BridgeOutput<{ kind: string }> {
+    this.#setInput([bytes ?? new Uint8Array()]);
+    const output = this.#invoke<{ kind: string }>(() => this.#exports.vine_bridge_complete_source_library(bytes?.length ?? 0, bytes === null ? 0 : 1));
+    invariant(output.metadata.kind === "source-library-complete", "Invalid DLL completion");
+    return output;
+  }
+
   completeSourceLookup(entry: { kind: "file"; byteLength: number } | { kind: "directory" } | null): void {
     const input = new TextEncoder().encode(JSON.stringify(entry));
     this.#setInput([input]);
@@ -205,6 +215,25 @@ export class RuntimeBridge {
       this.#exports.vine_bridge_complete_source_lookup(input.length));
     invariant(result.metadata.kind === "source-lookup-complete" &&
       result.metadata.found === (entry !== null), "Source lookup completion disagrees with the browser entry");
+  }
+
+  registerSourceDirectoryListing(listing: { pathSegments: string[]; entries: Array<{ name: string; kind: "file" | "directory" }> } | null): void {
+    const fn = this.#exports.vine_bridge_register_source_directory_listing;
+    if (typeof fn !== "function") return;
+    const input = new TextEncoder().encode(JSON.stringify(listing));
+    this.#setInput([input]);
+    const result = this.#invoke<{ kind: string }>(() => fn(input.length));
+    invariant(result.metadata.kind === "ok", "Source directory listing registration failed");
+  }
+
+  registerOpfsSnapshot(snapshot: { files: string[]; directories: string[] }): void {
+    const fn = this.#exports.vine_bridge_register_opfs_snapshot;
+    if (typeof fn !== "function") return;
+    const input = new TextEncoder().encode(JSON.stringify(snapshot));
+    if (input.length > inputLimit) return;
+    this.#setInput([input]);
+    const result = this.#invoke<{ kind: string }>(() => fn(input.length));
+    invariant(result.metadata.kind === "ok", "OPFS snapshot registration failed");
   }
 
   sourceSearchNames(listing: { pathSegments: string[]; entries: Array<{ name: string; kind: "file" | "directory" }> } | null): number[][] | null {
@@ -319,13 +348,14 @@ export class RuntimeBridge {
       "Invalid pointer event sequence");
     const sequence = BigInt(event.sequence);
     invariant(sequence <= BigInt(Number.MAX_SAFE_INTEGER), "Pointer event sequence exceeds the browser range");
-    const kind = event.kind === "move" ? 1 : event.kind === "down" ? 2 : event.kind === "up" ? 3 : 0;
+    const kind = event.kind === "move" ? 1 : event.kind === "down" ? 2 : event.kind === "up" ? 3 : event.kind === "leave" ? 4 : 0;
     const button = event.button === "none" ? 0 : event.button === "primary" ? 1 :
       event.button === "secondary" ? 2 : -1;
-    invariant(kind !== 0 && (kind === 1 ? button === 0 : button === 1 || button === 2) &&
+    invariant(kind !== 0 && (kind === 1 || kind === 4 ? button === 0 : button === 1 || button === 2) &&
       Number.isInteger(event.x) && event.x >= 0 && event.x <= 65535 &&
       Number.isInteger(event.y) && event.y >= 0 && event.y <= 65535,
       "Invalid pointer event");
+    invariant(kind !== 4 || (event.x === 0 && event.y === 0), "Pointer leave has no coordinates");
     const [low, high] = splitU64(sequence);
     const output = this.#invoke<{ kind: string; sequence: number }>(() =>
       this.#exports.vine_bridge_ingest_pointer_event(low, high, kind, button, event.x, event.y));
@@ -477,8 +507,8 @@ export class RuntimeBridge {
     return receipt;
   }
 
-  completeCallback<T = Record<string, unknown>>(sentinel: number, result: number): BridgeOutput<T> {
-    return this.#invoke(() => this.#exports.vine_bridge_complete_callback(sentinel, result));
+  completeCallback<T = Record<string, unknown>>(sentinel: number, result: number, stackPointer: number): BridgeOutput<T> {
+    return this.#invoke(() => this.#exports.vine_bridge_complete_callback(sentinel, result, stackPointer));
   }
 
   stopContext(instructionPointer: number): RuntimeStopContext {

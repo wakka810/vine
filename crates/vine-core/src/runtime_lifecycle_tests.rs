@@ -202,7 +202,6 @@ fn moved_memory_remains_authoritative_across_environment_rejection_and_retry() {
 fn repeated_environment_install_preserves_guest_bytes_and_process_authority() {
     let mut runtime = initialized_runtime();
     runtime.install_process_environment("日本語.exe").unwrap();
-    runtime.acquire_environment_strings_w().unwrap();
     let process_environment = runtime.process().environment().unwrap().clone();
     let allocations = runtime
         .process_address_space_allocator()

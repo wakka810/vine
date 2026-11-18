@@ -24,6 +24,19 @@ pub(crate) const DLL_PROCESS_STATIC_RESERVED: u32 = 1;
 
 const RUNTIME_MODULE_HANDLE_GENERATION: u8 = 1;
 
+// Contracts reached through the Windows loader, resolved to Vine's system host.
+// Other API sets remain unresolved; a prefix alone does not imply support.
+pub(crate) fn api_set_host(name: &str) -> Option<&'static str> {
+    let name = name.to_ascii_lowercase();
+    let contract = name.strip_suffix(".dll").unwrap_or(&name);
+    match contract {
+        "api-ms-win-core-synch-l1-2-0"
+        | "api-ms-win-core-fibers-l1-1-1"
+        | "api-ms-win-core-localization-l1-2-1" => Some("kernel32.dll"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeModule {
     pub handle: u32,
@@ -66,7 +79,7 @@ pub struct RuntimeSystemExportEndpoint {
     pub export: RuntimeExport,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct RuntimeSystemExportTable {
     pub endpoints: Vec<RuntimeSystemExportEndpoint>,
 }
@@ -131,7 +144,7 @@ pub enum RuntimeDllLifecycleAction {
     },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct RuntimeModules {
     modules: BTreeMap<u32, RuntimeModule>,
     module_graph: RuntimeModuleGraph,
@@ -139,6 +152,8 @@ pub(crate) struct RuntimeModules {
     module_import_bindings: BTreeMap<RuntimeModuleId, RuntimeGuestImportBinding>,
     runtime_system_exports: Option<RuntimeSystemExportTable>,
     dll_lifecycle: RuntimeDllLifecycle,
+    pending_dynamic_library: Option<(u32, u32)>,
+    pending_library_release: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,11 +213,255 @@ pub(super) enum RuntimeDllLifecycleRequest {
 }
 
 impl RuntimeModules {
+    pub(crate) fn process_detach_targets(
+        &self,
+    ) -> Result<Vec<(u32, GuestAddress)>, RuntimeStateError> {
+        let order = self
+            .module_graph
+            .planned_detach_order()
+            .map_err(runtime_module_graph_error)?;
+        self.dll_callback_order(&order)?
+            .into_iter()
+            .map(|id| {
+                let image = self
+                    .module_images
+                    .image(id)
+                    .map_err(runtime_module_image_error)?;
+                Ok((
+                    image.image_range.start().0,
+                    image.entry_point.expect("DLL callback target"),
+                ))
+            })
+            .collect()
+    }
+    pub(super) fn stage_dynamic_library(
+        &mut self,
+        objects: &mut RuntimeObjectTable,
+        name: &str,
+        catalog: &crate::imports::RuntimeExportCatalog,
+        system_modules: &[String],
+        thread: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
+        if self.pending_dynamic_library.is_some() {
+            return Err(RuntimeStateError::new(
+                "nested guest DLL loading is not supported",
+            ));
+        }
+        self.module_graph
+            .planned_detach_order()
+            .map_err(runtime_module_graph_error)?;
+        for name in system_modules {
+            if self.module_by_name_handle(name)?.is_none() {
+                let handle = objects.next_available_handle(RuntimeObjectKind::Module)?.0;
+                self.register(
+                    objects,
+                    RuntimeModule {
+                        handle,
+                        requested_name: name.clone(),
+                        canonical_name: name.to_ascii_lowercase(),
+                        runtime_system_module: true,
+                    },
+                    RuntimeModuleClass::RuntimeSystemModule,
+                )?;
+                self.mark_ready(handle)?;
+                let id = self.module_id_by_handle(handle)?;
+                self.module_graph
+                    .attach_ready_dynamic_module(id)
+                    .map_err(runtime_module_graph_error)?;
+            }
+        }
+        if let Some(table) = &mut self.runtime_system_exports {
+            let endpoints = catalog
+                .exports()
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(index, export)| crate::dll::runtime_export_endpoint(index, export))
+                .collect::<Result<Vec<_>, _>>()?;
+            if !endpoints.starts_with(&table.endpoints) {
+                return Err(RuntimeStateError::new(
+                    "dynamic load changed an existing runtime export address",
+                ));
+            }
+            table.endpoints = endpoints;
+        }
+        let handle = objects.next_available_handle(RuntimeObjectKind::Module)?.0;
+        self.register(
+            objects,
+            RuntimeModule {
+                handle,
+                requested_name: name.to_owned(),
+                canonical_name: name
+                    .rsplit(['\\', '/'])
+                    .next()
+                    .unwrap_or(name)
+                    .to_ascii_lowercase(),
+                runtime_system_module: false,
+            },
+            RuntimeModuleClass::GuestDynamicLibrary,
+        )?;
+        self.add_dynamic_reference(handle, thread)?;
+        self.pending_dynamic_library = Some((handle, thread));
+        Ok(handle)
+    }
+
+    pub(crate) fn has_pending_dynamic_library(&self) -> bool {
+        self.pending_dynamic_library.is_some()
+    }
+
+    pub(super) fn pending_dynamic_library(&self, handle: u32, thread: u32) -> bool {
+        self.pending_dynamic_library == Some((handle, thread))
+    }
+
+    pub(super) fn finish_dynamic_library(
+        &mut self,
+        handle: u32,
+        thread: u32,
+        success: bool,
+    ) -> Result<(), RuntimeStateError> {
+        if !self.pending_dynamic_library(handle, thread) {
+            return Err(RuntimeStateError::new(
+                "DLL completion does not own the pending library",
+            ));
+        }
+        let id = self.module_id_by_handle(handle)?;
+        if success {
+            self.module_graph
+                .attach_ready_dynamic_module(id)
+                .map_err(runtime_module_graph_error)?;
+        } else {
+            self.module_graph
+                .remove_dynamic_module(id)
+                .map_err(runtime_module_graph_error)?;
+            self.module_images.remove(id);
+            self.module_import_bindings.remove(&id);
+            self.modules.remove(&handle);
+        }
+        self.pending_dynamic_library = None;
+        Ok(())
+    }
+
+    pub(super) fn library_requires_detach(&self, handle: u32) -> Result<bool, RuntimeStateError> {
+        self.require_graph_mutation_allowed()?;
+        if self.pending_dynamic_library.is_some() {
+            return Err(RuntimeStateError::new(
+                "FreeLibrary during DLL attachment is not implemented",
+            ));
+        }
+        let id = self.module_id_by_handle(handle)?;
+        let node = self
+            .module_graph
+            .module(id)
+            .map_err(runtime_module_graph_error)?;
+        if !matches!(node.state, RuntimeModuleLoadState::ProcessAttached { .. }) {
+            return Err(RuntimeStateError::new(
+                "FreeLibrary requires an attached module",
+            ));
+        }
+        let dynamic = node.references.iter().any(|reference| {
+            matches!(
+                reference.owner,
+                crate::module_graph::RuntimeModuleReferenceOwner::DynamicLoad { .. }
+            )
+        });
+        if !dynamic {
+            if node.class == RuntimeModuleClass::RuntimeSystemModule {
+                return Ok(false); // Runtime service modules remain pinned.
+            }
+            return Err(RuntimeStateError::new(
+                "FreeLibrary without a dynamic DLL reference is not implemented",
+            ));
+        }
+        let detach = node.reference_count() == 1;
+        if detach {
+            for dependency in &node.dependencies {
+                if self
+                    .module_graph
+                    .module(*dependency)
+                    .map_err(runtime_module_graph_error)?
+                    .reference_count()
+                    == 1
+                {
+                    return Err(RuntimeStateError::new(
+                        "cascading guest DLL detach is not implemented",
+                    ));
+                }
+            }
+        }
+        Ok(detach)
+    }
+
+    pub(super) fn release_library_reference(
+        &mut self,
+        handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        if self.library_requires_detach(handle)? {
+            return Err(RuntimeStateError::new(
+                "last DLL reference requires process detach",
+            ));
+        }
+        let id = self.module_id_by_handle(handle)?;
+        let node = self
+            .module_graph
+            .module(id)
+            .map_err(runtime_module_graph_error)?;
+        if node.references.iter().any(|reference| {
+            matches!(
+                reference.owner,
+                crate::module_graph::RuntimeModuleReferenceOwner::DynamicLoad { .. }
+            )
+        }) {
+            self.module_graph
+                .release_process_dynamic_reference(id)
+                .map_err(runtime_module_graph_error)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn begin_library_release(
+        &mut self,
+        handle: u32,
+        thread: u32,
+    ) -> Result<(), RuntimeStateError> {
+        if thread == 0 || !self.library_requires_detach(handle)? {
+            return Err(RuntimeStateError::new(
+                "DLL release requires its final reference and a live thread",
+            ));
+        }
+        self.pending_library_release = Some((handle, thread));
+        Ok(())
+    }
+
+    pub(super) fn finish_library_release(
+        &mut self,
+        handle: u32,
+        thread: u32,
+    ) -> Result<(), RuntimeStateError> {
+        if self.pending_library_release != Some((handle, thread)) {
+            return Err(RuntimeStateError::new(
+                "DLL detach completion does not own the pending library",
+            ));
+        }
+        let id = self.module_id_by_handle(handle)?;
+        self.module_graph
+            .release_process_dynamic_reference(id)
+            .map_err(runtime_module_graph_error)?;
+        self.module_graph
+            .remove_dynamic_module(id)
+            .map_err(runtime_module_graph_error)?;
+        self.module_images.remove(id);
+        self.module_import_bindings.remove(&id);
+        self.modules.remove(&handle);
+        self.pending_library_release = None;
+        Ok(())
+    }
+
     pub(super) fn modules(&self) -> &BTreeMap<u32, RuntimeModule> {
         &self.modules
     }
 
-    pub(super) fn module(&self, handle: u32) -> Result<&RuntimeModule, RuntimeStateError> {
+    pub(crate) fn module(&self, handle: u32) -> Result<&RuntimeModule, RuntimeStateError> {
         self.modules.get(&handle).ok_or_else(|| {
             RuntimeStateError::new(format!(
                 "logical module handle {handle:#010x} is not loaded"
@@ -242,20 +501,19 @@ impl RuntimeModules {
 }
 
 impl RuntimeModules {
-    pub(super) fn graph(&self) -> &RuntimeModuleGraph {
+    pub(crate) fn graph(&self) -> &RuntimeModuleGraph {
         &self.module_graph
     }
 
-    pub(super) fn images(&self) -> &RuntimeModuleImageRegistry {
+    pub(crate) fn images(&self) -> &RuntimeModuleImageRegistry {
         &self.module_images
     }
 
-    #[cfg(test)]
     pub(super) fn bindings(&self) -> &BTreeMap<RuntimeModuleId, RuntimeGuestImportBinding> {
         &self.module_import_bindings
     }
 
-    pub(super) fn runtime_system_exports(&self) -> Option<&RuntimeSystemExportTable> {
+    pub(crate) fn runtime_system_exports(&self) -> Option<&RuntimeSystemExportTable> {
         self.runtime_system_exports.as_ref()
     }
 
@@ -264,7 +522,7 @@ impl RuntimeModules {
     }
 
     fn require_graph_mutation_allowed(&self) -> Result<(), RuntimeStateError> {
-        if self.dll_lifecycle.operation.is_some() {
+        if self.dll_lifecycle.operation.is_some() || self.pending_library_release.is_some() {
             return Err(RuntimeStateError::new(
                 "module graph mutation is not supported while DLL callbacks are in progress",
             ));
@@ -602,7 +860,7 @@ impl RuntimeModules {
         })
     }
 
-    pub(super) fn resolve(
+    pub(crate) fn resolve(
         &self,
         module: &str,
         symbol: ExportLookup,
@@ -718,7 +976,7 @@ impl RuntimeModules {
         name: &str,
     ) -> Result<Option<u32>, RuntimeStateError> {
         self.module_graph
-            .find_module_by_name(name)
+            .find_module_by_name(api_set_host(name).unwrap_or(name))
             .map(|module| module.map(|module| module.handle))
             .map_err(runtime_module_graph_error)
     }

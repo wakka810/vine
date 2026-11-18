@@ -21,7 +21,8 @@ export class WritableTree {
     const parts = pathParts(relativePath);
     const parent = await this.parent(parts);
     if (parent === null) return null;
-    const name = await existingName(parent, parts.at(-1)!) ?? parts.at(-1)!;
+    const name = await existingName(parent, parts.at(-1)!);
+    if (name === null) return null;
     try {
       const handle = await parent.getFileHandle(name, { create: false });
       const file = await handle.getFile();
@@ -39,6 +40,28 @@ export class WritableTree {
     }
   }
 
+  async listEntries(): Promise<{ files: string[]; directories: string[] } | null> {
+    const files: string[] = [];
+    const directories: string[] = [];
+    // Rust can infer absence from a complete listing only.
+    const walk = async (directory: FileSystemDirectoryHandle, prefix: string, depth: number): Promise<boolean> => {
+      for await (const [name, entry] of directory.entries()) {
+        if (!name || name === "." || name === ".." || name.length > 255 || /[\\/\u0000-\u001f\u007f:]/u.test(name)) {
+          continue;
+        }
+        const relative = prefix ? `${prefix}/${name}` : name;
+        const paths = entry.kind === "file" ? files : directories;
+        if (paths.length >= 4096 || depth > 32) return false;
+        paths.push(relative);
+        if (entry.kind === "directory" && !await walk(entry as FileSystemDirectoryHandle, relative, depth + 1)) {
+          return false;
+        }
+      }
+      return true;
+    };
+    return await walk(this.root, "", 0) ? { files, directories } : null;
+  }
+
   async read(
     relativePath: string,
     offset: number,
@@ -47,7 +70,7 @@ export class WritableTree {
     const parts = pathParts(relativePath);
     if (
       !Number.isSafeInteger(offset) || offset < 0 ||
-      !Number.isSafeInteger(length) || length < 0 || length > 2 * 1024 * 1024 ||
+      !Number.isSafeInteger(length) || length < 0 || length > 16 * 1024 * 1024 - 28 ||
       !Number.isSafeInteger(offset + length)
     ) {
       throw new Error("Invalid OPFS read range");
@@ -78,6 +101,19 @@ export class WritableTree {
   // disappeared between open and write. The browser does not own that handle.
   async writeExisting(relativePath: string, bytes: Uint8Array, offset: number): Promise<void> {
     await this.writeBytes(relativePath, bytes, offset);
+  }
+
+  async truncateExisting(relativePath: string, length: number): Promise<void> {
+    if (!Number.isSafeInteger(length) || length < 0 || length > 0xffff_ffff) throw new Error("Invalid OPFS file length");
+    const parts = pathParts(relativePath);
+    const parent = await this.parent(parts);
+    if (parent === null) throw new DOMException("Parent directory does not exist", "NotFoundError");
+    const name = await existingName(parent, parts.at(-1)!);
+    if (name === null) throw new DOMException("File does not exist", "NotFoundError");
+    const file = await parent.getFileHandle(name, { create: false });
+    const stream = await file.createWritable({ keepExistingData: true });
+    try { await stream.truncate(length); await stream.close(); }
+    catch (error) { try { await stream.abort(); } catch { /* Already closed. */ } throw error; }
   }
 
   // Only createEmpty can create/truncate; a cursor write always preserves

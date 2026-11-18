@@ -430,6 +430,74 @@ fn factory_catalog_matches_only_named_direct_input_exports() {
     assert!(dinput8_argument_words(&other).is_none());
 }
 
+#[test]
+fn legacy_direct_input_enumerates_no_attached_gamepads_with_owned_identity() {
+    use crate::dinput8::DINPUT_IDIRECTINPUTA_IID;
+    let mut fixture = Fixture::new(MemoryLimits::default());
+    fixture.endpoint.module = "dinput.dll".to_owned();
+    fixture.endpoint.symbol = crate::api::ApiSymbol::Name {
+        name: "DirectInputCreateA".to_owned(),
+    };
+    fixture.dispatcher = ApiDispatcher::from_endpoints([fixture.endpoint.clone()]).unwrap();
+    write_words(
+        &mut fixture.runtime.memory,
+        STACK,
+        &[RETURN_ADDRESS.0, INSTANCE, 0x500, OUTPUT_ADDRESS.0, 0],
+    );
+    fixture.acknowledge();
+    let completion = immediate(fixture.dispatch_prepared());
+    assert_eq!(completion.eax, Some(0));
+    assert_eq!(completion.stack_pointer, GuestAddress(STACK.0 + 20));
+    fixture.acknowledge();
+    let pointer = read_u32(&fixture.runtime.memory, OUTPUT_ADDRESS);
+    let interface = fixture
+        .runtime
+        .com_interface_for_pointer(GuestAddress(pointer))
+        .unwrap()
+        .unwrap()
+        .clone();
+    assert_eq!(interface.iid, DINPUT_IDIRECTINPUTA_IID);
+    assert!(
+        fixture
+            .runtime
+            .com()
+            .interface_for_object_iid(interface.object_id, DINPUT8_IDIRECTINPUT8A_IID)
+            .is_err()
+    );
+    write_words(
+        &mut fixture.runtime.memory,
+        COM_STACK,
+        &[
+            ENUM_DEVICES_CALL_SITE.0,
+            pointer,
+            4,
+            interface.methods[&0].endpoint.0,
+            0x12345678,
+            1,
+        ],
+    );
+    fixture.acknowledge();
+    let ComDispatchOutcome::Completed(completed) =
+        fixture.dispatch_dinput_com(&interface, 4, COM_STACK)
+    else {
+        panic!("legacy enumeration");
+    };
+    assert_eq!(completed.eax, 0);
+    assert_eq!(completed.stack_pointer, GuestAddress(COM_STACK.0 + 24));
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        LAST_ERROR_SENTINEL
+    );
+    assert!(
+        fixture
+            .runtime
+            .thread_state(RuntimeThreadId(THREAD_ID))
+            .unwrap()
+            .callback_frames
+            .is_empty()
+    );
+}
+
 fn assert_live_direct_input(
     fixture: &Fixture,
     interface: &crate::runtime::RuntimeComInterfaceRecord,

@@ -3,6 +3,12 @@ use crate::api::{
 };
 use crate::memory::GuestAddress;
 
+mod mmio;
+mod timers;
+pub(crate) use mmio::RuntimeWinMm;
+pub use mmio::complete_winmm_source_read;
+pub(crate) use timers::retire_timer_thread;
+
 pub const X86_TIMECAPS_BYTE_LENGTH: u32 = 8;
 pub const TIMERR_NOERROR: u32 = 0;
 pub const TIMERR_NOCANDO: u32 = 97;
@@ -14,6 +20,13 @@ pub(crate) fn dispatch_winmm_api(
     frame: &ApiCallFrame,
     runtime: &mut crate::runtime::Runtime,
 ) -> ApiHandlerResult {
+    if matches!(&frame.endpoint.symbol, ApiSymbol::Name { name } if matches!(name.as_str(), "timeSetEvent" | "timeKillEvent"))
+    {
+        return timers::dispatch(frame, runtime);
+    }
+    if matches!(&frame.endpoint.symbol, ApiSymbol::Name { name } if name.starts_with("mmio")) {
+        return mmio::dispatch(frame, runtime);
+    }
     let endpoint = &frame.endpoint;
     let result = match &endpoint.symbol {
         ApiSymbol::Name { name } if endpoint.module.eq_ignore_ascii_case("winmm.dll") => {
@@ -23,6 +36,40 @@ pub(crate) fn dispatch_winmm_api(
                 "timeGetTime" => Ok(ApiImmediate::new(Some(runtime.clock().tick_count))),
                 "timeBeginPeriod" => handle_time_period(endpoint, frame, runtime, true),
                 "timeEndPeriod" => handle_time_period(endpoint, frame, runtime, false),
+                // Chrome has no WinMM MIDI output port or joystick driver.
+                // Enumeration is empty; opening or using a device must fail.
+                "midiOutGetNumDevs" => Ok(ApiImmediate::new(Some(0))),
+                "midiOutOpen" => (|| {
+                    let output = required_argument(endpoint, frame, 0, "MIDI handle output")?;
+                    let device = required_argument(endpoint, frame, 1, "MIDI device")?;
+                    if output == 0 {
+                        Ok(ApiImmediate::new(Some(11))) // MMSYSERR_INVALPARAM
+                    } else {
+                        Ok(ApiImmediate::new(Some(if device == u32::MAX {
+                            6
+                        } else {
+                            2
+                        })))
+                    }
+                })(),
+                "midiOutClose"
+                | "midiOutLongMsg"
+                | "midiOutPrepareHeader"
+                | "midiOutReset"
+                | "midiOutShortMsg"
+                | "midiOutUnprepareHeader" => {
+                    Ok(ApiImmediate::new(Some(5))) // MMSYSERR_INVALHANDLE
+                }
+                "joyGetDevCapsA" => Ok(ApiImmediate::new(Some(6))), // MMSYSERR_NODRIVER
+                "joyGetPosEx" => (|| {
+                    let output = required_argument(endpoint, frame, 1, "JOYINFOEX output")?;
+                    let bytes = runtime
+                        .memory
+                        .read(GuestAddress(output), 8)
+                        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+                    let size = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+                    Ok(ApiImmediate::new(Some(if size < 52 { 165 } else { 167 })))
+                })(),
                 _ => Err(ApiFault::new(format!(
                     "unsupported imported function {}!{name}",
                     endpoint.module
@@ -82,7 +129,20 @@ pub(crate) fn winmm_argument_words(endpoint: &ApiEndpointIdentity) -> Option<u8>
         return None;
     };
     match name.as_str() {
+        "timeSetEvent" => Some(5),
+        "timeKillEvent" => Some(1),
+        "mmioOpenA" | "mmioGetInfo" | "mmioSetInfo" | "mmioAdvance" | "mmioAscend" | "mmioRead"
+        | "mmioSeek" => Some(3),
+        "mmioClose" => Some(2),
+        "mmioDescend" => Some(4),
         "timeGetTime" => Some(0),
+        "midiOutGetNumDevs" => Some(0),
+        "midiOutClose" | "midiOutReset" => Some(1),
+        "joyGetPosEx" | "midiOutShortMsg" => Some(2),
+        "joyGetDevCapsA" | "midiOutLongMsg" | "midiOutPrepareHeader" | "midiOutUnprepareHeader" => {
+            Some(3)
+        }
+        "midiOutOpen" => Some(5),
         "timeBeginPeriod" => Some(1),
         "timeEndPeriod" => Some(1),
         "timeGetDevCaps" => Some(2),

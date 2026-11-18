@@ -96,10 +96,13 @@ pub struct RuntimeCursorPosition {
 #[derive(Debug, Default)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub(super) struct RuntimeInput {
+    pub(super) direct_input:
+        std::collections::BTreeMap<super::RuntimeComObjectId, crate::dinput8::KeyboardDevice>,
     mouse_buttons_swapped: Option<bool>,
     keyboard: Option<RuntimeKeyboardState>,
     cursor_position: Option<RuntimeCursorPosition>,
     last_pointer_click: Option<RuntimePointerClickRecord>,
+    pointer_window: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +170,26 @@ impl RuntimePointerButtonEventUpdate {
 }
 
 impl RuntimeInput {
+    pub(super) fn direct_input_keys(&self) -> Option<[u8; 256]> {
+        let keyboard = self.keyboard.as_ref()?;
+        let mut keys = [0; 256];
+        for key in 0..=255 {
+            if matches!(key, VK_SHIFT | VK_CONTROL | VK_MENU) || !keyboard.key_down(key) {
+                continue;
+            }
+            let (scan, extended) = keyboard_scan_code(key);
+            let scan = match key {
+                0x13 => 0xc5,
+                0x90 => 0x45,
+                _ => scan | if extended { 0x80 } else { 0 },
+            };
+            if scan != 0 {
+                keys[scan as usize] = 0x80;
+            }
+        }
+        Some(keys)
+    }
+
     pub(super) fn configure(
         &mut self,
         profile: RuntimeInputProfile,
@@ -199,6 +222,14 @@ impl RuntimeInput {
             )
         })?;
         Ok(std::mem::replace(mapping, swapped))
+    }
+
+    pub(super) fn mouse_buttons_swapped(&self) -> Result<bool, RuntimeStateError> {
+        self.mouse_buttons_swapped.ok_or_else(|| {
+            RuntimeStateError::new(
+                "logical mouse button mapping must be configured before it is queried",
+            )
+        })
     }
 
     pub(super) fn keyboard_state(&self) -> Option<&RuntimeKeyboardState> {
@@ -298,6 +329,12 @@ impl RuntimeInput {
                 keyboard.source_focused = false;
                 keyboard.down_words.fill(0);
                 keyboard.pressed_words.fill(0);
+                for device in self.direct_input.values_mut() {
+                    if device.acquired && device.cooperative_flags & 4 != 0 {
+                        device.acquired = false;
+                        device.lost = true;
+                    }
+                }
             }
             RuntimeKeyboardSourceEventKind::KeyDown | RuntimeKeyboardSourceEventKind::KeyUp => {
                 let virtual_key = event.virtual_key.expect("validated virtual-key code");
@@ -457,6 +494,22 @@ impl RuntimeInput {
         Ok(mouse_message_key_state(keyboard))
     }
 
+    pub(super) fn pointer_window(&self) -> Option<u32> {
+        self.pointer_window
+    }
+
+    pub(super) fn publish_pointer_enter(&mut self, window: u32) {
+        self.pointer_window = Some(window);
+    }
+
+    pub(super) fn publish_pointer_leave(&mut self, sequence: u64) {
+        self.keyboard
+            .as_mut()
+            .expect("validated pointer keyboard")
+            .last_event_sequence = sequence;
+        self.pointer_window = None;
+    }
+
     pub(super) fn publish_pointer_position(&mut self, sequence: u64, screen_x: i32, screen_y: i32) {
         self.keyboard
             .as_mut()
@@ -539,13 +592,124 @@ impl RuntimeInput {
     }
 }
 
+pub(crate) fn keyboard_virtual_key_scan_code(key: u32) -> u32 {
+    // The public MapVirtualKey lookup has legacy Pause/SysRq encodings that
+    // differ from the physical scan bits placed in keyboard messages.
+    match key {
+        0x13 | 0x6c => 0,
+        0x2c => 0x54,
+        0..=0xff => u32::from(keyboard_scan_code(key as u16).0),
+        _ => 0,
+    }
+}
+
+pub(crate) fn keyboard_key_name(bits: u32) -> Option<String> {
+    let scan = ((bits >> 16) & 0xff) as u8;
+    let extended = bits & (1 << 24) != 0;
+    let generic = bits & (1 << 25) != 0;
+    if extended {
+        return Some(
+            match scan {
+                0x1c => "Num Enter",
+                0x1d if generic => "Ctrl",
+                0x1d => "Right Control",
+                0x35 => "Num /",
+                0x37 => "Print Screen",
+                0x38 if generic => "Alt",
+                0x38 => "Right Alt",
+                0x45 => "Num Lock",
+                0x46 => "Break",
+                0x47 => "Home",
+                0x48 => "Up",
+                0x49 => "Page Up",
+                0x4b => "Left",
+                0x4d => "Right",
+                0x4f => "End",
+                0x50 => "Down",
+                0x51 => "Page Down",
+                0x52 => "Insert",
+                0x53 => "Delete",
+                0x5b => "Left Windows",
+                0x5c => "Right Windows",
+                0x5d => "Application",
+                _ => return None,
+            }
+            .to_owned(),
+        );
+    }
+    for key in (0x30..=0x39).chain(0x41..=0x5a) {
+        if keyboard_scan_code(key).0 == scan {
+            return char::from_u32(u32::from(key)).map(|character| character.to_string());
+        }
+    }
+    if (0x3b..=0x44).contains(&scan) {
+        return Some(format!("F{}", scan - 0x3b + 1));
+    }
+    if (0x7c..=0x87).contains(&scan) {
+        return Some(format!("F{}", scan - 0x7c + 13));
+    }
+    Some(
+        match scan {
+            0x01 => "Esc",
+            0x0c => "-",
+            0x0d => "=",
+            0x0e => "Backspace",
+            0x0f => "Tab",
+            0x1a => "[",
+            0x1b => "]",
+            0x1c => "Enter",
+            0x1d => "Ctrl",
+            0x27 => ";",
+            0x28 => "'",
+            0x29 => "`",
+            0x2a => "Shift",
+            0x2b | 0x56 => "\\",
+            0x33 => ",",
+            0x34 => ".",
+            0x35 => "/",
+            0x36 if generic => "Shift",
+            0x36 => "Right Shift",
+            0x37 => "Num *",
+            0x38 => "Alt",
+            0x39 => "Space",
+            0x3a => "Caps Lock",
+            0x45 => "Pause",
+            0x46 => "Scroll Lock",
+            0x47 => "Num 7",
+            0x48 => "Num 8",
+            0x49 => "Num 9",
+            0x4a => "Num -",
+            0x4b => "Num 4",
+            0x4c => "Num 5",
+            0x4d => "Num 6",
+            0x4e => "Num +",
+            0x4f => "Num 1",
+            0x50 => "Num 2",
+            0x51 => "Num 3",
+            0x52 => "Num 0",
+            0x53 => "Num Del",
+            0x54 => "Sys Req",
+            0x57 => "F11",
+            0x58 => "F12",
+            0xf1 => "ImeOff",
+            0xf2 => "ImeOn",
+            _ => return None,
+        }
+        .to_owned(),
+    )
+}
+
 fn keyboard_scan_code(key: u16) -> (u8, bool) {
     let scan_code = match key {
+        0x03 => 0x46,
         0x08 => 0x0e,
         0x09 => 0x0f,
+        0x0c => 0x4c,
         0x0d => 0x1c,
         0x13 => 0x45,
         0x14 => 0x3a,
+        0x16 => 0xf2,
+        0x1a => 0xf1,
         0x1b => 0x01,
         0x20 => 0x39,
         0x21 => 0x49,
@@ -559,6 +723,7 @@ fn keyboard_scan_code(key: u16) -> (u8, bool) {
         0x2c => 0x37,
         0x2d => 0x52,
         0x2e => 0x53,
+        0x2f => 0x63,
         0x30 => 0x0b,
         0x31..=0x39 => (key - 0x31 + 2) as u8,
         0x41 => 0x1e,
@@ -590,6 +755,7 @@ fn keyboard_scan_code(key: u16) -> (u8, bool) {
         0x5b => 0x5b,
         0x5c => 0x5c,
         0x5d => 0x5d,
+        0x5f => 0x5f,
         0x60 => 0x52,
         0x61 => 0x4f,
         0x62 => 0x50,
@@ -609,13 +775,32 @@ fn keyboard_scan_code(key: u16) -> (u8, bool) {
         0x70..=0x79 => (key - 0x70 + 0x3b) as u8,
         0x7a => 0x57,
         0x7b => 0x58,
-        0x7c..=0x87 => (key - 0x7c + 0x64) as u8,
+        0x7c..=0x86 => (key - 0x7c + 0x64) as u8,
+        0x87 => 0x76,
         0x90 => 0x45,
         0x91 => 0x46,
         VK_SHIFT | VK_LSHIFT => 0x2a,
         VK_RSHIFT => 0x36,
         VK_CONTROL | VK_LCONTROL | VK_RCONTROL => 0x1d,
         VK_MENU | VK_LMENU | VK_RMENU => 0x38,
+        0xa6 => 0x6a,
+        0xa7 => 0x69,
+        0xa8 => 0x67,
+        0xa9 => 0x68,
+        0xaa => 0x65,
+        0xab => 0x66,
+        0xac => 0x32,
+        0xad => 0x20,
+        0xae => 0x2e,
+        0xaf => 0x30,
+        0xb0 => 0x19,
+        0xb1 => 0x10,
+        0xb2 => 0x24,
+        0xb3 => 0x22,
+        0xb4 => 0x6c,
+        0xb5 => 0x6d,
+        0xb6 => 0x6b,
+        0xb7 => 0x21,
         0xba => 0x27,
         0xbb => 0x0d,
         0xbc => 0x33,
@@ -623,15 +808,27 @@ fn keyboard_scan_code(key: u16) -> (u8, bool) {
         0xbe => 0x34,
         0xbf => 0x35,
         0xc0 => 0x29,
+        0xc1 => 0x73,
+        0xc2 => 0x7e,
         0xdb => 0x1a,
         0xdc => 0x2b,
         0xdd => 0x1b,
         0xde => 0x28,
         0xe2 => 0x56,
+        0xe9 => 0x71,
+        0xea => 0x5c,
+        0xeb => 0x7b,
+        0xec => 0x7f,
+        0xed => 0x6f,
+        0xee => 0x5a,
+        0xf1 => 0x5b,
+        0xf3 => 0x5f,
+        0xf5 => 0x5e,
+        0xf9 => 0x5d,
+        0xfb => 0x62,
         _ => 0,
     };
-    let extended =
-        matches!(key, 0x21..=0x28 | 0x2c..=0x2e | 0x5b..=0x5d | 0x6f | VK_RCONTROL | VK_RMENU);
+    let extended = matches!(key, 0x03 | 0x21..=0x28 | 0x2c..=0x2e | 0x5b..=0x5d | 0x5f | 0x6f | 0x90 | 0xa6..=0xb7 | VK_RCONTROL | VK_RMENU);
     (scan_code, extended)
 }
 
@@ -645,7 +842,7 @@ impl RuntimeKeyboardState {
         }
     }
 
-    fn key_down(&self, virtual_key: u16) -> bool {
+    pub(crate) fn key_down(&self, virtual_key: u16) -> bool {
         bit_is_set(&self.down_words, virtual_key)
     }
 
@@ -714,6 +911,45 @@ fn set_bit(words: &mut [u32; VIRTUAL_KEY_WORD_COUNT], virtual_key: u16, value: b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_input_scancodes_and_foreground_loss_share_keyboard_authority() {
+        let mut input = RuntimeInput::default();
+        input.configure(profile(false)).unwrap();
+        for (sequence, key) in [(1, 0x41), (2, 0x26), (3, VK_RCONTROL)] {
+            input
+                .ingest_keyboard_event(key_event(
+                    sequence,
+                    RuntimeKeyboardSourceEventKind::KeyDown,
+                    key,
+                    false,
+                ))
+                .unwrap();
+        }
+        let keys = input.direct_input_keys().unwrap();
+        assert_eq!(keys[0x1e], 0x80);
+        assert_eq!(keys[0xc8], 0x80);
+        assert_eq!(keys[0x9d], 0x80);
+        assert_eq!(keys[0x1d], 0);
+        input.direct_input.insert(
+            super::super::RuntimeComObjectId(1),
+            crate::dinput8::KeyboardDevice {
+                acquired: true,
+                cooperative_flags: 6,
+                ..Default::default()
+            },
+        );
+        input
+            .ingest_keyboard_event(focus_event(4, RuntimeKeyboardSourceEventKind::FocusLost))
+            .unwrap();
+        input
+            .ingest_keyboard_event(focus_event(5, RuntimeKeyboardSourceEventKind::FocusGained))
+            .unwrap();
+        let device = &input.direct_input[&super::super::RuntimeComObjectId(1)];
+        assert!(!device.acquired);
+        assert!(device.lost);
+        assert_eq!(input.direct_input_keys().unwrap(), [0; 256]);
+    }
 
     fn profile(initial_mouse_buttons_swapped: bool) -> RuntimeInputProfile {
         RuntimeInputProfile {

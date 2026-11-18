@@ -9,6 +9,7 @@ EXPORTS
     SetWindowPos@28
     SetFocus@4
     PeekMessageA@20
+    WaitMessage@0
     TranslateMessage@4
     DispatchMessageA@4
     GetAsyncKeyState@4

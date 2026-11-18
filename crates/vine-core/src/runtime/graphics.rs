@@ -19,6 +19,7 @@ pub const RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT: usize = 16_384;
 pub const RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_TEXTURE_LOCK_DISCARD: u32 = 0x0000_2000;
+pub(crate) const RUNTIME_GRAPHICS_TEXTURE_LOCK_READONLY: u32 = 0x10;
 pub const RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE: u32 = 0x0000_8000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,24 +41,75 @@ pub enum RuntimeGraphicsCullMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureFilter {
+    Point,
     Linear,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeGraphicsTextureAddress {
+    #[default]
+    Wrap,
+    Clamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureOperation {
+    Disable,
     Modulate,
     SelectArgumentOne,
+    Add,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTextureArgument {
     Diffuse,
     Texture,
+    TFactor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsFlexibleVertexFormat {
+    XyzRhwDiffuse,
+    XyzTexture1,
+    XyzDiffuseTexture1,
+    XyzRhwTexture1,
     XyzRhwDiffuseTexture1,
+}
+
+impl RuntimeGraphicsFlexibleVertexFormat {
+    pub(crate) fn from_d3d8_code(code: u32) -> Option<Self> {
+        match code {
+            0x044 => Some(Self::XyzRhwDiffuse),
+            0x102 => Some(Self::XyzTexture1),
+            0x142 => Some(Self::XyzDiffuseTexture1),
+            0x104 => Some(Self::XyzRhwTexture1),
+            0x144 => Some(Self::XyzRhwDiffuseTexture1),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn stride(self) -> u32 {
+        match self {
+            Self::XyzRhwDiffuse | Self::XyzTexture1 => 20,
+            Self::XyzDiffuseTexture1 | Self::XyzRhwTexture1 => 24,
+            Self::XyzRhwDiffuseTexture1 => 28,
+        }
+    }
+
+    pub(crate) fn is_untransformed_xyz(self) -> bool {
+        matches!(self, Self::XyzTexture1 | Self::XyzDiffuseTexture1)
+    }
+
+    pub(crate) fn has_diffuse(self) -> bool {
+        matches!(
+            self,
+            Self::XyzRhwDiffuse | Self::XyzDiffuseTexture1 | Self::XyzRhwDiffuseTexture1
+        )
+    }
+
+    pub(crate) fn has_tex1(self) -> bool {
+        !matches!(self, Self::XyzRhwDiffuse)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -84,6 +136,8 @@ pub struct RuntimeGraphicsStreamSources {
 pub struct RuntimeGraphicsSamplerState {
     pub min_filter: Option<RuntimeGraphicsTextureFilter>,
     pub mag_filter: Option<RuntimeGraphicsTextureFilter>,
+    pub address_u: RuntimeGraphicsTextureAddress,
+    pub address_v: RuntimeGraphicsTextureAddress,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -98,6 +152,18 @@ impl RuntimeGraphicsSamplerStates {
         update: RuntimeGraphicsSamplerStateUpdate,
     ) -> Option<RuntimeGraphicsSamplerStateUpdate> {
         match update {
+            RuntimeGraphicsSamplerStateUpdate::AddressU { sampler: 0, .. } => {
+                Some(RuntimeGraphicsSamplerStateUpdate::AddressU {
+                    sampler: 0,
+                    address: self.sampler_zero.address_u,
+                })
+            }
+            RuntimeGraphicsSamplerStateUpdate::AddressV { sampler: 0, .. } => {
+                Some(RuntimeGraphicsSamplerStateUpdate::AddressV {
+                    sampler: 0,
+                    address: self.sampler_zero.address_v,
+                })
+            }
             RuntimeGraphicsSamplerStateUpdate::MinFilter { sampler: 0, .. } => self
                 .sampler_zero
                 .min_filter
@@ -112,6 +178,18 @@ impl RuntimeGraphicsSamplerStates {
 
     fn apply(&mut self, update: RuntimeGraphicsSamplerStateUpdate) {
         match update {
+            RuntimeGraphicsSamplerStateUpdate::AddressU {
+                sampler: 0,
+                address,
+            } => {
+                self.sampler_zero.address_u = address;
+            }
+            RuntimeGraphicsSamplerStateUpdate::AddressV {
+                sampler: 0,
+                address,
+            } => {
+                self.sampler_zero.address_v = address;
+            }
             RuntimeGraphicsSamplerStateUpdate::MinFilter { sampler: 0, filter } => {
                 self.sampler_zero.min_filter = Some(filter);
             }
@@ -125,6 +203,14 @@ impl RuntimeGraphicsSamplerStates {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsSamplerStateUpdate {
+    AddressU {
+        sampler: u32,
+        address: RuntimeGraphicsTextureAddress,
+    },
+    AddressV {
+        sampler: u32,
+        address: RuntimeGraphicsTextureAddress,
+    },
     MinFilter {
         sampler: u32,
         filter: RuntimeGraphicsTextureFilter,
@@ -138,7 +224,10 @@ pub enum RuntimeGraphicsSamplerStateUpdate {
 impl RuntimeGraphicsSamplerStateUpdate {
     fn validate(self) -> Result<(), RuntimeStateError> {
         let sampler = match self {
-            Self::MinFilter { sampler, .. } | Self::MagFilter { sampler, .. } => sampler,
+            Self::MinFilter { sampler, .. }
+            | Self::MagFilter { sampler, .. }
+            | Self::AddressU { sampler, .. }
+            | Self::AddressV { sampler, .. } => sampler,
         };
         if sampler != 0 {
             return Err(RuntimeStateError::new(
@@ -300,6 +389,7 @@ pub struct RuntimeGraphicsRenderStates {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsBlendFactor {
+    One,
     SourceAlpha,
     InverseSourceAlpha,
 }
@@ -376,8 +466,35 @@ impl RuntimeGraphicsRenderStates {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(
+    clippy::enum_variant_names,
+    reason = "formats name both the packed channel layout and normalized component type"
+)]
 pub enum RuntimeGraphicsColorFormat {
     B8g8r8x8Unorm,
+    B8g8r8a8Unorm,
+    R5g6b5Unorm,
+    X1r5g5b5Unorm,
+    A1r5g5b5Unorm,
+    A4r4g4b4Unorm,
+}
+
+impl RuntimeGraphicsColorFormat {
+    pub const fn bytes_per_pixel(self) -> u32 {
+        match self {
+            Self::B8g8r8x8Unorm | Self::B8g8r8a8Unorm => 4,
+            Self::R5g6b5Unorm | Self::X1r5g5b5Unorm | Self::A1r5g5b5Unorm | Self::A4r4g4b4Unorm => {
+                2
+            }
+        }
+    }
+
+    pub const fn has_alpha(self) -> bool {
+        matches!(
+            self,
+            Self::B8g8r8a8Unorm | Self::A1r5g5b5Unorm | Self::A4r4g4b4Unorm
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,11 +506,13 @@ pub enum RuntimeGraphicsTextureUsage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsTexturePool {
     Default,
+    Managed,
     SystemMemory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsVertexBufferUsage {
+    None,
     WriteOnly,
 }
 
@@ -473,6 +592,12 @@ pub struct RuntimeGraphicsSurfaceFill {
     pub color_ref: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeGraphicsRetainedTexturePixels {
+    pub data: Arc<Vec<u8>>,
+    pub row_pitch: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsTextureUpdate {
     pub source_texture_id: RuntimeGraphicsTextureId,
@@ -485,14 +610,43 @@ pub struct RuntimeGraphicsTextureContent {
     pub content_generation: u64,
     pub fills: Vec<RuntimeGraphicsSurfaceFill>,
     pub pixel_source: Option<RuntimeGraphicsTexturePixelSource>,
+    pub retained_pixels: Option<RuntimeGraphicsRetainedTexturePixels>,
     pub(crate) last_update: Option<RuntimeGraphicsTextureUpdate>,
 }
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeGraphicsFogState {
+    pub color_argb: u32,
+    pub start: u32,
+    pub end: u32,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
+pub struct RuntimeGraphicsFragmentState {
+    pub texture_alpha: bool,
+    pub diffuse_alpha: bool,
+    pub blend: bool,
+    pub additive_blend: bool,
+    pub color_add: bool,
+    pub alpha_test: Option<(u32, u32)>,
+    pub fog: Option<RuntimeGraphicsFogState>,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct RuntimeGraphicsDrawSubmission {
+    pub clip_rect: Option<RuntimeRect>,
+    pub fragment: Option<RuntimeGraphicsFragmentState>,
+    pub texture_alpha: bool,
+    pub depth: Option<RuntimeGraphicsDepthDrawState>,
     pub vertex_data: Vec<u8>,
     pub texture_data: Arc<Vec<u8>>,
+    pub(crate) texture_source_key: Option<(RuntimeGraphicsTextureId, u64)>,
+    pub min_filter: RuntimeGraphicsTextureFilter,
+    pub mag_filter: RuntimeGraphicsTextureFilter,
+    pub address_u: RuntimeGraphicsTextureAddress,
+    pub address_v: RuntimeGraphicsTextureAddress,
 
     pub texture_width: u32,
     pub texture_height: u32,
@@ -500,16 +654,31 @@ pub struct RuntimeGraphicsDrawSubmission {
     pub texture_pitch: Option<u32>,
 }
 
-#[derive(Debug, Default)]
-#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeGraphicsDepthDrawState {
+    pub write: bool,
+    pub compare: u32,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeGraphicsDepthClear {
+    pub before_draw: usize,
+    pub depth: u32,
+}
+
+#[derive(Debug, Default, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct RuntimeGraphicsBackBuffer {
+    pub preserve_previous: bool,
+    pub depth_clears: Vec<RuntimeGraphicsDepthClear>,
     pub clear_color: Option<u32>,
+    pub color_clear_before_draw: usize,
     pub draw_submissions: Vec<RuntimeGraphicsDrawSubmission>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeGraphicsPresentMode {
     Discard,
+    Copy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -526,8 +695,10 @@ pub struct RuntimeGraphicsPresentation {
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub(crate) struct RuntimeGraphicsDevice {
+    pub viewport: [u32; 6],
+    pub d3d8: Option<crate::d3d8::DeviceState>,
     pub id: RuntimeGraphicsDeviceId,
-
+    pub(super) target: RuntimeGraphicsWindowTarget,
     pub presentation: RuntimeGraphicsPresentation,
     pub com_object_id: RuntimeComObjectId,
     pub render_states: RuntimeGraphicsRenderStates,
@@ -539,6 +710,7 @@ pub(crate) struct RuntimeGraphicsDevice {
     pub back_buffer: RuntimeGraphicsBackBuffer,
     pub scene_active: bool,
     pub presented_frame: Option<RuntimeGraphicsBackBuffer>,
+    pub presented_extent: Option<(u32, u32)>,
 }
 
 #[derive(Debug)]
@@ -587,6 +759,8 @@ pub(super) struct RuntimeGraphicsWindowTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsDeviceCreationRequest {
     pub(super) target: RuntimeGraphicsWindowTarget,
+    pub(super) back_buffer_width: u32,
+    pub(super) back_buffer_height: u32,
     pub(super) color_format: RuntimeGraphicsColorFormat,
     pub(super) back_buffer_count: u32,
     pub(super) sample_count: u32,
@@ -595,19 +769,19 @@ pub(crate) struct RuntimeGraphicsDeviceCreationRequest {
 }
 
 #[derive(Debug)]
-struct RuntimeGraphicsDrawResolvedState<'a> {
+struct RuntimeGraphicsDrawResolvedState {
     vertex_memory_owner: MemoryOwnerId,
 
     vertex_range: GuestRange,
 
-    texture: &'a RuntimeGraphicsTexture,
+    texture_id: Option<RuntimeGraphicsTextureId>,
 }
 
 impl RuntimeGraphicsDeviceCreationRequest {
     pub(crate) fn presentation(&self) -> RuntimeGraphicsPresentation {
         RuntimeGraphicsPresentation {
-            width: self.target.client_width,
-            height: self.target.client_height,
+            width: self.back_buffer_width,
+            height: self.back_buffer_height,
             color_format: self.color_format,
             back_buffer_count: self.back_buffer_count,
             sample_count: self.sample_count,
@@ -673,6 +847,286 @@ impl Default for RuntimeGraphics {
 }
 
 impl RuntimeGraphics {
+    pub(super) fn copy_d3d8_surface(
+        &mut self,
+        device_object: RuntimeComObjectId,
+        source_object: RuntimeComObjectId,
+        rectangles: &[(RuntimeRect, i32, i32)],
+        memory: &crate::memory::GuestMemory,
+    ) -> Result<bool, RuntimeStateError> {
+        let device = self.device_by_com_object(device_object)?;
+        let source = self.texture_for_com_object(source_object)?;
+        if device.d3d8.is_none() || source.device_id != device.id || source.active_lock.is_some() {
+            return Ok(false);
+        }
+        let Some(backing) = source.backing else {
+            return Ok(false);
+        };
+        let d = source.descriptor;
+        let default = [(
+            RuntimeRect {
+                left: 0,
+                top: 0,
+                right: d.width as i32,
+                bottom: d.height as i32,
+            },
+            0,
+            0,
+        )];
+        let rectangles = if rectangles.is_empty() {
+            &default[..]
+        } else {
+            rectangles
+        };
+        for (r, x, y) in rectangles {
+            if r.left < 0
+                || r.top < 0
+                || r.right <= r.left
+                || r.bottom <= r.top
+                || r.right as u32 > d.width
+                || r.bottom as u32 > d.height
+                || *x < 0
+                || *y < 0
+                || i64::from(*x) + i64::from(r.right - r.left)
+                    > i64::from(device.presentation.width)
+                || i64::from(*y) + i64::from(r.bottom - r.top)
+                    > i64::from(device.presentation.height)
+            {
+                return Ok(false);
+            }
+        }
+        let full_cover = rectangles.len() == 1
+            && rectangles[0].1 == 0
+            && rectangles[0].2 == 0
+            && (rectangles[0].0.right - rectangles[0].0.left) as u32 == device.presentation.width
+            && (rectangles[0].0.bottom - rectangles[0].0.top) as u32 == device.presentation.height;
+        let trailing_depth_clear = device
+            .back_buffer
+            .depth_clears
+            .last()
+            .filter(|c| c.before_draw == device.back_buffer.draw_submissions.len())
+            .copied();
+        let no_depth_written = device.back_buffer.depth_clears.is_empty()
+            && device
+                .back_buffer
+                .draw_submissions
+                .iter()
+                .all(|draw| draw.depth.is_none_or(|d| !d.write));
+        let replaces_all = full_cover && (no_depth_written || trailing_depth_clear.is_some());
+        let retained = if replaces_all {
+            0
+        } else {
+            device.back_buffer.draw_submissions.len()
+        };
+        let retained_bytes = if replaces_all {
+            0
+        } else {
+            let mut seen_ptrs = BTreeSet::new();
+            let mut sum = 0usize;
+            for d_sub in &device.back_buffer.draw_submissions {
+                if !d_sub.texture_data.is_empty()
+                    && seen_ptrs.insert(Arc::as_ptr(&d_sub.texture_data) as usize)
+                {
+                    sum = sum.saturating_add(d_sub.texture_data.len());
+                }
+            }
+            sum
+        };
+        let length = backing.row_pitch as usize * d.height as usize;
+        let snapshot_bytes = (d.width as usize)
+            .saturating_mul(d.height as usize)
+            .saturating_mul(4);
+        if retained + rectangles.len() > RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT
+            || snapshot_bytes > (16 * 1024 * 1024usize).saturating_sub(retained_bytes)
+        {
+            return Err(RuntimeStateError::new(
+                "CopyRects exceeds the bounded frame snapshot capacity",
+            ));
+        }
+        let raw_pixels = memory
+            .read_owned(backing.range.start(), length, backing.memory_owner)
+            .map_err(RuntimeStateError::from_memory)?;
+        let (normalized_pixels, snapshot_pitch) = normalize_texture_snapshot_to_bgra8(
+            raw_pixels,
+            d.width,
+            d.height,
+            backing.row_pitch,
+            d.color_format,
+        );
+        let pixels = Arc::new(normalized_pixels);
+        let mut submissions = Vec::new();
+        for (r, x, y) in rectangles {
+            let mut vertices = Vec::with_capacity(112);
+            for (px, py, u, v) in [
+                (*x, *y, r.left, r.top),
+                (*x + r.right - r.left, *y, r.right, r.top),
+                (*x, *y + r.bottom - r.top, r.left, r.bottom),
+                (
+                    *x + r.right - r.left,
+                    *y + r.bottom - r.top,
+                    r.right,
+                    r.bottom,
+                ),
+            ] {
+                for value in [px as f32 - 0.5, py as f32 - 0.5, 0.0, 1.0] {
+                    vertices.extend(value.to_le_bytes());
+                }
+                vertices.extend([255; 4]);
+                vertices.extend((u as f32 / d.width as f32).to_le_bytes());
+                vertices.extend((v as f32 / d.height as f32).to_le_bytes());
+            }
+            submissions.push(RuntimeGraphicsDrawSubmission {
+                clip_rect: None,
+                fragment: None,
+                texture_alpha: false,
+                depth: None,
+                vertex_data: vertices,
+                texture_data: pixels.clone(),
+                texture_source_key: None,
+                min_filter: RuntimeGraphicsTextureFilter::Point,
+                mag_filter: RuntimeGraphicsTextureFilter::Point,
+                address_u: RuntimeGraphicsTextureAddress::Clamp,
+                address_v: RuntimeGraphicsTextureAddress::Clamp,
+                texture_width: d.width,
+                texture_height: d.height,
+                texture_fills: Vec::new(),
+                texture_pitch: Some(snapshot_pitch),
+            });
+        }
+        let id = device.id;
+        let device = self.devices.get_mut(&id).expect("validated device");
+        if replaces_all {
+            let back_buffer = &mut device.back_buffer;
+            back_buffer.clear_color = None;
+            back_buffer.color_clear_before_draw = 0;
+            back_buffer.draw_submissions.clear();
+            back_buffer.depth_clears.clear();
+            if let Some(clear) = trailing_depth_clear {
+                back_buffer.preserve_previous = false;
+                back_buffer.depth_clears.push(RuntimeGraphicsDepthClear {
+                    before_draw: 0,
+                    depth: clear.depth,
+                });
+            }
+        } else {
+            for (r, x, y) in rectangles {
+                prune_occluded_draws(
+                    &mut device.back_buffer,
+                    RuntimeRect {
+                        left: *x,
+                        top: *y,
+                        right: *x + (r.right - r.left),
+                        bottom: *y + (r.bottom - r.top),
+                    },
+                );
+            }
+        }
+        device.back_buffer.draw_submissions.extend(submissions);
+        Ok(true)
+    }
+
+    pub(super) fn configure_d3d8(
+        &mut self,
+        object: RuntimeComObjectId,
+        state: crate::d3d8::DeviceState,
+    ) {
+        let id = self.device_com_object_index[&object];
+        let device = self.devices.get_mut(&id).expect("live device");
+        device.presentation.windowed = state.parameters[7] != 0;
+        device.render_states.depth_test_enabled = Some(state.parameters[8] != 0);
+        device.render_states.lighting_enabled = Some(true);
+        device.render_states.alpha_blend_enabled = Some(false);
+        device.render_states.blend_operation = Some(RuntimeGraphicsBlendOperation::Add);
+        device.texture_stage_states.stage_zero = RuntimeGraphicsTextureStageState {
+            color_operation: Some(RuntimeGraphicsTextureOperation::Modulate),
+            color_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
+            color_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+            alpha_operation: Some(RuntimeGraphicsTextureOperation::SelectArgumentOne),
+            alpha_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
+            alpha_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+        };
+        device.sampler_states.sampler_zero.min_filter = Some(RuntimeGraphicsTextureFilter::Point);
+        device.sampler_states.sampler_zero.mag_filter = Some(RuntimeGraphicsTextureFilter::Point);
+        device.d3d8 = Some(state);
+    }
+
+    pub(super) fn d3d8_state_mut(
+        &mut self,
+        object: RuntimeComObjectId,
+    ) -> Result<&mut crate::d3d8::DeviceState, RuntimeStateError> {
+        let id = self
+            .device_com_object_index
+            .get(&object)
+            .copied()
+            .ok_or_else(|| RuntimeStateError::new("D3D8 device is not live"))?;
+        self.devices
+            .get_mut(&id)
+            .and_then(|device| device.d3d8.as_mut())
+            .ok_or_else(|| RuntimeStateError::new("device has no D3D8 state"))
+    }
+
+    pub(super) fn clear_d3d8(
+        &mut self,
+        object: RuntimeComObjectId,
+        flags: u32,
+        color: u32,
+        depth: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        let id = self
+            .device_com_object_index
+            .get(&object)
+            .copied()
+            .ok_or_else(|| RuntimeStateError::new("D3D8 device is not live"))?;
+        let device = self.devices.get_mut(&id).expect("live device");
+        if flags == 0
+            || flags & !3 != 0
+            || flags & 2 != 0
+                && (device.d3d8.as_ref().is_none_or(|s| s.parameters[8] == 0)
+                    || !f32::from_bits(depth).is_finite()
+                    || !(0.0..=1.0).contains(&f32::from_bits(depth)))
+        {
+            return Ok(false);
+        }
+        if flags & 2 != 0
+            && flags & 1 == 0
+            && device.back_buffer.depth_clears.len() >= RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT
+        {
+            return Err(RuntimeStateError::new(
+                "depth clear replay capacity exhausted",
+            ));
+        }
+        let back_buffer = &mut device.back_buffer;
+        if flags & 1 != 0 {
+            if flags & 2 != 0 {
+                back_buffer.preserve_previous = false;
+                back_buffer.draw_submissions.clear();
+                back_buffer.depth_clears.clear();
+            } else {
+                // Replay only the depth writes that survive the last depth clear.
+                // Their color is erased by the new clear after this prefix.
+                if let Some(clear) = back_buffer.depth_clears.last().copied() {
+                    back_buffer.draw_submissions.drain(..clear.before_draw);
+                    back_buffer.depth_clears.clear();
+                    back_buffer.depth_clears.push(RuntimeGraphicsDepthClear {
+                        before_draw: 0,
+                        depth: clear.depth,
+                    });
+                }
+                back_buffer
+                    .draw_submissions
+                    .retain(|draw| draw.depth.is_some_and(|depth| depth.write));
+            }
+            back_buffer.clear_color = Some(color);
+            back_buffer.color_clear_before_draw = back_buffer.draw_submissions.len();
+        }
+        if flags & 2 != 0 {
+            back_buffer.depth_clears.push(RuntimeGraphicsDepthClear {
+                before_draw: back_buffer.draw_submissions.len(),
+                depth,
+            });
+        }
+        Ok(true)
+    }
     pub(super) fn validate_device_creation(
         &self,
         request: RuntimeGraphicsDeviceCreationRequest,
@@ -720,7 +1174,17 @@ impl RuntimeGraphics {
             .expect("device identity validated before publication");
         let presentation = request.presentation();
         let device = RuntimeGraphicsDevice {
+            viewport: [
+                0,
+                0,
+                presentation.width,
+                presentation.height,
+                0,
+                1.0f32.to_bits(),
+            ],
+            d3d8: None,
             id: RuntimeGraphicsDeviceId(self.next_device_id),
+            target: request.target,
 
             presentation,
             com_object_id,
@@ -733,6 +1197,7 @@ impl RuntimeGraphics {
             back_buffer: RuntimeGraphicsBackBuffer::default(),
             scene_active: false,
             presented_frame: None,
+            presented_extent: None,
         };
         self.device_com_object_index
             .insert(com_object_id, device.id);
@@ -874,6 +1339,19 @@ impl RuntimeGraphics {
         Ok(true)
     }
 
+    pub(super) fn set_viewport(
+        &mut self,
+        object: RuntimeComObjectId,
+        viewport: [u32; 6],
+    ) -> Result<(), RuntimeStateError> {
+        let id = self.device_by_com_object(object)?.id;
+        self.devices
+            .get_mut(&id)
+            .expect("validated device")
+            .viewport = viewport;
+        Ok(())
+    }
+
     pub(super) fn update_flexible_vertex_format(
         &mut self,
         device_com_object_id: RuntimeComObjectId,
@@ -975,6 +1453,31 @@ impl RuntimeGraphics {
         }))
     }
 
+    pub(super) fn available_texture_memory(
+        &self,
+        device_com_object_id: RuntimeComObjectId,
+    ) -> Result<u32, RuntimeStateError> {
+        let _ = self.device_by_com_object(device_com_object_id)?;
+        let mut used = 0_u64;
+        for texture in self.textures.values() {
+            if let Some(backing) = texture.backing {
+                used = used.saturating_add(backing.range.byte_length());
+            } else if let Ok((_, byte_length)) = texture_byte_layout(texture.descriptor) {
+                used = used.saturating_add(u64::from(byte_length));
+            }
+        }
+        for vb in self.vertex_buffers.values() {
+            used = used.saturating_add(vb.backing.range.byte_length());
+        }
+        let remaining = RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE.saturating_sub(used);
+        let rounded = (remaining & !0x000f_ffff).min(u64::from(u32::MAX)) as u32;
+        Ok(if remaining > 0 && rounded == 0 {
+            1024 * 1024
+        } else {
+            rounded
+        })
+    }
+
     pub(super) fn submit_draw(
         &mut self,
         device_com_object_id: RuntimeComObjectId,
@@ -982,7 +1485,7 @@ impl RuntimeGraphics {
         primitive_count: u32,
         memory: &crate::memory::GuestMemory,
     ) -> Result<bool, RuntimeStateError> {
-        if start_vertex != 0 || primitive_count != 2 {
+        if primitive_count != 2 {
             return Ok(false);
         }
         let device_id = self
@@ -996,116 +1499,491 @@ impl RuntimeGraphics {
             })?;
         self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
+        if device.d3d8.is_none() && start_vertex != 0 {
+            return Ok(false);
+        }
         let Some(resolved) = self.resolve_draw_state(device, start_vertex, primitive_count)? else {
             return Ok(false);
         };
-        let texture_memory = resolved
-            .texture
-            .content
-            .pixel_source
-            .map(|pixels| {
-                self.texture(pixels.source_texture_id).and_then(|source| {
-                    let backing = source.backing.expect("resolved pixel source backing");
-                    GuestRange::new(
-                        backing.range.start(),
-                        u64::from(backing.row_pitch) * u64::from(source.descriptor.height),
-                    )
-                    .map(|range| (range, backing.memory_owner))
-                    .map_err(RuntimeStateError::from_memory)
+        let bytes = memory
+            .read_owned(
+                resolved.vertex_range.start(),
+                resolved.vertex_range.byte_length() as usize,
+                resolved.vertex_memory_owner,
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        self.submit_resolved_quad_bytes(device_id, resolved.texture_id, &bytes, false, memory)
+    }
+
+    pub(super) fn submit_draw_up(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        primitive_count: u32,
+        vertices: GuestAddress,
+        stride: u32,
+        memory: &crate::memory::GuestMemory,
+    ) -> Result<bool, RuntimeStateError> {
+        let device = self.device_by_com_object(device_com_object_id)?;
+        let device_id = device.id;
+        self.validate_device_association(device_com_object_id, device_id)?;
+        let Some(fvf) = device.flexible_vertex_format else {
+            return Ok(false);
+        };
+        if device.d3d8.is_none()
+            && !matches!(
+                fvf,
+                RuntimeGraphicsFlexibleVertexFormat::XyzRhwTexture1
+                    | RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1
+            )
+        {
+            return Ok(false);
+        }
+        let expected_stride = fvf.stride();
+        if primitive_count != 2 || stride != expected_stride || vertices.0 == 0 {
+            return Ok(false);
+        }
+        let texture_id = if device.d3d8.is_some() && !uses_stage_zero_texture(device) {
+            if !supported_draw_device_state(device) || !device.scene_active {
+                return Ok(false);
+            }
+            None
+        } else {
+            let Some(texture) = self.resolve_draw_texture(device)? else {
+                return Ok(false);
+            };
+            Some(texture.id)
+        };
+        // UP consumes caller-owned bytes before returning and never retains a guest pointer.
+        let bytes = memory
+            .read(vertices, stride as usize * 4)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.submit_resolved_quad_bytes(device_id, texture_id, &bytes, true, memory)
+    }
+
+    fn submit_resolved_quad_bytes(
+        &mut self,
+        device_id: RuntimeGraphicsDeviceId,
+        texture_id: Option<RuntimeGraphicsTextureId>,
+        bytes: &[u8],
+        clear_stream: bool,
+        memory: &crate::memory::GuestMemory,
+    ) -> Result<bool, RuntimeStateError> {
+        let device = self.device(device_id)?;
+        let texture = texture_id.map(|id| self.texture(id)).transpose()?;
+        let quads = if device.d3d8.is_some() {
+            let Some(quads) = lower_d3d8_quad_vertices(device, bytes) else {
+                return Ok(false);
+            };
+            quads
+        } else {
+            let stride = device
+                .flexible_vertex_format
+                .expect("validated FVF")
+                .stride() as usize;
+            vec![canonical_draw_vertices(device, bytes, stride)]
+        };
+        if quads.is_empty() {
+            if clear_stream {
+                self.devices
+                    .get_mut(&device_id)
+                    .expect("validated draw device")
+                    .stream_sources
+                    .stream_zero = None;
+            }
+            return Ok(true);
+        }
+        let submissions = self.capture_draws(device, texture, quads, memory)?;
+        for (index, submission) in submissions.into_iter().enumerate() {
+            self.publish_draw(device_id, submission, clear_stream && index == 0);
+        }
+        if clear_stream {
+            self.devices
+                .get_mut(&device_id)
+                .expect("validated draw device")
+                .stream_sources
+                .stream_zero = None;
+        }
+        Ok(true)
+    }
+
+    fn publish_draw(
+        &mut self,
+        device_id: RuntimeGraphicsDeviceId,
+        submission: RuntimeGraphicsDrawSubmission,
+        clear_stream: bool,
+    ) {
+        let device = self
+            .devices
+            .get_mut(&device_id)
+            .expect("validated draw device");
+        if device.presentation.present_mode == RuntimeGraphicsPresentMode::Copy
+            && is_unconditional_opaque_submission(&device.back_buffer, &submission)
+        {
+            if let Some(opaque_rect) =
+                axis_aligned_quad_rect(&submission.vertex_data, submission.clip_rect)
+            {
+                prune_occluded_draws(&mut device.back_buffer, opaque_rect);
+            } else if device.d3d8.is_none() {
+                device.back_buffer.draw_submissions.retain(|draw| {
+                    draw.clip_rect != submission.clip_rect
+                        || !same_draw_coverage(&submission.vertex_data, &draw.vertex_data)
+                });
+            }
+        }
+        device.back_buffer.draw_submissions.push(submission);
+        if clear_stream {
+            device.stream_sources.stream_zero = None;
+        }
+    }
+
+    fn capture_draws(
+        &self,
+        device: &RuntimeGraphicsDevice,
+        texture: Option<&RuntimeGraphicsTexture>,
+        quads: Vec<Vec<u8>>,
+        memory: &crate::memory::GuestMemory,
+    ) -> Result<Vec<RuntimeGraphicsDrawSubmission>, RuntimeStateError> {
+        let retained_pixels = texture.and_then(|t| t.content.retained_pixels.as_ref());
+        let texture_memory = if retained_pixels.is_some() {
+            None
+        } else {
+            texture
+                .and_then(|t| t.content.pixel_source)
+                .map(|pixels| {
+                    self.texture(pixels.source_texture_id).and_then(|source| {
+                        let backing = source.backing.expect("resolved pixel source backing");
+                        GuestRange::new(
+                            backing.range.start(),
+                            u64::from(backing.row_pitch) * u64::from(source.descriptor.height),
+                        )
+                        .map(|range| (range, backing.memory_owner))
+                        .map_err(RuntimeStateError::from_memory)
+                    })
                 })
-            })
-            .transpose()?;
-        let captured_bytes = device
-            .back_buffer
-            .draw_submissions
-            .iter()
-            .map(|draw| draw.texture_data.len() as u64)
-            .sum::<u64>();
-        if texture_memory.is_some_and(|(range, _)| {
-            range.byte_length() > (16u64 * 1024 * 1024).saturating_sub(captured_bytes)
-        }) {
+                .transpose()?
+        };
+        let source_key = if device.d3d8.is_some() {
+            texture
+                .and_then(|t| t.content.pixel_source)
+                .map(|p| (p.source_texture_id, p.source_content_generation))
+        } else {
+            None
+        };
+        let reused_texture_data = source_key.and_then(|key| {
+            device
+                .back_buffer
+                .draw_submissions
+                .iter()
+                .find(|draw| draw.texture_source_key == Some(key) && !draw.texture_data.is_empty())
+                .map(|draw| Arc::clone(&draw.texture_data))
+        });
+        let first_quad = &quads[0];
+        let mut seen_ptrs = BTreeSet::new();
+        let captured_bytes = if device.d3d8.is_some() {
+            let mut sum = 0_u64;
+            for draw in &device.back_buffer.draw_submissions {
+                if !draw.texture_data.is_empty()
+                    && seen_ptrs.insert(Arc::as_ptr(&draw.texture_data) as usize)
+                {
+                    sum = sum.saturating_add(draw.texture_data.len() as u64);
+                }
+            }
+            sum
+        } else {
+            let mut sum = 0_u64;
+            for draw in device
+                .back_buffer
+                .draw_submissions
+                .iter()
+                .filter(|draw| !replaces_opaque_draw(device, first_quad, draw))
+            {
+                if !draw.texture_data.is_empty()
+                    && seen_ptrs.insert(Arc::as_ptr(&draw.texture_data) as usize)
+                {
+                    sum = sum.saturating_add(draw.texture_data.len() as u64);
+                }
+            }
+            sum
+        };
+        let new_bytes = if reused_texture_data.is_some() {
+            0
+        } else if let Some(retained) = retained_pixels {
+            if seen_ptrs.contains(&(Arc::as_ptr(&retained.data) as usize)) {
+                0
+            } else {
+                retained.data.len() as u64
+            }
+        } else {
+            texture_memory
+                .map(|(range, _)| range.byte_length())
+                .unwrap_or(0)
+        };
+        if new_bytes > (16u64 * 1024 * 1024).saturating_sub(captured_bytes) {
             return Err(RuntimeStateError::new(
                 "captured texture bytes exceed the bounded frame budget",
             ));
         }
-        let expected_draw_submission_count = device.back_buffer.draw_submissions.len();
-        if expected_draw_submission_count >= RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT {
+        let expected_draw_submission_count = device
+            .back_buffer
+            .draw_submissions
+            .iter()
+            .filter(|draw| !replaces_opaque_draw(device, first_quad, draw))
+            .count()
+            .saturating_add(quads.len());
+        if expected_draw_submission_count > RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT {
             return Err(RuntimeStateError::new(
                 "logical back-buffer draw-submission capacity is exhausted",
             ));
         }
-        let vertex_byte_length =
-            usize::try_from(resolved.vertex_range.byte_length()).map_err(|_| {
-                RuntimeStateError::new(
-                    "logical draw vertex byte length does not fit host accounting",
-                )
-            })?;
-
-        let vertex_data = memory
-            .read_owned(
-                resolved.vertex_range.start(),
-                vertex_byte_length,
-                resolved.vertex_memory_owner,
-            )
-            .map_err(RuntimeStateError::from_memory)?;
-        let texture_data = texture_memory
-            .map(|(range, owner)| {
+        let (texture_data, normalized_pitch) = if let Some(retained) = retained_pixels {
+            (Arc::clone(&retained.data), Some(retained.row_pitch))
+        } else if let Some(reused) = reused_texture_data {
+            if let Some((range, owner)) = texture_memory {
                 memory
-                    .read_owned(range.start(), range.byte_length() as usize, owner)
-                    .map_err(RuntimeStateError::from_memory)
-            })
-            .transpose()?
-            .unwrap_or_default();
-        let submission = RuntimeGraphicsDrawSubmission {
-            vertex_data,
-            // Keep the draw-time snapshot independent of subsequent resource
-            // writes, while allowing the presentation transport to share it.
-            texture_data: Arc::new(texture_data),
-
-            texture_width: resolved.texture.descriptor.width,
-            texture_height: resolved.texture.descriptor.height,
-            texture_fills: resolved.texture.content.fills.clone(),
-            texture_pitch: resolved
-                .texture
-                .content
-                .pixel_source
-                .map(|pixels| pixels.row_pitch),
+                    .read_owned(range.start(), 1, owner)
+                    .map_err(RuntimeStateError::from_memory)?;
+            }
+            let pitch = texture.and_then(|tex| {
+                tex.content.pixel_source.map(|pixels| {
+                    if tex.descriptor.color_format.bytes_per_pixel() == 2 {
+                        tex.descriptor.width * 4
+                    } else {
+                        pixels.row_pitch
+                    }
+                })
+            });
+            (reused, pitch)
+        } else {
+            let raw = texture_memory
+                .map(|(range, owner)| {
+                    memory
+                        .read_owned(range.start(), range.byte_length() as usize, owner)
+                        .map_err(RuntimeStateError::from_memory)
+                })
+                .transpose()?
+                .unwrap_or_default();
+            if let Some(tex) = texture {
+                if let Some(pixels) = tex.content.pixel_source {
+                    let (expanded, pitch) = normalize_texture_snapshot_to_bgra8(
+                        raw,
+                        tex.descriptor.width,
+                        tex.descriptor.height,
+                        pixels.row_pitch,
+                        tex.descriptor.color_format,
+                    );
+                    (Arc::new(expanded), Some(pitch))
+                } else {
+                    (Arc::new(raw), None)
+                }
+            } else {
+                (Arc::new(raw), None)
+            }
         };
-        let device = self
-            .devices
-            .get_mut(&device_id)
-            .expect("validated device identity");
-        device.back_buffer.draw_submissions.push(submission);
+        let (texture_alpha_format, texture_width, texture_height, texture_fills, texture_pitch) =
+            if let Some(texture) = texture {
+                (
+                    texture.descriptor.color_format.has_alpha(),
+                    texture.descriptor.width,
+                    texture.descriptor.height,
+                    texture.content.fills.clone(),
+                    normalized_pitch,
+                )
+            } else {
+                (
+                    false,
+                    1,
+                    1,
+                    vec![RuntimeGraphicsSurfaceFill {
+                        rect: RuntimeRect {
+                            left: 0,
+                            top: 0,
+                            right: 1,
+                            bottom: 1,
+                        },
+                        color_ref: 0x00ff_ffff,
+                    }],
+                    None,
+                )
+            };
+        let stage = &device.texture_stage_states.stage_zero;
+        let uses_tex_alpha = match stage.alpha_operation {
+            Some(RuntimeGraphicsTextureOperation::SelectArgumentOne) => {
+                stage.alpha_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+            }
+            Some(RuntimeGraphicsTextureOperation::Modulate) => {
+                stage.alpha_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+                    || stage.alpha_argument_two == Some(RuntimeGraphicsTextureArgument::Texture)
+            }
+            _ => false,
+        };
+        let uses_diff_alpha = match stage.alpha_operation {
+            Some(RuntimeGraphicsTextureOperation::SelectArgumentOne) => matches!(
+                stage.alpha_argument_one,
+                Some(
+                    RuntimeGraphicsTextureArgument::Diffuse
+                        | RuntimeGraphicsTextureArgument::TFactor
+                )
+            ),
+            Some(RuntimeGraphicsTextureOperation::Modulate) => {
+                matches!(
+                    stage.alpha_argument_one,
+                    Some(
+                        RuntimeGraphicsTextureArgument::Diffuse
+                            | RuntimeGraphicsTextureArgument::TFactor
+                    )
+                ) || matches!(
+                    stage.alpha_argument_two,
+                    Some(
+                        RuntimeGraphicsTextureArgument::Diffuse
+                            | RuntimeGraphicsTextureArgument::TFactor
+                    )
+                )
+            }
+            _ => false,
+        };
+        let is_xyz = device
+            .flexible_vertex_format
+            .is_some_and(RuntimeGraphicsFlexibleVertexFormat::is_untransformed_xyz);
+        let fragment = device.d3d8.as_ref().map(|state| {
+            let blend = device.render_states.alpha_blend_enabled == Some(true);
+            let fog = (is_xyz
+                && state.render_values.get(&28) == Some(&1)
+                && state.render_values.get(&35) == Some(&3))
+            .then(|| RuntimeGraphicsFogState {
+                color_argb: state.render_values.get(&34).copied().unwrap_or(0),
+                start: state.render_values.get(&36).copied().unwrap_or(0),
+                end: state
+                    .render_values
+                    .get(&37)
+                    .copied()
+                    .unwrap_or(1.0_f32.to_bits()),
+            });
+            RuntimeGraphicsFragmentState {
+                texture_alpha: uses_tex_alpha,
+                diffuse_alpha: uses_diff_alpha,
+                blend,
+                additive_blend: blend
+                    && device.render_states.destination_blend_factor
+                        == Some(RuntimeGraphicsBlendFactor::One),
+                color_add: stage.color_operation == Some(RuntimeGraphicsTextureOperation::Add),
+                alpha_test: (state.render_values.get(&15) == Some(&1)).then(|| {
+                    (
+                        state.render_values.get(&25).copied().unwrap_or(8),
+                        state.render_values.get(&24).copied().unwrap_or(0),
+                    )
+                }),
+                fog,
+            }
+        });
+        let depth = if device.render_states.depth_test_enabled == Some(true) {
+            Some(RuntimeGraphicsDepthDrawState {
+                write: device
+                    .d3d8
+                    .as_ref()
+                    .and_then(|s| s.render_values.get(&14))
+                    .copied()
+                    .unwrap_or(1)
+                    != 0,
+                compare: device
+                    .d3d8
+                    .as_ref()
+                    .and_then(|s| s.render_values.get(&23))
+                    .copied()
+                    .unwrap_or(4),
+            })
+        } else {
+            None
+        };
+        let clip_rect = Some(RuntimeRect {
+            left: device.viewport[0] as i32,
+            top: device.viewport[1] as i32,
+            right: (device.viewport[0] + device.viewport[2]) as i32,
+            bottom: (device.viewport[1] + device.viewport[3]) as i32,
+        });
+        let min_filter = device
+            .sampler_states
+            .sampler_zero
+            .min_filter
+            .expect("validated filter");
+        let mag_filter = device
+            .sampler_states
+            .sampler_zero
+            .mag_filter
+            .expect("validated filter");
+        let address_u = device.sampler_states.sampler_zero.address_u;
+        let address_v = device.sampler_states.sampler_zero.address_v;
 
-        Ok(true)
+        Ok(quads
+            .into_iter()
+            .map(|vertex_data| RuntimeGraphicsDrawSubmission {
+                clip_rect,
+                texture_alpha: texture_alpha_format,
+                fragment: fragment.clone(),
+                depth,
+                vertex_data,
+                min_filter,
+                mag_filter,
+                address_u,
+                address_v,
+                texture_data: Arc::clone(&texture_data),
+                texture_source_key: source_key,
+                texture_width,
+                texture_height,
+                texture_fills: texture_fills.clone(),
+                texture_pitch,
+            })
+            .collect())
     }
 
-    fn resolve_draw_state<'a>(
-        &'a self,
+    fn resolve_draw_state(
+        &self,
         device: &RuntimeGraphicsDevice,
         start_vertex: u32,
         primitive_count: u32,
-    ) -> Result<Option<RuntimeGraphicsDrawResolvedState<'a>>, RuntimeStateError> {
-        if !supported_draw_device_state(device) {
+    ) -> Result<Option<RuntimeGraphicsDrawResolvedState>, RuntimeStateError> {
+        let texture_id = if device.d3d8.is_some() && !uses_stage_zero_texture(device) {
+            if !supported_draw_device_state(device) || !device.scene_active {
+                return Ok(None);
+            }
+            None
+        } else {
+            let Some(texture) = self.resolve_draw_texture(device)? else {
+                return Ok(None);
+            };
+            Some(texture.id)
+        };
+        let Some(fvf) = device.flexible_vertex_format else {
             return Ok(None);
-        }
-        if !device.scene_active {
-            return Ok(None);
-        }
+        };
         let Some(stream_source) = device.stream_sources.stream_zero else {
             return Ok(None);
         };
         let vertex_buffer = self.vertex_buffer(stream_source.vertex_buffer_id)?;
         self.validate_vertex_buffer_association(vertex_buffer.com_object_id, vertex_buffer.id)?;
-        if vertex_buffer.device_id != device.id
+        if device.d3d8.is_none() {
+            if fvf != RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1
+                || vertex_buffer.device_id != device.id
+                || vertex_buffer.locked
+                || !vertex_buffer.initialized
+                || vertex_buffer.descriptor.byte_length != 112
+                || vertex_buffer.descriptor.usage != RuntimeGraphicsVertexBufferUsage::WriteOnly
+                || vertex_buffer.descriptor.flexible_vertex_format != 0x144
+                || vertex_buffer.descriptor.pool != RuntimeGraphicsVertexBufferPool::Managed
+                || stream_source.offset_in_bytes != 0
+                || stream_source.stride != 28
+            {
+                return Ok(None);
+            }
+        } else if vertex_buffer.device_id != device.id
             || vertex_buffer.locked
             || !vertex_buffer.initialized
-            || vertex_buffer.descriptor.byte_length != 112
-            || vertex_buffer.descriptor.usage != RuntimeGraphicsVertexBufferUsage::WriteOnly
-            || vertex_buffer.descriptor.flexible_vertex_format != 0x144
+            || !matches!(
+                vertex_buffer.descriptor.usage,
+                RuntimeGraphicsVertexBufferUsage::None
+                    | RuntimeGraphicsVertexBufferUsage::WriteOnly
+            )
             || vertex_buffer.descriptor.pool != RuntimeGraphicsVertexBufferPool::Managed
-            || stream_source.offset_in_bytes != 0
-            || stream_source.stride != 28
+            || stream_source.stride != fvf.stride()
         {
             return Ok(None);
         }
@@ -1139,6 +2017,20 @@ impl RuntimeGraphics {
             })?;
         let vertex_range = GuestRange::new(vertex_address, vertex_byte_length)
             .map_err(RuntimeStateError::from_memory)?;
+        Ok(Some(RuntimeGraphicsDrawResolvedState {
+            vertex_memory_owner: vertex_buffer.backing.memory_owner,
+            vertex_range,
+            texture_id,
+        }))
+    }
+
+    fn resolve_draw_texture(
+        &self,
+        device: &RuntimeGraphicsDevice,
+    ) -> Result<Option<&RuntimeGraphicsTexture>, RuntimeStateError> {
+        if !supported_draw_device_state(device) || !device.scene_active {
+            return Ok(None);
+        }
         let Some(texture_id) = device.texture_bindings.stage_zero else {
             return Ok(None);
         };
@@ -1146,14 +2038,18 @@ impl RuntimeGraphics {
         self.validate_texture_association(texture.com_object_id, texture.id)?;
         if texture.device_id != device.id
             || texture.descriptor.levels != 1
-            || texture.descriptor.pool != RuntimeGraphicsTexturePool::Default
-            || texture.descriptor.color_format != RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+            || !matches!(
+                texture.descriptor.pool,
+                RuntimeGraphicsTexturePool::Default | RuntimeGraphicsTexturePool::Managed
+            )
             || texture.active_lock.is_some()
             || texture.content.content_generation == 0
         {
             return Ok(None);
         }
-        if let Some(pixel_source) = texture.content.pixel_source {
+        if texture.content.retained_pixels.is_none()
+            && let Some(pixel_source) = texture.content.pixel_source
+        {
             let source = self.texture(pixel_source.source_texture_id)?;
             let backing = source.backing.ok_or_else(|| {
                 RuntimeStateError::new(
@@ -1179,13 +2075,7 @@ impl RuntimeGraphics {
                 return Ok(None);
             }
         }
-        Ok(Some(RuntimeGraphicsDrawResolvedState {
-            vertex_memory_owner: vertex_buffer.backing.memory_owner,
-
-            vertex_range,
-
-            texture,
-        }))
+        Ok(Some(texture))
     }
 
     pub(super) fn clear_back_buffer(
@@ -1207,7 +2097,9 @@ impl RuntimeGraphics {
             .devices
             .get_mut(&device_id)
             .expect("validated device identity");
+        device.back_buffer.preserve_previous = false;
         device.back_buffer.clear_color = Some(color_argb);
+        device.back_buffer.color_clear_before_draw = 0;
         device.back_buffer.draw_submissions.clear();
 
         Ok(())
@@ -1263,6 +2155,11 @@ impl RuntimeGraphics {
             .get_mut(&device_id)
             .expect("validated device identity");
         device.scene_active = false;
+        if device.presentation.present_mode == RuntimeGraphicsPresentMode::Copy
+            && device.back_buffer.draw_submissions.len() > 1
+        {
+            prune_back_buffer_on_end_scene(device);
+        }
 
         Ok(true)
     }
@@ -1270,6 +2167,7 @@ impl RuntimeGraphics {
     pub(super) fn present(
         &mut self,
         device_com_object_id: RuntimeComObjectId,
+        extent: Option<(u32, u32)>,
     ) -> Result<bool, RuntimeStateError> {
         let device_id = self
             .device_com_object_index
@@ -1282,11 +2180,21 @@ impl RuntimeGraphics {
             })?;
         self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
+        let extent = extent.unwrap_or((device.presentation.width, device.presentation.height));
+        if extent.0 == 0
+            || extent.1 == 0
+            || extent.0 > device.presentation.width
+            || extent.1 > device.presentation.height
+        {
+            return Ok(false);
+        }
         if device.scene_active {
             return Ok(false);
         }
         if device.back_buffer.clear_color.is_none()
             && device.back_buffer.draw_submissions.is_empty()
+            && device.back_buffer.depth_clears.is_empty()
+            && !device.back_buffer.preserve_previous
         {
             return Ok(false);
         }
@@ -1294,7 +2202,16 @@ impl RuntimeGraphics {
             .devices
             .get_mut(&device_id)
             .expect("validated device identity");
-        device.presented_frame = Some(std::mem::take(&mut device.back_buffer));
+        device.presented_frame = Some(match device.presentation.present_mode {
+            RuntimeGraphicsPresentMode::Discard => std::mem::take(&mut device.back_buffer),
+            RuntimeGraphicsPresentMode::Copy if device.d3d8.is_some() => {
+                let presented = std::mem::take(&mut device.back_buffer);
+                device.back_buffer.preserve_previous = true;
+                presented
+            }
+            RuntimeGraphicsPresentMode::Copy => device.back_buffer.clone(),
+        });
+        device.presented_extent = Some(extent);
 
         Ok(true)
     }
@@ -1408,20 +2325,25 @@ impl RuntimeGraphics {
         if level != 0
             || flags
                 & !(RUNTIME_GRAPHICS_TEXTURE_LOCK_DISCARD
-                    | RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE)
+                    | RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE
+                    | RUNTIME_GRAPHICS_TEXTURE_LOCK_READONLY)
                 != 0
             || texture.descriptor.levels != 1
             || !matches!(
                 (texture.descriptor.usage, texture.descriptor.pool),
                 (
                     RuntimeGraphicsTextureUsage::None,
-                    RuntimeGraphicsTexturePool::SystemMemory
+                    RuntimeGraphicsTexturePool::SystemMemory | RuntimeGraphicsTexturePool::Managed
                 ) | (
                     RuntimeGraphicsTextureUsage::Dynamic,
                     RuntimeGraphicsTexturePool::Default
                 )
             )
-            || texture.descriptor.color_format != RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+        {
+            return Ok(None);
+        }
+        if flags & RUNTIME_GRAPHICS_TEXTURE_LOCK_READONLY != 0
+            && texture.descriptor.usage == RuntimeGraphicsTextureUsage::Dynamic
         {
             return Ok(None);
         }
@@ -1458,13 +2380,14 @@ impl RuntimeGraphics {
                 ));
             }
         };
+        let bytes_per_pixel = u64::from(texture.descriptor.color_format.bytes_per_pixel());
         let byte_offset = u64::try_from(rect.top)
             .ok()
             .and_then(|top| top.checked_mul(u64::from(row_pitch)))
             .and_then(|offset| {
                 u64::try_from(rect.left)
                     .ok()
-                    .and_then(|left| left.checked_mul(4))
+                    .and_then(|left| left.checked_mul(bytes_per_pixel))
                     .and_then(|left| offset.checked_add(left))
             })
             .ok_or_else(|| {
@@ -1543,7 +2466,11 @@ impl RuntimeGraphics {
         if let Some(backing) = backing_installation {
             texture.backing = Some(backing);
         }
-        if lock.flags & RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE == 0 {
+        if lock.flags
+            & (RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE
+                | RUNTIME_GRAPHICS_TEXTURE_LOCK_READONLY)
+            == 0
+        {
             texture.dirty_region = merged_texture_dirty_region(
                 texture.dirty_region,
                 Some(lock.rect),
@@ -1566,6 +2493,16 @@ impl RuntimeGraphics {
             return Ok(false);
         }
         let id = texture.id;
+        if texture
+            .active_lock
+            .is_some_and(|lock| lock.flags & RUNTIME_GRAPHICS_TEXTURE_LOCK_READONLY != 0)
+        {
+            self.textures
+                .get_mut(&id)
+                .expect("live texture")
+                .active_lock = None;
+            return Ok(true);
+        }
         let backing = texture.backing.ok_or_else(|| {
             RuntimeStateError::new(
                 "logical graphics texture has an active lock without texel backing",
@@ -1589,6 +2526,7 @@ impl RuntimeGraphics {
         texture.content.content_generation = next_content_generation;
         texture.content.fills.clear();
         texture.content.pixel_source = Some(pixel_source);
+        texture.content.retained_pixels = None;
         texture.content.last_update = None;
 
         Ok(true)
@@ -1634,11 +2572,27 @@ impl RuntimeGraphics {
         Ok(true)
     }
 
+    #[cfg(test)]
     pub(super) fn update_texture(
         &mut self,
         device_com_object_id: RuntimeComObjectId,
         source_texture_com_object_id: RuntimeComObjectId,
         destination_texture_com_object_id: RuntimeComObjectId,
+    ) -> Result<bool, RuntimeStateError> {
+        self.update_texture_with_memory(
+            device_com_object_id,
+            source_texture_com_object_id,
+            destination_texture_com_object_id,
+            None,
+        )
+    }
+
+    pub(super) fn update_texture_with_memory(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        source_texture_com_object_id: RuntimeComObjectId,
+        destination_texture_com_object_id: RuntimeComObjectId,
+        memory: Option<&crate::memory::GuestMemory>,
     ) -> Result<bool, RuntimeStateError> {
         let device_id = self
             .device_com_object_index
@@ -1704,6 +2658,38 @@ impl RuntimeGraphics {
         };
         let source_fills = source.content.fills.clone();
         let source_pixel_source = source.content.pixel_source;
+        let retained_pixels = if let (Some(memory), Some(pixels)) = (memory, source_pixel_source) {
+            let backing = source.backing.ok_or_else(|| {
+                RuntimeStateError::new(
+                    "logical texture pixel source has no live guest-memory backing",
+                )
+            })?;
+            let range = GuestRange::new(
+                backing.range.start(),
+                u64::from(backing.row_pitch) * u64::from(source.descriptor.height),
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+            let raw = memory
+                .read_owned(
+                    range.start(),
+                    range.byte_length() as usize,
+                    backing.memory_owner,
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+            let (expanded, row_pitch) = normalize_texture_snapshot_to_bgra8(
+                raw,
+                destination.descriptor.width,
+                destination.descriptor.height,
+                pixels.row_pitch,
+                destination.descriptor.color_format,
+            );
+            Some(RuntimeGraphicsRetainedTexturePixels {
+                data: Arc::new(expanded),
+                row_pitch,
+            })
+        } else {
+            None
+        };
         let source = self
             .textures
             .get_mut(&source_texture_id)
@@ -1716,6 +2702,7 @@ impl RuntimeGraphics {
             .expect("validated destination");
         destination.content.fills = source_fills;
         destination.content.pixel_source = source_pixel_source;
+        destination.content.retained_pixels = retained_pixels;
         destination.content.content_generation = next_content_generation;
         destination.content.last_update = Some(update);
 
@@ -1848,7 +2835,11 @@ impl RuntimeGraphics {
         flags: u32,
     ) -> Result<Option<GuestAddress>, RuntimeStateError> {
         let vertex_buffer = self.vertex_buffer_for_com_object(vertex_buffer_com_object_id)?;
-        if offset != 0 || byte_length != 0 || flags != 0 || vertex_buffer.locked {
+        if offset != 0
+            || (byte_length != 0 && byte_length != vertex_buffer.descriptor.byte_length)
+            || flags != 0
+            || vertex_buffer.locked
+        {
             return Ok(None);
         }
 
@@ -2048,7 +3039,10 @@ impl RuntimeGraphics {
         let texture = self.textures.get(&texture_id).ok_or_else(|| {
             RuntimeStateError::new("logical graphics surface fill has no live texture authority")
         })?;
-        if texture.active_lock.is_some() || texture.content.pixel_source.is_some() {
+        if texture.active_lock.is_some()
+            || texture.content.pixel_source.is_some()
+            || texture.content.retained_pixels.is_some()
+        {
             return Err(RuntimeStateError::new(
                 "logical surface fill cannot overlap an active or guest-backed texture content path",
             ));
@@ -2245,6 +3239,11 @@ impl RuntimeGraphics {
             self.texture_level_surface_index
                 .remove(&(surface.texture_id, surface.descriptor.level));
         }
+        let retired_textures = plan
+            .texture_associations
+            .iter()
+            .map(|(_, texture_id)| *texture_id)
+            .collect::<BTreeSet<_>>();
         for (com_object_id, texture_id) in plan.texture_associations {
             self.texture_com_object_index.remove(&com_object_id);
             let texture = self
@@ -2263,6 +3262,24 @@ impl RuntimeGraphics {
                 .expect("validated logical texture device disappeared during retirement")
                 .remove(&texture_id);
             self.texture_surface_index.remove(&texture_id);
+        }
+        if !retired_textures.is_empty() {
+            for texture in self.textures.values_mut() {
+                if texture
+                    .content
+                    .pixel_source
+                    .is_some_and(|source| retired_textures.contains(&source.source_texture_id))
+                {
+                    texture.content.pixel_source = None;
+                }
+                if texture
+                    .content
+                    .last_update
+                    .is_some_and(|update| retired_textures.contains(&update.source_texture_id))
+                {
+                    texture.content.last_update = None;
+                }
+            }
         }
         for (com_object_id, vertex_buffer_id) in plan.vertex_buffer_associations {
             self.vertex_buffer_com_object_index.remove(&com_object_id);
@@ -2344,10 +3361,11 @@ impl RuntimeGraphics {
             if retiring_textures.contains(&texture.id) {
                 continue;
             }
-            if texture
-                .content
-                .pixel_source
-                .is_some_and(|source| retiring_textures.contains(&source.source_texture_id))
+            if texture.content.retained_pixels.is_none()
+                && texture
+                    .content
+                    .pixel_source
+                    .is_some_and(|source| retiring_textures.contains(&source.source_texture_id))
             {
                 return Err(RuntimeStateError::new(
                     "logical texture backing cannot retire while live texture content still references it",
@@ -2696,50 +3714,1278 @@ fn valid_creation_request(request: RuntimeGraphicsDeviceCreationRequest) -> bool
         || request.target.client_height == 0
         || request.target.client_width > i32::MAX as u32
         || request.target.client_height > i32::MAX as u32
+        || request.back_buffer_width == 0
+        || request.back_buffer_height == 0
+        || request.back_buffer_width > 4096
+        || request.back_buffer_height > 4096
         || request.back_buffer_count == 0
         || request.sample_count == 0
         || !request.windowed)
 }
 
+fn uses_stage_zero_texture(device: &RuntimeGraphicsDevice) -> bool {
+    let stage = &device.texture_stage_states.stage_zero;
+    let color_uses = match stage.color_operation {
+        Some(RuntimeGraphicsTextureOperation::SelectArgumentOne) => {
+            stage.color_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+        }
+        Some(RuntimeGraphicsTextureOperation::Modulate | RuntimeGraphicsTextureOperation::Add) => {
+            stage.color_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+                || stage.color_argument_two == Some(RuntimeGraphicsTextureArgument::Texture)
+        }
+        _ => false,
+    };
+    let alpha_uses = match stage.alpha_operation {
+        Some(RuntimeGraphicsTextureOperation::SelectArgumentOne) => {
+            stage.alpha_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+        }
+        Some(RuntimeGraphicsTextureOperation::Modulate) => {
+            stage.alpha_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+                || stage.alpha_argument_two == Some(RuntimeGraphicsTextureArgument::Texture)
+        }
+        _ => false,
+    };
+    color_uses || alpha_uses
+}
+
 fn supported_draw_device_state(device: &RuntimeGraphicsDevice) -> bool {
-    let supported_render_states = RuntimeGraphicsRenderStates {
-        cull_mode: Some(RuntimeGraphicsCullMode::None),
-        depth_test_enabled: Some(false),
-        lighting_enabled: Some(false),
-        alpha_blend_enabled: Some(true),
-        source_blend_factor: Some(RuntimeGraphicsBlendFactor::SourceAlpha),
-        destination_blend_factor: Some(RuntimeGraphicsBlendFactor::InverseSourceAlpha),
-        blend_operation: Some(RuntimeGraphicsBlendOperation::Add),
+    let render = &device.render_states;
+    let stage = &device.texture_stage_states.stage_zero;
+    let sampler = &device.sampler_states.sampler_zero;
+    if let Some(d3d8) = device.d3d8.as_ref() {
+        let blend = render.alpha_blend_enabled == Some(false)
+            || (render.alpha_blend_enabled == Some(true)
+                && render.source_blend_factor == Some(RuntimeGraphicsBlendFactor::SourceAlpha)
+                && matches!(
+                    render.destination_blend_factor,
+                    Some(
+                        RuntimeGraphicsBlendFactor::InverseSourceAlpha
+                            | RuntimeGraphicsBlendFactor::One
+                    )
+                )
+                && render.blend_operation == Some(RuntimeGraphicsBlendOperation::Add));
+        let color = (stage.color_operation
+            == Some(RuntimeGraphicsTextureOperation::SelectArgumentOne)
+            && matches!(
+                stage.color_argument_one,
+                Some(
+                    RuntimeGraphicsTextureArgument::Texture
+                        | RuntimeGraphicsTextureArgument::Diffuse
+                        | RuntimeGraphicsTextureArgument::TFactor
+                )
+            ))
+            || (matches!(
+                stage.color_operation,
+                Some(
+                    RuntimeGraphicsTextureOperation::Modulate
+                        | RuntimeGraphicsTextureOperation::Add
+                )
+            ) && stage.color_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+                && matches!(
+                    stage.color_argument_two,
+                    Some(
+                        RuntimeGraphicsTextureArgument::Diffuse
+                            | RuntimeGraphicsTextureArgument::TFactor
+                    )
+                ));
+        let alpha = (stage.alpha_operation == Some(RuntimeGraphicsTextureOperation::Disable)
+            && render.alpha_blend_enabled == Some(false))
+            || (stage.alpha_operation == Some(RuntimeGraphicsTextureOperation::SelectArgumentOne)
+                && matches!(
+                    stage.alpha_argument_one,
+                    Some(
+                        RuntimeGraphicsTextureArgument::Texture
+                            | RuntimeGraphicsTextureArgument::Diffuse
+                            | RuntimeGraphicsTextureArgument::TFactor
+                    )
+                ))
+            || (stage.alpha_operation == Some(RuntimeGraphicsTextureOperation::Modulate)
+                && stage.alpha_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+                && matches!(
+                    stage.alpha_argument_two,
+                    Some(
+                        RuntimeGraphicsTextureArgument::Diffuse
+                            | RuntimeGraphicsTextureArgument::TFactor
+                    )
+                ));
+        let is_xyz = device
+            .flexible_vertex_format
+            .is_some_and(RuntimeGraphicsFlexibleVertexFormat::is_untransformed_xyz);
+        let fog_ok = if is_xyz && d3d8.render_values.get(&28) == Some(&1) {
+            matches!(d3d8.render_values.get(&35).copied().unwrap_or(0), 0 | 3)
+        } else {
+            true
+        };
+        let tex_transform_ok =
+            matches!(d3d8.stage_values.get(&(0, 24)).copied().unwrap_or(0), 0 | 2);
+        return render.cull_mode == Some(RuntimeGraphicsCullMode::None)
+            && (render.depth_test_enabled == Some(false)
+                || (render.depth_test_enabled == Some(true) && d3d8.parameters[8] != 0))
+            && render.lighting_enabled == Some(false)
+            && blend
+            && color
+            && alpha
+            && fog_ok
+            && tex_transform_ok
+            && device.flexible_vertex_format.is_some()
+            && sampler.min_filter.is_some()
+            && sampler.mag_filter.is_some();
+    }
+    let blend = render.alpha_blend_enabled == Some(false)
+        || (render.alpha_blend_enabled == Some(true)
+            && render.source_blend_factor == Some(RuntimeGraphicsBlendFactor::SourceAlpha)
+            && render.destination_blend_factor
+                == Some(RuntimeGraphicsBlendFactor::InverseSourceAlpha)
+            && render.blend_operation == Some(RuntimeGraphicsBlendOperation::Add));
+    let color = stage.color_argument_one == Some(RuntimeGraphicsTextureArgument::Texture)
+        && (stage.color_operation == Some(RuntimeGraphicsTextureOperation::SelectArgumentOne)
+            || (stage.color_operation == Some(RuntimeGraphicsTextureOperation::Modulate)
+                && stage.color_argument_two == Some(RuntimeGraphicsTextureArgument::Diffuse)));
+    let alpha = (stage.alpha_operation == Some(RuntimeGraphicsTextureOperation::Disable)
+        && render.alpha_blend_enabled == Some(false))
+        || (stage.alpha_operation == Some(RuntimeGraphicsTextureOperation::SelectArgumentOne)
+            && stage.alpha_argument_one == Some(RuntimeGraphicsTextureArgument::Texture));
+    render.cull_mode == Some(RuntimeGraphicsCullMode::None)
+        && render.depth_test_enabled == Some(false)
+        && render.lighting_enabled == Some(false)
+        && blend
+        && color
+        && alpha
+        && device.flexible_vertex_format.is_some()
+        && sampler.min_filter.is_some()
+        && sampler.mag_filter.is_some()
+}
+
+#[derive(Clone, Copy)]
+struct ClipVertex {
+    cx: f32,
+    cy: f32,
+    cz: f32,
+    cw: f32,
+    u: f32,
+    v: f32,
+    color: [f32; 4], // B, G, R, A in 0..=255
+}
+
+fn identity_matrix() -> [f32; 16] {
+    [
+        1.0, 0.0, 0.0, 0.0, //
+        0.0, 1.0, 0.0, 0.0, //
+        0.0, 0.0, 1.0, 0.0, //
+        0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+fn decode_matrix(words: Option<&[u32; 16]>) -> Option<[f32; 16]> {
+    let Some(words) = words else {
+        return Some(identity_matrix());
     };
-    let supported_sampler_states = RuntimeGraphicsSamplerStates {
-        sampler_zero: RuntimeGraphicsSamplerState {
-            min_filter: Some(RuntimeGraphicsTextureFilter::Linear),
-            mag_filter: Some(RuntimeGraphicsTextureFilter::Linear),
+    let mut out = [0.0_f32; 16];
+    for (i, w) in words.iter().enumerate() {
+        let f = f32::from_bits(*w);
+        if !f.is_finite() {
+            return None;
+        }
+        out[i] = f;
+    }
+    Some(out)
+}
+
+fn mul_vec4_mat4(v: [f32; 4], m: &[f32; 16]) -> [f32; 4] {
+    std::array::from_fn(|col| {
+        v[0] * m[col] + v[1] * m[4 + col] + v[2] * m[8 + col] + v[3] * m[12 + col]
+    })
+}
+
+fn clip_polygon<F: Fn(&ClipVertex) -> f32>(poly: &[ClipVertex], dist: F) -> Vec<ClipVertex> {
+    if poly.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(poly.len() + 1);
+    for i in 0..poly.len() {
+        let cur = poly[i];
+        let nxt = poly[(i + 1) % poly.len()];
+        let d_cur = dist(&cur);
+        let d_nxt = dist(&nxt);
+        let cur_in = d_cur >= 0.0;
+        let nxt_in = d_nxt >= 0.0;
+        if cur_in {
+            out.push(cur);
+        }
+        if cur_in != nxt_in {
+            let denom = d_cur - d_nxt;
+            let t = if denom.abs() > 1e-12 {
+                (d_cur / denom).clamp(0.0, 1.0)
+            } else {
+                0.5
+            };
+            let lerp = |a: f32, b: f32| a + (b - a) * t;
+            out.push(ClipVertex {
+                cx: lerp(cur.cx, nxt.cx),
+                cy: lerp(cur.cy, nxt.cy),
+                cz: lerp(cur.cz, nxt.cz),
+                cw: lerp(cur.cw, nxt.cw),
+                u: lerp(cur.u, nxt.u),
+                v: lerp(cur.v, nxt.v),
+                color: std::array::from_fn(|k| lerp(cur.color[k], nxt.color[k])),
+            });
+        }
+    }
+    out
+}
+
+fn resolve_d3d8_vertex_bgra(device: &RuntimeGraphicsDevice, v_bgra: [u8; 4]) -> [u8; 4] {
+    let stage = &device.texture_stage_states.stage_zero;
+    let tf_bgra = device
+        .d3d8
+        .as_ref()
+        .and_then(|s| s.render_values.get(&60))
+        .copied()
+        .unwrap_or(0xffff_ffff)
+        .to_le_bytes();
+    let rgb_src = match stage.color_operation {
+        Some(RuntimeGraphicsTextureOperation::SelectArgumentOne) => {
+            match stage.color_argument_one {
+                Some(RuntimeGraphicsTextureArgument::Diffuse) => v_bgra,
+                Some(RuntimeGraphicsTextureArgument::TFactor) => tf_bgra,
+                _ => [255; 4],
+            }
+        }
+        Some(RuntimeGraphicsTextureOperation::Modulate | RuntimeGraphicsTextureOperation::Add) => {
+            match stage.color_argument_two {
+                Some(RuntimeGraphicsTextureArgument::TFactor) => tf_bgra,
+                Some(RuntimeGraphicsTextureArgument::Diffuse) => v_bgra,
+                _ => [255; 4],
+            }
+        }
+        _ => [255; 4],
+    };
+    let alpha_src = match stage.alpha_operation {
+        Some(RuntimeGraphicsTextureOperation::SelectArgumentOne) => {
+            match stage.alpha_argument_one {
+                Some(RuntimeGraphicsTextureArgument::Diffuse) => v_bgra[3],
+                Some(RuntimeGraphicsTextureArgument::TFactor) => tf_bgra[3],
+                _ => 255,
+            }
+        }
+        Some(RuntimeGraphicsTextureOperation::Modulate) => match stage.alpha_argument_two {
+            Some(RuntimeGraphicsTextureArgument::TFactor) => tf_bgra[3],
+            Some(RuntimeGraphicsTextureArgument::Diffuse) => v_bgra[3],
+            _ => match stage.alpha_argument_one {
+                Some(RuntimeGraphicsTextureArgument::TFactor) => tf_bgra[3],
+                Some(RuntimeGraphicsTextureArgument::Diffuse) => v_bgra[3],
+                _ => 255,
+            },
         },
+        _ => 255,
     };
-    let supported_texture_stage_states = RuntimeGraphicsTextureStageStates {
-        stage_zero: RuntimeGraphicsTextureStageState {
-            color_operation: Some(RuntimeGraphicsTextureOperation::Modulate),
-            color_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
-            color_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
-            alpha_operation: Some(RuntimeGraphicsTextureOperation::SelectArgumentOne),
-            alpha_argument_one: Some(RuntimeGraphicsTextureArgument::Texture),
-            alpha_argument_two: Some(RuntimeGraphicsTextureArgument::Diffuse),
+    [rgb_src[0], rgb_src[1], rgb_src[2], alpha_src]
+}
+
+fn valid_screen_vertex(
+    [x, y, z, rhw]: [f32; 4],
+    [u, v]: [f32; 2],
+    width: u32,
+    height: u32,
+) -> bool {
+    if !x.is_finite()
+        || !y.is_finite()
+        || !z.is_finite()
+        || !rhw.is_finite()
+        || !u.is_finite()
+        || !v.is_finite()
+        || !(0.0..=1.0).contains(&z)
+        || rhw <= 0.0
+    {
+        return false;
+    }
+    let w = 1.0 / rhw;
+    w.is_finite()
+        && w <= f32::MAX
+        && (((x + 0.5) / (width as f32) * 2.0 - 1.0) * w).abs() <= f32::MAX
+        && (((y + 0.5) / (height as f32) * 2.0 - 1.0) * w).abs() <= f32::MAX
+}
+
+fn lower_d3d8_quad_vertices(device: &RuntimeGraphicsDevice, bytes: &[u8]) -> Option<Vec<Vec<u8>>> {
+    let fvf = device.flexible_vertex_format?;
+    let stride = fvf.stride() as usize;
+    if bytes.len() != stride * 4 {
+        return None;
+    }
+    let width = device.presentation.width;
+    let height = device.presentation.height;
+    let read_f32 = |slice: &[u8], off: usize| {
+        f32::from_le_bytes(slice[off..off + 4].try_into().expect("f32 slice"))
+    };
+
+    if !fvf.is_untransformed_xyz() {
+        let mut out = Vec::with_capacity(112);
+        for v in bytes.chunks_exact(stride) {
+            let x = read_f32(v, 0);
+            let y = read_f32(v, 4);
+            let z_raw = read_f32(v, 8);
+            let rhw = read_f32(v, 12);
+            if !z_raw.is_finite() {
+                return None;
+            }
+            let z = z_raw.clamp(0.0, 1.0);
+            let v_bgra = if fvf.has_diffuse() {
+                v[16..20].try_into().expect("bgra")
+            } else {
+                [255; 4]
+            };
+            let bgra = resolve_d3d8_vertex_bgra(device, v_bgra);
+            let (tu, tv) = if fvf.has_tex1() {
+                (read_f32(v, stride - 8), read_f32(v, stride - 4))
+            } else {
+                (0.0, 0.0)
+            };
+            if !valid_screen_vertex([x, y, z, rhw], [tu, tv], width, height) {
+                return None;
+            }
+            for f in [x, y, z, rhw] {
+                out.extend_from_slice(&f.to_le_bytes());
+            }
+            out.extend_from_slice(&bgra);
+            out.extend_from_slice(&tu.to_le_bytes());
+            out.extend_from_slice(&tv.to_le_bytes());
+        }
+        return Some(vec![out]);
+    }
+
+    let state = device.d3d8.as_ref()?;
+    let world = decode_matrix(state.transforms.get(&256))?;
+    let view = decode_matrix(state.transforms.get(&2))?;
+    let proj = decode_matrix(state.transforms.get(&3))?;
+    let tex_transform = if state.stage_values.get(&(0, 24)) == Some(&2) {
+        Some(decode_matrix(state.transforms.get(&16))?)
+    } else {
+        None
+    };
+
+    let vp_x = device.viewport[0] as f32;
+    let vp_y = device.viewport[1] as f32;
+    let vp_w = device.viewport[2] as f32;
+    let vp_h = device.viewport[3] as f32;
+    let min_z = f32::from_bits(device.viewport[4]);
+    let max_z = f32::from_bits(device.viewport[5]);
+    if !min_z.is_finite() || !max_z.is_finite() {
+        return None;
+    }
+
+    let mut clip_verts = Vec::with_capacity(4);
+    for v in bytes.chunks_exact(stride) {
+        let px = read_f32(v, 0);
+        let py = read_f32(v, 4);
+        let pz = read_f32(v, 8);
+        if !px.is_finite() || !py.is_finite() || !pz.is_finite() {
+            return None;
+        }
+        let v_bgra = if fvf.has_diffuse() {
+            v[12..16].try_into().expect("bgra")
+        } else {
+            [255; 4]
+        };
+        let bgra = resolve_d3d8_vertex_bgra(device, v_bgra);
+        let mut tu = read_f32(v, stride - 8);
+        let mut tv = read_f32(v, stride - 4);
+        if !tu.is_finite() || !tv.is_finite() {
+            return None;
+        }
+        if let Some(tm) = &tex_transform {
+            let nu = tu * tm[0] + tv * tm[4] + tm[8];
+            let nv = tu * tm[1] + tv * tm[5] + tm[9];
+            if !nu.is_finite() || !nv.is_finite() {
+                return None;
+            }
+            tu = nu;
+            tv = nv;
+        }
+        let p_world = mul_vec4_mat4([px, py, pz, 1.0], &world);
+        let p_view = mul_vec4_mat4(p_world, &view);
+        let [cx, cy, cz, cw] = mul_vec4_mat4(p_view, &proj);
+        if !cx.is_finite() || !cy.is_finite() || !cz.is_finite() || !cw.is_finite() {
+            return None;
+        }
+        clip_verts.push(ClipVertex {
+            cx,
+            cy,
+            cz,
+            cw,
+            u: tu,
+            v: tv,
+            color: bgra.map(f32::from),
+        });
+    }
+
+    let project = |cv: &ClipVertex| -> Option<[u8; 28]> {
+        let rhw = 1.0 / cv.cw;
+        let nx = cv.cx * rhw;
+        let ny = cv.cy * rhw;
+        let nz = (cv.cz * rhw).clamp(0.0, 1.0);
+        let sx = vp_x + (nx + 1.0) * 0.5 * vp_w;
+        let sy = vp_y + (1.0 - ny) * 0.5 * vp_h;
+        let sz = (min_z + nz * (max_z - min_z)).clamp(0.0, 1.0);
+        if !valid_screen_vertex([sx, sy, sz, rhw], [cv.u, cv.v], width, height) {
+            return None;
+        }
+        let mut out = [0_u8; 28];
+        out[0..4].copy_from_slice(&sx.to_le_bytes());
+        out[4..8].copy_from_slice(&sy.to_le_bytes());
+        out[8..12].copy_from_slice(&sz.to_le_bytes());
+        out[12..16].copy_from_slice(&rhw.to_le_bytes());
+        for (k, c) in cv.color.iter().enumerate() {
+            out[16 + k] = c.round().clamp(0.0, 255.0) as u8;
+        }
+        out[20..24].copy_from_slice(&cv.u.to_le_bytes());
+        out[24..28].copy_from_slice(&cv.v.to_le_bytes());
+        Some(out)
+    };
+
+    let all_unclipped = clip_verts
+        .iter()
+        .all(|cv| cv.cw >= 1e-4 && cv.cz >= -1e-5 * cv.cw && cv.cz <= cv.cw * (1.0 + 1e-5));
+    if all_unclipped {
+        let mut quad = Vec::with_capacity(112);
+        for cv in &clip_verts {
+            quad.extend_from_slice(&project(cv)?);
+        }
+        return Some(vec![quad]);
+    }
+
+    let mut quads = Vec::new();
+    for tri in [
+        [clip_verts[0], clip_verts[1], clip_verts[2]],
+        [clip_verts[1], clip_verts[3], clip_verts[2]],
+    ] {
+        let poly = clip_polygon(&tri, |v| v.cw - 1e-4);
+        let poly = clip_polygon(&poly, |v| v.cz);
+        let poly = clip_polygon(&poly, |v| v.cw - v.cz);
+        if poly.len() < 3 {
+            continue;
+        }
+        let projected: Option<Vec<[u8; 28]>> = poly.iter().map(project).collect();
+        let projected = projected?;
+        let p0 = projected[0];
+        let mut idx = 1;
+        while idx + 1 < projected.len() {
+            let mut quad = Vec::with_capacity(112);
+            if idx + 2 < projected.len() {
+                quad.extend_from_slice(&projected[idx]);
+                quad.extend_from_slice(&projected[idx + 1]);
+                quad.extend_from_slice(&p0);
+                quad.extend_from_slice(&projected[idx + 2]);
+                idx += 2;
+            } else {
+                quad.extend_from_slice(&p0);
+                quad.extend_from_slice(&projected[idx]);
+                quad.extend_from_slice(&projected[idx + 1]);
+                quad.extend_from_slice(&projected[idx + 1]);
+                idx += 1;
+            }
+            quads.push(quad);
+        }
+    }
+    Some(quads)
+}
+
+fn canonical_draw_vertices(device: &RuntimeGraphicsDevice, bytes: &[u8], stride: usize) -> Vec<u8> {
+    let texture_only = stride == 24
+        || device.texture_stage_states.stage_zero.color_operation
+            == Some(RuntimeGraphicsTextureOperation::SelectArgumentOne);
+    let mut output = Vec::with_capacity(112);
+    for vertex in bytes.chunks_exact(stride) {
+        output.extend_from_slice(&vertex[..16]);
+        output.extend_from_slice(if texture_only {
+            &[255; 4]
+        } else {
+            &vertex[16..20]
+        });
+        if stride == 28
+            && device.d3d8.is_some()
+            && device.texture_stage_states.stage_zero.alpha_operation
+                == Some(RuntimeGraphicsTextureOperation::Modulate)
+        {
+            let index = output.len() - 1;
+            output[index] = vertex[19];
+        }
+        output.extend_from_slice(&vertex[stride - 8..stride]);
+    }
+    output
+}
+
+fn alpha_test_passes_value(alpha_test: Option<(u32, u32)>, value: u32) -> bool {
+    match alpha_test {
+        None => true,
+        Some((compare, reference)) => match compare {
+            1 => false,
+            2 => value < reference,
+            3 => value == reference,
+            4 => value <= reference,
+            5 => value > reference,
+            6 => value != reference,
+            7 => value >= reference,
+            8 => true,
+            _ => false,
         },
+    }
+}
+
+fn vertices_all_alpha_255(vertices: &[u8]) -> bool {
+    vertices.len() == 112 && vertices.chunks_exact(28).all(|chunk| chunk[19] == 255)
+}
+
+fn vertices_max_z(vertices: &[u8]) -> Option<f32> {
+    if vertices.len() != 112 {
+        return None;
+    }
+    let mut max_z = f32::NEG_INFINITY;
+    for chunk in vertices.chunks_exact(28) {
+        let z = f32::from_le_bytes(chunk[8..12].try_into().unwrap());
+        if !z.is_finite() {
+            return None;
+        }
+        max_z = max_z.max(z);
+    }
+    Some(max_z)
+}
+
+fn axis_texel_intervals(
+    min_coord: f32,
+    max_coord: f32,
+    size: usize,
+    address: RuntimeGraphicsTextureAddress,
+) -> [(usize, usize); 2] {
+    if size == 0 {
+        return [(0, 0), (0, 0)];
+    }
+    let sz = size as f32;
+    match address {
+        RuntimeGraphicsTextureAddress::Clamp => {
+            let c0 = min_coord.clamp(0.0, 1.0);
+            let c1 = max_coord.clamp(0.0, 1.0);
+            let i0 = ((c0 * sz - 1.0).floor() as isize).clamp(0, size as isize - 1) as usize;
+            let i1 = ((c1 * sz + 1.0).ceil() as isize).clamp(0, size as isize) as usize;
+            [(i0, i1.max(i0 + 1)), (0, 0)]
+        }
+        RuntimeGraphicsTextureAddress::Wrap => {
+            if max_coord - min_coord >= 1.0 - 2.0 / sz {
+                return [(0, size), (0, 0)];
+            }
+            let a = (min_coord * sz - 1.0).floor() as isize;
+            let b = (max_coord * sz + 1.0).ceil() as isize;
+            if b - a >= size as isize {
+                return [(0, size), (0, 0)];
+            }
+            let s = a.rem_euclid(size as isize) as usize;
+            let len = (b - a).max(1) as usize;
+            if s + len <= size {
+                [(s, s + len), (0, 0)]
+            } else {
+                [(s, size), (0, s + len - size)]
+            }
+        }
+    }
+}
+
+fn sampled_texels_all_alpha_255(
+    submission: &RuntimeGraphicsDrawSubmission,
+    whole_texture_opaque_cache: &mut Option<&mut BTreeMap<usize, bool>>,
+) -> bool {
+    if !submission.texture_alpha {
+        return true;
+    }
+    if submission.texture_data.is_empty() || !submission.texture_fills.is_empty() {
+        return false;
+    }
+    let Some(pitch) = submission.texture_pitch.map(|p| p as usize) else {
+        return false;
     };
-    !(device.render_states != supported_render_states
-        || device.sampler_states != supported_sampler_states
-        || device.texture_stage_states != supported_texture_stage_states
-        || device.flexible_vertex_format
-            != Some(RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1))
+    let (w, h) = (
+        submission.texture_width as usize,
+        submission.texture_height as usize,
+    );
+    if w == 0 || h == 0 || submission.vertex_data.len() != 112 {
+        return false;
+    }
+    let mut min_u = f32::INFINITY;
+    let mut max_u = f32::NEG_INFINITY;
+    let mut min_v = f32::INFINITY;
+    let mut max_v = f32::NEG_INFINITY;
+    for chunk in submission.vertex_data.chunks_exact(28) {
+        let u = f32::from_le_bytes(chunk[20..24].try_into().unwrap());
+        let v = f32::from_le_bytes(chunk[24..28].try_into().unwrap());
+        if !u.is_finite() || !v.is_finite() {
+            return false;
+        }
+        min_u = min_u.min(u);
+        max_u = max_u.max(u);
+        min_v = min_v.min(v);
+        max_v = max_v.max(v);
+    }
+    let xs = axis_texel_intervals(min_u, max_u, w, submission.address_u);
+    let ys = axis_texel_intervals(min_v, max_v, h, submission.address_v);
+    let x_count = (xs[0].1 - xs[0].0) + (xs[1].1 - xs[1].0);
+    let y_count = (ys[0].1 - ys[0].0) + (ys[1].1 - ys[1].0);
+    if x_count == w
+        && y_count == h
+        && let Some(cache) = whole_texture_opaque_cache.as_deref_mut()
+    {
+        let ptr = Arc::as_ptr(&submission.texture_data) as usize;
+        if let Some(&cached) = cache.get(&ptr) {
+            return cached;
+        }
+        if w * h <= 1_048_576 {
+            let data = &*submission.texture_data;
+            let mut all_opaque = true;
+            'outer: for y in 0..h {
+                let row = y * pitch;
+                for x in 0..w {
+                    if data[row + x * 4 + 3] != 255 {
+                        all_opaque = false;
+                        break 'outer;
+                    }
+                }
+            }
+            cache.insert(ptr, all_opaque);
+            return all_opaque;
+        }
+        return false;
+    }
+    if x_count > 0 && y_count > 0 && x_count * y_count <= 262_144 {
+        let data = &*submission.texture_data;
+        for &(y0, y1) in &ys {
+            for y in y0..y1 {
+                let row = y * pitch;
+                for &(x0, x1) in &xs {
+                    for x in x0..x1 {
+                        if data[row + x * 4 + 3] != 255 {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+    false
+}
+
+fn is_pixel_opaque_submission(
+    submission: &RuntimeGraphicsDrawSubmission,
+    mut whole_texture_opaque_cache: Option<&mut BTreeMap<usize, bool>>,
+) -> bool {
+    let Some(f) = &submission.fragment else {
+        return true;
+    };
+    if f.additive_blend && f.blend {
+        return false;
+    }
+    if !f.blend {
+        return f.alpha_test.is_none_or(|(cmp, r)| {
+            cmp == 8
+                || ((!(f.texture_alpha && submission.texture_alpha)
+                    || sampled_texels_all_alpha_255(submission, &mut whole_texture_opaque_cache))
+                    && (!f.diffuse_alpha || vertices_all_alpha_255(&submission.vertex_data))
+                    && alpha_test_passes_value(Some((cmp, r)), 255))
+        });
+    }
+    if !alpha_test_passes_value(f.alpha_test, 255) {
+        return false;
+    }
+    if f.diffuse_alpha && !vertices_all_alpha_255(&submission.vertex_data) {
+        return false;
+    }
+    if f.texture_alpha
+        && submission.texture_alpha
+        && !sampled_texels_all_alpha_255(submission, &mut whole_texture_opaque_cache)
+    {
+        return false;
+    }
+    true
+}
+
+fn is_unconditional_opaque_submission(
+    back_buffer: &RuntimeGraphicsBackBuffer,
+    submission: &RuntimeGraphicsDrawSubmission,
+) -> bool {
+    if !is_pixel_opaque_submission(submission, None) {
+        return false;
+    }
+    match submission.depth {
+        None => true,
+        Some(depth) if depth.compare == 8 => true,
+        Some(depth) if depth.compare == 4 => {
+            if let Some(clear) = back_buffer.depth_clears.last() {
+                clear.before_draw == back_buffer.draw_submissions.len()
+                    && vertices_max_z(&submission.vertex_data)
+                        .is_some_and(|max_z| max_z <= f32::from_bits(clear.depth))
+            } else {
+                !back_buffer.preserve_previous
+                    && back_buffer
+                        .draw_submissions
+                        .iter()
+                        .all(|d| d.depth.is_none_or(|dp| !dp.write))
+                    && vertices_max_z(&submission.vertex_data).is_some_and(|max_z| max_z <= 1.0)
+            }
+        }
+        _ => false,
+    }
+}
+
+fn intersect_rects(a: RuntimeRect, b: Option<RuntimeRect>) -> Option<RuntimeRect> {
+    let r = if let Some(b) = b {
+        RuntimeRect {
+            left: a.left.max(b.left),
+            top: a.top.max(b.top),
+            right: a.right.min(b.right),
+            bottom: a.bottom.min(b.bottom),
+        }
+    } else {
+        a
+    };
+    (r.right > r.left && r.bottom > r.top).then_some(r)
+}
+
+fn axis_aligned_quad_rect(vertices: &[u8], clip: Option<RuntimeRect>) -> Option<RuntimeRect> {
+    if vertices.len() != 112 {
+        return None;
+    }
+    let mut pts = [(0.0_f32, 0.0_f32); 4];
+    for (i, chunk) in vertices.chunks_exact(28).enumerate() {
+        let x = f32::from_le_bytes(chunk[0..4].try_into().unwrap()) + 0.5;
+        let y = f32::from_le_bytes(chunk[4..8].try_into().unwrap()) + 0.5;
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        pts[i] = (x, y);
+    }
+    let eps = 1e-3_f32;
+    let aligned_h = (pts[0].1 - pts[1].1).abs() <= eps
+        && (pts[2].1 - pts[3].1).abs() <= eps
+        && (pts[0].0 - pts[2].0).abs() <= eps
+        && (pts[1].0 - pts[3].0).abs() <= eps;
+    let aligned_v = (pts[0].0 - pts[1].0).abs() <= eps
+        && (pts[2].0 - pts[3].0).abs() <= eps
+        && (pts[0].1 - pts[2].1).abs() <= eps
+        && (pts[1].1 - pts[3].1).abs() <= eps;
+    if !aligned_h && !aligned_v {
+        return None;
+    }
+    let min_x = pts.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
+    let max_x = pts.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max);
+    let min_y = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min);
+    let max_y = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max);
+    let rect = RuntimeRect {
+        left: min_x.ceil() as i32,
+        top: min_y.ceil() as i32,
+        right: max_x.floor() as i32,
+        bottom: max_y.floor() as i32,
+    };
+    intersect_rects(rect, clip)
+}
+
+fn draw_screen_bounds(draw: &RuntimeGraphicsDrawSubmission) -> Option<RuntimeRect> {
+    if draw.vertex_data.len() != 112 {
+        return None;
+    }
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for chunk in draw.vertex_data.chunks_exact(28) {
+        let x = f32::from_le_bytes(chunk[0..4].try_into().unwrap()) + 0.5;
+        let y = f32::from_le_bytes(chunk[4..8].try_into().unwrap()) + 0.5;
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    }
+    let rect = RuntimeRect {
+        left: min_x.floor() as i32,
+        top: min_y.floor() as i32,
+        right: max_x.ceil() as i32,
+        bottom: max_y.ceil() as i32,
+    };
+    intersect_rects(rect, draw.clip_rect)
+}
+
+fn prune_occluded_draws(back_buffer: &mut RuntimeGraphicsBackBuffer, opaque_rect: RuntimeRect) {
+    if opaque_rect.right <= opaque_rect.left || opaque_rect.bottom <= opaque_rect.top {
+        return;
+    }
+    let wiped_depth_limit = back_buffer.depth_clears.last().map_or(0, |c| c.before_draw);
+    let old_draws = std::mem::take(&mut back_buffer.draw_submissions);
+    let mut removed_prefix = Vec::with_capacity(old_draws.len() + 1);
+    removed_prefix.push(0usize);
+    let mut removed = 0usize;
+    let mut kept = Vec::with_capacity(old_draws.len());
+    for (idx, draw) in old_draws.into_iter().enumerate() {
+        let depth_dead = idx < wiped_depth_limit || draw.depth.is_none_or(|d| !d.write);
+        let occluded = depth_dead
+            && draw_screen_bounds(&draw).is_some_and(|b| {
+                b.left >= opaque_rect.left
+                    && b.top >= opaque_rect.top
+                    && b.right <= opaque_rect.right
+                    && b.bottom <= opaque_rect.bottom
+            });
+        if occluded {
+            removed += 1;
+        } else {
+            kept.push(draw);
+        }
+        removed_prefix.push(removed);
+    }
+    back_buffer.draw_submissions = kept;
+    if removed > 0 {
+        reindex_back_buffer_clears(back_buffer, &removed_prefix);
+    }
+}
+
+fn reindex_back_buffer_clears(
+    back_buffer: &mut RuntimeGraphicsBackBuffer,
+    removed_prefix: &[usize],
+) {
+    back_buffer.color_clear_before_draw -= removed_prefix[back_buffer.color_clear_before_draw];
+    let mut adjusted: Vec<RuntimeGraphicsDepthClear> = Vec::new();
+    for mut clear in std::mem::take(&mut back_buffer.depth_clears) {
+        clear.before_draw -= removed_prefix[clear.before_draw];
+        if let Some(prev) = adjusted
+            .last_mut()
+            .filter(|prev| prev.before_draw == clear.before_draw)
+        {
+            prev.depth = clear.depth;
+        } else {
+            adjusted.push(clear);
+        }
+    }
+    back_buffer.depth_clears = adjusted;
+}
+
+fn set_bit_span(row: &mut [u64], left: usize, right: usize) {
+    if right <= left {
+        return;
+    }
+    let first_word = left / 64;
+    let last_word = (right - 1) / 64;
+    let start_mask = !0_u64 << (left % 64);
+    let end_bits = right % 64;
+    let end_mask = if end_bits == 0 {
+        !0_u64
+    } else {
+        (1_u64 << end_bits) - 1
+    };
+    if first_word == last_word {
+        row[first_word] |= start_mask & end_mask;
+    } else {
+        row[first_word] |= start_mask;
+        for w in &mut row[first_word + 1..last_word] {
+            *w = !0_u64;
+        }
+        row[last_word] |= end_mask;
+    }
+}
+
+fn bit_span_all_set(row: &[u64], left: usize, right: usize) -> bool {
+    if right <= left {
+        return true;
+    }
+    let first_word = left / 64;
+    let last_word = (right - 1) / 64;
+    let start_mask = !0_u64 << (left % 64);
+    let end_bits = right % 64;
+    let end_mask = if end_bits == 0 {
+        !0_u64
+    } else {
+        (1_u64 << end_bits) - 1
+    };
+    if first_word == last_word {
+        let mask = start_mask & end_mask;
+        (row[first_word] & mask) == mask
+    } else {
+        if (row[first_word] & start_mask) != start_mask {
+            return false;
+        }
+        for &w in &row[first_word + 1..last_word] {
+            if w != !0_u64 {
+                return false;
+            }
+        }
+        (row[last_word] & end_mask) == end_mask
+    }
+}
+
+fn rect_fully_covered(
+    covered: &[u64],
+    words_per_row: usize,
+    surface_w: i32,
+    surface_h: i32,
+    bounds: RuntimeRect,
+) -> bool {
+    let left = bounds.left.clamp(0, surface_w) as usize;
+    let right = bounds.right.clamp(0, surface_w) as usize;
+    let top = bounds.top.clamp(0, surface_h) as usize;
+    let bottom = bounds.bottom.clamp(0, surface_h) as usize;
+    if right <= left || bottom <= top {
+        return true;
+    }
+    for y in top..bottom {
+        let row = &covered[y * words_per_row..(y + 1) * words_per_row];
+        if !bit_span_all_set(row, left, right) {
+            return false;
+        }
+    }
+    true
+}
+
+fn rasterize_quad_coverage(
+    covered: &mut [u64],
+    words_per_row: usize,
+    surface_w: i32,
+    surface_h: i32,
+    draw: &RuntimeGraphicsDrawSubmission,
+) {
+    if draw.vertex_data.len() != 112 {
+        return;
+    }
+    let mut pts = [(0.0_f64, 0.0_f64); 4];
+    for (i, chunk) in draw.vertex_data.chunks_exact(28).enumerate() {
+        let x = f64::from(f32::from_le_bytes(chunk[0..4].try_into().unwrap())) + 0.5;
+        let y = f64::from(f32::from_le_bytes(chunk[4..8].try_into().unwrap())) + 0.5;
+        if !x.is_finite() || !y.is_finite() {
+            return;
+        }
+        pts[i] = (x, y);
+    }
+    let clip_left = draw.clip_rect.map_or(0, |c| c.left.max(0)).min(surface_w);
+    let clip_top = draw.clip_rect.map_or(0, |c| c.top.max(0)).min(surface_h);
+    let clip_right = draw
+        .clip_rect
+        .map_or(surface_w, |c| c.right.min(surface_w))
+        .max(0);
+    let clip_bottom = draw
+        .clip_rect
+        .map_or(surface_h, |c| c.bottom.min(surface_h))
+        .max(0);
+    if clip_right <= clip_left || clip_bottom <= clip_top {
+        return;
+    }
+    for [ia, ib, ic] in [[0usize, 1, 2], [2, 1, 3]] {
+        let a = pts[ia];
+        let (mut b, mut c) = (pts[ib], pts[ic]);
+        let area = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+        if area == 0.0 {
+            continue;
+        }
+        if area < 0.0 {
+            std::mem::swap(&mut b, &mut c);
+        }
+        let min_y = ((a.1.min(b.1).min(c.1) - 0.5).ceil() as i32).max(clip_top);
+        let max_y = ((a.1.max(b.1).max(c.1) - 0.5).floor() as i32 + 1).min(clip_bottom);
+        if max_y <= min_y {
+            continue;
+        }
+        let edges = [(b, c), (c, a), (a, b)];
+        let inclusives = [
+            c.1 < b.1 || (c.1 == b.1 && c.0 > b.0),
+            a.1 < c.1 || (a.1 == c.1 && a.0 > c.0),
+            b.1 < a.1 || (b.1 == a.1 && b.0 > a.0),
+        ];
+        'rows: for y in min_y..max_y {
+            let cy = f64::from(y) + 0.5;
+            let mut row_left = clip_left;
+            let mut row_right = clip_right;
+            for (&(p0, p1), &inc) in edges.iter().zip(inclusives.iter()) {
+                let dx = p1.0 - p0.0;
+                let dy = p1.1 - p0.1;
+                if dy == 0.0 {
+                    let side = dx * (cy - p0.1);
+                    if side < 0.0 || (side == 0.0 && !inc) {
+                        continue 'rows;
+                    }
+                } else {
+                    let x_int = p0.0 + dx * (cy - p0.1) / dy;
+                    let bound = (x_int - 0.5).ceil() as i32;
+                    if dy > 0.0 {
+                        // dy > 0 => p1.1 > p0.1 => inc is false: x + 0.5 < x_int => x <= bound - 1 => right = bound
+                        row_right = row_right.min(bound);
+                    } else {
+                        // dy < 0 => p1.1 < p0.1 => inc is true: x + 0.5 >= x_int => x >= bound
+                        row_left = row_left.max(bound);
+                    }
+                    if row_right <= row_left {
+                        continue 'rows;
+                    }
+                }
+            }
+            let row = &mut covered[y as usize * words_per_row..(y as usize + 1) * words_per_row];
+            set_bit_span(row, row_left as usize, row_right as usize);
+        }
+    }
+}
+
+fn has_unconditional_depth_pass(draw: &RuntimeGraphicsDrawSubmission) -> bool {
+    match draw.depth {
+        None => true,
+        Some(d) if d.compare == 8 => true,
+        Some(d) if d.compare == 4 => {
+            // D16 depth buffer values are in [0.0, 1.0], so z <= 0.0 always passes LESSEQUAL.
+            vertices_max_z(&draw.vertex_data).is_some_and(|mz| mz <= 0.0)
+        }
+        _ => false,
+    }
+}
+
+fn prune_back_buffer_on_end_scene(device: &mut RuntimeGraphicsDevice) {
+    let w = device.presentation.width;
+    let h = device.presentation.height;
+    if w == 0 || h == 0 || w > 4096 || h > 4096 {
+        return;
+    }
+    let n = device.back_buffer.draw_submissions.len();
+    if n <= 1 {
+        return;
+    }
+    let words_per_row = (w as usize).div_ceil(64);
+    let mut covered = vec![0_u64; h as usize * words_per_row];
+    let (surface_w, surface_h) = (w as i32, h as i32);
+    let last_clear = device.back_buffer.depth_clears.last().copied();
+    let wiped_depth_limit = last_clear.map_or(0, |c| c.before_draw.min(n));
+    let mut tex_cache = BTreeMap::new();
+    let mut is_opaque = vec![false; n];
+    for (i, draw) in device.back_buffer.draw_submissions.iter().enumerate() {
+        is_opaque[i] = is_pixel_opaque_submission(draw, Some(&mut tex_cache));
+    }
+    let post_clear_covered = if let Some(clear) = last_clear.filter(|_| wiped_depth_limit > 0) {
+        let clear_z = f32::from_bits(clear.depth);
+        let total_words = h as usize * words_per_row;
+        let mut pc_cov = vec![0_u64; total_words];
+        let mut dirty_depth = vec![0_u64; total_words];
+        let mut scratch = vec![0_u64; total_words];
+        for (i, draw) in device.back_buffer.draw_submissions[wiped_depth_limit..]
+            .iter()
+            .enumerate()
+        {
+            let idx = wiped_depth_limit + i;
+            if is_opaque[idx] {
+                if has_unconditional_depth_pass(draw) {
+                    rasterize_quad_coverage(&mut pc_cov, words_per_row, surface_w, surface_h, draw);
+                } else if draw.depth.is_some_and(|d| d.compare == 4)
+                    && vertices_max_z(&draw.vertex_data).is_some_and(|mz| mz <= clear_z)
+                {
+                    scratch.fill(0);
+                    rasterize_quad_coverage(
+                        &mut scratch,
+                        words_per_row,
+                        surface_w,
+                        surface_h,
+                        draw,
+                    );
+                    for ((dst, &src), &dirty) in pc_cov
+                        .iter_mut()
+                        .zip(scratch.iter())
+                        .zip(dirty_depth.iter())
+                    {
+                        *dst |= src & !dirty;
+                    }
+                } else if draw.depth.is_some_and(|d| d.write) {
+                    rasterize_quad_coverage(
+                        &mut dirty_depth,
+                        words_per_row,
+                        surface_w,
+                        surface_h,
+                        draw,
+                    );
+                }
+            } else if draw.depth.is_some_and(|d| d.write) {
+                rasterize_quad_coverage(
+                    &mut dirty_depth,
+                    words_per_row,
+                    surface_w,
+                    surface_h,
+                    draw,
+                );
+            }
+        }
+        Some(pc_cov)
+    } else {
+        None
+    };
+    let first_depth_write = if device.back_buffer.depth_clears.is_empty() {
+        device
+            .back_buffer
+            .draw_submissions
+            .iter()
+            .position(|d| d.depth.is_some_and(|dp| dp.write))
+            .unwrap_or(n)
+    } else {
+        0
+    };
+    let mut keep = vec![true; n];
+    let mut removed_any = false;
+    for idx in (wiped_depth_limit..n).rev() {
+        let draw = &device.back_buffer.draw_submissions[idx];
+        // Later scenes and COPY presentations can still use these depth writes.
+        if draw.depth.is_none_or(|d| !d.write)
+            && draw_screen_bounds(draw).is_some_and(|b| {
+                rect_fully_covered(&covered, words_per_row, surface_w, surface_h, b)
+            })
+        {
+            keep[idx] = false;
+            removed_any = true;
+            continue;
+        }
+        let uncond_depth = has_unconditional_depth_pass(draw);
+        let virgin_depth_pass = !device.back_buffer.preserve_previous
+            && idx <= first_depth_write
+            && draw.depth.is_some_and(|d| d.compare == 4)
+            && vertices_max_z(&draw.vertex_data).is_some_and(|mz| mz <= 1.0);
+        if is_opaque[idx] && (uncond_depth || virgin_depth_pass) {
+            rasterize_quad_coverage(&mut covered, words_per_row, surface_w, surface_h, draw);
+        }
+    }
+    if wiped_depth_limit > 0 {
+        if let Some(pc_cov) = post_clear_covered {
+            for (dst, src) in covered.iter_mut().zip(pc_cov) {
+                *dst |= src;
+            }
+        }
+        for idx in (0..wiped_depth_limit).rev() {
+            let draw = &device.back_buffer.draw_submissions[idx];
+            if draw_screen_bounds(draw).is_some_and(|b| {
+                rect_fully_covered(&covered, words_per_row, surface_w, surface_h, b)
+            }) {
+                keep[idx] = false;
+                removed_any = true;
+                continue;
+            }
+            if is_opaque[idx] && has_unconditional_depth_pass(draw) {
+                rasterize_quad_coverage(&mut covered, words_per_row, surface_w, surface_h, draw);
+            }
+        }
+    }
+    if !removed_any {
+        return;
+    }
+    let old_draws = std::mem::take(&mut device.back_buffer.draw_submissions);
+    let mut removed_prefix = Vec::with_capacity(n + 1);
+    removed_prefix.push(0usize);
+    let mut removed = 0usize;
+    let mut kept = Vec::with_capacity(n);
+    for (idx, draw) in old_draws.into_iter().enumerate() {
+        if keep[idx] {
+            kept.push(draw);
+        } else {
+            removed += 1;
+        }
+        removed_prefix.push(removed);
+    }
+    device.back_buffer.draw_submissions = kept;
+    reindex_back_buffer_clears(&mut device.back_buffer, &removed_prefix);
+}
+
+fn same_draw_coverage(left: &[u8], right: &[u8]) -> bool {
+    left.len() == 112
+        && right.len() == 112
+        && left
+            .chunks_exact(28)
+            .zip(right.chunks_exact(28))
+            .all(|(a, b)| a[..16] == b[..16])
+}
+
+fn replaces_opaque_draw(
+    device: &RuntimeGraphicsDevice,
+    vertices: &[u8],
+    draw: &RuntimeGraphicsDrawSubmission,
+) -> bool {
+    device.d3d8.is_none()
+        && device.presentation.present_mode == RuntimeGraphicsPresentMode::Copy
+        && draw.clip_rect
+            == Some(RuntimeRect {
+                left: device.viewport[0] as i32,
+                top: device.viewport[1] as i32,
+                right: (device.viewport[0] + device.viewport[2]) as i32,
+                bottom: (device.viewport[1] + device.viewport[3]) as i32,
+            })
+        && same_draw_coverage(vertices, &draw.vertex_data)
+}
+
+fn normalize_texture_snapshot_to_bgra8(
+    raw: Vec<u8>,
+    width: u32,
+    height: u32,
+    row_pitch: u32,
+    format: RuntimeGraphicsColorFormat,
+) -> (Vec<u8>, u32) {
+    if format.bytes_per_pixel() == 4 || raw.is_empty() {
+        return (raw, row_pitch);
+    }
+    let out_pitch = width * 4;
+    let mut out = vec![0_u8; (out_pitch * height) as usize];
+    for y in 0..height as usize {
+        let src_row = y * row_pitch as usize;
+        let dst_row = y * out_pitch as usize;
+        for x in 0..width as usize {
+            let word = u16::from_le_bytes([raw[src_row + x * 2], raw[src_row + x * 2 + 1]]);
+            let (r, g, b, a) = match format {
+                RuntimeGraphicsColorFormat::R5g6b5Unorm => {
+                    let r5 = u32::from((word >> 11) & 0x1f);
+                    let g6 = u32::from((word >> 5) & 0x3f);
+                    let b5 = u32::from(word & 0x1f);
+                    (
+                        ((r5 * 255 + 15) / 31) as u8,
+                        ((g6 * 255 + 31) / 63) as u8,
+                        ((b5 * 255 + 15) / 31) as u8,
+                        255,
+                    )
+                }
+                RuntimeGraphicsColorFormat::X1r5g5b5Unorm => {
+                    let r5 = u32::from((word >> 10) & 0x1f);
+                    let g5 = u32::from((word >> 5) & 0x1f);
+                    let b5 = u32::from(word & 0x1f);
+                    (
+                        ((r5 * 255 + 15) / 31) as u8,
+                        ((g5 * 255 + 15) / 31) as u8,
+                        ((b5 * 255 + 15) / 31) as u8,
+                        255,
+                    )
+                }
+                RuntimeGraphicsColorFormat::A1r5g5b5Unorm => {
+                    let r5 = u32::from((word >> 10) & 0x1f);
+                    let g5 = u32::from((word >> 5) & 0x1f);
+                    let b5 = u32::from(word & 0x1f);
+                    let a = if word & 0x8000 != 0 { 255 } else { 0 };
+                    (
+                        ((r5 * 255 + 15) / 31) as u8,
+                        ((g5 * 255 + 15) / 31) as u8,
+                        ((b5 * 255 + 15) / 31) as u8,
+                        a,
+                    )
+                }
+                RuntimeGraphicsColorFormat::A4r4g4b4Unorm => {
+                    let a4 = ((word >> 12) & 0x0f) as u8;
+                    let r4 = ((word >> 8) & 0x0f) as u8;
+                    let g4 = ((word >> 4) & 0x0f) as u8;
+                    let b4 = (word & 0x0f) as u8;
+                    (r4 * 17, g4 * 17, b4 * 17, a4 * 17)
+                }
+                RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+                | RuntimeGraphicsColorFormat::B8g8r8a8Unorm => unreachable!(),
+            };
+            let dst = dst_row + x * 4;
+            out[dst..dst + 4].copy_from_slice(&[b, g, r, a]);
+        }
+    }
+    (out, out_pitch)
 }
 
 pub(super) fn texture_byte_layout(
     descriptor: RuntimeGraphicsTextureDescriptor,
 ) -> Result<(u32, u32), RuntimeStateError> {
-    let bytes_per_pixel = match descriptor.color_format {
-        RuntimeGraphicsColorFormat::B8g8r8x8Unorm => 4_u32,
-    };
+    let bytes_per_pixel = descriptor.color_format.bytes_per_pixel();
     let row_pitch = descriptor
         .width
         .checked_mul(bytes_per_pixel)
@@ -2923,6 +5169,8 @@ mod tests {
 
     fn request() -> RuntimeGraphicsDeviceCreationRequest {
         RuntimeGraphicsDeviceCreationRequest {
+            back_buffer_width: 800,
+            back_buffer_height: 600,
             target: RuntimeGraphicsWindowTarget {
                 window_id: RuntimeWindowId(1),
                 window_handle: 0x4801_0001,
@@ -3020,6 +5268,7 @@ mod tests {
                 sampler_zero: RuntimeGraphicsSamplerState {
                     min_filter: Some(RuntimeGraphicsTextureFilter::Linear),
                     mag_filter: Some(RuntimeGraphicsTextureFilter::Linear),
+                    ..RuntimeGraphicsSamplerState::default()
                 },
             };
             device.texture_stage_states = RuntimeGraphicsTextureStageStates {
@@ -3928,7 +6177,7 @@ mod tests {
         }
 
         graphics.end_scene(RuntimeComObjectId(7)).unwrap();
-        graphics.present(RuntimeComObjectId(7)).unwrap();
+        graphics.present(RuntimeComObjectId(7), None).unwrap();
         let frame = graphics
             .device(device_id)
             .unwrap()
@@ -3943,7 +6192,7 @@ mod tests {
         graphics
             .clear_back_buffer(RuntimeComObjectId(7), 0xff00_0000)
             .unwrap();
-        graphics.present(RuntimeComObjectId(7)).unwrap();
+        graphics.present(RuntimeComObjectId(7), None).unwrap();
         let retirement = graphics
             .validate_com_object_retirements(
                 &[
@@ -4098,6 +6347,135 @@ mod tests {
     }
 
     #[test]
+    fn copy_present_retains_content_and_up_snapshots_caller_bytes_and_detaches_stream() {
+        let (mut graphics, device_id, _, _, _) = prepared_draw_graphics();
+        let object = RuntimeComObjectId(7);
+        let device = graphics.devices.get_mut(&device_id).unwrap();
+        device.presentation.present_mode = RuntimeGraphicsPresentMode::Copy;
+        device.flexible_vertex_format = Some(RuntimeGraphicsFlexibleVertexFormat::XyzRhwTexture1);
+        device.render_states.alpha_blend_enabled = Some(false);
+        device.texture_stage_states.stage_zero.color_operation =
+            Some(RuntimeGraphicsTextureOperation::SelectArgumentOne);
+        device.texture_stage_states.stage_zero.alpha_operation =
+            Some(RuntimeGraphicsTextureOperation::Disable);
+        device.sampler_states.sampler_zero.min_filter = Some(RuntimeGraphicsTextureFilter::Point);
+        device.sampler_states.sampler_zero.mag_filter = Some(RuntimeGraphicsTextureFilter::Point);
+        device.sampler_states.sampler_zero.address_u = RuntimeGraphicsTextureAddress::Clamp;
+        device.sampler_states.sampler_zero.address_v = RuntimeGraphicsTextureAddress::Clamp;
+        let vertices = [
+            [-0.5_f32, -0.5, 1., 1., 0., 0.],
+            [799.5, -0.5, 1., 1., 1., 0.],
+            [-0.5, 599.5, 1., 1., 0., 1.],
+            [799.5, 599.5, 1., 1., 1., 1.],
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(f32::to_le_bytes)
+        .collect::<Vec<_>>();
+        let mut memory = draw_memory(&vertices);
+        let before = graphics.clone();
+        assert!(
+            graphics
+                .submit_draw_up(object, 2, GuestAddress(0xffff_fff0), 24, &memory)
+                .is_err()
+        );
+        assert_eq!(graphics, before);
+        assert!(
+            !graphics
+                .submit_draw_up(object, 2, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 28, &memory)
+                .unwrap()
+        );
+        assert_eq!(graphics, before);
+        assert!(
+            graphics
+                .submit_draw_up(object, 2, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 24, &memory)
+                .unwrap()
+        );
+        let device = graphics.device(device_id).unwrap();
+        assert!(device.stream_sources.stream_zero.is_none());
+        let draw = &device.back_buffer.draw_submissions[0];
+        assert_eq!(
+            (draw.min_filter, draw.mag_filter),
+            (
+                RuntimeGraphicsTextureFilter::Point,
+                RuntimeGraphicsTextureFilter::Point
+            )
+        );
+        assert_eq!(draw.address_u, RuntimeGraphicsTextureAddress::Clamp);
+        for (input, canonical) in vertices
+            .chunks_exact(24)
+            .zip(draw.vertex_data.chunks_exact(28))
+        {
+            assert_eq!(&input[..16], &canonical[..16]);
+            assert_eq!(&canonical[16..20], &[255; 4]);
+            assert_eq!(&input[16..], &canonical[20..]);
+        }
+        graphics.end_scene(object).unwrap();
+        assert!(graphics.present(object, Some((400, 300))).unwrap());
+        let captured = graphics
+            .device(device_id)
+            .unwrap()
+            .presented_frame
+            .clone()
+            .unwrap();
+        assert_eq!(graphics.device(device_id).unwrap().back_buffer, captured);
+        assert_eq!(
+            graphics.device(device_id).unwrap().presented_extent,
+            Some((400, 300))
+        );
+        assert!(graphics.present(object, Some((400, 300))).unwrap());
+        let before = graphics.clone();
+        assert!(!graphics.present(object, Some((801, 300))).unwrap());
+        assert_eq!(graphics, before);
+        graphics.begin_scene(object).unwrap();
+        // Replace repeated opaque quads, while preserving different geometry.
+        for _ in 0..64 {
+            assert!(
+                graphics
+                    .submit_draw_up(object, 2, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 24, &memory)
+                    .unwrap()
+            );
+        }
+        assert_eq!(
+            graphics
+                .device(device_id)
+                .unwrap()
+                .back_buffer
+                .draw_submissions
+                .len(),
+            1
+        );
+        memory
+            .write(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, &20_f32.to_le_bytes())
+            .unwrap();
+        let delta = memory.pending_delta().unwrap();
+        memory.acknowledge_delta(delta.generation).unwrap();
+        assert!(
+            graphics
+                .submit_draw_up(object, 2, RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 24, &memory)
+                .unwrap()
+        );
+        assert_eq!(
+            graphics
+                .device(device_id)
+                .unwrap()
+                .back_buffer
+                .draw_submissions
+                .len(),
+            2
+        );
+        assert_eq!(
+            graphics
+                .device(device_id)
+                .unwrap()
+                .presented_frame
+                .as_ref()
+                .unwrap(),
+            &captured
+        );
+    }
+
+    #[test]
     fn scene_begin_owns_active_lifecycle_and_rejects_nested_scenes_atomically() {
         let mut graphics = RuntimeGraphics::default();
         let device_plan = graphics
@@ -4152,6 +6530,91 @@ mod tests {
     }
 
     #[test]
+    fn d3d8_copy_keeps_occluded_depth_writes_and_orders_target_only_clear() {
+        let (mut graphics, device_id, _, _, _) = prepared_draw_graphics();
+        let object = RuntimeComObjectId(7);
+        let mut vertices = Vec::new();
+        for (x, y) in [(-0.5_f32, -0.5_f32), (1.5, -0.5), (-0.5, 1.5), (1.5, 1.5)] {
+            for value in [x, y, 0.25, 1.0] {
+                vertices.extend(value.to_le_bytes());
+            }
+            vertices.extend([255; 4]);
+            vertices.extend([0; 8]);
+        }
+        assert!(
+            graphics
+                .submit_draw(object, 0, 2, &draw_memory(&vertices))
+                .unwrap()
+        );
+        let device = graphics.devices.get_mut(&device_id).unwrap();
+        device.presentation.present_mode = RuntimeGraphicsPresentMode::Copy;
+        let mut parameters = [0; 13];
+        parameters[8] = 1;
+        device.d3d8 = Some(crate::d3d8::DeviceState {
+            parameters,
+            transforms: BTreeMap::new(),
+            render_values: BTreeMap::new(),
+            stage_values: BTreeMap::new(),
+            back_buffer_surface: None,
+        });
+        let mut overlay = device.back_buffer.draw_submissions[0].clone();
+        overlay.clip_rect = None;
+        let writer = &mut device.back_buffer.draw_submissions[0];
+        writer.clip_rect = None;
+        writer.depth = Some(RuntimeGraphicsDepthDrawState {
+            write: true,
+            compare: 4,
+        });
+        device.back_buffer.draw_submissions.push(overlay);
+        assert!(graphics.end_scene(object).unwrap());
+        assert_eq!(
+            graphics
+                .device(device_id)
+                .unwrap()
+                .back_buffer
+                .draw_submissions
+                .len(),
+            2
+        );
+
+        assert!(graphics.clear_d3d8(object, 1, 0xff12_3456, 0).unwrap());
+        assert!(graphics.present(object, None).unwrap());
+        let frame = graphics
+            .device(device_id)
+            .unwrap()
+            .presented_frame
+            .as_ref()
+            .unwrap();
+        assert_eq!(frame.clear_color, Some(0xff12_3456));
+        assert_eq!(frame.color_clear_before_draw, 1);
+        assert_eq!(frame.draw_submissions.len(), 1);
+        assert!(frame.draw_submissions[0].depth.unwrap().write);
+
+        assert!(
+            graphics
+                .clear_d3d8(object, 2, 0, 0.5_f32.to_bits())
+                .unwrap()
+        );
+        assert!(graphics.clear_d3d8(object, 1, 0xff00_0000, 0).unwrap());
+        assert!(graphics.present(object, None).unwrap());
+        let frame = graphics
+            .device(device_id)
+            .unwrap()
+            .presented_frame
+            .as_ref()
+            .unwrap();
+        assert!(frame.preserve_previous);
+        assert_eq!(frame.color_clear_before_draw, 0);
+        assert_eq!(
+            frame.depth_clears,
+            [RuntimeGraphicsDepthClear {
+                before_draw: 0,
+                depth: 0.5_f32.to_bits()
+            }]
+        );
+    }
+
+    #[test]
     fn present_moves_closed_back_buffer_to_front_frame_and_rejects_invalid_state_atomically() {
         let (mut graphics, device_id, _, _, _) = prepared_draw_graphics();
         graphics
@@ -4160,7 +6623,7 @@ mod tests {
         graphics.end_scene(RuntimeComObjectId(7)).unwrap();
 
         let request = RuntimeComObjectId(7);
-        graphics.present(request).unwrap();
+        graphics.present(request, None).unwrap();
         let device = graphics.device(device_id).unwrap();
         let frame = device.presented_frame.as_ref().unwrap();
         assert_eq!(frame.draw_submissions.len(), 1);
@@ -4168,19 +6631,19 @@ mod tests {
         assert!(device.back_buffer.draw_submissions.is_empty());
 
         let before_empty = graphics.clone();
-        assert!(!graphics.present(request).unwrap());
+        assert!(!graphics.present(request, None).unwrap());
         assert_eq!(graphics, before_empty);
 
         for device_com_object_id in [RuntimeComObjectId(0), RuntimeComObjectId(99)] {
             let before = graphics.clone();
-            graphics.present(device_com_object_id).unwrap_err();
+            graphics.present(device_com_object_id, None).unwrap_err();
 
             assert_eq!(graphics, before);
         }
 
         let (mut active, _, _, _, _) = prepared_draw_graphics();
         let before_active = active.clone();
-        assert!(!active.present(request).unwrap());
+        assert!(!active.present(request, None).unwrap());
         assert_eq!(active, before_active);
     }
 

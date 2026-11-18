@@ -270,24 +270,48 @@ fn enumeration_requires_display_and_reports_live_geometry() {
 
 #[test]
 fn system_metrics_use_live_display_preserve_last_error_and_reject_unknown_indices() {
-    let mut fixture = Fixture::new(&[("user32.dll", "GetSystemMetrics")]);
+    let mut fixture = Fixture::new(&[
+        ("user32.dll", "GetSystemMetrics"),
+        ("user32.dll", "SwapMouseButton"),
+    ]);
     assert!(matches!(
         fixture.dispatch("user32.dll", "GetSystemMetrics", &[0]),
         DispatchOutcome::Fault(_)
     ));
     display(&mut fixture);
+    assert!(matches!(
+        fixture.dispatch("user32.dll", "GetSystemMetrics", &[23]),
+        DispatchOutcome::Fault(_)
+    ));
+    fixture
+        .runtime
+        .configure_input_profile(RuntimeInputProfile {
+            initial_mouse_buttons_swapped: false,
+            initial_keyboard_source_focused: None,
+            cursor_position: None,
+        })
+        .unwrap();
     for (index, expected) in [
         (0, 1920),
         (1, 1080),
         (4, 23),
         (7, 3),
         (8, 3),
+        (23, 0),
         (49, 16),
         (50, 16),
     ] {
         assert_eq!(
             fixture.call("user32.dll", "GetSystemMetrics", &[index]).eax,
             Some(expected)
+        );
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), LAST_ERROR);
+    }
+    for swapped in [1, 0, 1] {
+        fixture.call("user32.dll", "SwapMouseButton", &[swapped]);
+        assert_eq!(
+            fixture.call("user32.dll", "GetSystemMetrics", &[23]).eax,
+            Some(swapped)
         );
         assert_eq!(fixture.runtime.current_last_error().unwrap(), LAST_ERROR);
     }
@@ -499,11 +523,11 @@ fn invalid_menu_handles_return_native_errors_while_unsupported_variants_stop() {
         assert_eq!(fixture.runtime.current_last_error().unwrap(), 1401);
     }
     fixture.runtime.set_current_last_error(LAST_ERROR).unwrap();
-    assert!(matches!(
-        fixture.dispatch("user32.dll", "GetSystemMenu", &[0, 1]),
-        DispatchOutcome::Fault(_)
-    ));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), LAST_ERROR);
+    assert_eq!(
+        fixture.call("user32.dll", "GetSystemMenu", &[0, 1]).eax,
+        Some(0)
+    );
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 1400);
 }
 
 #[test]

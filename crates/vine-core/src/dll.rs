@@ -31,9 +31,33 @@ pub(crate) fn bind_guest_module_imports(
     image: &ImageMaterialization,
     runtime_catalog: &RuntimeExportCatalog,
 ) -> Result<RuntimeGuestImportBinding, RuntimeStateError> {
-    validate_requester(&runtime.memory, runtime, requester_handle, loader, image)?;
-    let requester_id = runtime
-        .module_graph()
+    let mut transaction = runtime.memory.begin_transaction();
+    let binding = bind_guest_module_imports_transaction(
+        &mut transaction,
+        &mut runtime.modules,
+        &runtime.address_space_allocator,
+        requester_handle,
+        loader,
+        image,
+        runtime_catalog,
+    )?;
+    transaction.commit_transaction();
+    Ok(binding)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn bind_guest_module_imports_transaction(
+    memory: &mut GuestMemory,
+    modules: &mut crate::runtime::RuntimeModules,
+    address_space: &crate::runtime::ProcessAddressSpaceAllocator,
+    requester_handle: u32,
+    loader: &Pe32LoadPlan,
+    image: &ImageMaterialization,
+    runtime_catalog: &RuntimeExportCatalog,
+) -> Result<RuntimeGuestImportBinding, RuntimeStateError> {
+    validate_requester(memory, modules, requester_handle, loader, image)?;
+    let requester_id = modules
+        .graph()
         .module_by_handle(requester_handle)
         .map_err(runtime_module_graph_error)?
         .id;
@@ -43,8 +67,8 @@ pub(crate) fn bind_guest_module_imports(
     let mut needs_runtime_export_table = false;
 
     for module in &loader.imports {
-        let requested_node = runtime
-            .module_graph()
+        let requested_node = modules
+            .graph()
             .module_by_name(&module.name)
             .map_err(runtime_module_graph_error)?;
         dependency_edges.insert(RuntimeModuleDependencyEdge {
@@ -58,8 +82,7 @@ pub(crate) fn bind_guest_module_imports(
                     "guest import plan contains the same IAT address more than once",
                 ));
             }
-            let current =
-                read_initialization_u32(&runtime.memory, image.layout.owner, iat_address)?;
+            let current = read_initialization_u32(memory, image.layout.owner, iat_address)?;
             if current != symbol.original_iat_value {
                 return Err(RuntimeStateError::new(format!(
                     "IAT address {:#010x} no longer contains its immutable planned value",
@@ -69,15 +92,15 @@ pub(crate) fn bind_guest_module_imports(
             let resolution = if requested_node.class == RuntimeModuleClass::RuntimeSystemModule {
                 needs_runtime_export_table = true;
                 let endpoint = planned_runtime_export_endpoint(
-                    runtime,
+                    modules,
                     runtime_catalog,
                     &module.name,
                     &symbol.target,
                 )?;
                 RuntimeGuestImportResolution::RuntimeExport { endpoint }
             } else {
-                let requested_image = runtime
-                    .module_images()
+                let requested_image = modules
+                    .images()
                     .image_by_name(&module.name)
                     .map_err(runtime_module_image_error)?;
                 if requested_image.module_id != requested_node.id {
@@ -91,8 +114,8 @@ pub(crate) fn bind_guest_module_imports(
                         ordinal: u32::from(*ordinal),
                     },
                 };
-                let export = runtime
-                    .resolve_guest_export(&module.name, lookup)
+                let export = modules
+                    .resolve(&module.name, lookup)
                     .map_err(runtime_module_image_error)?
                     .ok_or_else(|| {
                         RuntimeStateError::new(format!(
@@ -125,25 +148,20 @@ pub(crate) fn bind_guest_module_imports(
         image_owner: image.layout.owner,
         imports,
     };
-    let import_address_allocation =
-        if needs_runtime_export_table && runtime.runtime_system_exports().is_none() {
-            Some(
-                runtime
-                    .address_space_allocator
-                    .allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)?,
-            )
-        } else {
-            None
-        };
+    let import_address_allocation = if needs_runtime_export_table
+        && modules.runtime_system_exports().is_none()
+    {
+        Some(address_space.allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)?)
+    } else {
+        None
+    };
     let committed_bytes = if let Some(allocation) = import_address_allocation {
         validate_runtime_export_mapping_allocation(allocation)?;
         let bytes = runtime_export_committed_bytes(runtime_catalog)?;
-        runtime
-            .memory
+        memory
             .preflight_growth(1, 1, bytes / GUEST_PAGE_SIZE as usize)
             .map_err(RuntimeStateError::from_memory)?;
-        runtime
-            .memory
+        memory
             .preflight_fixed_reservation(IMPORT_THUNK_ARENA_BASE, IMPORT_THUNK_ARENA_SIZE)
             .map_err(RuntimeStateError::from_memory)?;
         bytes
@@ -151,10 +169,9 @@ pub(crate) fn bind_guest_module_imports(
         0
     };
 
-    let mut transaction = runtime.memory.begin_transaction();
     let runtime_system_exports = if let Some(allocation) = import_address_allocation {
         Some(install_runtime_export_table_in_memory(
-            &mut transaction,
+            memory,
             allocation,
             runtime_catalog,
             committed_bytes,
@@ -163,7 +180,7 @@ pub(crate) fn bind_guest_module_imports(
         None
     };
     for import in &binding.imports {
-        transaction
+        memory
             .write_initialization(
                 image.layout.owner,
                 import.iat_address,
@@ -171,23 +188,21 @@ pub(crate) fn bind_guest_module_imports(
             )
             .map_err(RuntimeStateError::from_memory)?;
     }
-    transaction
+    memory
         .seal_owner(image.layout.owner)
         .map_err(RuntimeStateError::from_memory)?;
-    let binding = runtime
-        .modules
+    let binding = modules
         .register_guest_import_binding(
             binding,
             &dependency_edges.into_iter().collect::<Vec<_>>(),
             runtime_system_exports,
         )?
         .clone();
-    transaction.commit_transaction();
     Ok(binding)
 }
 
 fn planned_runtime_export_endpoint(
-    runtime: &Runtime,
+    modules: &crate::runtime::RuntimeModules,
     catalog: &RuntimeExportCatalog,
     module: &str,
     target: &ImportTarget,
@@ -198,7 +213,7 @@ fn planned_runtime_export_endpoint(
         ))
     })?;
     let endpoint = runtime_export_endpoint(index, export.clone())?;
-    if let Some(table) = runtime.runtime_system_exports() {
+    if let Some(table) = modules.runtime_system_exports() {
         validate_runtime_export_table_catalog(table, catalog)?;
         let installed = table.endpoints.get(index).ok_or_else(|| {
             RuntimeStateError::new("installed runtime export table is missing a catalog endpoint")
@@ -231,7 +246,7 @@ fn validate_runtime_export_table_catalog(
     Ok(())
 }
 
-fn runtime_export_endpoint(
+pub(crate) fn runtime_export_endpoint(
     index: usize,
     export: crate::imports::RuntimeExport,
 ) -> Result<RuntimeSystemExportEndpoint, RuntimeStateError> {
@@ -351,18 +366,7 @@ fn runtime_export_committed_bytes(
             "runtime export catalog exceeds the process import-thunk arena capacity",
         ));
     }
-    let used = catalog
-        .len()
-        .checked_mul(IMPORT_THUNK_SLOT_SIZE as usize)
-        .ok_or_else(|| {
-            RuntimeStateError::new("runtime export table size overflowed host accounting")
-        })?;
-    let page_size = GUEST_PAGE_SIZE as usize;
-    used.checked_add(page_size - 1)
-        .map(|adjusted| adjusted / page_size * page_size)
-        .ok_or_else(|| {
-            RuntimeStateError::new("runtime export table alignment overflowed host accounting")
-        })
+    Ok(IMPORT_THUNK_ARENA_SIZE as usize)
 }
 
 fn fill_runtime_export_table(
@@ -371,10 +375,13 @@ fn fill_runtime_export_table(
     byte_length: usize,
 ) -> Result<(), RuntimeStateError> {
     let chunk_limit = memory.limits().max_access_bytes;
-    let halt_bytes = vec![0xf4; chunk_limit.min(byte_length)];
+    let mut halt_bytes = vec![0xf4; byte_length];
+    for slot in halt_bytes.chunks_exact_mut(IMPORT_THUNK_SLOT_SIZE as usize) {
+        slot[..2].copy_from_slice(&[0x0f, 0x0b]);
+    }
     let mut offset = 0usize;
     while offset < byte_length {
-        let chunk_length = (byte_length - offset).min(halt_bytes.len());
+        let chunk_length = (byte_length - offset).min(chunk_limit);
         let offset_u32 = u32::try_from(offset).map_err(|_| {
             RuntimeStateError::new("runtime export table fill offset does not fit 32 bits")
         })?;
@@ -388,7 +395,7 @@ fn fill_runtime_export_table(
                 )
             })?;
         memory
-            .write_initialization(owner, address, &halt_bytes[..chunk_length])
+            .write_initialization(owner, address, &halt_bytes[offset..offset + chunk_length])
             .map_err(RuntimeStateError::from_memory)?;
         offset = offset.checked_add(chunk_length).ok_or_else(|| {
             RuntimeStateError::new("runtime export table fill offset overflowed host accounting")
@@ -399,14 +406,14 @@ fn fill_runtime_export_table(
 
 fn validate_requester(
     memory: &GuestMemory,
-    runtime: &Runtime,
+    modules: &crate::runtime::RuntimeModules,
     requester_handle: u32,
     loader: &Pe32LoadPlan,
     image: &ImageMaterialization,
 ) -> Result<(), RuntimeStateError> {
-    runtime.module(requester_handle)?;
-    let node = runtime
-        .module_graph()
+    modules.module(requester_handle)?;
+    let node = modules
+        .graph()
         .module_by_handle(requester_handle)
         .map_err(runtime_module_graph_error)?;
     let expected_kind = match node.class {

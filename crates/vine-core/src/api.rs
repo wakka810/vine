@@ -102,6 +102,28 @@ impl ApiEndpointIdentity {
         }
     }
 
+    pub fn from_runtime_system_export(
+        endpoint: &crate::runtime::RuntimeSystemExportEndpoint,
+    ) -> Self {
+        let (module, symbol) = match &endpoint.export {
+            crate::RuntimeExport::Name { module, name } => {
+                (module.clone(), ApiSymbol::Name { name: name.clone() })
+            }
+            crate::RuntimeExport::Ordinal { module, ordinal } => {
+                (module.clone(), ApiSymbol::Ordinal { ordinal: *ordinal })
+            }
+        };
+        Self {
+            id: endpoint.id,
+            address: endpoint.address,
+            module,
+            symbol,
+            iat_address: None,
+            disposition: None,
+            binding: ApiEndpointBinding::DynamicExport,
+        }
+    }
+
     fn registry_key(&self) -> (ApiEndpointBinding, ImportThunkId) {
         (self.binding, self.id)
     }
@@ -247,6 +269,33 @@ pub(crate) enum GuestCallbackArgument {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GuestCallbackCompletionPolicy {
+    MoveWindow {
+        operation: crate::user32::MoveWindowOperation,
+        step: u8,
+    },
+    HideWindow {
+        window_id: RuntimeWindowId,
+        window_handle: u32,
+        geometry: crate::runtime::RuntimeWindowGeometry,
+        step: u8,
+        notifications: u32,
+        last_error: u32,
+    },
+    DestroyWindow {
+        window_id: RuntimeWindowId,
+        window_handle: u32,
+        step: u8,
+        notifications: u32,
+        last_error: u32,
+    },
+    SystemParameterBroadcast {
+        before_window_id: u64,
+    },
+    ExitProcess {
+        exit_code: u32,
+        next_index: u32,
+    },
+    UnhandledExceptionFilter,
     ReturnU32,
     ReturnBool32,
     ReturnBool32WithLastError {
@@ -254,6 +303,15 @@ pub(crate) enum GuestCallbackCompletionPolicy {
     },
     ReturnConstantU32 {
         value: u32,
+    },
+    LoadLibrary {
+        handle: u32,
+    },
+    FreeLibrary {
+        handle: u32,
+    },
+    EnumWindows {
+        before_window_id: u64,
     },
     CreateWindowExA {
         window_id: RuntimeWindowId,
@@ -271,15 +329,24 @@ pub(crate) enum GuestCallbackCompletionPolicy {
     UpdateWindow {
         operation: RuntimeUpdateWindowOperation,
     },
+    DefaultPaint {
+        window_id: RuntimeWindowId,
+        window_handle: u32,
+        device_context: crate::runtime::RuntimeGetDcResult,
+    },
     ExceptionDispatch {
         next_frame: GuestAddress,
         exception_flags: u32,
+    },
+    ExceptionUnwind {
+        state: crate::win32::X86ExceptionUnwind,
     },
 }
 
 impl GuestCallbackCompletionPolicy {
     fn complete_direct(self, result: u32) -> Option<ApiImmediate> {
         let value = match self {
+            Self::UnhandledExceptionFilter => Some(if result == 0 { 1 } else { result }),
             Self::ReturnU32 => Some(result),
             Self::ReturnBool32 => Some(u32::from(result != 0)),
             Self::ReturnBool32WithLastError { last_error } => {
@@ -288,11 +355,21 @@ impl GuestCallbackCompletionPolicy {
                 );
             }
             Self::ReturnConstantU32 { value } => Some(value),
-            Self::CreateWindowExA { .. }
+            Self::MoveWindow { .. }
+            | Self::HideWindow { .. }
+            | Self::DestroyWindow { .. }
+            | Self::SystemParameterBroadcast { .. }
+            | Self::ExitProcess { .. }
+            | Self::LoadLibrary { .. }
+            | Self::FreeLibrary { .. }
+            | Self::CreateWindowExA { .. }
+            | Self::EnumWindows { .. }
             | Self::SetWindowPos { .. }
             | Self::SetWindowPosDefault { .. }
             | Self::UpdateWindow { .. }
-            | Self::ExceptionDispatch { .. } => return None,
+            | Self::DefaultPaint { .. }
+            | Self::ExceptionDispatch { .. }
+            | Self::ExceptionUnwind { .. } => return None,
         };
         Some(ApiImmediate::new(value))
     }
@@ -359,6 +436,26 @@ fn callback_scratch_byte_length(
         .with_endpoint(endpoint));
     }
     Ok(byte_length)
+}
+
+fn callback_uses_stack_scratch(request: &GuestCallbackRequest) -> bool {
+    matches!(
+        request.completion_policy,
+        GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
+            | GuestCallbackCompletionPolicy::ExceptionUnwind { .. }
+    )
+}
+
+fn callback_arena_scratch_byte_length(
+    request: &GuestCallbackRequest,
+    endpoint: &ApiEndpointIdentity,
+) -> Result<u32, ApiFault> {
+    let byte_length = callback_scratch_byte_length(request, endpoint)?;
+    Ok(if callback_uses_stack_scratch(request) {
+        0
+    } else {
+        byte_length
+    })
 }
 
 fn validate_callback_scratch_allocation(
@@ -655,6 +752,9 @@ pub(crate) fn commit_indirect_guest_writes(
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ApiSourceLookup {
+    Library {
+        relative_path_a: Vec<u8>,
+    },
     File {
         object_id: u32,
         relative_path_a: Vec<u8>,
@@ -671,17 +771,31 @@ impl Runtime {
         route: &ApiEndpointIdentity,
         stack: GuestAddress,
     ) -> Result<Option<ApiSourceLookup>, ApiFault> {
-        if !route.module.eq_ignore_ascii_case("kernel32.dll") {
+        if !route.module.eq_ignore_ascii_case("kernel32.dll")
+            && !route.module.eq_ignore_ascii_case("shlwapi.dll")
+            && !route.module.eq_ignore_ascii_case("winmm.dll")
+        {
             return Ok(None);
         }
         let ApiSymbol::Name { name } = &route.symbol else {
             return Ok(None);
         };
-        let source_file = name == "CreateFileA";
-        let module_load = name == "LoadLibraryA";
-        let file_attributes = name == "GetFileAttributesA";
-        let exact_file_search = name == "FindFirstFileA";
-        let directory_create = name == "CreateDirectoryA";
+        let source_file = matches!(name.as_str(), "CreateFileA" | "CreateFileW");
+        let mmio_open = route.module.eq_ignore_ascii_case("winmm.dll") && name == "mmioOpenA";
+        let module_load = matches!(
+            name.as_str(),
+            "LoadLibraryA" | "LoadLibraryW" | "LoadLibraryExA" | "LoadLibraryExW"
+        );
+        let file_attributes = matches!(
+            name.as_str(),
+            "GetFileAttributesA"
+                | "GetFileAttributesW"
+                | "PathFileExistsW"
+                | "PathIsDirectoryW"
+                | "SetCurrentDirectoryA"
+        );
+        let exact_file_search = matches!(name.as_str(), "FindFirstFileA" | "FindFirstFileW");
+        let directory_create = matches!(name.as_str(), "CreateDirectoryA" | "CreateDirectoryW");
         let file_delete = name == "DeleteFileA";
         if !source_file
             && !module_load
@@ -689,6 +803,7 @@ impl Runtime {
             && !exact_file_search
             && !directory_create
             && !file_delete
+            && !mmio_open
         {
             return Ok(None);
         }
@@ -712,26 +827,36 @@ impl Runtime {
         {
             return Ok(None);
         }
-        let path_start = argument(0)?;
-        let mut path = Vec::new();
-        for offset in 0..260_u32 {
-            let address = path_start
-                .checked_add(offset)
-                .ok_or_else(|| ApiFault::new("source path overflowed x86"))?;
-            let byte = self
-                .memory
-                .read(GuestAddress(address), 1)
-                .map_err(|error| ApiFault::from_memory(error, route))?[0];
-            path.push(byte);
-            if byte == 0 {
-                break;
+        if module_load {
+            // Nonzero flags are handled by the Windows loader. In particular a
+            // System32 search must never read a selected-directory replacement.
+            if name.starts_with("LoadLibraryEx") && (argument(1)? != 0 || argument(2)? != 0) {
+                return Ok(None);
             }
+            let (name, path) =
+                crate::win32::read_library_name(route, &self.memory, GuestAddress(argument(0)?))?;
+            let base = name.rsplit(['\\', '/']).next().unwrap_or(&name);
+            if name.is_empty()
+                || crate::runtime::api_set_host(&name).is_some()
+                || self.has_runtime_system_exports_for_module(base)
+                || self
+                    .module_by_name(base)
+                    .map_err(|error| ApiFault::from_runtime(error, route))?
+                    .is_some()
+            {
+                return Ok(None);
+            }
+            return Ok(self
+                .source_library_relative_path(&path)
+                .ok()
+                .map(|relative_path_a| ApiSourceLookup::Library { relative_path_a }));
         }
-        if path.last() != Some(&0) {
-            return Err(ApiFault::new(
-                "source path is not NUL-terminated within the DOS path limit",
-            ));
-        }
+        let path = crate::win32::read_nul_terminated_source_path(
+            route,
+            &self.memory,
+            GuestAddress(argument(0)?),
+            260,
+        )?;
         if exact_file_search
             && path[..path.len() - 1]
                 .iter()
@@ -744,19 +869,6 @@ impl Runtime {
                     parent: directory,
                 }));
             }
-            return Ok(None);
-        }
-        // Leave unsupported module search/encoding variants to the Windows handler.
-        // Only a DLL basename can safely be preflighted against this selected directory.
-        if module_load
-            && (!path[..path.len() - 1].is_ascii()
-                || !path[..path.len() - 1]
-                    .iter()
-                    .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'/' | b'\\' | b':'))
-                || !path[..path.len() - 1]
-                    .to_ascii_lowercase()
-                    .ends_with(b".dll"))
-        {
             return Ok(None);
         }
         // The browser probes only paths under the selected mount. Invalid or
@@ -861,7 +973,7 @@ impl Runtime {
             .last()
             .map(|frame| frame.id)
             .ok_or_else(|| ApiFault::new("callback return has no active Rust frame"))?;
-        let call = self
+        let mut call = self
             .pending_api_callbacks
             .get(&expected)
             .cloned()
@@ -879,14 +991,44 @@ impl Runtime {
             || active.return_sentinel != returned_sentinel
             || active.return_sentinel != call.request.return_sentinel
             || active.scratch.map_or(0, |scratch| scratch.byte_length)
-                != callback_scratch_byte_length(&call.request, &call.frame.endpoint)?
+                != callback_arena_scratch_byte_length(&call.request, &call.frame.endpoint)?
         {
             return Err(ApiFault::new(
                 "callback return does not identify the active target, sentinel, and scratch",
             )
             .with_endpoint(&endpoint));
         }
+        if callback_uses_stack_scratch(&call.request) {
+            let (start, scratch, _, length) =
+                callback_frame_addresses(&self.memory, &call.frame, &call.request, None)?;
+            self.validate_callback_stack_scratch(&call.frame, &call.request, start)?;
+            call.request.scratch = self
+                .memory
+                .read(scratch, length as usize)
+                .map_err(|error| ApiFault::from_memory(error, &endpoint))?;
+        }
+        if matches!(
+            call.request.completion_policy,
+            GuestCallbackCompletionPolicy::MoveWindow { .. }
+        ) {
+            let address = active.scratch.map(|scratch| scratch.address);
+            crate::user32::capture_move_window_return(&mut call, address, result, self)?;
+        }
         let policy = call.request.completion_policy;
+        if let GuestCallbackCompletionPolicy::ExceptionUnwind { state } = policy
+            && let Some(parent) = state.dispatch_frame
+        {
+            let frames = &self
+                .current_thread_state()
+                .map_err(|error| ApiFault::from_runtime(error, &endpoint))?
+                .callback_frames;
+            if frames.len() < 2 || frames[frames.len() - 2].id != parent {
+                return Err(ApiFault::new(
+                    "SEH unwind no longer owns its exception dispatch callback",
+                )
+                .with_endpoint(&endpoint));
+            }
+        }
         match dispatcher.complete_guest_callback_result(call, result, self) {
             DispatchOutcome::Immediate(completion) => {
                 self.pop_callback_frame(expected)
@@ -932,7 +1074,8 @@ impl Runtime {
         expected: Option<RuntimeCallbackFrameId>,
     ) -> Result<PreparedGuestCallback, ApiFault> {
         let endpoint = &call.frame.endpoint;
-        let scratch_bytes = callback_scratch_byte_length(&call.request, &call.frame.endpoint)?;
+        let scratch_bytes =
+            callback_arena_scratch_byte_length(&call.request, &call.frame.endpoint)?;
         let runtime_frame = self
             .prepare_callback_frame(
                 expected,
@@ -953,6 +1096,7 @@ impl Runtime {
             &call.request,
             runtime_frame.scratch,
         )?;
+        self.validate_callback_stack_scratch(&call.frame, &call.request, image.allocation_start)?;
         let scratch_allocation = self
             .address_space_allocator
             .allocation_for_purpose(
@@ -965,6 +1109,7 @@ impl Runtime {
             runtime_frame.scratch,
             endpoint,
         )?;
+        let unwind_writes = crate::win32::exception_unwind_entry_writes(call, self)?;
         let mut transaction = self.memory.begin_transaction();
         materialize_callback_scratch_mapping(
             &mut transaction,
@@ -980,6 +1125,11 @@ impl Runtime {
         transaction
             .write(image.allocation_start, &image.stack)
             .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        for write in unwind_writes {
+            transaction
+                .write(write.address, &write.bytes)
+                .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        }
         transaction.commit_transaction();
         self.publish_callback_frame(runtime_frame, expected.is_some());
         Ok(image.prepared(runtime_frame))
@@ -991,12 +1141,13 @@ impl Runtime {
         request: &GuestCallbackRequest,
     ) -> Result<(), ApiFault> {
         let endpoint = &frame.endpoint;
-        let scratch_bytes = callback_scratch_byte_length(request, &frame.endpoint)?;
+        let scratch_bytes = callback_arena_scratch_byte_length(request, &frame.endpoint)?;
         let runtime_frame = self
             .prepare_callback_frame(None, request.target, request.return_sentinel, scratch_bytes)
             .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
-        let (_, scratch_address, _, _) =
+        let (stack_start, scratch_address, _, _) =
             callback_frame_addresses(&self.memory, frame, request, runtime_frame.scratch)?;
+        self.validate_callback_stack_scratch(frame, request, stack_start)?;
         for argument in &request.arguments {
             callback_argument_value(argument, request, scratch_address, endpoint)?;
         }
@@ -1014,6 +1165,37 @@ impl Runtime {
         )
     }
 
+    fn validate_callback_stack_scratch(
+        &self,
+        frame: &ApiCallFrame,
+        request: &GuestCallbackRequest,
+        start: GuestAddress,
+    ) -> Result<(), ApiFault> {
+        if !callback_uses_stack_scratch(request) {
+            return Ok(());
+        }
+        let stack = self
+            .current_thread_state()
+            .map_err(|error| ApiFault::from_runtime(error, &frame.endpoint))?
+            .stack
+            .as_ref()
+            .ok_or_else(|| ApiFault::new("SEH callback requires an owned thread stack"))?;
+        if start.0 < stack.committed_range.start().0
+            || u64::from(frame.stack_pointer.0) > stack.committed_range.end()
+            || !self.memory.regions().any(|region| {
+                region.owner == stack.memory_owner
+                    && region.range.start().0 <= start.0
+                    && region.range.end() >= u64::from(frame.stack_pointer.0)
+            })
+        {
+            return Err(
+                ApiFault::new("SEH callback record is outside the owned committed stack")
+                    .with_endpoint(&frame.endpoint),
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn commit_guest_callback_semantics(
         &mut self,
         completion_policy: GuestCallbackCompletionPolicy,
@@ -1021,11 +1203,55 @@ impl Runtime {
         endpoint: &ApiEndpointIdentity,
     ) -> Result<Option<RuntimeGuestCallbackSemanticAction>, ApiFault> {
         match completion_policy {
-            GuestCallbackCompletionPolicy::ReturnU32
+            GuestCallbackCompletionPolicy::MoveWindow { operation, step } => {
+                if step == 1 {
+                    self.publish_move_window(
+                        operation.window_id,
+                        operation.previous,
+                        operation.next,
+                        operation.repaint,
+                    )
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                }
+                Ok(None)
+            }
+            GuestCallbackCompletionPolicy::HideWindow {
+                window_id,
+                geometry,
+                step,
+                notifications,
+                ..
+            } => {
+                if step == 1 {
+                    self.publish_hide_window(window_id, geometry, false)
+                        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                } else if step == 2 && notifications & 6 != 0 {
+                    self.publish_hide_window(window_id, geometry, true)
+                        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                }
+                Ok(None)
+            }
+            GuestCallbackCompletionPolicy::DestroyWindow {
+                window_id, step, ..
+            } => {
+                if step == 6 {
+                    self.finish_window_destruction(window_id)
+                        .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                }
+                Ok(None)
+            }
+            GuestCallbackCompletionPolicy::SystemParameterBroadcast { .. }
+            | GuestCallbackCompletionPolicy::ExitProcess { .. }
+            | GuestCallbackCompletionPolicy::UnhandledExceptionFilter
+            | GuestCallbackCompletionPolicy::LoadLibrary { .. }
+            | GuestCallbackCompletionPolicy::FreeLibrary { .. }
+            | GuestCallbackCompletionPolicy::ReturnU32
+            | GuestCallbackCompletionPolicy::EnumWindows { .. }
             | GuestCallbackCompletionPolicy::ReturnBool32
             | GuestCallbackCompletionPolicy::ReturnBool32WithLastError { .. }
             | GuestCallbackCompletionPolicy::ReturnConstantU32 { .. }
-            | GuestCallbackCompletionPolicy::ExceptionDispatch { .. } => Ok(None),
+            | GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
+            | GuestCallbackCompletionPolicy::ExceptionUnwind { .. } => Ok(None),
             GuestCallbackCompletionPolicy::CreateWindowExA {
                 window_id,
                 window_handle,
@@ -1074,6 +1300,15 @@ impl Runtime {
                     .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
                 Ok(None)
             }
+            GuestCallbackCompletionPolicy::DefaultPaint {
+                window_id,
+                window_handle,
+                device_context,
+            } => {
+                self.finish_default_window_paint(window_id, window_handle, device_context)
+                    .map_err(|error| ApiFault::from_runtime(error, endpoint))?;
+                Ok(None)
+            }
         }
     }
 }
@@ -1097,6 +1332,7 @@ fn callback_frame_addresses(
             .with_endpoint(endpoint));
     }
     let scratch_bytes_u32 = callback_scratch_byte_length(request, &frame.endpoint)?;
+    let stack_scratch = callback_uses_stack_scratch(request);
     let scratch_address = match (scratch_bytes_u32, runtime_scratch) {
         (0, None) => GuestAddress(0),
         (0, Some(_)) => {
@@ -1116,6 +1352,12 @@ fn callback_frame_addresses(
                 "runtime callback scratch slot does not match the requested byte length",
             )
             .with_endpoint(endpoint));
+        }
+        (byte_length, None) if stack_scratch => {
+            // C++ catch/rethrow retains EXCEPTION_RECORD and CONTEXT pointers
+            // after RtlUnwind abandons the dispatch callback. Their lifetime is
+            // the guest call stack, not the reusable callback arena slot.
+            callback_stack_scratch_address(frame.stack_pointer, byte_length)?
         }
         (_, None) => {
             return Err(
@@ -1138,14 +1380,17 @@ fn callback_frame_addresses(
             .with_endpoint(endpoint)
     })?;
     let allocation_start = GuestAddress(
-        frame
-            .stack_pointer
-            .0
-            .checked_sub(argument_frame_bytes_u32)
-            .ok_or_else(|| {
-                ApiFault::new("guest callback frame crosses the start of the x86 address space")
-                    .with_endpoint(endpoint)
-            })?,
+        (if stack_scratch {
+            scratch_address
+        } else {
+            frame.stack_pointer
+        })
+        .0
+        .checked_sub(argument_frame_bytes_u32)
+        .ok_or_else(|| {
+            ApiFault::new("guest callback frame crosses the start of the x86 address space")
+                .with_endpoint(endpoint)
+        })?,
     );
 
     memory
@@ -1157,12 +1402,34 @@ fn callback_frame_addresses(
     memory
         .validate_access(allocation_start, argument_frame_bytes, MemoryAccess::Write)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    if stack_scratch {
+        memory
+            .validate_access(
+                scratch_address,
+                scratch_bytes_u32 as usize,
+                MemoryAccess::Write,
+            )
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    }
 
     Ok((
         allocation_start,
         scratch_address,
         argument_frame_bytes_u32,
         scratch_bytes_u32,
+    ))
+}
+
+pub(crate) fn callback_stack_scratch_address(
+    stack_pointer: GuestAddress,
+    byte_length: u32,
+) -> Result<GuestAddress, ApiFault> {
+    Ok(GuestAddress(
+        stack_pointer
+            .0
+            .checked_sub(byte_length)
+            .ok_or_else(|| ApiFault::new("SEH record crosses the start of the x86 stack"))?
+            & !3,
     ))
 }
 
@@ -1260,6 +1527,56 @@ fn prepare_guest_callback_frame(
 }
 
 impl Runtime {
+    /// A handler may either return to exception dispatch after a rethrow, or
+    /// transfer control out of that dispatch. RtlUnwind alone cannot distinguish
+    /// them. Retire only frames the observed CPU stack has actually passed.
+    pub fn synchronize_exception_callback_stack(
+        &mut self,
+        stack_pointer: GuestAddress,
+    ) -> Result<(), ApiFault> {
+        let thread = self
+            .current_thread_state()
+            .map_err(|error| ApiFault::new(error.message))?;
+        let abandoned = thread
+            .callback_frames
+            .iter()
+            .rev()
+            .take_while(|frame| {
+                self.pending_api_callbacks
+                    .get(&frame.id)
+                    .is_some_and(|call| {
+                        matches!(
+                            call.request.completion_policy,
+                            GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
+                        ) && stack_pointer.0 >= call.frame.stack_pointer.0
+                    })
+            })
+            .map(|frame| frame.id)
+            .collect::<Vec<_>>();
+        if abandoned.is_empty() {
+            return Ok(());
+        }
+        let stack = thread
+            .stack
+            .as_ref()
+            .ok_or_else(|| ApiFault::new("SEH continuation has no owned thread stack"))?;
+        if stack_pointer.0 < stack.committed_range.start().0
+            || u64::from(stack_pointer.0) >= stack.committed_range.end()
+        {
+            return Err(ApiFault::new(
+                "SEH continuation stack is outside the committed thread stack",
+            ));
+        }
+        self.memory
+            .validate_access(stack_pointer, 1, MemoryAccess::Read)
+            .map_err(|error| ApiFault::new(error.message))?;
+        for frame in abandoned {
+            self.pop_callback_frame(frame)
+                .map_err(|error| ApiFault::new(error.message))?;
+        }
+        Ok(())
+    }
+
     pub fn dispatch_api_call(
         &mut self,
         dispatcher: &ApiDispatcher,
@@ -1267,6 +1584,9 @@ impl Runtime {
         callback_sentinel: GuestAddress,
         cpu: Option<X86CpuContext>,
     ) -> DispatchOutcome {
+        if let Err(fault) = self.synchronize_exception_callback_stack(trap.stack_pointer) {
+            return DispatchOutcome::Fault(fault);
+        }
         let exception_unwind_frame = if let Some(endpoint) = dispatcher
             .endpoint(trap.endpoint_address)
             .filter(|endpoint| {
@@ -1302,12 +1622,23 @@ impl Runtime {
         } else {
             None
         };
-        let outcome = dispatcher.dispatch_owned(
+        let mut outcome = dispatcher.dispatch_owned(
             trap,
             self,
             cpu.map(|context| (context, callback_sentinel)),
             |frame, runtime, cpu| match frame.endpoint.module.to_ascii_lowercase().as_str() {
-                "kernel32.dll" => crate::win32::dispatch_kernel32_api(frame, runtime, cpu),
+                "kernel32.dll" => {
+                    if runtime.process_exit_in_progress() && matches!(&frame.endpoint.symbol, ApiSymbol::Name { name } if matches!(name.as_str(),"LoadLibraryA"|"LoadLibraryW"|"LoadLibraryExA"|"LoadLibraryExW"|"FreeLibrary")) {
+                        ApiHandlerResult::Immediate(ApiImmediate::new(Some(0)).with_last_error(5))
+                    } else if matches!(&frame.endpoint.symbol, ApiSymbol::Name { name } if name == "ExitProcess") {
+                        crate::process_exit::exit_process(frame, runtime, callback_sentinel)
+                    } else if matches!(&frame.endpoint.symbol, ApiSymbol::Name { name } if name == "UnhandledExceptionFilter") {
+                        crate::process_exit::unhandled_exception(frame, runtime, callback_sentinel)
+                    } else if matches!(&frame.endpoint.symbol, ApiSymbol::Name { name } if matches!(name.as_str(), "LoadLibraryA" | "LoadLibraryW" | "LoadLibraryExA" | "LoadLibraryExW")) {
+                        crate::win32::dispatch_load_library(callback_sentinel, frame, runtime)
+                    } else { crate::win32::dispatch_kernel32_api(frame, runtime, cpu) }
+                },
+                "mscoree.dll" => crate::process_exit::exit_process(frame, runtime, callback_sentinel),
                 "user32.dll" => {
                     crate::user32::dispatch_user32_api(callback_sentinel, frame, runtime)
                 }
@@ -1316,18 +1647,23 @@ impl Runtime {
                 "imm32.dll" => crate::imm32::dispatch_imm32_api(frame, runtime),
                 "ole32.dll" => crate::ole32::dispatch_ole32_api(frame, runtime),
                 "shell32.dll" => crate::shell32::dispatch_shell32_api(frame, runtime),
+                "shlwapi.dll" => crate::shlwapi::dispatch_shlwapi_api(frame, runtime),
+                "mpr.dll" => crate::mpr::dispatch_mpr_api(frame, runtime),
+                "advapi32.dll" => crate::advapi32::dispatch_advapi32_api(frame, runtime),
+                "version.dll" => crate::version::dispatch_version_api(frame, runtime),
                 "winmm.dll" => crate::winmm::dispatch_winmm_api(frame, runtime),
                 "d3d9.dll" => crate::d3d9::dispatch_d3d9_api(frame, runtime),
-                "dinput8.dll" => crate::dinput8::dispatch_dinput8_api(frame, runtime),
-                "dsound.dll" => crate::dsound::dispatch_dsound_api(frame, runtime),
+                "d3d8.dll" => crate::d3d8::dispatch_d3d8_api(frame, runtime),
+                "dinput8.dll" | "dinput.dll" => crate::dinput8::dispatch_dinput8_api(frame, runtime),
+                "dsound.dll" => crate::dsound::dispatch_dsound_api(callback_sentinel, frame, runtime),
                 _ => ApiHandlerResult::Fault(ApiFault::new("Windows module is not implemented")),
             },
         );
-        if matches!(outcome, DispatchOutcome::Immediate(_))
-            && let Some(frame_id) = exception_unwind_frame
-            && let Err(error) = self.pop_callback_frame(frame_id)
+        if let DispatchOutcome::GuestCallback(call) = &mut outcome
+            && let GuestCallbackCompletionPolicy::ExceptionUnwind { state } =
+                &mut call.request.completion_policy
         {
-            return DispatchOutcome::Fault(ApiFault::new(error.message));
+            state.dispatch_frame = exception_unwind_frame;
         }
         outcome
     }
@@ -1354,15 +1690,23 @@ impl ApiDispatcher {
             }
             let argument_words = match endpoint.module.to_ascii_lowercase().as_str() {
                 "kernel32.dll" => crate::win32::kernel32_argument_words(&endpoint),
+                "mscoree.dll" if matches!(&endpoint.symbol, ApiSymbol::Name { name } if name == "CorExitProcess") => {
+                    Some(1)
+                }
                 "user32.dll" => crate::user32::user32_argument_words(&endpoint),
                 "gdi32.dll" => crate::gdi32::gdi32_argument_words(&endpoint),
                 "gdiplus.dll" => crate::gdiplus::gdiplus_argument_words(&endpoint),
                 "imm32.dll" => crate::imm32::imm32_argument_words(&endpoint),
                 "ole32.dll" => crate::ole32::ole32_argument_words(&endpoint),
                 "shell32.dll" => crate::shell32::shell32_argument_words(&endpoint),
+                "shlwapi.dll" => crate::shlwapi::shlwapi_argument_words(&endpoint),
+                "mpr.dll" => crate::mpr::mpr_argument_words(&endpoint),
+                "advapi32.dll" => crate::advapi32::advapi32_argument_words(&endpoint),
+                "version.dll" => crate::version::version_argument_words(&endpoint),
                 "winmm.dll" => crate::winmm::winmm_argument_words(&endpoint),
                 "d3d9.dll" => crate::d3d9::d3d9_argument_words(&endpoint),
-                "dinput8.dll" => crate::dinput8::dinput8_argument_words(&endpoint),
+                "d3d8.dll" => crate::d3d8::d3d8_argument_words(&endpoint),
+                "dinput8.dll" | "dinput.dll" => crate::dinput8::dinput8_argument_words(&endpoint),
                 "dsound.dll" => crate::dsound::dsound_argument_words(&endpoint),
                 _ => None,
             };
@@ -1392,6 +1736,50 @@ impl ApiDispatcher {
                 .1 = Some(argument_words);
         }
         Ok(dispatcher)
+    }
+
+    pub fn with_runtime_catalog(
+        &self,
+        catalog: &crate::imports::RuntimeExportCatalog,
+    ) -> Result<Self, ApiFault> {
+        let endpoints = catalog
+            .exports()
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, export)| {
+                crate::dll::runtime_export_endpoint(index, export)
+                    .map(|endpoint| ApiEndpointIdentity::from_runtime_system_export(&endpoint))
+                    .map_err(|error| ApiFault::new(error.message))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.with_additional_endpoints(endpoints)
+    }
+
+    pub fn with_additional_endpoints(
+        &self,
+        endpoints: impl IntoIterator<Item = ApiEndpointIdentity>,
+    ) -> Result<Self, ApiFault> {
+        let mut all: BTreeMap<_, _> = self
+            .endpoints_by_address
+            .iter()
+            .map(|(address, (endpoint, _))| (*address, endpoint.clone()))
+            .collect();
+        for endpoint in endpoints {
+            if let Some(existing) = all.get(&endpoint.address) {
+                if existing.id != endpoint.id
+                    || existing.module != endpoint.module
+                    || existing.symbol != endpoint.symbol
+                {
+                    return Err(ApiFault::new(
+                        "dynamic export conflicts with an existing dispatcher endpoint",
+                    ));
+                }
+            } else {
+                all.insert(endpoint.address, endpoint);
+            }
+        }
+        Self::from_endpoints(all.into_values())
     }
 
     pub fn endpoint(&self, address: GuestAddress) -> Option<&ApiEndpointIdentity> {
@@ -1518,6 +1906,66 @@ impl ApiDispatcher {
             ApiHandlerResult::Immediate(completion)
         } else {
             match call.request.completion_policy {
+                GuestCallbackCompletionPolicy::MoveWindow { .. } => {
+                    crate::user32::resolve_move_window_callback(&call, runtime)
+                        .unwrap_or_else(ApiHandlerResult::Fault)
+                }
+                GuestCallbackCompletionPolicy::HideWindow { .. } => {
+                    crate::user32::resolve_hide_window_callback(&call, runtime)
+                        .unwrap_or_else(ApiHandlerResult::Fault)
+                }
+                GuestCallbackCompletionPolicy::DestroyWindow { .. } => {
+                    crate::user32::resolve_destroy_window_callback(&call, runtime)
+                        .unwrap_or_else(ApiHandlerResult::Fault)
+                }
+                GuestCallbackCompletionPolicy::SystemParameterBroadcast { before_window_id } => {
+                    crate::user32::system_parameter_broadcast_next(
+                        &call.frame,
+                        call.request.return_sentinel,
+                        before_window_id,
+                        runtime,
+                    )
+                    .unwrap_or_else(ApiHandlerResult::Fault)
+                }
+                GuestCallbackCompletionPolicy::ExitProcess {
+                    exit_code,
+                    next_index,
+                } => crate::process_exit::detach_next(
+                    &call.frame,
+                    runtime,
+                    call.request.return_sentinel,
+                    exit_code,
+                    next_index,
+                )
+                .unwrap_or_else(ApiHandlerResult::Fault),
+                GuestCallbackCompletionPolicy::UnhandledExceptionFilter => {
+                    unreachable!("direct exception filter completion")
+                }
+                GuestCallbackCompletionPolicy::FreeLibrary { handle } => {
+                    match runtime.finish_library_release(handle) {
+                        Ok(()) => ApiHandlerResult::Immediate(ApiImmediate::new(Some(1))),
+                        Err(error) => ApiHandlerResult::Fault(ApiFault::from_runtime(
+                            error,
+                            &call.frame.endpoint,
+                        )),
+                    }
+                }
+                GuestCallbackCompletionPolicy::LoadLibrary { handle } => {
+                    match runtime.finish_dynamic_library(handle, result != 0) {
+                        Ok(value) => ApiHandlerResult::Immediate(if result == 0 {
+                            ApiImmediate::new(Some(0)).with_last_error(1114)
+                        } else {
+                            ApiImmediate::new(Some(value))
+                        }),
+                        Err(error) => ApiHandlerResult::Fault(ApiFault::from_runtime(
+                            error,
+                            &call.frame.endpoint,
+                        )),
+                    }
+                }
+                GuestCallbackCompletionPolicy::EnumWindows { .. } => {
+                    crate::user32::resolve_enum_windows_callback(&call, result, runtime)
+                }
                 GuestCallbackCompletionPolicy::CreateWindowExA { .. } => {
                     crate::user32::resolve_create_window_ex_a_callback(
                         &call.frame.endpoint,
@@ -1535,8 +1983,14 @@ impl ApiDispatcher {
                 GuestCallbackCompletionPolicy::UpdateWindow { .. } => {
                     crate::user32::resolve_update_window_callback(&call, runtime)
                 }
+                GuestCallbackCompletionPolicy::DefaultPaint { .. } => {
+                    ApiHandlerResult::Immediate(ApiImmediate::new(Some(0)))
+                }
                 GuestCallbackCompletionPolicy::ExceptionDispatch { .. } => {
                     crate::win32::resolve_exception_dispatch_callback(&call, result, runtime)
+                }
+                GuestCallbackCompletionPolicy::ExceptionUnwind { .. } => {
+                    crate::win32::resolve_exception_unwind_callback(&call, result, runtime)
                 }
                 GuestCallbackCompletionPolicy::ReturnU32
                 | GuestCallbackCompletionPolicy::ReturnBool32

@@ -21,7 +21,6 @@ pub const RUNTIME_ICON_HANDLE_BASE: u32 = 0x4901_0001;
 pub const RUNTIME_CURSOR_HANDLE_BASE: u32 = 0x4301_0001;
 pub const RUNTIME_MENU_HANDLE_BASE: u32 = 0x4e01_0001;
 pub const RUNTIME_WINDOW_HANDLE_BASE: u32 = 0x4801_0001;
-pub const RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID: u32 = 0x7f00;
 pub const RUNTIME_WINDOW_CLASS_ATOM_BASE: u16 = 0xc000;
 pub const RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH: usize = 64;
 pub const RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES: u32 = 0x0000_0010;
@@ -61,8 +60,44 @@ pub struct RuntimeIcon {
 pub struct RuntimeCursorId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u32)]
 pub enum RuntimeSystemCursorKind {
-    Arrow,
+    Arrow = 32512,
+    IBeam = 32513,
+    Wait = 32514,
+    Cross = 32515,
+    UpArrow = 32516,
+    SizeNorthwestSoutheast = 32642,
+    SizeNortheastSouthwest = 32643,
+    SizeWestEast = 32644,
+    SizeNorthSouth = 32645,
+    SizeAll = 32646,
+    No = 32648,
+    Hand = 32649,
+    AppStarting = 32650,
+    Help = 32651,
+}
+
+impl RuntimeSystemCursorKind {
+    pub(crate) fn from_resource_id(id: u32) -> Option<Self> {
+        Some(match id {
+            32512 => Self::Arrow,
+            32513 => Self::IBeam,
+            32514 => Self::Wait,
+            32515 => Self::Cross,
+            32516 => Self::UpArrow,
+            32642 => Self::SizeNorthwestSoutheast,
+            32643 => Self::SizeNortheastSouthwest,
+            32644 => Self::SizeWestEast,
+            32645 => Self::SizeNorthSouth,
+            32646 => Self::SizeAll,
+            32648 => Self::No,
+            32649 => Self::Hand,
+            32650 => Self::AppStarting,
+            32651 => Self::Help,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -117,6 +152,7 @@ pub struct RuntimeWindowProcedure {
     pub module_id: RuntimeModuleId,
     pub address: GuestAddress,
     pub rva: Rva,
+    pub runtime_default: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -133,6 +169,7 @@ pub struct RuntimeWindowClassCursorReference {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeWindowClassRegistration {
+    pub unicode: bool,
     pub module: RuntimeWindowClassModule,
     pub style: u32,
     pub window_procedure: RuntimeWindowProcedure,
@@ -172,6 +209,7 @@ pub enum RuntimeWindowLifecycle {
         message: RuntimeWindowCreationMessage,
     },
     Created,
+    Destroying,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,15 +262,18 @@ pub struct RuntimeWindowIconReference {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeSetWindowPosVariant {
     InitialShow,
+    ShowActivate,
     InitialHide,
     ActivateSameGeometry,
     RepeatActivation,
     Resize,
-    FrameChangeMove,
+    Reposition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeSetWindowPosCallbackMessage {
+    Show,
+    Move,
     WindowPositionChanged,
     GetSmallIcon,
     WindowPositionChanging,
@@ -353,8 +394,17 @@ pub struct RuntimeWindow {
     pub visible: bool,
     pub topmost: bool,
     pub pending_update_rect: Option<RuntimeRect>,
+    pub pending_background_erase: bool,
+    pub(crate) pending_paint_unobserved: bool,
+    pub(crate) mouse_leave_tracking: bool,
+    pub menu_handle: u32,
     pub paint_generation: u64,
     pub small_icon: Option<RuntimeWindowIconReference>,
+    pub window_procedure: RuntimeWindowProcedure,
+    pub user_data: u32,
+    // The bool retains whether the initial property came from a string. A
+    // string-based SetProp acquires an atom reference even when replacing data.
+    pub(crate) properties: BTreeMap<u16, (u32, bool)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -567,9 +617,20 @@ pub(super) struct RuntimeImeAppWindowTarget {
     pub owner_thread_id: RuntimeThreadId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeAccelerator {
+    pub flags: u8,
+    pub key: u16,
+    pub command: u16,
+}
+
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone, PartialEq, Eq))]
 pub(super) struct RuntimeUser32 {
+    pub(super) power_settings: [bool; 3],
+    pub(super) menus: super::menus::RuntimeMenus,
+    accelerators: BTreeMap<u32, Vec<RuntimeAccelerator>>,
+    next_accelerator_handle: u32,
     icons: BTreeMap<RuntimeIconId, RuntimeIcon>,
     resource_index: BTreeMap<RuntimeIconResource, RuntimeIconId>,
     handle_index: BTreeMap<u32, RuntimeIconId>,
@@ -592,6 +653,10 @@ pub(super) struct RuntimeUser32 {
     active_windows: BTreeMap<RuntimeThreadId, RuntimeWindowId>,
     focused_windows: BTreeMap<RuntimeThreadId, RuntimeWindowId>,
     foreground_window: Option<RuntimeWindowId>,
+    capture_window: Option<RuntimeWindowId>,
+    // One initially hidden solid/gray caret per input queue. Visibility and
+    // bitmap caret rendering are separate, currently unsupported operations.
+    carets: BTreeMap<RuntimeThreadId, (RuntimeWindowId, u32, u32, bool)>,
     next_icon_id: u64,
     next_icon_handle: u32,
     next_cursor_id: u64,
@@ -609,6 +674,10 @@ pub(super) struct RuntimeUser32 {
 impl Default for RuntimeUser32 {
     fn default() -> Self {
         Self {
+            power_settings: [false; 3],
+            menus: super::menus::RuntimeMenus::default(),
+            accelerators: BTreeMap::new(),
+            next_accelerator_handle: 0x4101_0001,
             icons: BTreeMap::new(),
             resource_index: BTreeMap::new(),
             handle_index: BTreeMap::new(),
@@ -631,6 +700,8 @@ impl Default for RuntimeUser32 {
             active_windows: BTreeMap::new(),
             focused_windows: BTreeMap::new(),
             foreground_window: None,
+            capture_window: None,
+            carets: BTreeMap::new(),
             next_icon_id: 1,
             next_icon_handle: RUNTIME_ICON_HANDLE_BASE,
             next_cursor_id: 1,
@@ -648,6 +719,291 @@ impl Default for RuntimeUser32 {
 }
 
 impl RuntimeUser32 {
+    pub(super) fn validate_move_window_publication(
+        &self,
+        id: RuntimeWindowId,
+        previous: RuntimeWindowGeometry,
+    ) -> Result<(), RuntimeStateError> {
+        let window = self.window_by_id(id)?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created
+            || window.creation.geometry != previous
+        {
+            return Err(RuntimeStateError::new(
+                "window changed during MoveWindow callback",
+            ));
+        }
+        self.generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("window generation exhausted"))?;
+        window
+            .paint_generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("paint generation exhausted"))?;
+        Ok(())
+    }
+
+    pub(super) fn publish_move_window(
+        &mut self,
+        id: RuntimeWindowId,
+        previous: RuntimeWindowGeometry,
+        next: RuntimeWindowGeometry,
+        repaint: bool,
+    ) -> Result<(), RuntimeStateError> {
+        let window = self
+            .windows
+            .get_mut(&id)
+            .ok_or_else(|| RuntimeStateError::new("moved window is no longer live"))?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created
+            || window.creation.geometry != previous
+        {
+            return Err(RuntimeStateError::new(
+                "window changed during MoveWindow callback",
+            ));
+        }
+        let generation = self
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("window generation exhausted"))?;
+        let paint_generation = window
+            .paint_generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("paint generation exhausted"))?;
+        window.creation.geometry = next;
+        window.paint_generation = paint_generation;
+        window.pending_update_rect = if repaint && next.client_width != 0 && next.client_height != 0
+        {
+            Some(RuntimeRect {
+                left: 0,
+                top: 0,
+                right: next.client_width as i32,
+                bottom: next.client_height as i32,
+            })
+        } else {
+            None
+        };
+        window.pending_background_erase = window.pending_update_rect.is_some();
+        window.pending_paint_unobserved = window.pending_update_rect.is_some();
+        self.generation = generation;
+        Ok(())
+    }
+
+    pub(super) fn publish_hide_window(
+        &mut self,
+        id: RuntimeWindowId,
+        expected: RuntimeWindowGeometry,
+        deactivate: bool,
+    ) -> Result<(), RuntimeStateError> {
+        let window = self
+            .windows
+            .get_mut(&id)
+            .ok_or_else(|| RuntimeStateError::new("hidden window is no longer live"))?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created
+            || window.creation.geometry != expected
+        {
+            return Err(RuntimeStateError::new(
+                "window changed during ShowWindow callback",
+            ));
+        }
+        let generation = self
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("window generation exhausted"))?;
+        if deactivate {
+            if window.visible {
+                return Err(RuntimeStateError::new(
+                    "deactivating hidden window is still visible",
+                ));
+            }
+            self.active_windows.retain(|_, value| *value != id);
+            self.focused_windows.retain(|_, value| *value != id);
+            if self.foreground_window == Some(id) {
+                self.foreground_window = None;
+            }
+        } else {
+            if !window.visible {
+                return Err(RuntimeStateError::new(
+                    "window was already hidden during ShowWindow callback",
+                ));
+            }
+            let paint_generation = window
+                .paint_generation
+                .checked_add(1)
+                .ok_or_else(|| RuntimeStateError::new("paint generation exhausted"))?;
+            window.visible = false;
+            window.creation.effective_style &= !RUNTIME_WINDOW_STYLE_VISIBLE;
+            window.paint_generation = paint_generation;
+            window.pending_update_rect = None;
+            window.pending_background_erase = false;
+            window.pending_paint_unobserved = false;
+            if self.capture_window == Some(id) {
+                self.capture_window = None;
+            }
+        }
+        self.generation = generation;
+        Ok(())
+    }
+    pub(super) fn destroy_window_notifications(
+        &self,
+        id: RuntimeWindowId,
+    ) -> Result<u32, RuntimeStateError> {
+        let window = self.window_by_id(id)?;
+        let thread = window.creation.owner_thread_id;
+        Ok(u32::from(window.visible)
+            | (u32::from(self.focused_windows.get(&thread) == Some(&id)) << 1)
+            | (u32::from(self.active_windows.get(&thread) == Some(&id)) << 2))
+    }
+
+    pub(super) fn begin_window_destruction(
+        &mut self,
+        id: RuntimeWindowId,
+    ) -> Result<(), RuntimeStateError> {
+        let window = self
+            .windows
+            .get_mut(&id)
+            .ok_or_else(|| RuntimeStateError::new("destroyed window is not live"))?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::new(
+                "window is already being created or destroyed",
+            ));
+        }
+        self.generation = self
+            .generation
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("window generation exhausted"))?;
+        window.lifecycle = RuntimeWindowLifecycle::Destroying;
+        window.visible = false;
+        window.creation.effective_style &= !0x1000_0000;
+        self.active_windows.retain(|_, value| *value != id);
+        self.focused_windows.retain(|_, value| *value != id);
+        if self.foreground_window == Some(id) {
+            self.foreground_window = None;
+        }
+        Ok(())
+    }
+
+    pub(super) fn finish_window_destruction(
+        &mut self,
+        id: RuntimeWindowId,
+    ) -> Result<RuntimeWindow, RuntimeStateError> {
+        if self.window_by_id(id)?.lifecycle != RuntimeWindowLifecycle::Destroying {
+            return Err(RuntimeStateError::new("window is not being destroyed"));
+        }
+        let window = self.windows.remove(&id).expect("live window");
+        self.window_handle_index.remove(&window.handle);
+        self.paint_sessions.remove(&id);
+        self.carets.retain(|_, (window, _, _, _)| *window != id);
+        if self.capture_window == Some(id) {
+            self.capture_window = None;
+        }
+        if let Some(menu) = self.system_menu_window_index.remove(&id)
+            && let Some(menu) = self.system_menus.remove(&menu)
+        {
+            self.menu_handle_index.remove(&menu.handle);
+        }
+        if window.menu_handle != 0 {
+            self.menus.destroy_tree(window.menu_handle);
+        }
+        Ok(window)
+    }
+    pub(super) fn create_caret(
+        &mut self,
+        owner: RuntimeThreadId,
+        handle: u32,
+        width: u32,
+        height: u32,
+        gray: bool,
+    ) -> Result<(), RuntimeStateError> {
+        let window = self.window(handle)?;
+        self.validate_created_window_owner(window, owner)?;
+        let caret = (window.id, width.max(1), height.max(1), gray);
+        self.carets.insert(owner, caret);
+        Ok(())
+    }
+
+    pub(super) fn create_menu(&mut self, popup: bool) -> Result<u32, RuntimeStateError> {
+        let handle = self.next_menu_handle;
+        let next = handle
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("menu handle space is exhausted"))?;
+        self.menus.create(handle, popup)?;
+        self.next_menu_handle = next;
+        Ok(handle)
+    }
+
+    pub(super) fn set_menu(
+        &mut self,
+        owner_thread_id: RuntimeThreadId,
+        window_handle: u32,
+        menu_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        let window = self.window(window_handle)?;
+        self.validate_created_window_owner(window, owner_thread_id)?;
+        if window.visible {
+            return Err(RuntimeStateError::new(
+                "changing a visible menu bar is not implemented",
+            ));
+        }
+        if menu_handle != 0 && self.menus.is_popup(menu_handle) != Some(false) {
+            return Err(RuntimeStateError::new(
+                "window menu attachment requires a live menu bar",
+            ));
+        }
+        if menu_handle != 0
+            && self
+                .windows
+                .values()
+                .any(|other| other.handle != window_handle && other.menu_handle == menu_handle)
+        {
+            return Err(RuntimeStateError::new(
+                "menu bar is attached to another window",
+            ));
+        }
+        if window.menu_handle == menu_handle {
+            return Ok(());
+        }
+        let id = window.id;
+        let generation = self.next_generation()?;
+        self.windows
+            .get_mut(&id)
+            .expect("validated window")
+            .menu_handle = menu_handle;
+        self.generation = generation;
+        Ok(())
+    }
+
+    pub(super) fn create_accelerators(
+        &mut self,
+        entries: Vec<RuntimeAccelerator>,
+    ) -> Result<u32, RuntimeStateError> {
+        if entries.is_empty() || entries.len() > 32767 {
+            return Err(RuntimeStateError::new(
+                "accelerator table length is outside the Windows range",
+            ));
+        }
+        let total: usize = self.accelerators.values().map(Vec::len).sum();
+        if self.accelerators.len() >= 4096 || total + entries.len() > 262144 {
+            return Err(RuntimeStateError::new(
+                "accelerator table capacity is exhausted",
+            ));
+        }
+        let handle = self.next_accelerator_handle;
+        let next = handle
+            .checked_add(1)
+            .filter(|next| *next < 0x4200_0000)
+            .ok_or_else(|| RuntimeStateError::new("accelerator handle space is exhausted"))?;
+        self.accelerators.insert(handle, entries);
+        self.next_accelerator_handle = next;
+        Ok(handle)
+    }
+
+    pub(super) fn destroy_accelerators(&mut self, handle: u32) -> bool {
+        self.accelerators.remove(&handle).is_some()
+    }
+
+    pub(super) fn accelerators(&self, handle: u32) -> Option<&[RuntimeAccelerator]> {
+        self.accelerators.get(&handle).map(Vec::as_slice)
+    }
+
     pub(super) fn load_shared_icon(
         &mut self,
         resource: RuntimeIconResource,
@@ -927,6 +1283,13 @@ impl RuntimeUser32 {
         Ok(RuntimeWindow {
             id,
             handle: self.next_window_handle,
+            window_procedure: self
+                .window_class(request.class.atom)?
+                .registration
+                .window_procedure
+                .clone(),
+            user_data: 0,
+            properties: BTreeMap::new(),
             creation: request,
             lifecycle: RuntimeWindowLifecycle::Creating {
                 message: RuntimeWindowCreationMessage::NonClientCreate,
@@ -934,6 +1297,10 @@ impl RuntimeUser32 {
             visible: false,
             topmost: false,
             pending_update_rect: None,
+            pending_background_erase: false,
+            pending_paint_unobserved: false,
+            mouse_leave_tracking: false,
+            menu_handle: 0,
             paint_generation: 0,
             small_icon: None,
         })
@@ -1050,6 +1417,30 @@ impl RuntimeUser32 {
         }
 
         Ok(Some(0))
+    }
+
+    pub(super) fn reset_system_menu(&mut self, handle: u32) -> Result<bool, RuntimeStateError> {
+        let Some(window) = self.window_option(handle)? else {
+            return Ok(false);
+        };
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::new(
+                "system menu reset requires a created window",
+            ));
+        }
+        let window_id = window.id;
+        if let Some(&id) = self.system_menu_window_index.get(&window_id) {
+            let menu = self
+                .system_menus
+                .get(&id)
+                .ok_or_else(|| RuntimeStateError::new("system menu index has no live menu"))?;
+            self.validate_system_menu_identity(menu)?;
+            let menu_handle = menu.handle;
+            self.system_menu_window_index.remove(&window_id);
+            self.menu_handle_index.remove(&menu_handle);
+            self.system_menus.remove(&id);
+        }
+        Ok(true)
     }
 
     pub(super) fn resolve_ime_app_window_target(
@@ -1570,7 +1961,7 @@ impl RuntimeUser32 {
                 "synchronous small-icon message requires a live shared icon",
             ));
         }
-        Ok(class.registration.window_procedure.clone())
+        Ok(window.window_procedure.clone())
     }
 
     pub(super) fn resolve_window_procedure(
@@ -1590,7 +1981,104 @@ impl RuntimeUser32 {
             })?;
         validate_window_class_registration(&class.registration)?;
         self.validate_window_class_references(&class.registration)?;
-        Ok(class.registration.window_procedure.clone())
+        Ok(window.window_procedure.clone())
+    }
+
+    pub(super) fn window_from_point(
+        &self,
+        x: i32,
+        y: i32,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        let mut candidates = self
+            .windows
+            .values()
+            .filter(|window| {
+                let geometry = window.creation.geometry;
+                window.lifecycle == RuntimeWindowLifecycle::Created
+                    && window.visible
+                    && window.creation.effective_style & 0x0800_0000 == 0
+                    && x >= geometry.x
+                    && y >= geometry.y
+                    && i64::from(x) < i64::from(geometry.x) + i64::from(geometry.width)
+                    && i64::from(y) < i64::from(geometry.y) + i64::from(geometry.height)
+            })
+            .collect::<Vec<_>>();
+        if candidates.iter().any(|window| window.topmost) {
+            candidates.retain(|window| window.topmost);
+        }
+        if let Some(window) = candidates
+            .iter()
+            .find(|window| Some(window.id) == self.foreground_window)
+        {
+            return Ok(Some(window.handle));
+        }
+        match candidates.as_slice() {
+            [] => Ok(None),
+            [window] => Ok(Some(window.handle)),
+            _ => Err(RuntimeStateError::new(
+                "hit testing overlapping inactive windows requires unimplemented z-order state",
+            )),
+        }
+    }
+
+    pub(super) fn top_level_window_before(&self, before: u64) -> Option<&RuntimeWindow> {
+        self.windows
+            .range(..RuntimeWindowId(before))
+            .rev()
+            .map(|(_, window)| window)
+            .find(|window| {
+                window.lifecycle == RuntimeWindowLifecycle::Created
+                    && window.creation.parent == 0
+                    && window.creation.style & 0x4000_0000 == 0
+            })
+    }
+
+    pub(super) fn set_mouse_leave_tracking(&mut self, id: RuntimeWindowId, enabled: bool) {
+        let owner = self.windows[&id].creation.owner_thread_id;
+        if enabled {
+            for window in self
+                .windows
+                .values_mut()
+                .filter(|window| window.creation.owner_thread_id == owner)
+            {
+                window.mouse_leave_tracking = false;
+            }
+        }
+        self.windows
+            .get_mut(&id)
+            .expect("validated mouse tracking window")
+            .mouse_leave_tracking = enabled;
+    }
+
+    pub(super) fn set_window_long_data(
+        &mut self,
+        handle: u32,
+        thread: RuntimeThreadId,
+        procedure: Option<RuntimeWindowProcedure>,
+        user_data: Option<u32>,
+    ) -> Result<u32, RuntimeStateError> {
+        let window = self.window(handle)?;
+        if window.creation.owner_thread_id != thread {
+            return Err(RuntimeStateError::new(
+                "window-long mutation requires the owner thread",
+            ));
+        }
+        let id = window.id;
+        let previous = if procedure.is_some() {
+            window.window_procedure.address.0
+        } else {
+            window.user_data
+        };
+        let generation = self.next_generation()?;
+        let window = self.windows.get_mut(&id).expect("validated window");
+        if let Some(procedure) = procedure {
+            window.window_procedure = procedure;
+        }
+        if let Some(data) = user_data {
+            window.user_data = data;
+        }
+        self.generation = generation;
+        Ok(previous)
     }
 
     pub(super) fn set_window_small_icon(
@@ -1645,6 +2133,58 @@ impl RuntimeUser32 {
         Ok(())
     }
 
+    pub(super) fn window_property(
+        &self,
+        handle: u32,
+        atom: Option<u16>,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        let window = self.window(handle)?;
+        Ok(atom
+            .and_then(|atom| window.properties.get(&atom))
+            .map(|property| property.0))
+    }
+
+    pub(super) fn set_window_property(
+        &mut self,
+        handle: u32,
+        name: super::RuntimeAtomName,
+        data: u32,
+        atoms: &mut super::RuntimeGlobalAtoms,
+    ) -> Result<Result<(), u32>, RuntimeStateError> {
+        let window = self.window(handle)?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::new(
+                "window properties during creation are not implemented",
+            ));
+        }
+        let id = window.id;
+        let existing = atoms
+            .find(&name)
+            .is_some_and(|atom| window.properties.contains_key(&atom));
+        if !existing && window.properties.len() >= 4096 {
+            return Ok(Err(8));
+        }
+        let string = matches!(name, super::RuntimeAtomName::String(_));
+        let atom = match name {
+            super::RuntimeAtomName::Integer(0) => return Ok(Err(87)),
+            super::RuntimeAtomName::Integer(atom) => atom,
+            name => match atoms.add(name) {
+                Ok(atom) => atom,
+                Err(error) => return Ok(Err(error)),
+            },
+        };
+        let properties = &mut self
+            .windows
+            .get_mut(&id)
+            .expect("validated property window")
+            .properties;
+        properties
+            .entry(atom)
+            .and_modify(|entry| entry.0 = data)
+            .or_insert((data, string));
+        Ok(Ok(()))
+    }
+
     pub(super) fn set_window_style(
         &mut self,
         window_handle: u32,
@@ -1668,6 +2208,33 @@ impl RuntimeUser32 {
             self.generation = next_generation;
         }
         Ok(previous_style)
+    }
+
+    pub(super) fn set_window_extended_style(
+        &mut self,
+        handle: u32,
+        owner_thread: RuntimeThreadId,
+        style: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        let window = self.window(handle)?;
+        self.validate_created_window_owner(window, owner_thread)?;
+        let previous = window.creation.effective_extended_style;
+        if (style ^ previous) & !(0x0004_0000 | RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES) != 0 {
+            return Err(RuntimeStateError::new(
+                "extended-style changes affecting frame or activation are not implemented",
+            ));
+        }
+        if previous != style {
+            let id = window.id;
+            let generation = self.next_generation()?;
+            self.windows
+                .get_mut(&id)
+                .expect("validated window")
+                .creation
+                .effective_extended_style = style;
+            self.generation = generation;
+        }
+        Ok(previous)
     }
 
     pub(super) fn set_window_file_drop_acceptance(
@@ -1708,12 +2275,50 @@ impl RuntimeUser32 {
     ) -> Result<RuntimeSetWindowPosOperation, RuntimeStateError> {
         self.resolve_window_procedure(request.window_handle, owner_thread_id)?;
         let window = self.window(request.window_handle)?;
+        self.preview_window_position(owner_thread_id, request, window, self.generation)
+    }
+
+    pub(super) fn preview_creation_show(
+        &self,
+        window: &RuntimeWindow,
+    ) -> Result<RuntimeSetWindowPosOperation, RuntimeStateError> {
+        let request = RuntimeSetWindowPosRequest {
+            window_handle: window.handle,
+            variant: RuntimeSetWindowPosVariant::ShowActivate,
+            next_geometry: window.creation.geometry,
+            next_visible: true,
+            next_topmost: false,
+            entry_last_error: window.creation.entry_last_error,
+            callback_flags: 0x43,
+            callback_insert_after: 0,
+            activation_insert_after: 0,
+            activation_internal_flags: 3,
+            resize_nccalc_window_pos_flags: 0,
+            resize_changed_flags: 0,
+            frame_change_nccalc_window_pos_flags: 0,
+            frame_change_changed_flags: 0,
+        };
+        self.preview_window_position(
+            window.creation.owner_thread_id,
+            request,
+            window,
+            self.next_generation()?,
+        )
+    }
+
+    fn preview_window_position(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+        request: RuntimeSetWindowPosRequest,
+        window: &RuntimeWindow,
+        generation: u64,
+    ) -> Result<RuntimeSetWindowPosOperation, RuntimeStateError> {
         self.validate_window_icon_reference(window.small_icon)?;
         if request.callback_flags == 0
             || (request.variant == RuntimeSetWindowPosVariant::Resize
                 && (request.resize_nccalc_window_pos_flags == 0
                     || request.resize_changed_flags == 0))
-            || (request.variant == RuntimeSetWindowPosVariant::FrameChangeMove
+            || (request.variant == RuntimeSetWindowPosVariant::Reposition
                 && (request.frame_change_nccalc_window_pos_flags == 0
                     || request.frame_change_changed_flags == 0))
         {
@@ -1747,12 +2352,34 @@ impl RuntimeUser32 {
             window.creation.effective_style & !RUNTIME_WINDOW_STYLE_VISIBLE
         };
         let next_update_rect = match variant {
-            RuntimeSetWindowPosVariant::FrameChangeMove => {
+            RuntimeSetWindowPosVariant::ShowActivate => {
+                Some(full_client_update_rect(request.next_geometry)?)
+            }
+            RuntimeSetWindowPosVariant::Reposition if request.callback_flags & 0x22 == 0x20 => {
+                Some(full_client_update_rect(request.next_geometry)?)
+            }
+            RuntimeSetWindowPosVariant::Resize if window.pending_update_rect.is_some() => {
                 Some(full_client_update_rect(request.next_geometry)?)
             }
             _ => window.pending_update_rect,
         };
         match variant {
+            RuntimeSetWindowPosVariant::ShowActivate
+                if window.visible
+                    || !request.next_visible
+                    || window.topmost
+                    || request.next_topmost
+                    || window.menu_handle != 0
+                    || request.next_geometry != window.creation.geometry
+                    || window.creation.effective_style & 0x2800_0000 != 0
+                    || self.active_windows.contains_key(&owner_thread_id)
+                    || self.focused_windows.contains_key(&owner_thread_id)
+                    || self.foreground_window.is_some() =>
+            {
+                return Err(RuntimeStateError::new(
+                    "initial ShowWindow requires a hidden normal owner-thread window without a visible menu bar or existing activation",
+                ));
+            }
             RuntimeSetWindowPosVariant::InitialShow
                 if window.visible
                     || window.topmost
@@ -1804,30 +2431,58 @@ impl RuntimeUser32 {
                 ));
             }
             RuntimeSetWindowPosVariant::Resize
-                if !window.visible
-                    || window.topmost
-                    || !request.next_visible
-                    || request.next_topmost
-                    || request.next_geometry == window.creation.geometry
-                    || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
-                    || self.active_windows.get(&owner_thread_id).copied() != Some(window.id)
-                    || self.focused_windows.get(&owner_thread_id).copied() != Some(window.id)
-                    || self.foreground_window != Some(window.id) =>
+                if request.callback_flags == 0x216
+                    && (request.next_visible != window.visible
+                        || request.next_topmost != window.topmost
+                        || (window.visible
+                            && request.next_geometry != window.creation.geometry)) =>
+            {
+                return Err(RuntimeStateError::new(
+                    "nonactivating resize currently requires a hidden window or unchanged visible geometry",
+                ));
+            }
+            RuntimeSetWindowPosVariant::Resize
+                if request.callback_flags != 0x216
+                    && (!window.visible
+                        || window.topmost
+                        || !request.next_visible
+                        || request.next_topmost
+                        || request.next_geometry == window.creation.geometry
+                        || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+                        || self.active_windows.get(&owner_thread_id).copied()
+                            != Some(window.id)
+                        || self.focused_windows.get(&owner_thread_id).copied()
+                            != Some(window.id)
+                        || self.foreground_window != Some(window.id)) =>
             {
                 return Err(RuntimeStateError::new(
                     "logical resize requires one visible active, focused, foreground owner-thread window and changed bounded geometry",
                 ));
             }
-            RuntimeSetWindowPosVariant::FrameChangeMove
-                if !window.visible
-                    || window.topmost
-                    || !request.next_visible
-                    || request.next_topmost
-                    || request.next_geometry == window.creation.geometry
-                    || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
-                    || self.active_windows.get(&owner_thread_id).copied() != Some(window.id)
-                    || self.focused_windows.get(&owner_thread_id).copied() != Some(window.id)
-                    || self.foreground_window != Some(window.id) =>
+            RuntimeSetWindowPosVariant::Reposition
+                if matches!(request.callback_flags, 0x37 | 0x2215)
+                    && (request.next_visible != window.visible
+                        || request.next_topmost != window.topmost
+                        || (request.callback_flags == 0x37
+                            && request.next_geometry != window.creation.geometry)) =>
+            {
+                return Err(RuntimeStateError::new(
+                    "frame-only recalculation must preserve visibility, z-order, and geometry",
+                ));
+            }
+            RuntimeSetWindowPosVariant::Reposition
+                if !matches!(request.callback_flags, 0x37 | 0x2215)
+                    && (!window.visible
+                        || window.topmost
+                        || !request.next_visible
+                        || request.next_topmost
+                        || request.next_geometry == window.creation.geometry
+                        || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
+                        || self.active_windows.get(&owner_thread_id).copied()
+                            != Some(window.id)
+                        || self.focused_windows.get(&owner_thread_id).copied()
+                            != Some(window.id)
+                        || self.foreground_window != Some(window.id)) =>
             {
                 return Err(RuntimeStateError::new(
                     "frame-change move requires one visible active, focused, foreground owner-thread window and changed bounded position",
@@ -1838,7 +2493,7 @@ impl RuntimeUser32 {
         Ok(RuntimeSetWindowPosOperation {
             window_id: window.id,
             window_handle: window.handle,
-            expected_generation: self.generation,
+            expected_generation: generation,
             variant,
             previous_geometry: window.creation.geometry,
             next_geometry: request.next_geometry,
@@ -1873,6 +2528,71 @@ impl RuntimeUser32 {
             .validate_set_window_pos_operation(operation, message)?
             .clone();
         let disposition = match (operation.variant, message) {
+            (
+                RuntimeSetWindowPosVariant::ShowActivate,
+                RuntimeSetWindowPosCallbackMessage::Show,
+            ) => {
+                let next_generation = self.next_generation()?;
+                let mut next = previous.clone();
+                next.visible = true;
+                next.creation.effective_style = operation.next_effective_style;
+                next.pending_update_rect = operation.next_update_rect;
+                next.pending_background_erase = true;
+                next.pending_paint_unobserved = next.pending_update_rect.is_some();
+                let mut next_operation = operation;
+                next_operation.expected_generation = next_generation;
+                RuntimeSetWindowPosCallbackDisposition::Update {
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: next.clone(),
+                        operation: next_operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
+                    },
+                    next: Box::new(next),
+                    next_generation,
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::ShowActivate,
+                RuntimeSetWindowPosCallbackMessage::Activate,
+            ) => {
+                require_set_window_pos_callback_result(result, 0, "ShowWindow WM_ACTIVATE")?;
+                let mut next_operation = operation;
+                next_operation.expected_generation = self.generation;
+                RuntimeSetWindowPosCallbackDisposition::Validate {
+                    action: RuntimeSetWindowPosCallbackAction::Continue {
+                        window: previous,
+                        operation: next_operation,
+                        next_message: RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+                    },
+                }
+            }
+            (
+                RuntimeSetWindowPosVariant::ShowActivate,
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+            ) => RuntimeSetWindowPosCallbackDisposition::Validate {
+                action: RuntimeSetWindowPosCallbackAction::Continue {
+                    window: previous,
+                    operation,
+                    next_message: RuntimeSetWindowPosCallbackMessage::Size,
+                },
+            },
+            (
+                RuntimeSetWindowPosVariant::ShowActivate,
+                RuntimeSetWindowPosCallbackMessage::Size,
+            ) => RuntimeSetWindowPosCallbackDisposition::Validate {
+                action: RuntimeSetWindowPosCallbackAction::Continue {
+                    window: previous,
+                    operation,
+                    next_message: RuntimeSetWindowPosCallbackMessage::Move,
+                },
+            },
+            (
+                RuntimeSetWindowPosVariant::ShowActivate,
+                RuntimeSetWindowPosCallbackMessage::Move,
+            ) => RuntimeSetWindowPosCallbackDisposition::Validate {
+                action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
+            },
+
             (
                 RuntimeSetWindowPosVariant::InitialShow,
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
@@ -1923,7 +2643,8 @@ impl RuntimeUser32 {
                 ));
             }
             (
-                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosVariant::ActivateSameGeometry
+                | RuntimeSetWindowPosVariant::ShowActivate,
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
             ) => {
                 require_set_window_pos_callback_result(result, 0, "initial activation WINDOWPOS")?;
@@ -1943,7 +2664,8 @@ impl RuntimeUser32 {
                 }
             }
             (
-                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosVariant::ActivateSameGeometry
+                | RuntimeSetWindowPosVariant::ShowActivate,
                 RuntimeSetWindowPosCallbackMessage::ActivationWindowPositionChanging,
             ) => {
                 require_set_window_pos_callback_result(result, 0, "activation WINDOWPOS")?;
@@ -1956,7 +2678,8 @@ impl RuntimeUser32 {
                 }
             }
             (
-                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosVariant::ActivateSameGeometry
+                | RuntimeSetWindowPosVariant::ShowActivate,
                 RuntimeSetWindowPosCallbackMessage::ActivateApplication,
             ) => {
                 require_set_window_pos_callback_result(result, 0, "WM_ACTIVATEAPP")?;
@@ -1969,7 +2692,8 @@ impl RuntimeUser32 {
                 }
             }
             (
-                RuntimeSetWindowPosVariant::ActivateSameGeometry,
+                RuntimeSetWindowPosVariant::ActivateSameGeometry
+                | RuntimeSetWindowPosVariant::ShowActivate,
                 RuntimeSetWindowPosCallbackMessage::NonClientActivate,
             ) => {
                 // The notification activates the nonclient area (wParam = TRUE);
@@ -1991,7 +2715,11 @@ impl RuntimeUser32 {
                     action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
                 }
             }
-            (RuntimeSetWindowPosVariant::ActivateSameGeometry, _) => {
+            (
+                RuntimeSetWindowPosVariant::ActivateSameGeometry
+                | RuntimeSetWindowPosVariant::ShowActivate,
+                _,
+            ) => {
                 return Err(RuntimeStateError::new(
                     "same-geometry activation received an out-of-order logical window callback",
                 ));
@@ -2015,6 +2743,13 @@ impl RuntimeUser32 {
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
             ) => {
                 require_set_window_pos_callback_result(result, 0, "resize WINDOWPOS")?;
+                if operation.callback_flags == 0x216
+                    && operation.next_geometry == operation.previous_geometry
+                {
+                    return Ok(RuntimeSetWindowPosCallbackDisposition::Validate {
+                        action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
+                    });
+                }
                 RuntimeSetWindowPosCallbackDisposition::Validate {
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
@@ -2055,10 +2790,17 @@ impl RuntimeUser32 {
                 ));
             }
             (
-                RuntimeSetWindowPosVariant::FrameChangeMove,
+                RuntimeSetWindowPosVariant::Reposition,
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanging,
             ) => {
                 require_set_window_pos_callback_result(result, 0, "frame-change move WINDOWPOS")?;
+                if operation.callback_flags == 0x2215 {
+                    return self.window_geometry_update_disposition(
+                        previous,
+                        operation,
+                        RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
+                    );
+                }
                 RuntimeSetWindowPosCallbackDisposition::Validate {
                     action: RuntimeSetWindowPosCallbackAction::Continue {
                         window: previous,
@@ -2068,7 +2810,7 @@ impl RuntimeUser32 {
                 }
             }
             (
-                RuntimeSetWindowPosVariant::FrameChangeMove,
+                RuntimeSetWindowPosVariant::Reposition,
                 RuntimeSetWindowPosCallbackMessage::NonClientCalculate,
             ) => {
                 require_set_window_pos_callback_result(result, 0, "frame-change WM_NCCALCSIZE")?;
@@ -2079,7 +2821,7 @@ impl RuntimeUser32 {
                 )?
             }
             (
-                RuntimeSetWindowPosVariant::FrameChangeMove,
+                RuntimeSetWindowPosVariant::Reposition,
                 RuntimeSetWindowPosCallbackMessage::WindowPositionChanged,
             ) => {
                 require_set_window_pos_callback_result(
@@ -2091,7 +2833,7 @@ impl RuntimeUser32 {
                     action: RuntimeSetWindowPosCallbackAction::Completed { window: previous },
                 }
             }
-            (RuntimeSetWindowPosVariant::FrameChangeMove, _) => {
+            (RuntimeSetWindowPosVariant::Reposition, _) => {
                 return Err(RuntimeStateError::new(
                     "frame-change move received an out-of-order window callback",
                 ));
@@ -2155,11 +2897,44 @@ impl RuntimeUser32 {
         }
     }
 
+    pub(super) fn invalidate_full_client(
+        &mut self,
+        owner_thread_id: RuntimeThreadId,
+        window_handle: u32,
+        erase: bool,
+    ) -> Result<(), RuntimeStateError> {
+        let window = self.window(window_handle)?;
+        self.validate_created_window_owner(window, owner_thread_id)?;
+        if self.paint_sessions.contains_key(&window.id) {
+            return Err(RuntimeStateError::new(
+                "invalidation during a paint session is not implemented",
+            ));
+        }
+        let rect = full_client_update_rect(window.creation.geometry)?;
+        if rect.right == 0
+            || rect.bottom == 0
+            || (window.pending_update_rect == Some(rect)
+                && (!erase || window.pending_background_erase)
+                && window.pending_paint_unobserved)
+        {
+            return Ok(());
+        }
+        let id = window.id;
+        let generation = self.next_generation()?;
+        let window = self.windows.get_mut(&id).expect("validated window");
+        window.pending_update_rect = Some(rect);
+        window.pending_background_erase |= erase;
+        window.pending_paint_unobserved = true;
+        self.generation = generation;
+        Ok(())
+    }
+
     pub(super) fn preview_update_window(
         &self,
         owner_thread_id: RuntimeThreadId,
         window_handle: u32,
         entry_last_error: u32,
+        invalidate_full: bool,
     ) -> Result<RuntimeUpdateWindowOperation, RuntimeStateError> {
         self.resolve_window_procedure(window_handle, owner_thread_id)?;
         let window = self.window(window_handle)?;
@@ -2169,7 +2944,7 @@ impl RuntimeUser32 {
         if !window.visible
             || window.topmost
             || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
-            || window.pending_update_rect != Some(expected_update_rect)
+            || (!invalidate_full && window.pending_update_rect != Some(expected_update_rect))
             || self.paint_sessions.contains_key(&window.id)
             || self.active_windows.get(&owner_thread_id).copied() != target
             || self.focused_windows.get(&owner_thread_id).copied() != target
@@ -2228,6 +3003,35 @@ impl RuntimeUser32 {
         Ok(())
     }
 
+    pub(super) fn default_paint(
+        &mut self,
+        owner_thread_id: RuntimeThreadId,
+        window_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        let window = self.window(window_handle)?;
+        self.validate_created_window_owner(window, owner_thread_id)?;
+        if self.paint_sessions.contains_key(&window.id) {
+            return Err(RuntimeStateError::new(
+                "default painting during BeginPaint is unsupported",
+            ));
+        }
+        if window.pending_update_rect.is_none() {
+            return Ok(());
+        }
+        let paint_generation = window.paint_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::new("logical window paint generation is exhausted")
+        })?;
+        let generation = self.next_generation()?;
+        let id = window.id;
+        let window = self.windows.get_mut(&id).expect("validated paint window");
+        window.pending_update_rect = None;
+        window.pending_background_erase = false;
+        window.pending_paint_unobserved = false;
+        window.paint_generation = paint_generation;
+        self.generation = generation;
+        Ok(())
+    }
+
     pub(super) fn validate_begin_paint(
         &self,
         owner_thread_id: RuntimeThreadId,
@@ -2263,7 +3067,11 @@ impl RuntimeUser32 {
         let paint_generation = window.paint_generation.checked_add(1).ok_or_else(|| {
             RuntimeStateError::new("logical window paint generation is exhausted")
         })?;
-        let paint_struct_bytes = x86_paint_struct_bytes(device_context_handle, true, update_rect);
+        let paint_struct_bytes = x86_paint_struct_bytes(
+            device_context_handle,
+            window.pending_background_erase,
+            update_rect,
+        );
         let session = RuntimePaintSession {
             window_id: window.id,
             window_handle: window.handle,
@@ -2286,6 +3094,8 @@ impl RuntimeUser32 {
             .get_mut(&session.window_id)
             .expect("validated paint window");
         window.pending_update_rect = None;
+        window.pending_background_erase = false;
+        window.pending_paint_unobserved = false;
         self.paint_sessions.insert(session.window_id, session);
         self.generation += 1;
     }
@@ -2381,7 +3191,11 @@ impl RuntimeUser32 {
         self.window_geometry_update_disposition(
             previous,
             operation,
-            RuntimeSetWindowPosCallbackMessage::Size,
+            if operation.callback_flags == 0x216 {
+                RuntimeSetWindowPosCallbackMessage::WindowPositionChanged
+            } else {
+                RuntimeSetWindowPosCallbackMessage::Size
+            },
         )
     }
 
@@ -2395,6 +3209,12 @@ impl RuntimeUser32 {
         let mut next = previous.clone();
         next.creation.geometry = operation.next_geometry;
         next.pending_update_rect = operation.next_update_rect;
+        next.pending_paint_unobserved |= next.pending_update_rect.is_some();
+        if operation.variant == RuntimeSetWindowPosVariant::Reposition
+            && operation.callback_flags & 0x22 == 0x20
+        {
+            next.pending_background_erase = true;
+        }
         let mut next_operation = operation;
         next_operation.expected_generation = next_generation;
         Ok(RuntimeSetWindowPosCallbackDisposition::Update {
@@ -2413,14 +3233,20 @@ impl RuntimeUser32 {
         operation: RuntimeSetWindowPosOperation,
         message: RuntimeSetWindowPosCallbackMessage,
     ) -> Result<&RuntimeWindow, RuntimeStateError> {
-        let focus_committed = operation.variant == RuntimeSetWindowPosVariant::ActivateSameGeometry
-            && message == RuntimeSetWindowPosCallbackMessage::Activate;
+        let focus_committed = matches!(
+            operation.variant,
+            RuntimeSetWindowPosVariant::ActivateSameGeometry
+                | RuntimeSetWindowPosVariant::ShowActivate
+        ) && message == RuntimeSetWindowPosCallbackMessage::Activate;
         let expected_generation = if focus_committed {
             operation.expected_generation.checked_add(1)
         } else {
             Some(operation.expected_generation)
         };
-        if Some(self.generation) != expected_generation {
+        if Some(self.generation) != expected_generation
+            && !(operation.variant == RuntimeSetWindowPosVariant::ShowActivate
+                && message == RuntimeSetWindowPosCallbackMessage::Show)
+        {
             return Err(RuntimeStateError::new(
                 "User32 state changed after window-position callback preparation",
             ));
@@ -2433,7 +3259,7 @@ impl RuntimeUser32 {
         };
         let geometry_committed = matches!(
             operation.variant,
-            RuntimeSetWindowPosVariant::Resize | RuntimeSetWindowPosVariant::FrameChangeMove
+            RuntimeSetWindowPosVariant::Resize | RuntimeSetWindowPosVariant::Reposition
         ) && matches!(
             message,
             RuntimeSetWindowPosCallbackMessage::Size
@@ -2444,25 +3270,43 @@ impl RuntimeUser32 {
         } else {
             operation.previous_geometry
         };
-        let update_rect_committed = operation.variant
-            == RuntimeSetWindowPosVariant::FrameChangeMove
-            && message == RuntimeSetWindowPosCallbackMessage::WindowPositionChanged;
-        let expected_update_rect = if update_rect_committed {
+        let update_rect_committed = matches!(
+            operation.variant,
+            RuntimeSetWindowPosVariant::Resize | RuntimeSetWindowPosVariant::Reposition
+        ) && matches!(
+            message,
+            RuntimeSetWindowPosCallbackMessage::Size
+                | RuntimeSetWindowPosCallbackMessage::WindowPositionChanged
+        );
+        let show_committed = operation.variant == RuntimeSetWindowPosVariant::ShowActivate
+            && message != RuntimeSetWindowPosCallbackMessage::Show;
+        let expected_update_rect = if update_rect_committed || show_committed {
             operation.next_update_rect
         } else {
             operation.previous_update_rect
         };
         let derived_next_update_rect = match operation.variant {
-            RuntimeSetWindowPosVariant::FrameChangeMove => {
+            RuntimeSetWindowPosVariant::ShowActivate => {
+                Some(full_client_update_rect(operation.next_geometry)?)
+            }
+            RuntimeSetWindowPosVariant::Reposition if operation.callback_flags & 0x22 == 0x20 => {
+                Some(full_client_update_rect(operation.next_geometry)?)
+            }
+            RuntimeSetWindowPosVariant::Resize if operation.previous_update_rect.is_some() => {
                 Some(full_client_update_rect(operation.next_geometry)?)
             }
             _ => operation.previous_update_rect,
         };
         if window.handle != operation.window_handle
             || window.creation.geometry != expected_geometry
-            || window.visible != operation.previous_visible
+            || window.visible != (show_committed || operation.previous_visible)
             || window.topmost != operation.previous_topmost
-            || window.creation.effective_style != operation.previous_effective_style
+            || window.creation.effective_style
+                != if show_committed {
+                    operation.next_effective_style
+                } else {
+                    operation.previous_effective_style
+                }
             || operation.next_effective_style != expected_next_effective_style
             || window.pending_update_rect != expected_update_rect
             || operation.next_update_rect != derived_next_update_rect
@@ -2474,17 +3318,32 @@ impl RuntimeUser32 {
         }
         self.validate_created_window_owner(window, window.creation.owner_thread_id)?;
         self.validate_window_icon_reference(window.small_icon)?;
-        if operation.variant == RuntimeSetWindowPosVariant::ActivateSameGeometry {
+        if matches!(
+            operation.variant,
+            RuntimeSetWindowPosVariant::ActivateSameGeometry
+                | RuntimeSetWindowPosVariant::ShowActivate
+        ) {
             let owner_thread_id = window.creation.owner_thread_id;
             let target = Some(window.id);
-            let (expected_active, expected_focused, expected_foreground) =
-                if message == RuntimeSetWindowPosCallbackMessage::WindowPositionChanging {
-                    (None, None, None)
-                } else if focus_committed {
-                    (target, target, target)
-                } else {
-                    (target, None, target)
-                };
+            let (expected_active, expected_focused, expected_foreground) = if matches!(
+                message,
+                RuntimeSetWindowPosCallbackMessage::Show
+                    | RuntimeSetWindowPosCallbackMessage::WindowPositionChanging
+            ) {
+                (None, None, None)
+            } else if focus_committed
+                || (operation.variant == RuntimeSetWindowPosVariant::ShowActivate
+                    && matches!(
+                        message,
+                        RuntimeSetWindowPosCallbackMessage::WindowPositionChanged
+                            | RuntimeSetWindowPosCallbackMessage::Size
+                            | RuntimeSetWindowPosCallbackMessage::Move
+                    ))
+            {
+                (target, target, target)
+            } else {
+                (target, None, target)
+            };
             if self.active_windows.get(&owner_thread_id).copied() != expected_active
                 || self.focused_windows.get(&owner_thread_id).copied() != expected_focused
                 || self.foreground_window != expected_foreground
@@ -2508,8 +3367,9 @@ impl RuntimeUser32 {
         }
         if matches!(
             operation.variant,
-            RuntimeSetWindowPosVariant::Resize | RuntimeSetWindowPosVariant::FrameChangeMove
-        ) {
+            RuntimeSetWindowPosVariant::Resize | RuntimeSetWindowPosVariant::Reposition
+        ) && !matches!(operation.callback_flags, 0x37 | 0x216 | 0x2215)
+        {
             let owner_thread_id = window.creation.owner_thread_id;
             let target = Some(window.id);
             if self.active_windows.get(&owner_thread_id).copied() != target
@@ -2627,6 +3487,70 @@ impl RuntimeUser32 {
         self.window_relation_handle(self.foreground_window)
     }
 
+    pub(super) fn release_thread_input(&mut self, owner: RuntimeThreadId) {
+        if self
+            .capture_window
+            .is_some_and(|id| self.windows[&id].creation.owner_thread_id == owner)
+        {
+            self.capture_window = None;
+        }
+        for window in self
+            .windows
+            .values_mut()
+            .filter(|window| window.creation.owner_thread_id == owner)
+        {
+            window.mouse_leave_tracking = false;
+        }
+    }
+
+    pub(super) fn validate_pointer_capture_target(
+        &self,
+        handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        if let Some(id) = self.capture_window
+            && self.window_by_id(id)?.handle != handle
+        {
+            return Err(RuntimeStateError::new(
+                "pointer capture across distinct client surfaces is not implemented",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn capture_window_handle(
+        &self,
+        owner: RuntimeThreadId,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        let Some(id) = self.capture_window else {
+            return Ok(None);
+        };
+        let window = self.window_by_id(id)?;
+        Ok((window.lifecycle == RuntimeWindowLifecycle::Created
+            && window.creation.owner_thread_id == owner)
+            .then_some(window.handle))
+    }
+
+    pub(super) fn set_capture_window(
+        &mut self,
+        owner: RuntimeThreadId,
+        handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        if let Some(id) = self.capture_window {
+            let previous = self.window_by_id(id)?;
+            self.validate_created_window_owner(previous, owner)?;
+        }
+        let id = if handle == 0 {
+            None
+        } else {
+            // Chrome currently supplies one foreground client surface. Capturing
+            // another logical surface requires its own coordinate/routing path.
+            self.resolve_same_window_focus(handle, owner)?;
+            Some(self.window(handle)?.id)
+        };
+        self.capture_window = id;
+        Ok(())
+    }
+
     pub(super) fn resolve_same_window_focus(
         &self,
         window_handle: u32,
@@ -2716,6 +3640,42 @@ impl RuntimeUser32 {
             ));
         }
         Ok(window)
+    }
+
+    pub(super) fn pending_paint_window(
+        &self,
+        owner: RuntimeThreadId,
+        unobserved: bool,
+    ) -> Option<&RuntimeWindow> {
+        self.pending_paint_window_filtered(
+            owner,
+            unobserved,
+            super::RuntimeMessageFilter::default(),
+        )
+    }
+
+    pub(super) fn pending_paint_window_filtered(
+        &self,
+        owner: RuntimeThreadId,
+        unobserved: bool,
+        filter: super::RuntimeMessageFilter,
+    ) -> Option<&RuntimeWindow> {
+        self.windows.values().find(|window| {
+            window.creation.owner_thread_id == owner
+                && window.lifecycle == RuntimeWindowLifecycle::Created
+                && window.visible
+                && window.pending_update_rect.is_some()
+                && (!unobserved || window.pending_paint_unobserved)
+                && filter.matches(window.handle, 0x000f)
+        })
+    }
+
+    pub(super) fn observe_paint(&mut self, owner: RuntimeThreadId) {
+        for window in self.windows.values_mut() {
+            if window.creation.owner_thread_id == owner && window.visible {
+                window.pending_paint_unobserved = false;
+            }
+        }
     }
 
     #[cfg(test)]
@@ -2815,8 +3775,8 @@ fn validate_cursor_source(source: &RuntimeCursorSource) -> Result<(), RuntimeSta
     match source {
         RuntimeCursorSource::SystemPredefined {
             resource_id,
-            cursor: RuntimeSystemCursorKind::Arrow,
-        } if *resource_id == RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID => Ok(()),
+            cursor,
+        } if *resource_id == *cursor as u32 => Ok(()),
         RuntimeCursorSource::SystemPredefined { .. } => Err(RuntimeStateError::new(
             "logical system cursor source does not match its predefined cursor identity",
         )),
@@ -2862,10 +3822,14 @@ fn validate_window_class_registration(
         .map(GuestAddress);
     if module.module_id.0 == 0
         || module.load_base.0 == 0
-        || window_procedure.module_id != module.module_id
         || window_procedure.address.0 == 0
-        || window_procedure.rva.0 == 0
-        || expected_window_procedure_address != Some(window_procedure.address)
+        || if window_procedure.runtime_default {
+            window_procedure.module_id.0 != 0 || window_procedure.rva.0 != 0
+        } else {
+            window_procedure.module_id != module.module_id
+                || window_procedure.rva.0 == 0
+                || expected_window_procedure_address != Some(window_procedure.address)
+        }
     {
         return Err(RuntimeStateError::new(
             "window class requires a mapped module identity and same-module x86 stdcall WndProc descriptor",
@@ -2954,10 +3918,6 @@ fn validate_position_geometry_transition(
             && next.y == previous.y
             && next.client_x == previous.client_x
             && next.client_y == previous.client_y
-            && next.width != previous.width
-            && next.height != previous.height
-            && next.client_width != previous.client_width
-            && next.client_height != previous.client_height
             && next_client_offset_x == previous_client_offset_x
             && next_client_offset_y == previous_client_offset_y
             && next_client_right_extent == previous_client_right_extent
@@ -2969,8 +3929,6 @@ fn validate_position_geometry_transition(
             && next.client_height == previous.client_height
             && next_client_offset_x == previous_client_offset_x
             && next_client_offset_y == previous_client_offset_y
-            && (variant != RuntimeSetWindowPosVariant::FrameChangeMove
-                || (next.x != previous.x && next.y != previous.y))
     };
     if !valid {
         return Err(RuntimeStateError::new(
@@ -2994,18 +3952,11 @@ fn validate_window_creation_request(
         || request.class.module_id.0 == 0
         || request.instance.module_id != request.class.module_id
         || request.instance.load_base.0 == 0
-        || request.name.value.is_empty()
         || request.name.windows_932_bytes().is_err()
         || request.style == 0
-        || request.effective_style & request.style != request.style
-        || request.effective_extended_style & request.extended_style != request.extended_style
         || request.parent != 0
         || request.menu != 0
         || request.create_parameter != 0
-        || geometry.width == 0
-        || geometry.height == 0
-        || geometry.client_width == 0
-        || geometry.client_height == 0
         || geometry.width > 32_768
         || geometry.height > 32_768
         || geometry.client_width > geometry.width
@@ -3305,6 +4256,45 @@ mod tests {
         }
     }
 
+    #[test]
+    fn caret_replacement_keeps_one_hidden_shape_per_owner() {
+        let (mut user32, handle, _) = created_window_with_small_icon();
+        let window = user32.window(handle).unwrap();
+        let owner = window.creation.owner_thread_id;
+        let id = window.id;
+        user32.create_caret(owner, handle, 1, 2, false).unwrap();
+        assert_eq!(user32.carets.get(&owner), Some(&(id, 1, 2, false)));
+        assert!(user32.create_caret(owner, 0, 10, 10, true).is_err());
+        assert_eq!(user32.carets.get(&owner), Some(&(id, 1, 2, false)));
+        user32.create_caret(owner, handle, 0, 0, true).unwrap();
+        assert_eq!(user32.carets.get(&owner), Some(&(id, 1, 1, true)));
+        assert_eq!(user32.carets.len(), 1);
+    }
+
+    #[test]
+    fn default_paint_validates_the_null_brush_update_region_once() {
+        let (mut user32, handle, _) = created_window_with_small_icon();
+        let owner = RuntimeThreadId(0x2000);
+        user32.invalidate_full_client(owner, handle, true).unwrap();
+        let before = user32.clone();
+        assert!(
+            user32
+                .default_paint(RuntimeThreadId(0x2001), handle)
+                .is_err()
+        );
+        assert_eq!(user32, before);
+        let generation = user32.window(handle).unwrap().paint_generation;
+        user32.default_paint(owner, handle).unwrap();
+        let window = user32.window(handle).unwrap();
+        assert!(window.pending_update_rect.is_none());
+        assert!(!window.pending_background_erase);
+        assert!(!window.pending_paint_unobserved);
+        assert_eq!(window.paint_generation, generation + 1);
+        let after = user32.clone();
+        user32.default_paint(owner, handle).unwrap();
+        assert_eq!(user32, after);
+    }
+
     fn created_window_with_small_icon() -> (RuntimeUser32, u32, u32) {
         let mut user32 = RuntimeUser32::default();
         let large_icon = user32.load_shared_icon(resource(101, 3, 0x3000)).unwrap();
@@ -3352,7 +4342,7 @@ mod tests {
 
     fn arrow_cursor() -> RuntimeCursorSource {
         RuntimeCursorSource::SystemPredefined {
-            resource_id: RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
+            resource_id: RuntimeSystemCursorKind::Arrow as u32,
             cursor: RuntimeSystemCursorKind::Arrow,
         }
     }
@@ -3392,12 +4382,14 @@ mod tests {
         window_procedure_rva: u32,
     ) -> RuntimeWindowClassRegistration {
         RuntimeWindowClassRegistration {
+            unicode: false,
             module: RuntimeWindowClassModule {
                 module_id: RuntimeModuleId(1),
                 load_base: GuestAddress(0x1000_0000),
             },
             style,
             window_procedure: RuntimeWindowProcedure {
+                runtime_default: false,
                 module_id: RuntimeModuleId(1),
                 address: GuestAddress(0x1000_0000 + window_procedure_rva),
                 rva: Rva(window_procedure_rva),

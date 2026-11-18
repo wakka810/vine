@@ -10,6 +10,7 @@ vine-shared-memory = { path = "../vine-shared-memory", optional = true }
 encoding_rs.workspace = true
 goblin.workspace = true
 sha2.workspace = true
+ttf-parser.workspace = true
 vine-cpu-profile = { path = "../vine-cpu-profile" }
 
 [features]

@@ -9,7 +9,7 @@ General game compatibility, full-title stability and sustained 60 FPS are unqual
 - Fast is the default. It links the separate Vine-v86 fork and Rust Runtime into one Wasm module with one address-stable guest arena. CPU stores update Rust-owned bytes directly, and ordinary synchronous Win32 calls resume inside Rust. Mapping, callbacks, scheduling and browser/OPFS work retain checked handoffs.
 - Strict retains the separate CPU/Runtime execution path. Execution architecture and x87 numerical mode are independent settings; a frozen comparison CPU can be selected for local measurements. Both execution paths use one CPU Worker and the Rust guest-thread scheduler.
 - The CPU retains exact public instruction budgets, tail-call chaining with GPR passing, bounded short-call/return specialization, same-page RAM-check sharing, direct MMX SIMD and binary64 x87 value runs. The strict x87 path remains available. Approximation does not relax guest memory permissions, ownership or fault handling.
-- Reached Windows behavior includes PE relocation and static DLL loading, API/COM callbacks, threads/events/timers, input, GDI/GDI+/D3D9 presentation, DirectSound/WinMM audio, bounded MPEG decoding and durable save/restart/load fixtures. Unsupported reached behavior stops explicitly.
+- Reached Windows behavior includes PE relocation, static and dynamic DLL loading, API/COM callbacks, threads/events/timers, input, GDI/GDI+ and Direct3D 8/9 presentation, DirectSound/WinMM audio, bounded MPEG decoding and durable save/restart/load fixtures. Unsupported reached behavior stops explicitly.
 
 The CPU revision is pinned in `tools/prepare-v86-adapter.mjs`; a normal checkout
 builds both execution paths without private artifacts. See [DEVELOPMENT.md](DEVELOPMENT.md)
@@ -32,8 +32,13 @@ snapshots and raw traces are retained outside Git.
 
 Fast currently accepts guest addresses below 2 GiB and reserves a little over
 2 GiB of virtual Wasm space while retaining a physical-page quota. Dynamic DLL
-loading beyond the reached static/reuse paths, cyclic imports, general IME/text
-entry and broad Windows compatibility remain incomplete.
+loading supports selected-directory images whose guest dependencies are already
+loaded, with stable import endpoints and process-attach callbacks. Dynamic releases
+retain shared references, call process detach at the final reference, and remove
+the image and its TLS storage. PE TLS templates without callbacks initialize
+separate storage for existing and new guest threads.
+Recursive dependency discovery, nested loads, cascading unload, nonempty TLS callbacks,
+cyclic imports, general IME/text entry and broad Windows compatibility remain incomplete.
 
 ## Preserved independent backend
 

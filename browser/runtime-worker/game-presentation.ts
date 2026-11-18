@@ -1,15 +1,38 @@
 export interface TextureFill {
   left: number; top: number; right: number; bottom: number; colorRef: number;
 }
+export interface FogState {
+  colorArgb: number; start: number; end: number;
+}
+export interface FragmentState {
+  textureAlpha: boolean; diffuseAlpha: boolean; blend: boolean;
+  additive?: boolean; colorAdd?: boolean;
+  alphaTest: {compare: number; reference: number} | null;
+  fog?: FogState | null;
+}
 export interface QuadPresentation {
+  clip?: {left: number; top: number; right: number; bottom: number} | null;
+  fragment?: FragmentState | null;
+  depth?: { write: boolean; compare: number } | null;
   vertices: number[];
-  texture: { width: number; height: number; fills: TextureFill[];
+  sampling?: TextureSampling;
+  texture: { alpha?: boolean; width: number; height: number; fills: TextureFill[];
     pixels: { offset: number; length: number; pitch: number } | null };
 }
+export interface TextureSampling {
+  minFilter: "point" | "linear"; magFilter: "point" | "linear";
+  addressU: "wrap" | "clamp"; addressV: "wrap" | "clamp";
+}
+export const DEFAULT_TEXTURE_SAMPLING: Readonly<TextureSampling> = Object.freeze({
+  minFilter: "linear", magFilter: "linear", addressU: "wrap", addressV: "wrap",
+});
 export interface GamePresentation {
+  preserve?: boolean;
+  depthClears?: {beforeDraw: number; value: number}[];
   width: number;
   height: number;
   colorArgb: number | null;
+  colorClearBeforeDraw?: number;
   draws: QuadPresentation[];
 }
 
@@ -23,24 +46,54 @@ function color(value: number): boolean {
 // Decode the complete Rust snapshot before either renderer changes browser resources.
 export function validatePresentation(frame: GamePresentation, payload: Uint8Array, maximum: number): Float32Array[] {
   if (frame === null || typeof frame !== "object" || !dimension(frame.width) || !dimension(frame.height) ||
+      (frame.preserve !== undefined && typeof frame.preserve !== "boolean") ||
       (frame.colorArgb !== null && !color(frame.colorArgb)) ||
       !Array.isArray(frame.draws) || frame.draws.length > 4096 ||
       !(payload instanceof Uint8Array) || payload.length > 16 * 1024 * 1024) {
     throw new Error("Invalid game presentation");
   }
   if (frame.width > maximum || frame.height > maximum) throw new Error("Game surface exceeds the renderer size limit");
+  const colorClearAt = frame.colorClearBeforeDraw ?? 0;
+  if ((frame.colorClearBeforeDraw !== undefined && !Number.isInteger(frame.colorClearBeforeDraw)) ||
+      colorClearAt < 0 || colorClearAt > frame.draws.length || (frame.colorArgb === null && colorClearAt !== 0)) {
+    throw new Error("Invalid presentation color clear position");
+  }
+  if (frame.depthClears !== undefined && (!Array.isArray(frame.depthClears) || frame.depthClears.length > 4096 || frame.depthClears.some((clear, index, all) => clear === null || typeof clear !== "object" || !Number.isInteger(clear.beforeDraw) || clear.beforeDraw < 0 || clear.beforeDraw > frame.draws.length || index > 0 && clear.beforeDraw < all[index - 1]!.beforeDraw || !Number.isFinite(clear.value) || clear.value < 0 || clear.value > 1))) throw new Error("Invalid presentation depth clears");
   let byteCount = 0, fillCount = 0;
+  const seenSnapshots = new Set<string>();
   // Validate the complete boundary before changing the surface or allocating texture pixels.
   return Array.from(frame.draws, draw => {
     if (draw === null || typeof draw !== "object") throw new Error("Invalid presentation draw");
+    const clip = draw.clip;
+    if (clip !== undefined && clip !== null && (typeof clip !== "object" ||
+        ![clip.left, clip.top, clip.right, clip.bottom].every(Number.isInteger) ||
+        clip.left < 0 || clip.top < 0 || clip.right <= clip.left || clip.bottom <= clip.top ||
+        clip.right > frame.width || clip.bottom > frame.height)) throw new Error("Invalid presentation clip");
+    if (draw.depth !== undefined && draw.depth !== null && (typeof draw.depth !== "object" || typeof draw.depth.write !== "boolean" || !Number.isInteger(draw.depth.compare) || draw.depth.compare < 1 || draw.depth.compare > 8)) throw new Error("Invalid presentation depth state");
+    const fragment = draw.fragment;
+    if (fragment !== undefined && fragment !== null &&
+        (typeof fragment !== "object" || typeof fragment.textureAlpha !== "boolean" ||
+         typeof fragment.diffuseAlpha !== "boolean" || typeof fragment.blend !== "boolean" ||
+         (fragment.additive !== undefined && typeof fragment.additive !== "boolean") ||
+         (fragment.colorAdd !== undefined && typeof fragment.colorAdd !== "boolean") ||
+         fragment.alphaTest !== null && (typeof fragment.alphaTest !== "object" ||
+           !Number.isInteger(fragment.alphaTest.compare) || fragment.alphaTest.compare < 1 || fragment.alphaTest.compare > 8 ||
+           !Number.isInteger(fragment.alphaTest.reference) || fragment.alphaTest.reference < 0 || fragment.alphaTest.reference > 255) ||
+         (fragment.fog !== undefined && fragment.fog !== null && (typeof fragment.fog !== "object" ||
+           !color(fragment.fog.colorArgb) || !Number.isFinite(fragment.fog.start) || !Number.isFinite(fragment.fog.end))))) {
+      throw new Error("Invalid presentation fragment state");
+    }
+    const sampling = draw.sampling;
+    if (sampling !== undefined && (sampling === null || typeof sampling !== "object" ||
+        !["point", "linear"].includes(sampling.minFilter) || !["point", "linear"].includes(sampling.magFilter) ||
+        !["wrap", "clamp"].includes(sampling.addressU) || !["wrap", "clamp"].includes(sampling.addressV))) {
+      throw new Error("Invalid presentation texture sampling");
+    }
     const texture = draw.texture;
     if (texture === null || typeof texture !== "object" || !dimension(texture.width) || !dimension(texture.height) ||
-        texture.width > maximum || texture.height > maximum || !Array.isArray(texture.fills)) {
+        texture.width > maximum || texture.height > maximum || (texture.alpha !== undefined && typeof texture.alpha !== "boolean") || !Array.isArray(texture.fills)) {
       throw new Error("Invalid presentation texture");
     }
-    byteCount += texture.width * texture.height * 4;
-    fillCount += texture.fills.length;
-    if (byteCount > 16 * 1024 * 1024 || fillCount > 16384) throw new Error("Presentation exceeds the upload budget");
     if (texture.pixels !== null) {
       const pixels = texture.pixels;
       if (pixels === undefined || !Number.isSafeInteger(pixels.offset) || pixels.offset < 0 ||
@@ -50,7 +103,18 @@ export function validatePresentation(frame: GamePresentation, payload: Uint8Arra
           pixels.offset > payload.length || pixels.length > payload.length - pixels.offset) {
         throw new Error("Invalid presentation pixel range");
       }
+      const key = texture.fills.length === 0
+        ? `${pixels.offset}:${pixels.length}:${pixels.pitch}:${texture.width}:${texture.height}:${Boolean(texture.alpha)}`
+        : null;
+      if (key === null || !seenSnapshots.has(key)) {
+        if (key !== null) seenSnapshots.add(key);
+        byteCount += texture.width * texture.height * 4;
+      }
+    } else {
+      byteCount += texture.width * texture.height * 4;
     }
+    fillCount += texture.fills.length;
+    if (byteCount > 16 * 1024 * 1024 || fillCount > 16384) throw new Error("Presentation exceeds the upload budget");
     for (const fill of texture.fills) {
       if (fill === null || typeof fill !== "object" || ![fill.left, fill.top, fill.right, fill.bottom].every(Number.isInteger) ||
           fill.left < 0 || fill.top < 0 || fill.right <= fill.left || fill.bottom <= fill.top ||
@@ -103,7 +167,7 @@ export function texturePixels(source: QuadPresentation["texture"], payload: Uint
       let from = y * stride;
       for (let x = 0; x < source.width; x++) {
         const word = input[from++]!;
-        output[target++] = 0xff000000 | (word & 0xff00) | ((word & 255) << 16) | ((word >>> 16) & 255);
+        output[target++] = (source.alpha ? word & 0xff000000 : 0xff000000) | (word & 0xff00) | ((word & 255) << 16) | ((word >>> 16) & 255);
       }
     }
   } else {
@@ -117,6 +181,7 @@ export function texturePixels(source: QuadPresentation["texture"], payload: Uint
           pixels[output] = payload[input + 2]!;
           pixels[output + 1] = payload[input + 1]!;
           pixels[output + 2] = payload[input]!;
+          pixels[output + 3] = source.alpha ? payload[input + 3]! : 255;
         }
       }
     }
@@ -128,6 +193,7 @@ export function texturePixels(source: QuadPresentation["texture"], payload: Uint
         pixels[offset] = fill.colorRef & 255;
         pixels[offset + 1] = fill.colorRef >>> 8 & 255;
         pixels[offset + 2] = fill.colorRef >>> 16 & 255;
+        pixels[offset + 3] = 255;
       }
     }
   }

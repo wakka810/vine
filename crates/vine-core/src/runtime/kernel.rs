@@ -1,5 +1,12 @@
 //! Runtime aggregate root and cross-subsystem transaction coordinator.
 
+#[path = "dynamic_library.rs"]
+mod dynamic_library;
+#[path = "image_tls.rs"]
+mod image_tls;
+use super::RuntimeRect;
+use image_tls::RuntimeImageTls;
+
 #[cfg(test)]
 use super::audio::RuntimeAudioDevice;
 use super::audio::RuntimeAudioDeviceId;
@@ -12,7 +19,7 @@ use crate::com::{ComObjectSpec, InstalledComObject};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::bootstrap::InitialThreadStack;
+use crate::bootstrap::{INITIAL_THREAD_STACK_TOP, InitialThreadStack};
 use crate::callbacks::{
     CALLBACK_SCRATCH_ARENA_BASE, CALLBACK_SCRATCH_ARENA_SIZE, CALLBACK_SCRATCH_SLOT_SIZE,
 };
@@ -24,7 +31,8 @@ use crate::imports::RuntimeExportCatalog;
 use crate::materialize::ImageMaterialization;
 use crate::memory::{
     GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
-    GuestRange, MemoryAccess, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    GuestRange, MemoryAccess, MemoryOwnerId, MemoryOwnerKind, MemoryRegionInfo, MemoryRegionKind,
+    PageProtection,
 };
 use crate::module_graph::{RuntimeModuleClass, RuntimeModuleGraph, RuntimeModuleId};
 use crate::module_images::{
@@ -87,8 +95,8 @@ use super::messages::RuntimeMessageReceiveDisposition;
 use super::messages::{RuntimeMessages, RuntimeThreadMessage};
 use super::modules::{
     RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDllLifecycleRequest,
-    RuntimeGuestImportBinding, RuntimeModule, RuntimeModules, RuntimeSystemExportTable,
-    runtime_module_image_error, runtime_module_image_state_error,
+    RuntimeGuestImportBinding, RuntimeModule, RuntimeModules, runtime_module_image_error,
+    runtime_module_image_state_error,
 };
 use super::objects::{
     RuntimeEvent, RuntimeHandle, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind,
@@ -109,7 +117,7 @@ use super::scheduler::{
 #[cfg(test)]
 use super::synchronization::RuntimeMutex;
 use super::synchronization::RuntimeSynchronization;
-use super::synchronization::{RuntimeCriticalSection, RuntimeMutexId, RuntimeMutexNameA};
+use super::synchronization::{RuntimeCriticalSection, RuntimeMutexId, RuntimeMutexName};
 use super::thread::{
     RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE, RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE,
     RUNTIME_GUEST_THREAD_STACK_ARENA_BASE, RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
@@ -471,6 +479,7 @@ fn callback_scratch_for_depth(
 
 #[derive(Debug)]
 struct PendingOpfsWrite {
+    truncate: bool,
     file_id: super::RuntimeSourceFileId,
     cursor: u64,
     byte_length: u64,
@@ -482,11 +491,13 @@ struct PendingOpfsWrite {
 #[derive(Debug)]
 struct PendingOpfsOpen {
     prepared: RuntimeSourceFileOpen,
+    source_fallback: Option<RuntimeSourceFileOpen>,
     object: RuntimeObjectRegistrationPlan,
     relative_path: String,
     disposition: u32,
     source_missing: u8,
     source_parents: u8,
+    inheritable: bool,
 }
 
 #[derive(Debug)]
@@ -501,6 +512,7 @@ pub struct Runtime {
     process: RuntimeProcessState,
     pub(crate) address_space_allocator: ProcessAddressSpaceAllocator,
     threads: RuntimeThreads,
+    image_tls: RuntimeImageTls,
     pub(crate) pending_api_callbacks: BTreeMap<RuntimeCallbackFrameId, ApiGuestCallbackCall>,
     scheduler: RuntimeScheduler,
     messages: RuntimeMessages,
@@ -516,17 +528,82 @@ pub struct Runtime {
     objects: RuntimeObjectTable,
     com: RuntimeCom,
     pub(crate) direct_show: crate::directshow::RuntimeDirectShow,
+    pub(crate) winmm: crate::winmm::RuntimeWinMm,
+    pub(crate) message_waits: BTreeMap<u64, crate::user32_wait::MessageWait>,
     heaps: RuntimeHeaps,
     files: RuntimeFiles,
     pending_opfs_opens: BTreeMap<u64, PendingOpfsOpen>,
     pending_opfs_writes: BTreeMap<u64, PendingOpfsWrite>,
+    pending_current_directories: BTreeMap<u64, Vec<u8>>,
     pending_message_boxes: BTreeMap<u64, PendingMessageBox>,
+    pending_shell_folders: BTreeMap<u64, (GuestAddress, Vec<MemoryRegionInfo>)>,
+    guid_seed: Option<([u8; 32], u64)>,
     synchronization: RuntimeSynchronization,
     pub(crate) modules: RuntimeModules,
     registries: RuntimeRegistries,
+    pub(crate) registry: super::registry::RuntimeRegistry,
+    pub(crate) global_atoms: super::RuntimeGlobalAtoms,
+    pub(crate) text_layouts: BTreeMap<u64, crate::text_layout::PendingTextLayout>,
 }
 
 impl Runtime {
+    pub(crate) fn is_gdi_stock_brush(&self, handle: u32) -> Result<bool, RuntimeStateError> {
+        Ok(self.gdi.object_option(handle)?.is_some_and(|object| {
+            matches!(
+                object.object,
+                super::gdi::RuntimeGdiObjectKind::StockBrush { .. }
+            )
+        }))
+    }
+    pub(crate) fn process_exit_in_progress(&self) -> bool {
+        self.process.exit_owner.is_some()
+    }
+    pub(crate) fn begin_process_exit(&mut self) {
+        self.process.exit_owner = Some(self.current_thread_id());
+    }
+
+    pub(crate) fn top_level_exception_filter(&self) -> Option<GuestAddress> {
+        self.process.unhandled_exception_filter()
+    }
+    pub(crate) fn system_power_setting(&mut self, index: usize, value: Option<bool>) -> bool {
+        let previous = self.user32.power_settings[index];
+        if let Some(value) = value {
+            self.user32.power_settings[index] = value;
+        }
+        previous
+    }
+    /// The browser supplies process entropy; GUID bytes and sequencing stay in Rust.
+    pub fn configure_guid_seed(&mut self, seed: [u8; 32]) -> Result<(), RuntimeStateError> {
+        if self.guid_seed.is_some() {
+            return Err(RuntimeStateError::new(
+                "process GUID entropy is already configured",
+            ));
+        }
+        self.guid_seed = Some((seed, 0));
+        Ok(())
+    }
+
+    pub(crate) fn create_guid(&mut self) -> Result<[u8; 16], RuntimeStateError> {
+        use sha2::{Digest, Sha256};
+        let (seed, counter) = self.guid_seed.as_mut().ok_or_else(|| {
+            RuntimeStateError::new("GUID creation requires host-supplied process entropy")
+        })?;
+        let next = counter
+            .checked_add(1)
+            .ok_or_else(|| RuntimeStateError::new("GUID counter exhausted"))?;
+        let mut hash = Sha256::new();
+        hash.update(b"Vine/CoCreateGuid/v1\0");
+        hash.update(seed);
+        hash.update(counter.to_le_bytes());
+        let mut bytes: [u8; 16] = hash.finalize()[..16]
+            .try_into()
+            .expect("SHA-256 has 16 bytes");
+        // GUID stores Data3 little-endian; RFC 4122 version/variant bits.
+        bytes[7] = (bytes[7] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        *counter = next;
+        Ok(bytes)
+    }
     pub fn new(
         bootstrap: RuntimeBootstrap,
         memory: GuestMemory,
@@ -613,14 +690,23 @@ impl Runtime {
             objects,
             com: RuntimeCom::default(),
             direct_show: crate::directshow::RuntimeDirectShow::default(),
+            winmm: crate::winmm::RuntimeWinMm::default(),
+            message_waits: BTreeMap::new(),
             heaps: RuntimeHeaps::default(),
             files: RuntimeFiles::default(),
             pending_opfs_opens: BTreeMap::new(),
             pending_opfs_writes: BTreeMap::new(),
+            pending_current_directories: BTreeMap::new(),
             pending_message_boxes: BTreeMap::new(),
+            pending_shell_folders: BTreeMap::new(),
+            guid_seed: None,
+            image_tls: RuntimeImageTls::default(),
             synchronization: RuntimeSynchronization::default(),
             modules: RuntimeModules::default(),
             registries,
+            registry: super::registry::RuntimeRegistry::default(),
+            global_atoms: super::RuntimeGlobalAtoms::default(),
+            text_layouts: BTreeMap::new(),
         })
     }
 
@@ -693,13 +779,18 @@ impl Runtime {
             .threads
             .last_error_mut(self.scheduler.current_thread_id())
             .map_err(|error| crate::api::ApiFault::from_runtime(error, &frame.endpoint))?;
-        crate::api::complete_immediate(
+        let completion = crate::api::complete_immediate(
             &mut self.memory,
             last_error,
             argument_words,
             frame,
             immediate,
-        )
+        )?;
+        if completion.execution_boundary == RuntimeApiBoundaryDisposition::TerminateProcess {
+            self.process
+                .terminate(completion.eax.expect("process exit code"));
+        }
+        Ok(completion)
     }
 
     pub(crate) fn process_id(&self) -> RuntimeProcessId {
@@ -732,8 +823,38 @@ impl Runtime {
         self.input.swap_mouse_buttons(swapped)
     }
 
+    pub(crate) fn mouse_buttons_swapped(&self) -> Result<bool, RuntimeStateError> {
+        self.input.mouse_buttons_swapped()
+    }
+
     pub(crate) fn keyboard_state(&self) -> Option<&RuntimeKeyboardState> {
         self.input.keyboard_state()
+    }
+    pub(crate) fn direct_input_keys(&self) -> Option<[u8; 256]> {
+        self.input.direct_input_keys()
+    }
+    pub(crate) fn direct_input_device(
+        &self,
+        object: RuntimeComObjectId,
+    ) -> Result<&crate::dinput8::KeyboardDevice, RuntimeStateError> {
+        self.input
+            .direct_input
+            .get(&object)
+            .ok_or_else(|| RuntimeStateError::new("DirectInput device is not live"))
+    }
+    pub(crate) fn direct_input_device_mut(
+        &mut self,
+        object: RuntimeComObjectId,
+    ) -> Result<&mut crate::dinput8::KeyboardDevice, RuntimeStateError> {
+        self.input
+            .direct_input
+            .get_mut(&object)
+            .ok_or_else(|| RuntimeStateError::new("DirectInput device is not live"))
+    }
+    pub(crate) fn insert_direct_input_device(&mut self, object: RuntimeComObjectId) {
+        self.input
+            .direct_input
+            .insert(object, crate::dinput8::KeyboardDevice::default());
     }
 
     pub(crate) fn cursor_position(&self) -> Option<&RuntimeCursorPosition> {
@@ -771,7 +892,8 @@ impl Runtime {
             self.input.publish_keyboard_event(event);
             return Ok(());
         }
-        let (window, target_thread_id, target_scheduler_state, _) = self.window_input_target()?;
+        let (window, target_thread_id, target_scheduler_state, _) =
+            self.window_input_target(false)?;
         let cursor = self.input.cursor_position().ok_or_else(|| {
             RuntimeStateError::new("keyboard messages require a configured logical cursor position")
         })?;
@@ -792,6 +914,7 @@ impl Runtime {
         self.input.publish_keyboard_event(event);
         self.messages.push_input(posted);
         if let Some(resumed_state) = resumed_state {
+            self.observe_thread_message_state(target_thread_id);
             self.scheduler
                 .set_validated_state(target_thread_id, resumed_state);
             self.scheduler
@@ -817,7 +940,7 @@ impl Runtime {
         event: RuntimePointerButtonSourceEvent,
     ) -> Result<RuntimeThreadMessage, RuntimeStateError> {
         let (window, target_thread_id, target_scheduler_state, geometry) =
-            self.window_input_target()?;
+            self.window_input_target(true)?;
         let window_handle = window.handle;
         let (_, _, screen_x, screen_y, l_param) =
             pointer_input_coordinates(event.normalized_x, event.normalized_y, geometry)?;
@@ -857,8 +980,10 @@ impl Runtime {
             .transpose()?;
 
         self.input.apply_pointer_button_event(input_update);
+        self.input.publish_pointer_enter(posted.hwnd);
         self.messages.push_input(posted);
         if let Some(resumed_state) = resumed_state {
+            self.observe_thread_message_state(target_thread_id);
             self.scheduler
                 .set_validated_state(target_thread_id, resumed_state);
             self.scheduler
@@ -867,12 +992,69 @@ impl Runtime {
         Ok(posted)
     }
 
+    pub(crate) fn track_mouse_leave(
+        &mut self,
+        handle: u32,
+        cancel: bool,
+    ) -> Result<bool, RuntimeStateError> {
+        let Some(window) = self.window_option(handle)? else {
+            return Ok(false);
+        };
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Ok(false);
+        }
+        let id = window.id;
+        let thread = window.creation.owner_thread_id;
+        if thread != self.current_thread_id() {
+            return Err(RuntimeStateError::new(
+                "mouse tracking requires the window owner thread",
+            ));
+        }
+        let inside = self.input.pointer_window() == Some(handle);
+        if !cancel && !inside {
+            self.post_thread_message(thread, handle, 0x02a3, 0, 0)?;
+        }
+        self.user32.set_mouse_leave_tracking(id, !cancel && inside);
+        Ok(true)
+    }
+
+    pub fn ingest_pointer_leave_event(
+        &mut self,
+        sequence: u64,
+    ) -> Result<Option<RuntimeThreadMessage>, RuntimeStateError> {
+        if !self.process.is_running() {
+            return Err(RuntimeStateError::new(
+                "pointer leave requires a running process",
+            ));
+        }
+        self.input.pointer_position_key_state(sequence)?;
+        let target = self
+            .input
+            .pointer_window()
+            .map(|handle| self.window_option(handle))
+            .transpose()?
+            .flatten()
+            .filter(|window| {
+                window.mouse_leave_tracking && window.lifecycle == RuntimeWindowLifecycle::Created
+            })
+            .map(|window| (window.id, window.handle, window.creation.owner_thread_id));
+        let posted = if let Some((id, handle, thread)) = target {
+            let posted = self.enqueue_thread_message(thread, handle, 0x02a3, 0, 0)?;
+            self.user32.set_mouse_leave_tracking(id, false);
+            Some(posted)
+        } else {
+            None
+        };
+        self.input.publish_pointer_leave(sequence);
+        Ok(posted)
+    }
+
     pub fn ingest_pointer_position_event(
         &mut self,
         event: RuntimePointerPositionSourceEvent,
     ) -> Result<RuntimeThreadMessage, RuntimeStateError> {
         let (window, target_thread_id, target_scheduler_state, geometry) =
-            self.window_input_target()?;
+            self.window_input_target(true)?;
         let (_, _, screen_x, screen_y, l_param) =
             pointer_input_coordinates(event.normalized_x, event.normalized_y, geometry)?;
         let key_state = self.input.pointer_position_key_state(event.sequence)?;
@@ -893,8 +1075,10 @@ impl Runtime {
 
         self.input
             .publish_pointer_position(event.sequence, screen_x, screen_y);
+        self.input.publish_pointer_enter(posted.hwnd);
         self.messages.push_input(posted);
         if let Some(resumed_state) = resumed_state {
+            self.observe_thread_message_state(target_thread_id);
             self.scheduler
                 .set_validated_state(target_thread_id, resumed_state);
             self.scheduler
@@ -905,6 +1089,7 @@ impl Runtime {
 
     fn window_input_target(
         &self,
+        pointer: bool,
     ) -> Result<
         (
             &RuntimeWindow,
@@ -922,6 +1107,9 @@ impl Runtime {
         let window_handle = self.user32.foreground_window_handle()?.ok_or_else(|| {
             RuntimeStateError::new("window input requires a live logical foreground window")
         })?;
+        if pointer {
+            self.user32.validate_pointer_capture_target(window_handle)?;
+        }
         let window = self.user32.window(window_handle)?;
         let target_thread_id = window.creation.owner_thread_id;
         if self
@@ -950,6 +1138,7 @@ impl Runtime {
             || !matches!(
                 target_scheduler_state,
                 SchedulerThreadState::Runnable
+                    | SchedulerThreadState::Suspended { .. }
                     | SchedulerThreadState::WaitingHost { .. }
                     | SchedulerThreadState::WaitingObject { .. }
                     | SchedulerThreadState::WaitingCriticalSection { .. }
@@ -963,6 +1152,22 @@ impl Runtime {
         }
         let geometry = window.creation.geometry;
         Ok((window, target_thread_id, target_scheduler_state, geometry))
+    }
+
+    pub(crate) fn query_key_state(&self, key: u8) -> Result<i16, RuntimeStateError> {
+        self.messages.key_state(self.current_thread_id(), key)
+    }
+
+    pub(crate) fn queue_keyboard_state(&self) -> Result<[u8; 256], RuntimeStateError> {
+        self.messages.keyboard_state(self.current_thread_id())
+    }
+
+    pub(crate) fn set_queue_keyboard_state(
+        &mut self,
+        state: [u8; 256],
+    ) -> Result<(), RuntimeStateError> {
+        self.messages
+            .set_keyboard_state(self.current_thread_id(), state)
     }
 
     pub(crate) fn query_async_key_state(
@@ -1058,7 +1263,6 @@ impl Runtime {
         self.process.image_path_a()
     }
 
-    #[cfg(test)]
     pub(crate) fn current_directory_a(&self) -> &RuntimeCurrentDirectoryA {
         self.process.current_directory_a()
     }
@@ -1074,11 +1278,53 @@ impl Runtime {
         self.process.set_current_directory_a(requested)
     }
 
+    pub(crate) fn set_resolved_current_directory_a(
+        &mut self,
+        resolved_bytes_with_nul: &[u8],
+    ) -> Result<(), RuntimeStateError> {
+        self.process
+            .set_resolved_current_directory_a(resolved_bytes_with_nul)
+    }
+
+    pub(crate) fn record_pending_current_directory(&mut self, request_id: u64, target: Vec<u8>) {
+        self.pending_current_directories.insert(request_id, target);
+    }
+
+    pub fn commit_pending_current_directory(
+        &mut self,
+        request_id: u64,
+        succeeded: bool,
+    ) -> Result<(), RuntimeStateError> {
+        if let Some(target) = self.pending_current_directories.remove(&request_id)
+            && succeeded
+        {
+            self.process.set_resolved_current_directory_a(&target)?;
+        }
+        Ok(())
+    }
+
     pub fn register_source_snapshot(
         &mut self,
         manifest: RuntimeSourceSnapshotManifest,
     ) -> Result<(), RuntimeStateError> {
         self.files.register_snapshot(manifest)
+    }
+
+    pub(crate) fn source_root_path_a(&self) -> Result<Vec<u8>, RuntimeStateError> {
+        self.files.source_root_path()
+    }
+
+    pub(crate) fn is_process_image_path_a(&self, path: &[u8]) -> Result<bool, RuntimeStateError> {
+        self.files.same_path(
+            path,
+            &self.process_image_path_a().bytes_with_nul,
+            &self.process.current_directory_a().bytes_with_nul,
+        )
+    }
+
+    pub(crate) fn full_path_a(&self, path: &[u8]) -> Result<Vec<u8>, RuntimeStateError> {
+        self.files
+            .full_path(path, &self.process.current_directory_a().bytes_with_nul)
     }
 
     #[cfg(test)]
@@ -1115,6 +1361,17 @@ impl Runtime {
     ) -> Result<(), RuntimeStateError> {
         self.require_source_file_operation_state()?;
         self.files.register_source_file(file)
+    }
+
+    pub(crate) fn source_library_relative_path(
+        &self,
+        requested: &[u8],
+    ) -> Result<Vec<u8>, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        self.files.source_library_relative_path(
+            requested,
+            &self.process.current_directory_a().bytes_with_nul,
+        )
     }
 
     pub(crate) fn source_lookup_relative_path(
@@ -1206,6 +1463,122 @@ impl Runtime {
         self.files.register_source_search_batch(parent, entries)
     }
 
+    pub fn register_missing_source_path(
+        &mut self,
+        relative_path_a: &[u8],
+    ) -> Result<(), RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        self.files.register_missing_source_path(relative_path_a)
+    }
+
+    pub fn register_source_directory_listing(
+        &mut self,
+        actual_segments: &[String],
+        names: &[(String, bool)],
+    ) -> Result<(), RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        self.files
+            .register_source_directory_listing(actual_segments, names)
+    }
+
+    pub fn register_opfs_snapshot(
+        &mut self,
+        files: &[String],
+        directories: &[String],
+    ) -> Result<(), RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        self.files.register_opfs_snapshot(files, directories)
+    }
+
+    pub fn record_opfs_file_deleted(&mut self, relative_path: &str) {
+        self.files.record_opfs_file_deleted(relative_path);
+    }
+
+    pub fn record_opfs_directory_created(&mut self, relative_path: &str) {
+        self.files.record_opfs_directory_created(relative_path);
+    }
+
+    pub(crate) fn try_resolve_unshadowed_opfs_stat(&self, relative_path: &str) -> Option<u32> {
+        if self
+            .pending_opfs_opens
+            .values()
+            .any(|pending| pending.relative_path.eq_ignore_ascii_case(relative_path))
+            || self
+                .pending_opfs_writes
+                .values()
+                .any(|pending| pending.relative_path.eq_ignore_ascii_case(relative_path))
+        {
+            return None;
+        }
+        self.files.opfs_unshadowed_observation(relative_path)
+    }
+
+    pub(crate) fn try_resolve_unshadowed_opfs_read_open(
+        &mut self,
+        requested_path: &[u8],
+        desired_access: u32,
+        share_mode: u32,
+        disposition: u32,
+        flags_and_attributes: u32,
+        inheritable: bool,
+    ) -> Result<Option<Result<RuntimeHandle, u32>>, RuntimeStateError> {
+        if desired_access != 0x8000_0000 || disposition != 3 {
+            return Ok(None);
+        }
+        self.require_source_file_operation_state()?;
+        let (_, relative_path, source_missing, _) = match self.files.prepare_opfs_open(
+            requested_path,
+            &self.process.current_directory_a().bytes_with_nul,
+            desired_access,
+            share_mode,
+            flags_and_attributes,
+        ) {
+            Ok(value) => value,
+            Err(error) => return Ok(Some(Err(error))),
+        };
+        if self
+            .pending_opfs_opens
+            .values()
+            .any(|pending| pending.relative_path.eq_ignore_ascii_case(&relative_path))
+            || self
+                .pending_opfs_writes
+                .values()
+                .any(|pending| pending.relative_path.eq_ignore_ascii_case(&relative_path))
+        {
+            return Ok(Some(Err(32)));
+        }
+        if self.files.opfs_is_known_directory(&relative_path) {
+            return Ok(Some(Err(5)));
+        }
+        let Some(stat_obs) = self.files.opfs_unshadowed_observation(&relative_path) else {
+            return Ok(None);
+        };
+        if source_missing == 0 {
+            return match self.open_file_a(
+                requested_path,
+                desired_access,
+                share_mode,
+                3,
+                flags_and_attributes,
+            )? {
+                Ok(Some(handle)) => {
+                    self.set_new_file_handle_inheritable(handle, inheritable);
+                    Ok(Some(Ok(handle)))
+                }
+                Ok(None) => Err(RuntimeStateError::new(
+                    "source fallback no longer matches the checked file open",
+                )),
+                Err(error) => Ok(Some(Err(error))),
+            };
+        }
+        let error = if stat_obs == 3 {
+            2
+        } else {
+            u32::from(source_missing)
+        };
+        Ok(Some(Err(error)))
+    }
+
     pub(crate) fn resolve_file_system_path_a(
         &self,
         requested_path: &[u8],
@@ -1246,6 +1619,14 @@ impl Runtime {
         Ok(Ok(Some(handle)))
     }
 
+    pub(crate) fn set_new_file_handle_inheritable(
+        &mut self,
+        handle: RuntimeHandle,
+        inheritable: bool,
+    ) {
+        self.objects.set_new_handle_inheritable(handle, inheritable);
+    }
+
     pub(crate) fn begin_opfs_file_open(
         &mut self,
         requested_path: &[u8],
@@ -1253,6 +1634,7 @@ impl Runtime {
         share_mode: u32,
         disposition: u32,
         flags_and_attributes: u32,
+        inheritable: bool,
     ) -> Result<Result<crate::api::HostRequest, u32>, RuntimeStateError> {
         self.require_source_file_operation_state()?;
         let (prepared, relative_path, source_missing, source_parents) =
@@ -1282,6 +1664,31 @@ impl Runtime {
             .plan_object_and_handle_registration(RuntimeObjectKey::File {
                 file_id: prepared.file_id().0,
             })?;
+        let source_fallback =
+            if source_missing == 0 && desired_access == 0x8000_0000 && disposition == 3 {
+                match self.files.prepare_open_with_disposition(
+                    requested_path,
+                    &self.process.current_directory_a().bytes_with_nul,
+                    desired_access,
+                    share_mode,
+                    3,
+                    flags_and_attributes,
+                )? {
+                    SourceOpenOutcome::Opened(open) => Some(open),
+                    _ => {
+                        return Err(RuntimeStateError::new(
+                            "source fallback no longer matches the checked file open",
+                        ));
+                    }
+                }
+            } else {
+                None
+            };
+        if source_missing == 0 && desired_access != 0x8000_0000 && disposition != 2 {
+            return Err(RuntimeStateError::new(
+                "preserving a source file on a writable open requires durable copy-on-write",
+            ));
+        }
         let scheduler = self
             .scheduler
             .checked_host_request("browser.opfs-open".to_owned())?;
@@ -1295,11 +1702,13 @@ impl Runtime {
             request.request_id,
             PendingOpfsOpen {
                 prepared,
+                source_fallback,
                 object,
                 relative_path,
                 disposition,
                 source_missing,
                 source_parents,
+                inheritable,
             },
         );
         debug_assert!(previous.is_none());
@@ -1314,7 +1723,7 @@ impl Runtime {
         &self,
         request_id: u64,
         payload: &[u8],
-    ) -> Result<(RuntimeHandle, u32, u8), RuntimeStateError> {
+    ) -> Result<(RuntimeHandle, u32, u8, bool), RuntimeStateError> {
         let pending = self
             .pending_opfs_opens
             .get(&request_id)
@@ -1349,12 +1758,18 @@ impl Runtime {
             pending.object.handle(),
             pending.disposition,
             pending.source_missing,
+            pending.source_fallback.is_some(),
         ))
     }
 
     // Only after the API completion has validated its suspended frame. All
     // fallible scheduler, handle and VFS checks have already run above.
-    pub(crate) fn commit_opfs_file_open(&mut self, request_id: u64, opened: Option<u64>) {
+    pub(crate) fn commit_opfs_file_open(
+        &mut self,
+        request_id: u64,
+        opened: Option<u64>,
+        source_fallback: bool,
+    ) {
         let pending = self
             .pending_opfs_opens
             .remove(&request_id)
@@ -1365,16 +1780,24 @@ impl Runtime {
             .expect("preflighted OPFS host completion");
         self.scheduler.commit_host_completion(scheduler);
         if let Some(byte_length) = opened {
-            self.objects.commit_object_registration(pending.object);
-            self.files
-                .open_validated(pending.prepared.confirmed_opfs(byte_length));
+            let (_, handle) = self.objects.commit_object_registration(pending.object);
+            self.objects
+                .set_new_handle_inheritable(handle, pending.inheritable);
+            let prepared = if source_fallback {
+                pending.source_fallback.expect("validated source fallback")
+            } else {
+                self.files.record_opfs_file_created(&pending.relative_path);
+                pending.prepared.confirmed_opfs(byte_length)
+            };
+            self.files.open_validated(prepared);
         }
     }
 
-    pub(crate) fn find_first_file_a(
+    pub(crate) fn find_first_file(
         &mut self,
         requested_pattern: &[u8],
         output: GuestAddress,
+        unicode: bool,
     ) -> Result<RuntimeFindFirstFileOutcome, RuntimeStateError> {
         self.require_source_file_operation_state()?;
         let search = match self.files.new_file_search(
@@ -1389,7 +1812,7 @@ impl Runtime {
             .entries
             .first()
             .expect("nonempty search results")
-            .encode_find_data_a()?;
+            .encode_find_data(unicode)?;
         self.memory
             .validate_access(output, bytes.len(), MemoryAccess::Write)
             .map_err(RuntimeStateError::from_memory)?;
@@ -1406,17 +1829,18 @@ impl Runtime {
         Ok(RuntimeFindFirstFileOutcome::Found(handle))
     }
 
-    pub(crate) fn find_next_file_a(
+    pub(crate) fn find_next_file(
         &mut self,
         handle: RuntimeHandle,
         output: GuestAddress,
+        unicode: bool,
     ) -> Result<bool, RuntimeStateError> {
         self.require_source_file_operation_state()?;
         let search_id = self.file_search_for_handle(handle)?.id;
         let Some(entry) = self.files.next_file_search_entry(search_id)? else {
             return Ok(false);
         };
-        let bytes = entry.encode_find_data_a()?;
+        let bytes = entry.encode_find_data(unicode)?;
         self.memory
             .validate_access(output, bytes.len(), MemoryAccess::Write)
             .map_err(RuntimeStateError::from_memory)?;
@@ -1509,11 +1933,7 @@ impl Runtime {
     ) -> Result<crate::api::HostRequest, RuntimeStateError> {
         self.require_source_file_operation_state()?;
         let file_id = self.source_file_for_handle(handle)?.id;
-        if self
-            .pending_opfs_writes
-            .values()
-            .any(|pending| pending.file_id == file_id)
-        {
+        if self.opfs_write_pending(handle)? {
             return Err(RuntimeStateError::new(
                 "file cannot read while an OPFS write is pending",
             ));
@@ -1541,6 +1961,23 @@ impl Runtime {
         count: GuestAddress,
         transferred: u32,
     ) -> Result<Result<RuntimeHostRequest, u32>, RuntimeStateError> {
+        self.begin_opfs_mutation(handle, count, transferred, false)
+    }
+
+    pub(crate) fn begin_opfs_truncate(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<Result<RuntimeHostRequest, u32>, RuntimeStateError> {
+        self.begin_opfs_mutation(handle, GuestAddress(0), 0, true)
+    }
+
+    fn begin_opfs_mutation(
+        &mut self,
+        handle: RuntimeHandle,
+        count: GuestAddress,
+        transferred: u32,
+        truncate: bool,
+    ) -> Result<Result<RuntimeHostRequest, u32>, RuntimeStateError> {
         self.require_source_file_operation_state()?;
         let file = self.source_file_for_handle(handle)?;
         let super::RuntimeFileBacking::Opfs { byte_length } = file.backing else {
@@ -1549,11 +1986,7 @@ impl Runtime {
         if file.desired_access & 0x4000_0000 == 0 {
             return Ok(Err(5));
         }
-        if self
-            .pending_opfs_writes
-            .values()
-            .any(|pending| pending.file_id == file.id)
-        {
+        if self.opfs_write_pending(handle)? {
             return Ok(Err(32));
         }
         if file
@@ -1571,6 +2004,7 @@ impl Runtime {
             )
             .map_err(|_| RuntimeStateError::new("open OPFS file path left the selected mount"))?;
         let pending = PendingOpfsWrite {
+            truncate,
             file_id: file.id,
             cursor: file.cursor,
             byte_length,
@@ -1578,9 +2012,14 @@ impl Runtime {
             count,
             relative_path,
         };
-        let scheduler = self
-            .scheduler
-            .checked_host_request("browser.opfs-write".to_owned())?;
+        let scheduler = self.scheduler.checked_host_request(
+            if truncate {
+                "browser.opfs-truncate"
+            } else {
+                "browser.opfs-write"
+            }
+            .to_owned(),
+        )?;
         let request = self.scheduler.publish_host_request(scheduler);
         let previous = self.pending_opfs_writes.insert(request.request_id, pending);
         debug_assert!(previous.is_none());
@@ -1592,10 +2031,17 @@ impl Runtime {
         handle: RuntimeHandle,
     ) -> Result<bool, RuntimeStateError> {
         let file = self.source_file_for_handle(handle)?;
-        Ok(self
-            .pending_opfs_writes
-            .values()
-            .any(|pending| pending.file_id == file.id))
+        for pending in self.pending_opfs_writes.values() {
+            let other = self.files.open_file(pending.file_id)?;
+            if self.files.same_path(
+                &file.normalized_path_a,
+                &other.normalized_path_a,
+                &self.process.current_directory_a().bytes_with_nul,
+            )? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn opfs_write_host_info(
@@ -1624,7 +2070,12 @@ impl Runtime {
             .ok_or_else(|| RuntimeStateError::new("OPFS write request is not pending"))?;
         let scheduler = self.scheduler.validate_host_completion(request_id)?;
         let file = self.files.open_file(pending.file_id)?;
-        if scheduler.service != "browser.opfs-write"
+        if scheduler.service
+            != if pending.truncate {
+                "browser.opfs-truncate"
+            } else {
+                "browser.opfs-write"
+            }
             || payload_bytes != pending.transferred as usize
             || file.cursor != pending.cursor
             || file.backing
@@ -1650,8 +2101,13 @@ impl Runtime {
             .expect("preflighted OPFS completion");
         self.scheduler.commit_host_completion(scheduler);
         if succeeded {
-            self.files
-                .finish_opfs_write(pending.file_id, pending.cursor, pending.transferred);
+            if pending.truncate {
+                self.files
+                    .finish_opfs_truncate(pending.file_id, pending.cursor);
+            } else {
+                self.files
+                    .finish_opfs_write(pending.file_id, pending.cursor, pending.transferred);
+            }
         }
     }
 
@@ -1706,11 +2162,7 @@ impl Runtime {
     ) -> Result<Result<u64, u32>, RuntimeStateError> {
         self.require_source_file_operation_state()?;
         let file_id = self.source_file_for_handle(handle)?.id;
-        if self
-            .pending_opfs_writes
-            .values()
-            .any(|pending| pending.file_id == file_id)
-        {
+        if self.opfs_write_pending(handle)? {
             return Err(RuntimeStateError::new(
                 "file cannot seek while an OPFS write is pending",
             ));
@@ -1764,50 +2216,119 @@ impl Runtime {
         &mut self,
         byte_length: u32,
     ) -> Result<Result<GuestAddress, u32>, RuntimeStateError> {
+        self.allocate_virtual_memory(
+            GuestAddress(0),
+            byte_length,
+            true,
+            false,
+            PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+    }
+
+    pub(crate) fn allocate_virtual_memory(
+        &mut self,
+        preferred: GuestAddress,
+        byte_length: u32,
+        top_down: bool,
+        commit: bool,
+        protection: PageProtection,
+    ) -> Result<Result<GuestAddress, u32>, RuntimeStateError> {
         self.require_virtual_memory_operation_state()?;
         if byte_length == 0 {
             return Ok(Err(87)); // ERROR_INVALID_PARAMETER
         }
+        let (base, length) = if preferred.0 == 0 {
+            (
+                GuestAddress(0x0001_0000),
+                u64::from(byte_length).div_ceil(GUEST_PAGE_SIZE) * GUEST_PAGE_SIZE,
+            )
+        } else {
+            let base = GuestAddress(preferred.0 & !0xffff);
+            let end = (u64::from(preferred.0) + u64::from(byte_length)).div_ceil(GUEST_PAGE_SIZE)
+                * GUEST_PAGE_SIZE;
+            if base.0 < 0x10000 || end > 0x7fff0000 {
+                return Ok(Err(487));
+            }
+            (base, end - u64::from(base.0))
+        };
+        if preferred.0 != 0
+            && self.address_space_allocator.records().any(|record| {
+                u64::from(record.range.base.0) < u64::from(base.0) + length
+                    && u64::from(base.0) < u64::from(record.range.base.0) + record.range.byte_length
+            })
+        {
+            return Ok(Err(487));
+        }
         let address_request = ProcessAddressAllocationRequest {
             purpose: ProcessAddressAllocationPurpose::VirtualMemory,
-            preferred_address: None,
-            search_range: RuntimeAddressRange::new(GuestAddress(0x0001_0000), 0x7ffe_0000)?,
-            reserve_size: u64::from(byte_length),
+            preferred_address: (preferred.0 != 0).then_some(base),
+            search_range: RuntimeAddressRange::new(
+                base,
+                if preferred.0 == 0 {
+                    0x7ffe_0000
+                } else {
+                    length
+                },
+            )?,
+            reserve_size: length,
             alignment: 65_536,
             guard_pages: 0,
             classification: ProcessAddressAllocationClassification::VirtualMemory,
             release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
-            executable: false,
+            executable: commit && protection.execute,
         };
         let memory = &mut self.memory;
-        let reserved = self.address_space_allocator.try_reserve_top_down_with(
-            address_request,
-            |allocation| {
-                let mut transaction = memory.begin_transaction();
-                let memory_owner = match transaction.create_owner(MemoryOwnerKind::Anonymous) {
-                    Ok(owner) => owner,
-                    Err(error) if error.class == GuestMemoryErrorClass::ResourceLimit => {
-                        return Ok(None); // ERROR_NOT_ENOUGH_MEMORY
-                    }
-                    Err(error) => return Err(RuntimeStateError::from_memory(error)),
+        let mut install = |allocation: &ProcessAddressAllocationRecord| {
+            let mut transaction = memory.begin_transaction();
+            let memory_owner = match transaction.create_owner(MemoryOwnerKind::Anonymous) {
+                Ok(owner) => owner,
+                Err(error) if error.class == GuestMemoryErrorClass::ResourceLimit => {
+                    return Ok(None); // ERROR_NOT_ENOUGH_MEMORY
+                }
+                Err(error) => return Err(RuntimeStateError::from_memory(error)),
+            };
+            if let Err(error) = transaction.reserve_fixed_for_address_allocation(
+                allocation.id.0,
+                memory_owner,
+                MemoryRegionKind::Anonymous,
+                allocation.range.base,
+                allocation.range.byte_length,
+            ) {
+                return match error.class {
+                    GuestMemoryErrorClass::ResourceLimit => Ok(None),
+                    _ => Err(RuntimeStateError::from_memory(error)),
                 };
-                if let Err(error) = transaction.reserve_fixed_for_address_allocation(
-                    allocation.id.0,
-                    memory_owner,
-                    MemoryRegionKind::Anonymous,
-                    allocation.range.base,
-                    allocation.range.byte_length,
-                ) {
+            }
+            if commit {
+                let range = GuestRange::new(allocation.range.base, allocation.range.byte_length)
+                    .map_err(RuntimeStateError::from_memory)?;
+                if let Err(error) = transaction.commit(memory_owner, range, protection) {
                     return match error.class {
                         GuestMemoryErrorClass::ResourceLimit => Ok(None),
                         _ => Err(RuntimeStateError::from_memory(error)),
                     };
                 }
-                let address = allocation.range.base;
-                transaction.commit_transaction();
-                Ok(Some(address))
-            },
-        )?;
+            }
+            let address = allocation.range.base;
+            transaction
+                .seal_owner(memory_owner)
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction.commit_transaction();
+            Ok(Some(address))
+        };
+        let reserved = if top_down {
+            self.address_space_allocator
+                .try_reserve_top_down_with(address_request, install)?
+        } else {
+            self.address_space_allocator
+                .try_reserve_batch_with(vec![(None, address_request)], |allocations| {
+                    install(&allocations[0])
+                })?
+        };
         Ok(reserved.ok_or(8)) // ERROR_NOT_ENOUGH_MEMORY
     }
 
@@ -1839,7 +2360,6 @@ impl Runtime {
         };
         if allocation.classification != ProcessAddressAllocationClassification::VirtualMemory
             || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
-            || allocation.executable != protection.execute
         {
             return Err(RuntimeStateError::new(
                 "virtual memory commit resolved to an incompatible process allocation",
@@ -1866,11 +2386,12 @@ impl Runtime {
         drop(matching_region);
         let guest_range = GuestRange::new(committed_range.base, committed_range.byte_length)
             .map_err(RuntimeStateError::from_memory)?;
-        let mut already_committed = false;
+        let mut missing = Vec::<GuestRange>::new();
         for offset in (0..committed_range.byte_length).step_by(GUEST_PAGE_SIZE as usize) {
+            let page_address = GuestAddress((u64::from(committed_range.base.0) + offset) as u32);
             if let Some((owner, _)) = self
                 .memory
-                .committed_page(GuestAddress((u64::from(address.0) + offset) as u32))
+                .committed_page(page_address)
                 .map_err(RuntimeStateError::from_memory)?
             {
                 if owner != region.owner {
@@ -1878,17 +2399,199 @@ impl Runtime {
                         "virtual memory page belongs to a different reservation owner",
                     ));
                 }
-                already_committed = true;
+            } else if let Some(last) = missing
+                .last_mut()
+                .filter(|range| range.end() == u64::from(page_address.0))
+            {
+                *last = GuestRange::new(last.start(), last.byte_length() + GUEST_PAGE_SIZE)
+                    .map_err(RuntimeStateError::from_memory)?;
+            } else {
+                missing.push(
+                    GuestRange::new(page_address, GUEST_PAGE_SIZE)
+                        .map_err(RuntimeStateError::from_memory)?,
+                );
             }
         }
-        if already_committed {
-            return Ok(Err(487)); // ERROR_INVALID_ADDRESS
+        let allocation_id = allocation.id;
+        let executable = allocation.executable || (!missing.is_empty() && protection.execute);
+        let mut transaction = self.memory.begin_transaction();
+        for range in missing {
+            if let Err(error) = transaction.commit(region.owner, range, protection) {
+                return match error.class {
+                    GuestMemoryErrorClass::ResourceLimit => Ok(Err(8)),
+                    _ => Err(RuntimeStateError::from_memory(error)),
+                };
+            }
         }
-        match self.memory.commit(region.owner, guest_range, protection) {
-            Ok(_) => Ok(Ok(committed_range.base)),
-            Err(error) if error.class == GuestMemoryErrorClass::ResourceLimit => Ok(Err(8)),
-            Err(error) => Err(RuntimeStateError::from_memory(error)),
+        self.address_space_allocator
+            .set_validated_virtual_executable(allocation_id, executable);
+        transaction.commit_transaction();
+        Ok(Ok(guest_range.start()))
+    }
+
+    pub(crate) fn protect_virtual_memory(
+        &mut self,
+        address: GuestAddress,
+        byte_length: u32,
+        protection: PageProtection,
+        old_output: GuestAddress,
+    ) -> Result<Result<(), u32>, RuntimeStateError> {
+        self.require_virtual_memory_operation_state()?;
+        self.memory
+            .validate_access(old_output, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        if byte_length == 0 {
+            return Ok(Err(87));
         }
+        let base = GuestAddress(address.0 & !(GUEST_PAGE_SIZE as u32 - 1));
+        let end = (u64::from(address.0) + u64::from(byte_length)).div_ceil(GUEST_PAGE_SIZE)
+            * GUEST_PAGE_SIZE;
+        if end > 1_u64 << 32 {
+            return Ok(Err(487));
+        }
+        let range = GuestRange::new(base, end - u64::from(base.0))
+            .map_err(RuntimeStateError::from_memory)?;
+        let Some(allocation) = self
+            .address_space_allocator
+            .records()
+            .find(|allocation| {
+                allocation.purpose == ProcessAddressAllocationPurpose::VirtualMemory
+                    && allocation.range.base.0 <= base.0
+                    && u64::from(allocation.range.base.0) + allocation.range.byte_length >= end
+            })
+            .cloned()
+        else {
+            return Ok(Err(487));
+        };
+        let mut regions = self
+            .memory
+            .regions()
+            .filter(|region| region.address_allocation_id == Some(allocation.id.0));
+        let region = regions
+            .next()
+            .ok_or_else(|| RuntimeStateError::new("virtual protection has no owned region"))?;
+        if regions.next().is_some()
+            || region.kind != MemoryRegionKind::Anonymous
+            || region.range.start() != allocation.range.base
+            || region.range.byte_length() != allocation.range.byte_length
+        {
+            return Err(RuntimeStateError::new(
+                "virtual protection region differs from its process allocation",
+            ));
+        }
+        drop(regions);
+        let Some((owner, old)) = self
+            .memory
+            .committed_page(base)
+            .map_err(RuntimeStateError::from_memory)?
+        else {
+            return Ok(Err(487));
+        };
+        if owner != region.owner {
+            return Err(RuntimeStateError::new(
+                "virtual protection page has a different owner",
+            ));
+        }
+        for offset in (0..range.byte_length()).step_by(GUEST_PAGE_SIZE as usize) {
+            match self
+                .memory
+                .committed_page(GuestAddress((u64::from(base.0) + offset) as u32))
+                .map_err(RuntimeStateError::from_memory)?
+            {
+                Some((owner, _)) if owner == region.owner => {}
+                None => return Ok(Err(487)),
+                _ => {
+                    return Err(RuntimeStateError::new(
+                        "virtual protection crosses page ownership",
+                    ));
+                }
+            }
+        }
+        let mut executable = protection.execute;
+        if !executable {
+            for offset in (0..allocation.range.byte_length).step_by(GUEST_PAGE_SIZE as usize) {
+                let page = u64::from(allocation.range.base.0) + offset;
+                if page >= u64::from(base.0) && page < end {
+                    continue;
+                }
+                if self
+                    .memory
+                    .committed_page(GuestAddress(page as u32))
+                    .map_err(RuntimeStateError::from_memory)?
+                    .is_some_and(|(_, protection)| protection.execute)
+                {
+                    executable = true;
+                    break;
+                }
+            }
+        }
+        let old_word: u32 = match (old.read, old.write, old.execute) {
+            (_, true, true) => 0x40,
+            (true, false, true) => 0x20,
+            (false, false, true) => 0x10,
+            (_, true, false) => 4,
+            (true, false, false) => 2,
+            (false, false, false) => 1,
+        };
+        let mut transaction = self.memory.begin_transaction();
+        transaction
+            .write(old_output, &old_word.to_le_bytes())
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .protect(region.owner, range, protection)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.address_space_allocator
+            .set_validated_virtual_executable(allocation.id, executable);
+        transaction.commit_transaction();
+        Ok(Ok(()))
+    }
+
+    pub(crate) fn release_virtual_memory(
+        &mut self,
+        address: GuestAddress,
+    ) -> Result<Result<(), u32>, RuntimeStateError> {
+        self.require_virtual_memory_operation_state()?;
+        let Some(allocation) = self
+            .address_space_allocator
+            .records()
+            .find(|allocation| {
+                allocation.purpose == ProcessAddressAllocationPurpose::VirtualMemory
+                    && allocation.range.base == address
+            })
+            .cloned()
+        else {
+            return Ok(Err(487));
+        };
+        self.address_space_allocator
+            .validate_releases(&[allocation.id])?;
+        let mut regions = self
+            .memory
+            .regions()
+            .filter(|region| region.address_allocation_id == Some(allocation.id.0));
+        let region = regions
+            .next()
+            .ok_or_else(|| RuntimeStateError::new("virtual release has no authoritative region"))?;
+        if regions.next().is_some()
+            || region.kind != MemoryRegionKind::Anonymous
+            || region.range.start() != allocation.range.base
+            || region.range.byte_length() != allocation.range.byte_length
+        {
+            return Err(RuntimeStateError::new(
+                "virtual release does not own its complete region",
+            ));
+        }
+        drop(regions);
+        let mut transaction = self.memory.begin_transaction();
+        transaction
+            .release_region(region.owner, region.range.start())
+            .map_err(RuntimeStateError::from_memory)?;
+        transaction
+            .destroy_owner(region.owner)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.address_space_allocator
+            .remove_validated_allocations(vec![allocation.id]);
+        transaction.commit_transaction();
+        Ok(Ok(()))
     }
 
     pub(crate) fn decommit_virtual_memory(
@@ -1918,7 +2621,6 @@ impl Runtime {
         };
         if allocation.classification != ProcessAddressAllocationClassification::VirtualMemory
             || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
-            || allocation.executable
         {
             return Err(RuntimeStateError::new(
                 "virtual memory decommit resolved to an incompatible process allocation",
@@ -1943,13 +2645,12 @@ impl Runtime {
             ));
         }
         drop(matching_region);
-        let guest_range = GuestRange::new(decommitted_range.base, decommitted_range.byte_length)
-            .map_err(RuntimeStateError::from_memory)?;
-        let mut uncommitted = false;
+        let mut committed = Vec::<GuestRange>::new();
         for offset in (0..decommitted_range.byte_length).step_by(GUEST_PAGE_SIZE as usize) {
+            let page = GuestAddress((u64::from(decommitted_range.base.0) + offset) as u32);
             match self
                 .memory
-                .committed_page(GuestAddress((u64::from(address.0) + offset) as u32))
+                .committed_page(page)
                 .map_err(RuntimeStateError::from_memory)?
             {
                 Some((owner, _)) if owner != region.owner => {
@@ -1957,16 +2658,51 @@ impl Runtime {
                         "virtual memory page belongs to a different reservation owner",
                     ));
                 }
-                None => uncommitted = true,
-                Some(_) => {}
+                None => {}
+                Some(_) => {
+                    if let Some(last) = committed
+                        .last_mut()
+                        .filter(|range| range.end() == u64::from(page.0))
+                    {
+                        *last = GuestRange::new(last.start(), last.byte_length() + GUEST_PAGE_SIZE)
+                            .map_err(RuntimeStateError::from_memory)?;
+                    } else {
+                        committed.push(
+                            GuestRange::new(page, GUEST_PAGE_SIZE)
+                                .map_err(RuntimeStateError::from_memory)?,
+                        );
+                    }
+                }
             }
         }
-        if uncommitted {
-            return Ok(Err(487)); // ERROR_INVALID_ADDRESS
+        let mut executable = false;
+        for offset in (0..allocation.range.byte_length).step_by(GUEST_PAGE_SIZE as usize) {
+            let page = u64::from(allocation.range.base.0) + offset;
+            if page >= u64::from(decommitted_range.base.0)
+                && page < u64::from(decommitted_range.base.0) + decommitted_range.byte_length
+            {
+                continue;
+            }
+            if self
+                .memory
+                .committed_page(GuestAddress(page as u32))
+                .map_err(RuntimeStateError::from_memory)?
+                .is_some_and(|(_, protection)| protection.execute)
+            {
+                executable = true;
+                break;
+            }
         }
-        self.memory
-            .decommit(region.owner, guest_range)
-            .map_err(RuntimeStateError::from_memory)?;
+        let allocation_id = allocation.id;
+        let mut transaction = self.memory.begin_transaction();
+        for range in committed {
+            transaction
+                .decommit(region.owner, range)
+                .map_err(RuntimeStateError::from_memory)?;
+        }
+        self.address_space_allocator
+            .set_validated_virtual_executable(allocation_id, executable);
+        transaction.commit_transaction();
         Ok(Ok(()))
     }
 
@@ -1974,19 +2710,20 @@ impl Runtime {
         address: GuestAddress,
         byte_length: u32,
     ) -> Option<RuntimeAddressRange> {
-        if !address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) || byte_length == 0 {
+        if byte_length == 0 {
             return None;
         }
         let page_mask = GUEST_PAGE_SIZE - 1;
-        let rounded_length = u64::from(byte_length)
+        let base = GuestAddress(address.0 & !(GUEST_PAGE_SIZE as u32 - 1));
+        let rounded_end = (u64::from(address.0) + u64::from(byte_length))
             .checked_add(page_mask)
             .map(|value| value & !page_mask)?;
-        if u64::from(address.0).checked_add(rounded_length)? > (1u64 << 32) {
+        if rounded_end > (1u64 << 32) {
             return None;
         }
         Some(RuntimeAddressRange {
-            base: address,
-            byte_length: rounded_length,
+            base,
+            byte_length: rounded_end - u64::from(base.0),
         })
     }
 
@@ -2016,6 +2753,10 @@ impl Runtime {
         self.com.resolve_method(endpoint)
     }
 
+    pub fn is_com_endpoint(&self, endpoint: GuestAddress) -> bool {
+        self.com.has_endpoint(endpoint)
+    }
+
     pub(crate) fn com_interface_for_pointer(
         &self,
         pointer: GuestAddress,
@@ -2038,7 +2779,17 @@ impl Runtime {
         descriptor: super::RuntimeGraphicsVertexBufferDescriptor,
         output_address: GuestAddress,
     ) -> Result<(), RuntimeStateError> {
-        let spec = crate::d3d9::direct3dvertexbuffer9_object_spec();
+        let d3d8 = self.com.object(device_com_object_id)?.class == RuntimeComClass::D3d8Device;
+        let spec = if d3d8 {
+            crate::d3d8::vertex_buffer_spec()
+        } else {
+            crate::d3d9::direct3dvertexbuffer9_object_spec()
+        };
+        let iid = if d3d8 {
+            crate::d3d8::VERTEX_BUFFER8_IID
+        } else {
+            crate::d3d9::D3D9_IDIRECT3DVERTEXBUFFER9_IID
+        };
         crate::com::validate_object_spec(&spec)?;
         self.memory
             .validate_access(output_address, 4, MemoryAccess::Write)
@@ -2147,7 +2898,7 @@ impl Runtime {
                     |object, interfaces| {
                         let output_interface = interfaces
             .iter()
-            .find(|interface| interface.iid == crate::d3d9::D3D9_IDIRECT3DVERTEXBUFFER9_IID)
+            .find(|interface| interface.iid == iid)
             .ok_or_else(|| {
                 RuntimeStateError::new(
                     "installed graphics vertex-buffer object omitted its requested interface",
@@ -2473,6 +3224,9 @@ impl Runtime {
 
     fn retire_com_objects(&mut self, plan: RuntimeComRetirement) {
         let retired_object_ids = plan.com.retired_objects().to_vec();
+        for object in &retired_object_ids {
+            self.input.direct_input.remove(object);
+        }
         self.direct_show.retire_objects(&retired_object_ids);
         self.com.remove_validated_objects(plan.com);
         if let Some(address_space) = plan.address_space {
@@ -2494,20 +3248,108 @@ impl Runtime {
     pub(crate) fn process_environment_strings(
         &self,
     ) -> Result<&RuntimeEnvironmentStrings, RuntimeStateError> {
+        if let Some((heap, block)) = self.process.environment_heap_authority
+            && self.private_heap_allocation_option(heap, block.address)? != Some(block)
+        {
+            return Err(RuntimeStateError::new(
+                "process environment allocation is no longer live",
+            ));
+        }
         self.process.environment_strings()
     }
 
-    pub(crate) fn acquire_environment_strings_w(
+    pub(crate) fn allocate_environment_copy(
         &mut self,
-    ) -> Result<GuestAddress, RuntimeStateError> {
-        self.process.acquire_environment_strings_w()
+        bytes: &[u8],
+        wide: bool,
+    ) -> Result<Option<GuestAddress>, RuntimeStateError> {
+        let heap = self.process_heap()?;
+        let Some(block) = self.allocate_private_heap_block(
+            heap,
+            bytes.len() as u32,
+            RuntimeHeapInitialization::Uninitialized,
+        )?
+        else {
+            return Ok(None);
+        };
+        if let Err(error) = self.memory.write(block.address, bytes) {
+            self.free_private_heap_block(heap, block.address)?;
+            return Err(RuntimeStateError::from_memory(error));
+        }
+        self.process
+            .environment_copies
+            .insert(block.address, (wide, block));
+        Ok(Some(block.address))
     }
 
-    pub(crate) fn free_environment_strings_w(
+    pub(crate) fn free_environment_copy(
         &mut self,
-        buffer_address: GuestAddress,
-    ) -> Result<(), RuntimeStateError> {
-        self.process.free_environment_strings_w(buffer_address)
+        pointer: GuestAddress,
+        wide: bool,
+    ) -> Result<bool, RuntimeStateError> {
+        let Some((encoding, block)) = self.process.environment_copies.get(&pointer).copied() else {
+            return Ok(false);
+        };
+        if encoding != wide {
+            return Ok(false);
+        }
+        let heap = self.process_heap()?;
+        if self.private_heap_allocation_option(heap, pointer)? != Some(block) {
+            return Ok(false);
+        }
+        self.free_private_heap_block(heap, pointer)?;
+        self.process.environment_copies.remove(&pointer);
+        Ok(true)
+    }
+
+    pub(crate) fn replace_environment_strings(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<bool, RuntimeStateError> {
+        let environment = self
+            .process
+            .environment()
+            .ok_or_else(|| RuntimeStateError::new("process environment is absent"))?;
+        let parameters = self
+            .memory
+            .read(GuestAddress(environment.peb_address.0 + 0x10), 4)
+            .map_err(RuntimeStateError::from_memory)?;
+        let pointer = GuestAddress(
+            u32::from_le_bytes(parameters.try_into().unwrap())
+                .checked_add(crate::environment::PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET)
+                .ok_or_else(|| RuntimeStateError::new("process environment pointer overflowed"))?,
+        );
+        self.memory
+            .validate_access(pointer, 4, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.process_environment_strings()?;
+        let heap = self.process_heap()?;
+        let Some(block) = self.allocate_private_heap_block(
+            heap,
+            bytes.len() as u32,
+            RuntimeHeapInitialization::Uninitialized,
+        )?
+        else {
+            return Ok(false);
+        };
+        if let Err(error) = self.memory.write(block.address, bytes) {
+            self.free_private_heap_block(heap, block.address)?;
+            return Err(RuntimeStateError::from_memory(error));
+        }
+        self.memory
+            .write(pointer, &block.address.0.to_le_bytes())
+            .map_err(RuntimeStateError::from_memory)?;
+        let authority = self.process.environment_strings_mut()?;
+        authority.authority_buffer_address = block.address;
+        authority.byte_length_with_double_nul = bytes.len() as u32;
+        if let Some(old) = self
+            .process
+            .environment_heap_authority
+            .replace((heap, block))
+        {
+            self.free_private_heap_block(old.0, old.1.address)?;
+        }
+        Ok(true)
     }
 
     pub fn current_thread_id(&self) -> RuntimeThreadId {
@@ -2640,6 +3482,78 @@ impl Runtime {
         })
     }
 
+    pub fn install_initial_thread_stack(
+        &mut self,
+        entry_return: &crate::callbacks::ProcessEntryReturnSentinel,
+        reserve_size: u64,
+        commit_size: u64,
+    ) -> Result<InitialThreadStack, RuntimeStateError> {
+        let thread_id = self.current_thread_id();
+        let thread = self.thread_state(thread_id)?;
+        if !matches!(
+            thread.lifecycle,
+            RuntimeThreadLifecycleState::Initialized | RuntimeThreadLifecycleState::Running
+        ) || thread.stack.is_some()
+        {
+            return Err(RuntimeStateError::new(
+                "initial thread stack requires a live thread without a stack",
+            ));
+        }
+        if reserve_size == 0
+            || commit_size == 0
+            || commit_size > reserve_size
+            || !reserve_size.is_multiple_of(GUEST_PAGE_SIZE)
+            || !commit_size.is_multiple_of(GUEST_PAGE_SIZE)
+        {
+            return Err(RuntimeStateError::new(
+                "initial stack sizes must be page aligned and nonzero with commit no larger than reserve",
+            ));
+        }
+        let guard_pages = u32::from(commit_size < reserve_size);
+        let preferred_address = u64::from(INITIAL_THREAD_STACK_TOP.0)
+            .checked_sub(reserve_size)
+            .filter(|base| *base >= 0x1_0000)
+            .map(|base| GuestAddress(base as u32));
+        let memory = &mut self.memory;
+        let threads = &mut self.threads;
+        self.address_space_allocator.reserve_with(
+            ProcessAddressAllocationRequest {
+                purpose: ProcessAddressAllocationPurpose::ThreadStack,
+                preferred_address,
+                // Keep the stack below the control/TEB band and inside the Fast arena.
+                search_range: RuntimeAddressRange::new(GuestAddress(0x1_0000), 0x7eff_0000)?,
+                reserve_size: reserve_size - u64::from(guard_pages) * GUEST_PAGE_SIZE,
+                alignment: GUEST_PAGE_SIZE as u32,
+                guard_pages,
+                classification: ProcessAddressAllocationClassification::Stack,
+                release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+                executable: false,
+            },
+            |allocation| {
+                let stack_top = GuestAddress(
+                    u32::try_from(allocation.range.end_exclusive()?).map_err(|_| {
+                        RuntimeStateError::new("initial stack top exceeds the x86 address space")
+                    })?,
+                );
+                let stack = crate::bootstrap::install_initial_thread_stack_at(
+                    memory,
+                    entry_return,
+                    reserve_size,
+                    commit_size,
+                    stack_top,
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+                threads
+                    .register_stack(
+                        thread_id,
+                        registered_initial_thread_stack(thread_id, &stack, allocation.id),
+                    )
+                    .expect("thread availability was validated before stack installation");
+                Ok(stack)
+            },
+        )
+    }
+
     pub fn register_initial_thread_stack(
         &mut self,
         stack: &InitialThreadStack,
@@ -2699,24 +3613,7 @@ impl Runtime {
         // The search range equals the page-aligned reservation size, so a successful
         // reservation has exactly one possible range.
         assert_eq!(allocation.range, reserved_range);
-        let registered = RuntimeThreadStack {
-            thread_id,
-            address_allocation_id: allocation.id,
-            memory_owner: stack.owner,
-            reserved_range: stack.stack_range,
-            committed_range: stack.committed_range,
-            initial_commit_bytes: stack.committed_range.byte_length(),
-            guard_page: stack.guard_page,
-            stack_top: GuestAddress(
-                stack
-                    .initial_esp
-                    .0
-                    .checked_add(4)
-                    .expect("validated initial stack top"),
-            ),
-            initial_stack_pointer: stack.initial_esp,
-            return_sentinel: stack.entry_return_address,
-        };
+        let registered = registered_initial_thread_stack(thread_id, stack, allocation.id);
         self.threads.register_stack(thread_id, registered).expect(
             "thread availability and constructed stack identity were validated before reservation",
         );
@@ -2943,8 +3840,37 @@ impl Runtime {
     ) -> Result<&RuntimeModuleImage, RuntimeModuleImageError> {
         self.module(handle)
             .map_err(runtime_module_image_state_error)?;
-        self.modules
-            .register_image(&self.memory, handle, loader, materialization)
+        if loader.tls.is_none() {
+            return self
+                .modules
+                .register_image(&self.memory, handle, loader, materialization);
+        }
+        let tebs = self
+            .image_tls_tebs()
+            .map_err(runtime_module_image_state_error)?;
+        let mut modules = self.modules.clone();
+        let mut tls = self.image_tls.clone();
+        let mut allocator = self.address_space_allocator.clone();
+        let mut memory = self.memory.begin_transaction();
+        modules.register_image(&memory, handle, loader, materialization)?;
+        tls.register_module(
+            &mut memory,
+            &mut allocator,
+            handle,
+            loader,
+            materialization,
+            &tebs,
+        )
+        .map_err(runtime_module_image_state_error)?;
+        memory.commit_transaction();
+        self.modules = modules;
+        self.image_tls = tls;
+        self.address_space_allocator = allocator;
+        let id = self
+            .modules
+            .module_id_by_handle(handle)
+            .map_err(runtime_module_image_state_error)?;
+        self.modules.images().image(id)
     }
 
     pub fn bind_guest_module_imports(
@@ -2975,11 +3901,18 @@ impl Runtime {
         let command_line =
             crate::environment::preflight_process_environment(&self.memory, command_line)
                 .map_err(RuntimeStateError::from_memory)?;
+        let mut requests = vec![(
+            None,
+            crate::environment::controlled_process_environment_allocation_request(),
+        )];
+        requests.extend(self.image_tls.thread_requests()?);
+        let thread_id = self.current_thread_id();
+        let image_tls = &mut self.image_tls;
         let memory = &mut self.memory;
         let process = &mut self.process;
-        self.address_space_allocator.reserve_with(
-            crate::environment::controlled_process_environment_allocation_request(),
-            |allocation| {
+        self.address_space_allocator
+            .reserve_batch_with(requests, |allocations| {
+                let allocation = &allocations[0];
                 let mut transaction = memory.begin_transaction();
                 let environment =
                     crate::environment::install_controlled_process_environment_transaction(
@@ -2995,6 +3928,10 @@ impl Runtime {
                     command_line: RuntimeCommandLine {
                         ansi_buffer_address: parameters.ansi.buffer_address,
                         ansi_byte_length_with_nul: parameters.ansi.byte_length_with_nul,
+                        wide_buffer_address: parameters.command_line_buffer_address,
+                        wide_byte_length_with_nul: u32::from(
+                            parameters.command_line_maximum_length_bytes,
+                        ),
                     },
                     environment_strings: RuntimeEnvironmentStrings {
                         authority_buffer_address: parameters
@@ -3007,11 +3944,16 @@ impl Runtime {
                         copy_active: false,
                     },
                 };
+                let tls = image_tls.initialize_thread(
+                    &mut transaction,
+                    &allocations[1..],
+                    environment.teb_address,
+                )?;
                 process.install_environment(process_environment);
+                image_tls.publish_thread(thread_id, tls);
                 transaction.commit_transaction();
                 Ok(environment)
-            },
-        )
+            })
     }
 
     #[cfg(test)]
@@ -3021,7 +3963,10 @@ impl Runtime {
         self.modules.bindings()
     }
 
-    pub(crate) fn runtime_system_exports(&self) -> Option<&RuntimeSystemExportTable> {
+    #[cfg(test)]
+    pub(crate) fn runtime_system_exports(
+        &self,
+    ) -> Option<&super::modules::RuntimeSystemExportTable> {
         self.modules.runtime_system_exports()
     }
 
@@ -3030,6 +3975,38 @@ impl Runtime {
         self.objects.handle_for_object(&RuntimeObjectKey::Process {
             process_id: self.process.id().0,
         })
+    }
+
+    pub(crate) fn open_process_query_handle(
+        &mut self,
+        process_id: u32,
+    ) -> Result<Option<RuntimeHandle>, RuntimeStateError> {
+        if process_id != self.process.id().0 {
+            return Ok(None);
+        }
+        self.objects
+            .open_handle(&RuntimeObjectKey::Process { process_id })
+            .map(Some)
+    }
+
+    pub(crate) fn is_current_process_query_handle(
+        &self,
+        handle: RuntimeHandle,
+    ) -> Result<bool, RuntimeStateError> {
+        if handle.0 == u32::MAX {
+            return Ok(true);
+        }
+        let Some(record) = self
+            .objects
+            .live_object_for_handle(handle, RuntimeObjectKind::Process)?
+        else {
+            return Ok(false);
+        };
+        // OpenProcess currently publishes only handles with process query access.
+        Ok(record.key
+            == RuntimeObjectKey::Process {
+                process_id: self.process.id().0,
+            })
     }
 
     #[cfg(test)]
@@ -3365,6 +4342,11 @@ impl Runtime {
             .initialize_com_apartment(self.current_thread_id(), model)
     }
 
+    pub(crate) fn uninitialize_current_com_apartment(&mut self) -> Result<(), RuntimeStateError> {
+        self.threads
+            .uninitialize_com_apartment(self.current_thread_id())
+    }
+
     #[cfg(test)]
     pub(crate) fn thread_priority(
         &self,
@@ -3398,6 +4380,23 @@ impl Runtime {
             return Ok(Err(ERROR_INVALID_PARAMETER));
         }
         Ok(Ok(PROCESS_MASK))
+    }
+
+    pub(crate) fn thread_priority_for_handle(
+        &self,
+        handle: RuntimeHandle,
+    ) -> Result<Option<RuntimeThreadPriority>, RuntimeStateError> {
+        let Some(object) = self.thread_object_for_handle(handle)? else {
+            return Ok(None);
+        };
+        let RuntimeObjectKey::Thread { thread_id } = object.key else {
+            return Err(RuntimeStateError::new(
+                "priority query resolved to a different object identity",
+            ));
+        };
+        self.threads
+            .effective_priority(RuntimeThreadId(thread_id))
+            .map(Some)
     }
 
     pub(crate) fn set_thread_priority(
@@ -3536,6 +4535,28 @@ impl Runtime {
         self.create_guest_thread_inner(request)
     }
 
+    pub(crate) fn create_multimedia_timer_thread(
+        &mut self,
+        request: RuntimeCreateThreadRequest,
+        owner: MemoryOwnerId,
+        allocation: ProcessAddressAllocationId,
+    ) -> Result<Option<(RuntimeThreadId, RuntimeHandle)>, RuntimeStateError> {
+        let record = self.address_space_allocator.allocation(allocation)?;
+        if record.purpose != ProcessAddressAllocationPurpose::MultimediaTimer
+            || record.range.base != request.entry_point
+            || request.parameter != request.entry_point.0 + 4096
+            || request.thread_id_output.is_some()
+        {
+            return Err(RuntimeStateError::new(
+                "timer thread does not match its owned code and cancellation word",
+            ));
+        }
+        self.memory
+            .validate_owned_host_execute(owner, request.entry_point, 1)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.create_guest_thread_inner(request)
+    }
+
     fn create_guest_thread_inner(
         &mut self,
         request: RuntimeCreateThreadRequest,
@@ -3593,49 +4614,56 @@ impl Runtime {
         let messages = &mut self.messages;
         let objects = &mut self.objects;
         let process_id = self.process.id();
-        self.address_space_allocator.try_reserve_batch_with(
-            vec![
-                (
-                    None,
-                    ProcessAddressAllocationRequest {
-                        purpose: ProcessAddressAllocationPurpose::ThreadStack,
+        let image_tls = &mut self.image_tls;
+        let mut requests = vec![
+            (
+                None,
+                ProcessAddressAllocationRequest {
+                    purpose: ProcessAddressAllocationPurpose::ThreadStack,
 
-                        preferred_address: None,
-                        search_range: RuntimeAddressRange::new(
-                            RUNTIME_GUEST_THREAD_STACK_ARENA_BASE,
-                            RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
-                        )?,
-                        reserve_size: stack_usable_bytes,
-                        alignment: GUEST_PAGE_SIZE as u32,
-                        guard_pages,
-                        classification: ProcessAddressAllocationClassification::Stack,
+                    preferred_address: None,
+                    search_range: RuntimeAddressRange::new(
+                        RUNTIME_GUEST_THREAD_STACK_ARENA_BASE,
+                        RUNTIME_GUEST_THREAD_STACK_ARENA_SIZE,
+                    )?,
+                    reserve_size: stack_usable_bytes,
+                    alignment: GUEST_PAGE_SIZE as u32,
+                    guard_pages,
+                    classification: ProcessAddressAllocationClassification::Stack,
 
-                        release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
-                        executable: false,
-                    },
-                ),
-                (
-                    None,
-                    ProcessAddressAllocationRequest {
-                        purpose: ProcessAddressAllocationPurpose::ThreadEnvironment,
+                    release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+                    executable: false,
+                },
+            ),
+            (
+                None,
+                ProcessAddressAllocationRequest {
+                    purpose: ProcessAddressAllocationPurpose::ThreadEnvironment,
 
-                        preferred_address: None,
-                        search_range: RuntimeAddressRange::new(
-                            RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE,
-                            RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE,
-                        )?,
-                        reserve_size: GUEST_PAGE_SIZE,
-                        alignment: GUEST_PAGE_SIZE as u32,
-                        guard_pages: 0,
-                        classification: ProcessAddressAllocationClassification::ProcessEnvironment,
+                    preferred_address: None,
+                    search_range: RuntimeAddressRange::new(
+                        RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_BASE,
+                        RUNTIME_GUEST_THREAD_ENVIRONMENT_ARENA_SIZE,
+                    )?,
+                    reserve_size: GUEST_PAGE_SIZE,
+                    alignment: GUEST_PAGE_SIZE as u32,
+                    guard_pages: 0,
+                    classification: ProcessAddressAllocationClassification::ProcessEnvironment,
 
-                        release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
-                        executable: false,
-                    },
-                ),
-            ],
-            |allocations| {
-                let [stack_allocation, environment_allocation] = allocations else {
+                    release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
+                    executable: false,
+                },
+            ),
+        ];
+        requests.extend(image_tls.thread_requests()?);
+        self.address_space_allocator
+            .try_reserve_batch_with(requests, |allocations| {
+                let [
+                    stack_allocation,
+                    environment_allocation,
+                    tls_allocations @ ..,
+                ] = allocations
+                else {
                     return Err(RuntimeStateError::new(
                         "guest thread address plan did not contain stack and TEB allocations",
                     ));
@@ -3812,6 +4840,8 @@ impl Runtime {
                     .seal_owner(environment_owner)
                     .map_err(RuntimeStateError::from_memory)?;
 
+                let tls =
+                    image_tls.initialize_thread(&mut transaction, tls_allocations, teb_address)?;
                 let stack = RuntimeThreadStack {
                     thread_id,
                     address_allocation_id: stack_allocation.id,
@@ -3864,14 +4894,14 @@ impl Runtime {
                     return Ok(None);
                 };
 
+                image_tls.publish_thread(thread_id, tls);
                 threads.register_guest(thread_id, 0, stack, environment, bootstrap);
                 scheduler.register(thread_id, scheduler_state);
                 messages.register(thread_id);
                 transaction.commit_transaction();
 
                 Ok(Some((thread_id, handle)))
-            },
-        )
+            })
     }
 
     pub(crate) fn resume_thread(
@@ -3894,6 +4924,25 @@ impl Runtime {
         self.scheduler.resume_thread(thread_id)
     }
 
+    pub(crate) fn suspend_thread(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<Result<u32, u32>, RuntimeStateError> {
+        let Some(object) = self.thread_object_for_handle(handle)? else {
+            return Ok(Err(6));
+        };
+        let RuntimeObjectKey::Thread { thread_id } = object.key else {
+            return Err(RuntimeStateError::new(
+                "thread handle resolved to a different object identity",
+            ));
+        };
+        let thread_id = RuntimeThreadId(thread_id);
+        if self.threads.state(thread_id)?.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Ok(Err(5));
+        }
+        self.scheduler.suspend_thread(thread_id)
+    }
+
     pub fn select_thread(&mut self, thread_id: RuntimeThreadId) -> Result<(), RuntimeStateError> {
         if !self.process.is_running() {
             return Err(RuntimeStateError::new(
@@ -3906,6 +4955,7 @@ impl Runtime {
             || !matches!(
                 scheduler_state,
                 SchedulerThreadState::Runnable
+                    | SchedulerThreadState::Suspended { .. }
                     | SchedulerThreadState::WaitingHost { .. }
                     | SchedulerThreadState::WaitingObject { .. }
                     | SchedulerThreadState::WaitingCriticalSection { .. }
@@ -3935,6 +4985,23 @@ impl Runtime {
             return Err(RuntimeStateError::new(
                 "thread selection requires a running process",
             ));
+        }
+        let mut wake = Vec::new();
+        for (&thread_id, &state) in self.scheduler.thread_states() {
+            if state == SchedulerThreadState::WaitingMessage
+                && self.has_new_thread_message(thread_id)?
+            {
+                wake.push((
+                    thread_id,
+                    self.resumed_execution_state_for_thread(thread_id)?,
+                ));
+            }
+        }
+        for (thread_id, state) in wake {
+            self.observe_thread_message_state(thread_id);
+            self.scheduler.set_validated_state(thread_id, state);
+            self.scheduler
+                .commit_event(RuntimeSchedulerEvent::MessageReady(thread_id));
         }
         let Some((thread_id, _)) = self.preferred_executable_thread(true)? else {
             return Ok(None);
@@ -3972,7 +5039,11 @@ impl Runtime {
         &mut self,
         disposition: RuntimeApiBoundaryDisposition,
     ) -> Result<Option<RuntimeThreadId>, RuntimeStateError> {
-        if disposition == RuntimeApiBoundaryDisposition::TerminateCurrentThread {
+        if matches!(
+            disposition,
+            RuntimeApiBoundaryDisposition::TerminateCurrentThread
+                | RuntimeApiBoundaryDisposition::TerminateProcess
+        ) {
             return Err(RuntimeStateError::new(
                 "a terminating API boundary must commit through the thread lifecycle owner",
             ));
@@ -4014,7 +5085,11 @@ impl Runtime {
             (RuntimeApiBoundaryDisposition::BlockCurrentThread, Some((thread_id, _))) => {
                 (Some(thread_id), false)
             }
-            (RuntimeApiBoundaryDisposition::TerminateCurrentThread, _) => unreachable!(),
+            (
+                RuntimeApiBoundaryDisposition::TerminateCurrentThread
+                | RuntimeApiBoundaryDisposition::TerminateProcess,
+                _,
+            ) => unreachable!(),
         };
         if let Some(thread_id) = competitor {
             let state = self.scheduler_state_for_thread(thread_id)?;
@@ -4042,6 +5117,15 @@ impl Runtime {
         &self,
         include_current: bool,
     ) -> Result<Option<(RuntimeThreadId, RuntimeThreadPriority)>, RuntimeStateError> {
+        if let Some(owner) = self.process.exit_owner {
+            return Ok(
+                if include_current && self.scheduler_state_for_thread(owner)?.is_executable() {
+                    Some((owner, self.threads.effective_priority(owner)?))
+                } else {
+                    None
+                },
+            );
+        }
         let thread_states = self.scheduler.thread_states();
         let current_thread_id = self.current_thread_id();
         if !thread_states.contains_key(&current_thread_id) {
@@ -4326,6 +5410,20 @@ impl Runtime {
                 "message post requires a running process and executing source thread",
             ));
         }
+        self.enqueue_thread_message(target_thread_id, hwnd, message, w_param, l_param)
+    }
+
+    // System input can arrive while the selected guest thread is waiting. Only
+    // guest PostMessage requires an executing caller; both paths validate the
+    // destination, queue capacity and wakeup before publishing the message.
+    fn enqueue_thread_message(
+        &mut self,
+        target_thread_id: RuntimeThreadId,
+        hwnd: u32,
+        message: u32,
+        w_param: u32,
+        l_param: u32,
+    ) -> Result<RuntimeThreadMessage, RuntimeStateError> {
         let cursor = self.input.cursor_position().ok_or_else(|| {
             RuntimeStateError::new(
                 "message posting requires a configured logical cursor position for MSG metadata",
@@ -4340,6 +5438,7 @@ impl Runtime {
             || !matches!(
                 target_scheduler_state,
                 SchedulerThreadState::Runnable
+                    | SchedulerThreadState::Suspended { .. }
                     | SchedulerThreadState::WaitingHost { .. }
                     | SchedulerThreadState::WaitingObject { .. }
                     | SchedulerThreadState::WaitingCriticalSection { .. }
@@ -4367,6 +5466,7 @@ impl Runtime {
             .transpose()?;
         self.messages.push(posted);
         if let Some(resumed_state) = resumed_state {
+            self.observe_thread_message_state(target_thread_id);
             self.scheduler
                 .set_validated_state(target_thread_id, resumed_state);
             self.scheduler
@@ -4380,8 +5480,122 @@ impl Runtime {
         flags: u32,
     ) -> Result<u32, RuntimeStateError> {
         self.require_user32_operation_state()?;
-        self.messages
-            .get_queue_status(self.current_thread_id(), flags)
+        self.message_wait_queue_status(flags, true)
+    }
+
+    pub(crate) fn message_wait_queue_status(
+        &mut self,
+        flags: u32,
+        observe: bool,
+    ) -> Result<u32, RuntimeStateError> {
+        let thread_id = self.current_thread_id();
+        let mut status = if observe {
+            self.messages.get_queue_status(thread_id, flags)?
+        } else {
+            self.messages.peek_queue_status(thread_id, flags)?
+        };
+        if flags & 0x20 != 0 {
+            if self.user32.pending_paint_window(thread_id, false).is_some() {
+                status |= 0x0020_0000;
+            }
+            if self.user32.pending_paint_window(thread_id, true).is_some() {
+                status |= 0x20;
+            }
+            if observe {
+                self.user32.observe_paint(thread_id);
+            }
+        }
+        if flags & 0x10 != 0 {
+            let clock = self.process.timer_time_100ns();
+            for timer in self.timers.window_timers().values() {
+                if timer.owner_thread_id == thread_id && timer.next_deadline_time_100ns <= clock {
+                    status |= 0x0010_0000;
+                    if !timer.message_observed {
+                        status |= 0x10;
+                    }
+                }
+            }
+            if observe {
+                self.timers.observe_window_timers(thread_id, clock);
+            }
+        }
+        Ok(status)
+    }
+
+    fn has_new_thread_message(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<bool, RuntimeStateError> {
+        Ok(self.messages.has_new(thread_id)?
+            || self.user32.pending_paint_window(thread_id, true).is_some()
+            || self.timers.window_timers().values().any(|timer| {
+                timer.owner_thread_id == thread_id
+                    && !timer.message_observed
+                    && timer.next_deadline_time_100ns <= self.process.timer_time_100ns()
+            }))
+    }
+
+    fn observe_thread_message_state(&mut self, thread_id: RuntimeThreadId) {
+        self.messages.observe_unfiltered(thread_id);
+        self.user32.observe_paint(thread_id);
+        self.timers
+            .observe_window_timers(thread_id, self.process.timer_time_100ns());
+    }
+
+    fn observe_thread_message_filter(
+        &mut self,
+        thread_id: RuntimeThreadId,
+        filter: super::RuntimeMessageFilter,
+    ) {
+        self.messages.observe_filtered(thread_id, filter);
+        if filter.includes_message(0x000f) {
+            self.user32.observe_paint(thread_id);
+        }
+        if filter.includes_message(0x0113) {
+            self.timers
+                .observe_window_timers(thread_id, self.process.timer_time_100ns());
+        }
+    }
+
+    /// WaitMessage observes new arrivals without removing previously inspected messages.
+    pub(crate) fn wait_for_current_thread_message(&mut self) -> Result<bool, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let thread_id = self.current_thread_id();
+        let ready = self.has_new_thread_message(thread_id)?;
+        self.observe_thread_message_state(thread_id);
+        if !ready {
+            self.scheduler
+                .set_validated_state(thread_id, SchedulerThreadState::WaitingMessage);
+        }
+        Ok(ready)
+    }
+
+    /// Browser pacing for idle message waiters; all timer and thread state stays in Rust.
+    pub fn message_wait_status(&self) -> (bool, Option<u32>) {
+        let mut pending = false;
+        let mut deadline = None;
+        for (&thread_id, &state) in self.scheduler.thread_states() {
+            if state != SchedulerThreadState::WaitingMessage {
+                continue;
+            }
+            pending = true;
+            for timer in self.timers.window_timers().values() {
+                if timer.owner_thread_id == thread_id && !timer.message_observed {
+                    deadline = Some(deadline.map_or(timer.next_deadline_time_100ns, |old: u64| {
+                        old.min(timer.next_deadline_time_100ns)
+                    }));
+                }
+            }
+        }
+        (
+            pending,
+            deadline.map(|deadline| {
+                deadline
+                    .saturating_sub(self.process.timer_time_100ns())
+                    .div_ceil(10_000)
+                    .min(0x7fff_ffff) as u32
+            }),
+        )
     }
 
     #[cfg(test)]
@@ -4412,6 +5626,7 @@ impl Runtime {
         &mut self,
         output: GuestAddress,
         remove: bool,
+        filter: super::RuntimeMessageFilter,
     ) -> Result<bool, RuntimeStateError> {
         let scheduler_state = self.scheduler_state()?;
         if !self.process.is_running()
@@ -4425,10 +5640,46 @@ impl Runtime {
         }
         let thread_id = self.current_thread_id();
         let timer_clock = self.process.timer_time_100ns();
-        if self.messages.is_empty(thread_id)?
-            && let Some(timer) = self
-                .timers
-                .preview_due_window_timer_delivery(thread_id, timer_clock)?
+        let queued = self.messages.find(thread_id, filter)?;
+        if queued.is_none()
+            && let Some(window) = self
+                .user32
+                .pending_paint_window_filtered(thread_id, false, filter)
+        {
+            let cursor = self.input.cursor_position().ok_or_else(|| {
+                RuntimeStateError::new(
+                    "paint message delivery requires a configured logical cursor",
+                )
+            })?;
+            let message = RuntimeThreadMessage {
+                target_thread_id: thread_id,
+                hwnd: window.handle,
+                message: 0x000f,
+                w_param: 0,
+                l_param: 0,
+                time: self.process.clock().tick_count,
+                point_x: cursor.screen_x,
+                point_y: cursor.screen_y,
+            };
+            let bytes = message.to_x86_msg_bytes();
+            self.memory
+                .validate_access(output, bytes.len(), MemoryAccess::Write)
+                .map_err(RuntimeStateError::from_memory)?;
+            let mut transaction = self.memory.begin_transaction();
+            transaction
+                .write(output, &bytes)
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction.commit_transaction();
+            // PM_REMOVE does not validate the update region; BeginPaint does.
+            self.observe_thread_message_filter(thread_id, filter);
+            return Ok(true);
+        }
+        if queued.is_none()
+            && let Some(timer) = self.timers.preview_due_window_timer_delivery_filtered(
+                thread_id,
+                timer_clock,
+                filter,
+            )?
         {
             let window = self.user32.window(timer.window_handle)?;
             if window.id != timer.window_id
@@ -4464,16 +5715,15 @@ impl Runtime {
                 .write(output, &bytes)
                 .map_err(RuntimeStateError::from_memory)?;
             self.timers.publish_window_timer_delivery(timer);
-            self.messages.push_window_timer(message);
-            self.messages.observe_unfiltered(thread_id);
-            if remove {
-                self.messages.pop(thread_id);
+            if !remove {
+                self.messages.push_window_timer(message);
             }
             transaction.commit_transaction();
+            self.observe_thread_message_filter(thread_id, filter);
             return Ok(true);
         }
-        let Some(message) = self.messages.front(thread_id)? else {
-            self.messages.observe_unfiltered(thread_id);
+        let Some((index, message)) = queued else {
+            self.observe_thread_message_filter(thread_id, filter);
             return Ok(false);
         };
         let bytes = message.to_x86_msg_bytes();
@@ -4484,11 +5734,11 @@ impl Runtime {
         transaction
             .write(output, &bytes)
             .map_err(RuntimeStateError::from_memory)?;
-        self.messages.observe_unfiltered(thread_id);
         if remove {
-            self.messages.pop(thread_id);
+            self.messages.remove_at(thread_id, index);
         }
         transaction.commit_transaction();
+        self.observe_thread_message_filter(thread_id, filter);
         Ok(true)
     }
 
@@ -4517,6 +5767,15 @@ impl Runtime {
         self.process.ensure_standard_handle(selector)
     }
 
+    pub(crate) fn set_standard_handle(
+        &mut self,
+        selector: u32,
+        handle: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        Ok(self.process.set_standard_handle(selector, handle))
+    }
+
     pub(crate) fn file_type(&self, handle: u32) -> Result<Option<u32>, RuntimeStateError> {
         if let Some(file_type) = self.process.standard_file_type(handle) {
             return Ok(Some(file_type));
@@ -4526,6 +5785,10 @@ impl Runtime {
             .map(|_| 1))
     }
 
+    pub(crate) fn process_heap(&mut self) -> Result<u32, RuntimeStateError> {
+        self.heaps.process_heap(&mut self.objects)
+    }
+
     pub(crate) fn allocate_private_heap(
         &mut self,
         initial_size: u32,
@@ -4533,6 +5796,48 @@ impl Runtime {
     ) -> Result<u32, RuntimeStateError> {
         self.heaps
             .create_private(&mut self.objects, initial_size, maximum_size)
+    }
+
+    pub(crate) fn destroy_private_heap(&mut self, handle: u32) -> Result<bool, RuntimeStateError> {
+        self.require_private_heap_operation_state()?;
+        if !self
+            .objects
+            .is_live_handle(RuntimeHandle(handle), RuntimeObjectKind::PrivateHeap)?
+        {
+            return Ok(false);
+        }
+        self.heaps.destroy_private(
+            &mut self.memory,
+            &mut self.address_space_allocator,
+            &mut self.objects,
+            handle,
+        )
+    }
+
+    pub(crate) fn configure_heap_serialization(
+        &mut self,
+        handle: u32,
+        serialized: bool,
+    ) -> Result<(), RuntimeStateError> {
+        self.heap(handle)?;
+        self.heaps.configure_serialization(handle, serialized)
+    }
+
+    pub(crate) fn enable_low_fragmentation_heap(
+        &mut self,
+        handle: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_private_heap_operation_state()?;
+        self.heap(handle)?;
+        self.heaps.enable_low_fragmentation(handle)
+    }
+
+    pub(crate) fn largest_committed_heap_free_block(
+        &self,
+        handle: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.heap(handle)?;
+        self.heaps.largest_committed_free_block(handle)
     }
 
     pub(crate) fn allocate_com_task_memory(
@@ -5064,6 +6369,23 @@ impl Runtime {
         self.registries.dynamic_endpoint_by_name(module, name)
     }
 
+    pub fn runtime_system_export_endpoints(
+        &self,
+    ) -> impl Iterator<Item = &super::modules::RuntimeSystemExportEndpoint> {
+        self.modules
+            .runtime_system_exports()
+            .into_iter()
+            .flat_map(|table| table.endpoints.iter())
+    }
+
+    pub(crate) fn has_runtime_system_exports_for_module(&self, name: &str) -> bool {
+        self.runtime_system_export_endpoints().any(|endpoint| {
+            let (crate::RuntimeExport::Name { module, .. }
+            | crate::RuntimeExport::Ordinal { module, .. }) = &endpoint.export;
+            module.eq_ignore_ascii_case(name)
+        })
+    }
+
     pub(crate) fn dynamic_endpoint_by_ordinal(
         &self,
         module: &str,
@@ -5074,6 +6396,10 @@ impl Runtime {
 
     pub(crate) fn allocate_tls_index(&mut self) -> Result<u32, RuntimeStateError> {
         self.threads.allocate_tls_index()
+    }
+
+    pub(crate) fn free_tls_index(&mut self, index: u32) -> bool {
+        self.threads.free_tls_index(index)
     }
 
     pub(crate) fn tls_index_available(&self, index: u32) -> bool {
@@ -5172,16 +6498,16 @@ impl Runtime {
             .tls_value_or_unset(self.current_thread_id(), index)
     }
 
-    pub(crate) fn create_mutex_a(
+    pub(crate) fn create_mutex(
         &mut self,
-        name_a: Option<RuntimeMutexNameA>,
+        name: Option<RuntimeMutexName>,
         initial_owner: bool,
     ) -> Result<(RuntimeHandle, bool), RuntimeStateError> {
         self.require_mutex_operation_state()?;
         let current_thread_id = self.current_thread_id();
         let (mutex_id, already_exists) = self
             .synchronization
-            .validate_mutex_creation(name_a.as_ref())?;
+            .validate_mutex_creation(name.as_ref())?;
         let key = RuntimeObjectKey::Mutex {
             mutex_id: mutex_id.0,
         };
@@ -5192,7 +6518,7 @@ impl Runtime {
         };
         if !already_exists {
             self.synchronization
-                .insert_mutex(mutex_id, name_a, initial_owner, current_thread_id);
+                .insert_mutex(mutex_id, name, initial_owner, current_thread_id);
         }
         Ok((handle, already_exists))
     }
@@ -5308,6 +6634,14 @@ impl Runtime {
         handle: RuntimeHandle,
     ) -> Result<bool, RuntimeStateError> {
         self.require_event_operation_state()?;
+        self.consume_event_signal(handle)
+    }
+
+    // Used after the message-wait owner has checked its suspended host request.
+    pub(crate) fn consume_event_signal(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<bool, RuntimeStateError> {
         let event = self.event_for_handle(handle)?;
         if !matches!(event.wait_state, RuntimeWaitState::Signaled { .. }) {
             return Ok(false);
@@ -5967,11 +7301,11 @@ impl Runtime {
                 "window class module identity does not match its registered image",
             ));
         }
-        let procedure_address = u64::from(registration.window_procedure.address.0);
-        if registration.window_procedure.module_id != image.module_id
-            || procedure_address < u64::from(image.image_range.start().0)
-            || procedure_address >= image.image_range.end()
-        {
+        let expected = self.describe_window_procedure(
+            registration.window_procedure.address,
+            registration.module.load_base,
+        )?;
+        if expected != registration.window_procedure {
             return Err(RuntimeStateError::new(
                 "window class WndProc does not belong to its registered module image",
             ));
@@ -5979,8 +7313,79 @@ impl Runtime {
         self.user32.register_window_class(registration)
     }
 
+    pub(crate) fn describe_window_procedure(
+        &self,
+        address: GuestAddress,
+        instance: GuestAddress,
+    ) -> Result<RuntimeWindowProcedure, RuntimeStateError> {
+        let is_default = ["DefWindowProcA", "DefWindowProcW"].iter().any(|name| {
+            self.dynamic_endpoint_by_name("user32.dll", name).is_some_and(|e| e.address == address)
+                || self.modules.bindings().values().flat_map(|binding| &binding.imports).any(|import| {
+                    matches!(&import.resolution, super::modules::RuntimeGuestImportResolution::RuntimeExport { endpoint }
+                        if endpoint.address == address && matches!(&endpoint.export, crate::imports::RuntimeExport::Name { module, name: export_name }
+                            if module.eq_ignore_ascii_case("user32.dll") && export_name == name))
+                })
+        });
+        if is_default {
+            return Ok(RuntimeWindowProcedure {
+                module_id: RuntimeModuleId(0),
+                address,
+                rva: crate::pe32::Rva(0),
+                runtime_default: true,
+            });
+        }
+        let image = self
+            .module_image_by_load_base(instance)
+            .map_err(runtime_module_image_error)?
+            .ok_or_else(|| RuntimeStateError::new("WndProc instance has no live mapped image"))?;
+        if address.0 <= image.image_range.start().0
+            || u64::from(address.0) >= image.image_range.end()
+        {
+            return Err(RuntimeStateError::new(
+                "WndProc is neither a registered default procedure nor in its instance image",
+            ));
+        }
+        self.memory
+            .validate_access(address, 1, MemoryAccess::Execute)
+            .map_err(RuntimeStateError::from_memory)?;
+        Ok(RuntimeWindowProcedure {
+            module_id: image.module_id,
+            address,
+            rva: crate::pe32::Rva(address.0 - image.image_range.start().0),
+            runtime_default: false,
+        })
+    }
+
+    pub(crate) fn set_window_long_data(
+        &mut self,
+        handle: u32,
+        index: i32,
+        value: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let window = self.user32.window(handle)?;
+        let procedure = if index == -4 {
+            Some(self.describe_window_procedure(
+                GuestAddress(value),
+                window.creation.instance.load_base,
+            )?)
+        } else {
+            None
+        };
+        self.user32.set_window_long_data(
+            handle,
+            self.current_thread_id(),
+            procedure,
+            (index == -21).then_some(value),
+        )
+    }
+
     pub(crate) fn window_class(&self, atom: u16) -> Result<&RuntimeWindowClass, RuntimeStateError> {
         self.user32.window_class(atom)
+    }
+
+    pub(crate) fn top_level_window_before(&self, before: u64) -> Option<&RuntimeWindow> {
+        self.user32.top_level_window_before(before)
     }
 
     #[cfg(test)]
@@ -6042,8 +7447,83 @@ impl Runtime {
             .complete_window_creation_callback(window_id, message, result)
     }
 
+    pub(crate) fn preview_creation_show(
+        &self,
+        window: &RuntimeWindow,
+    ) -> Result<RuntimeSetWindowPosOperation, RuntimeStateError> {
+        self.user32.preview_creation_show(window)
+    }
+
     pub(crate) fn window(&self, handle: u32) -> Result<&RuntimeWindow, RuntimeStateError> {
         self.user32.window(handle)
+    }
+
+    pub(crate) fn begin_window_destruction(
+        &mut self,
+        id: RuntimeWindowId,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(id)?;
+        self.user32.begin_window_destruction(id)
+    }
+
+    pub(crate) fn publish_move_window(
+        &mut self,
+        id: RuntimeWindowId,
+        previous: RuntimeWindowGeometry,
+        next: RuntimeWindowGeometry,
+        repaint: bool,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(id)?;
+        self.user32.validate_move_window_publication(id, previous)?;
+        if (previous.client_width, previous.client_height)
+            != (next.client_width, next.client_height)
+        {
+            self.gdi.resize_window_surface(
+                id,
+                previous.client_width,
+                previous.client_height,
+                next.client_width,
+                next.client_height,
+            )?;
+        }
+        self.user32.publish_move_window(id, previous, next, repaint)
+    }
+
+    pub(crate) fn publish_hide_window(
+        &mut self,
+        id: RuntimeWindowId,
+        expected: RuntimeWindowGeometry,
+        deactivate: bool,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(id)?;
+        self.user32.publish_hide_window(id, expected, deactivate)
+    }
+
+    pub(crate) fn destroy_window_notifications(
+        &self,
+        id: RuntimeWindowId,
+    ) -> Result<u32, RuntimeStateError> {
+        self.user32.destroy_window_notifications(id)
+    }
+
+    pub(crate) fn finish_window_destruction(
+        &mut self,
+        id: RuntimeWindowId,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_window_owner_thread(id)?;
+        let window = self.user32.finish_window_destruction(id)?;
+        self.gdi.retire_window(id);
+        self.timers.retire_window(id);
+        for (atom, (_, owned)) in window.properties {
+            if owned {
+                let _ = self.global_atoms.delete(atom);
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn window_option(
@@ -6094,6 +7574,11 @@ impl Runtime {
             .enable_system_menu_close_item(menu_handle, close_item_command)
     }
 
+    pub(crate) fn reset_system_menu(&mut self, handle: u32) -> Result<bool, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32.reset_system_menu(handle)
+    }
+
     pub(crate) fn get_default_ime_window(
         &mut self,
         window_handle: u32,
@@ -6133,6 +7618,26 @@ impl Runtime {
             .user32
             .resolve_ime_app_window_target(window_handle, owner_thread_id)?;
         self.imm32.associate_context(target, context_handle)
+    }
+
+    pub(crate) fn get_ime_context(
+        &mut self,
+        window_handle: u32,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_imm32_operation_state()?;
+        let Some(window) = self.user32.window_option(window_handle)? else {
+            return Ok(None);
+        };
+        if window.creation.owner_thread_id != self.current_thread_id() {
+            return Err(RuntimeStateError::new(
+                "IME context access requires the window owner thread",
+            ));
+        }
+        let target = self
+            .user32
+            .resolve_ime_app_window_target(window_handle, self.current_thread_id())?;
+        self.imm32.get_context(target).map(Some)
     }
 
     pub(crate) fn control_ime_status_window(
@@ -6194,6 +7699,16 @@ impl Runtime {
         )
     }
 
+    pub(crate) fn kill_window_timer(
+        &mut self,
+        window_handle: u32,
+        timer_id: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let (window, owner) = self.resolve_window_timer_target(window_handle)?;
+        self.timers.kill_window_timer(window, timer_id, owner)
+    }
+
     #[cfg(test)]
     pub(crate) fn window_timers(&self) -> &BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer> {
         self.timers.window_timers()
@@ -6206,30 +7721,40 @@ impl Runtime {
         callback_address: GuestAddress,
     ) -> Result<GuestAddress, RuntimeStateError> {
         self.require_user32_operation_state()?;
-        let timer = self
-            .timers
-            .window_timers()
-            .values()
-            .find(|timer| timer.window_handle == window_handle && timer.timer_id == timer_id)
-            .ok_or_else(|| {
-                RuntimeStateError::new(
-                    "timer message does not identify a live logical window timer",
-                )
-            })?;
         let window = self.user32.window(window_handle)?;
-        if timer.owner_thread_id != self.current_thread_id()
-            || timer.callback_address != callback_address
-            || timer.delivery_count == 0
-            || timer.last_delivery.is_none()
-            || window.id != timer.window_id
-            || window.lifecycle != RuntimeWindowLifecycle::Created
-            || window.creation.owner_thread_id != timer.owner_thread_id
+        let current_thread = self.current_thread_id();
+        if window.lifecycle != RuntimeWindowLifecycle::Created
+            || window.creation.owner_thread_id != current_thread
         {
             return Err(RuntimeStateError::new(
                 "timer message no longer matches its live window, owner, registration, or callback",
             ));
         }
-        Ok(timer.callback_address)
+        if let Some(timer) = self
+            .timers
+            .window_timers()
+            .values()
+            .find(|timer| timer.window_handle == window_handle && timer.timer_id == timer_id)
+            && timer.owner_thread_id == current_thread
+            && timer.callback_address == callback_address
+            && timer.delivery_count != 0
+            && timer.last_delivery.is_some()
+            && window.id == timer.window_id
+        {
+            return Ok(timer.callback_address);
+        }
+        if self.timers.has_delivered_timer_callback(
+            window.id,
+            window_handle,
+            timer_id,
+            current_thread,
+            callback_address,
+        ) {
+            return Ok(callback_address);
+        }
+        Err(RuntimeStateError::new(
+            "timer message no longer matches its live window, owner, registration, or callback",
+        ))
     }
 
     fn resolve_window_timer_target(
@@ -6260,6 +7785,16 @@ impl Runtime {
             .set_window_style(window_handle, self.current_thread_id(), requested_style)
     }
 
+    pub(crate) fn set_window_extended_style(
+        &mut self,
+        handle: u32,
+        style: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .set_window_extended_style(handle, self.current_thread_id(), style)
+    }
+
     pub(crate) fn set_window_file_drop_acceptance(
         &mut self,
         window_handle: u32,
@@ -6277,6 +7812,55 @@ impl Runtime {
         self.require_gdi_operation_state()?;
         let target = self.resolve_gdi_window_target(window_handle)?;
         self.gdi.get_window_dc(target)
+    }
+
+    pub(crate) fn default_window_paint(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32.default_paint(self.current_thread_id(), handle)
+    }
+
+    pub(crate) fn preview_default_paint_dc(
+        &self,
+        handle: u32,
+    ) -> Result<RuntimeGetDcResult, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi
+            .preview_window_dc(self.resolve_gdi_window_target(handle)?)
+    }
+
+    pub(crate) fn begin_default_window_paint(
+        &mut self,
+        handle: u32,
+        dc: RuntimeGetDcResult,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.require_gdi_operation_state()?;
+        let target = self.resolve_gdi_window_target(handle)?;
+        if self.gdi.preview_window_dc(target)? != dc {
+            return Err(RuntimeStateError::new(
+                "default paint HDC identity changed before publication",
+            ));
+        }
+        self.user32
+            .default_paint(self.current_thread_id(), handle)?;
+        self.gdi.publish_window_dc(target, dc);
+        Ok(())
+    }
+
+    pub(crate) fn finish_default_window_paint(
+        &mut self,
+        window_id: RuntimeWindowId,
+        handle: u32,
+        dc: RuntimeGetDcResult,
+    ) -> Result<(), RuntimeStateError> {
+        if self.window(handle)?.id != window_id
+            || self.gdi.device_context_by_handle(dc.handle)?.id != dc.device_context_id
+        {
+            return Err(RuntimeStateError::new(
+                "default paint callback lost its window or HDC identity",
+            ));
+        }
+        self.release_window_dc(handle, dc.handle)
     }
 
     pub(crate) fn begin_window_paint(
@@ -6371,6 +7955,29 @@ impl Runtime {
         self.gdi.create_compatible_dc(target)
     }
 
+    pub(crate) fn create_gdi_compatible_bitmap(
+        &mut self,
+        dc: u32,
+        width: i32,
+        height: i32,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi
+            .create_compatible_bitmap(dc, self.current_thread_id(), width, height)
+    }
+
+    pub(crate) fn gdi_device_bitmap_pixel(
+        &mut self,
+        dc: u32,
+        x: i32,
+        y: i32,
+        color: Option<u32>,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi
+            .device_bitmap_pixel(dc, self.current_thread_id(), x, y, color)
+    }
+
     pub(crate) fn delete_compatible_memory_dc(
         &mut self,
         device_context_handle: u32,
@@ -6429,6 +8036,24 @@ impl Runtime {
     ) -> Result<Option<u32>, RuntimeStateError> {
         self.require_gdi_operation_state()?;
         self.gdi.create_font_a(log_font)
+    }
+
+    pub(crate) fn add_gdi_memory_font(
+        &mut self,
+        bytes: Vec<u8>,
+        count_output: GuestAddress,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi
+            .add_memory_font(&mut self.memory, bytes, count_output)
+    }
+
+    pub(crate) fn remove_gdi_memory_font(
+        &mut self,
+        handle: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        Ok(self.gdi.remove_memory_font(handle))
     }
 
     pub(crate) fn create_gdi_dib_section(
@@ -6540,6 +8165,16 @@ impl Runtime {
         self.gdi.object_bytes(object_handle, requested_byte_length)
     }
 
+    pub(crate) fn get_gdi_object_bytes_w(
+        &self,
+        object_handle: u32,
+        requested_byte_length: u32,
+    ) -> Result<Option<Vec<u8>>, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi
+            .object_bytes_w(object_handle, requested_byte_length)
+    }
+
     pub(crate) fn get_gdi_selected_font_a(
         &self,
         device_context_handle: u32,
@@ -6556,6 +8191,25 @@ impl Runtime {
         self.require_gdi_operation_state()?;
         self.gdi
             .text_raster_target(device_context_handle, self.current_thread_id())
+    }
+
+    pub(crate) fn get_gdi_text_font(
+        &self,
+        dc: u32,
+    ) -> Result<super::RuntimeLogFontA, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi.text_font(dc, self.current_thread_id())
+    }
+
+    pub(crate) fn set_gdi_text_attribute(
+        &mut self,
+        dc: u32,
+        attribute: u32,
+        value: u32,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.require_gdi_operation_state()?;
+        self.gdi
+            .set_text_attribute(dc, self.current_thread_id(), attribute, value)
     }
 
     pub(crate) fn pending_gdi_text_raster_target(
@@ -6873,6 +8527,14 @@ impl Runtime {
         com_object_id: RuntimeComObjectId,
     ) {
         self.audio.insert_buffer(creation, com_object_id);
+    }
+
+    pub(crate) fn share_audio_buffer_samples(
+        &mut self,
+        source: RuntimeComObjectId,
+        destination: RuntimeComObjectId,
+    ) {
+        self.audio.share_buffer_samples(source, destination);
     }
 
     pub(crate) fn set_audio_buffer_format(
@@ -7359,7 +9021,7 @@ impl Runtime {
         Ok(())
     }
 
-    fn validate_audio_backing(
+    pub(crate) fn validate_audio_backing(
         &self,
         object_id: RuntimeComObjectId,
     ) -> Result<(), RuntimeStateError> {
@@ -7903,6 +9565,9 @@ impl Runtime {
     pub(crate) fn validate_graphics_device_creation(
         &self,
         window_handle: u32,
+        back_buffer_width: u32,
+        back_buffer_height: u32,
+        present_mode: super::RuntimeGraphicsPresentMode,
     ) -> Result<Option<RuntimeGraphicsDeviceCreationRequest>, RuntimeStateError> {
         self.require_graphics_operation_state()?;
         let Some(target) = self.resolve_graphics_window_target(window_handle)? else {
@@ -7911,10 +9576,20 @@ impl Runtime {
         self.graphics
             .validate_device_creation(RuntimeGraphicsDeviceCreationRequest {
                 target,
+                back_buffer_width: if back_buffer_width == 0 {
+                    target.client_width
+                } else {
+                    back_buffer_width
+                },
+                back_buffer_height: if back_buffer_height == 0 {
+                    target.client_height
+                } else {
+                    back_buffer_height
+                },
                 color_format: super::RuntimeGraphicsColorFormat::B8g8r8x8Unorm,
                 back_buffer_count: 1,
                 sample_count: 1,
-                present_mode: super::RuntimeGraphicsPresentMode::Discard,
+                present_mode,
                 windowed: true,
             })
     }
@@ -7927,6 +9602,49 @@ impl Runtime {
         self.graphics.insert_device(request, com_object_id);
     }
 
+    pub(crate) fn configure_d3d8(
+        &mut self,
+        object: RuntimeComObjectId,
+        state: crate::d3d8::DeviceState,
+    ) {
+        self.graphics.configure_d3d8(object, state);
+    }
+    pub(crate) fn copy_d3d8_surface(
+        &mut self,
+        device: RuntimeComObjectId,
+        source: RuntimeComObjectId,
+        rectangles: &[(RuntimeRect, i32, i32)],
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics
+            .copy_d3d8_surface(device, source, rectangles, &self.memory)
+    }
+    pub(crate) fn d3d8_state_mut(
+        &mut self,
+        object: RuntimeComObjectId,
+    ) -> Result<&mut crate::d3d8::DeviceState, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.d3d8_state_mut(object)
+    }
+    pub(crate) fn clear_d3d8(
+        &mut self,
+        object: RuntimeComObjectId,
+        flags: u32,
+        color: u32,
+        depth: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.clear_d3d8(object, flags, color, depth)
+    }
+
+    pub(crate) fn available_graphics_texture_memory(
+        &self,
+        device_com_object_id: RuntimeComObjectId,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.available_texture_memory(device_com_object_id)
+    }
+
     pub fn presented_graphics_frame(
         &self,
         id: RuntimeGraphicsDeviceId,
@@ -7935,7 +9653,10 @@ impl Runtime {
         let frame = device.presented_frame.as_ref().ok_or_else(|| {
             RuntimeStateError::new("presented graphics device has no captured frame")
         })?;
-        Ok((device.presentation.width, device.presentation.height, frame))
+        let (width, height) = device.presented_extent.ok_or_else(|| {
+            RuntimeStateError::new("presented graphics frame has no captured extent")
+        })?;
+        Ok((width, height, frame))
     }
 
     pub(crate) fn graphics_device_by_com_object(
@@ -8015,6 +9736,15 @@ impl Runtime {
         )
     }
 
+    pub(crate) fn set_graphics_viewport(
+        &mut self,
+        object: RuntimeComObjectId,
+        viewport: [u32; 6],
+    ) -> Result<(), RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.set_viewport(object, viewport)
+    }
+
     pub(crate) fn submit_graphics_draw(
         &mut self,
         device_com_object_id: RuntimeComObjectId,
@@ -8026,6 +9756,23 @@ impl Runtime {
             device_com_object_id,
             start_vertex,
             primitive_count,
+            &self.memory,
+        )
+    }
+
+    pub(crate) fn submit_graphics_draw_up(
+        &mut self,
+        device_com_object_id: RuntimeComObjectId,
+        primitive_count: u32,
+        vertices: GuestAddress,
+        stride: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_graphics_operation_state()?;
+        self.graphics.submit_draw_up(
+            device_com_object_id,
+            primitive_count,
+            vertices,
+            stride,
             &self.memory,
         )
     }
@@ -8059,9 +9806,64 @@ impl Runtime {
     pub(crate) fn present_graphics(
         &mut self,
         device_com_object_id: RuntimeComObjectId,
+        source: Option<RuntimeRect>,
+        destination: Option<RuntimeRect>,
+        window_override: u32,
     ) -> Result<bool, RuntimeStateError> {
         self.require_graphics_operation_state()?;
-        self.graphics.present(device_com_object_id)
+        let device = self.graphics.device_by_com_object(device_com_object_id)?;
+        let target = device.target;
+        let Some(live) = self.resolve_graphics_window_target(target.window_handle)? else {
+            return Ok(false);
+        };
+        if live.window_id != target.window_id || live.owner_thread_id != target.owner_thread_id {
+            return Ok(false);
+        }
+        if window_override != 0 && window_override != target.window_handle {
+            return Err(RuntimeStateError::new(
+                "presentation to another window is not implemented",
+            ));
+        }
+        if (source.is_some() || destination.is_some())
+            && device.presentation.present_mode != super::RuntimeGraphicsPresentMode::Copy
+        {
+            return Ok(false);
+        }
+        let source = source.unwrap_or(RuntimeRect {
+            left: 0,
+            top: 0,
+            right: device.presentation.width as i32,
+            bottom: device.presentation.height as i32,
+        });
+        let destination = destination.unwrap_or(RuntimeRect {
+            left: 0,
+            top: 0,
+            right: live.client_width as i32,
+            bottom: live.client_height as i32,
+        });
+        for rect in [source, destination] {
+            if rect.right <= rect.left || rect.bottom <= rect.top {
+                return Ok(false);
+            }
+        }
+        // The browser surface represents the complete client area. Support an
+        // unscaled upper-left crop while keeping unsupported stretch/offset explicit.
+        if source != destination
+            || source.left != 0
+            || source.top != 0
+            || source.right as u32 != live.client_width
+            || source.bottom as u32 != live.client_height
+            || source.right as u32 > device.presentation.width
+            || source.bottom as u32 > device.presentation.height
+        {
+            return Err(RuntimeStateError::new(
+                "scaled or offset presentation is not implemented",
+            ));
+        }
+        self.graphics.present(
+            device_com_object_id,
+            Some((live.client_width, live.client_height)),
+        )
     }
 
     pub(crate) fn validate_graphics_texture_creation(
@@ -8180,7 +9982,8 @@ impl Runtime {
                         range,
                         PageProtection {
                             read: true,
-                            write: true,
+                            write: flags & super::graphics::RUNTIME_GRAPHICS_TEXTURE_LOCK_READONLY
+                                == 0,
                             execute: false,
                         },
                     )
@@ -8199,7 +10002,8 @@ impl Runtime {
                         backing.range,
                         PageProtection {
                             read: true,
-                            write: true,
+                            write: flags & super::graphics::RUNTIME_GRAPHICS_TEXTURE_LOCK_READONLY
+                                == 0,
                             execute: false,
                         },
                     )
@@ -8329,10 +10133,11 @@ impl Runtime {
         destination_texture_com_object_id: RuntimeComObjectId,
     ) -> Result<bool, RuntimeStateError> {
         self.require_graphics_operation_state()?;
-        self.graphics.update_texture(
+        self.graphics.update_texture_with_memory(
             device_com_object_id,
             source_texture_com_object_id,
             destination_texture_com_object_id,
+            Some(&self.memory),
         )
     }
 
@@ -8588,6 +10393,25 @@ impl Runtime {
             .set_window_title(window_handle, self.current_thread_id(), title)
     }
 
+    pub(crate) fn window_property(
+        &self,
+        handle: u32,
+        name: &super::RuntimeAtomName,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.user32
+            .window_property(handle, self.global_atoms.find(name))
+    }
+
+    pub(crate) fn set_window_property(
+        &mut self,
+        handle: u32,
+        name: super::RuntimeAtomName,
+        data: u32,
+    ) -> Result<Result<(), u32>, RuntimeStateError> {
+        self.user32
+            .set_window_property(handle, name, data, &mut self.global_atoms)
+    }
+
     pub(crate) fn resolve_window_procedure(
         &self,
         window_handle: u32,
@@ -8658,14 +10482,99 @@ impl Runtime {
         Ok(self.user32.publish_set_window_pos_callback(disposition))
     }
 
+    pub(crate) fn create_menu(&mut self, popup: bool) -> Result<u32, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32.create_menu(popup)
+    }
+
+    pub(crate) fn set_menu(
+        &mut self,
+        window_handle: u32,
+        menu_handle: u32,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .set_menu(self.current_thread_id(), window_handle, menu_handle)
+    }
+
+    pub(crate) fn menu_count(&self, handle: u32) -> Option<usize> {
+        self.user32.menus.count(handle)
+    }
+
+    pub(crate) fn menu_item(
+        &self,
+        handle: u32,
+        item: u32,
+        by_position: bool,
+    ) -> Option<&super::RuntimeMenuItem> {
+        self.user32.menus.get(handle, item, by_position)
+    }
+
+    pub(crate) fn put_menu_item(
+        &mut self,
+        handle: u32,
+        item: u32,
+        by_position: bool,
+        mask: u32,
+        incoming: super::RuntimeMenuItem,
+        insert: bool,
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .menus
+            .put(handle, item, by_position, mask, incoming, insert)
+    }
+
+    pub(crate) fn remove_menu_item(
+        &mut self,
+        handle: u32,
+        item: u32,
+        by_position: bool,
+    ) -> Result<bool, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        Ok(self.user32.menus.remove(handle, item, by_position))
+    }
+
+    pub(crate) fn create_accelerators(
+        &mut self,
+        entries: Vec<super::RuntimeAccelerator>,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32.create_accelerators(entries)
+    }
+
+    pub(crate) fn destroy_accelerators(&mut self, handle: u32) -> Result<bool, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        Ok(self.user32.destroy_accelerators(handle))
+    }
+
+    pub(crate) fn accelerators(&self, handle: u32) -> Option<&[super::RuntimeAccelerator]> {
+        self.user32.accelerators(handle)
+    }
+
+    pub(crate) fn invalidate_full_client(
+        &mut self,
+        window_handle: u32,
+        erase: bool,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .invalidate_full_client(self.current_thread_id(), window_handle, erase)
+    }
+
     pub(crate) fn preview_update_window(
         &self,
         window_handle: u32,
         entry_last_error: u32,
+        invalidate_full: bool,
     ) -> Result<RuntimeUpdateWindowOperation, RuntimeStateError> {
         self.require_user32_operation_state()?;
-        self.user32
-            .preview_update_window(self.current_thread_id(), window_handle, entry_last_error)
+        self.user32.preview_update_window(
+            self.current_thread_id(),
+            window_handle,
+            entry_last_error,
+            invalidate_full,
+        )
     }
 
     pub(crate) fn validate_update_window_callback(
@@ -8723,6 +10632,35 @@ impl Runtime {
 
     pub(crate) fn focused_window_handle(&self) -> Result<Option<u32>, RuntimeStateError> {
         self.user32.focused_window_handle(self.current_thread_id())
+    }
+
+    pub(crate) fn create_caret(
+        &mut self,
+        handle: u32,
+        width: u32,
+        height: u32,
+        gray: bool,
+    ) -> Result<(), RuntimeStateError> {
+        self.user32
+            .create_caret(self.current_thread_id(), handle, width, height, gray)
+    }
+
+    pub(crate) fn window_from_point(
+        &self,
+        x: i32,
+        y: i32,
+    ) -> Result<Option<u32>, RuntimeStateError> {
+        self.user32.window_from_point(x, y)
+    }
+
+    pub(crate) fn capture_window_handle(&self) -> Result<Option<u32>, RuntimeStateError> {
+        self.user32.capture_window_handle(self.current_thread_id())
+    }
+
+    pub(crate) fn set_capture_window(&mut self, handle: u32) -> Result<(), RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .set_capture_window(self.current_thread_id(), handle)
     }
 
     pub fn foreground_window_handle(&self) -> Result<Option<u32>, RuntimeStateError> {
@@ -8897,6 +10835,34 @@ impl Runtime {
             ));
         };
         self.synchronization.mutex(RuntimeMutexId(*mutex_id))
+    }
+
+    pub(crate) fn try_release_mutex(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<Result<(), u32>, RuntimeStateError> {
+        const ERROR_INVALID_HANDLE: u32 = 6;
+        const ERROR_NOT_OWNER: u32 = 288;
+        self.require_mutex_operation_state()?;
+        let Some(record) = self
+            .objects
+            .live_object_for_handle(handle, RuntimeObjectKind::Mutex)?
+        else {
+            return Ok(Err(ERROR_INVALID_HANDLE));
+        };
+        let RuntimeObjectKey::Mutex { mutex_id } = record.key else {
+            return Err(RuntimeStateError::new(
+                "mutex handle resolved to a non-mutex object identity",
+            ));
+        };
+        let id = RuntimeMutexId(mutex_id);
+        let current_thread_id = self.current_thread_id();
+        let mutex = self.synchronization.mutex(id)?;
+        if mutex.owning_thread_id != Some(current_thread_id) || mutex.recursion_count == 0 {
+            return Ok(Err(ERROR_NOT_OWNER));
+        }
+        self.synchronization.release_mutex(id, current_thread_id)?;
+        Ok(Ok(()))
     }
 
     #[cfg(test)]
@@ -9439,6 +11405,54 @@ impl Runtime {
         self.scheduler.commit_host_completion(host);
     }
 
+    fn shell_folder_output_regions(
+        &self,
+        output: GuestAddress,
+    ) -> Result<Vec<MemoryRegionInfo>, RuntimeStateError> {
+        self.memory
+            .validate_access(output, 520, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let end = u64::from(output.0) + 520;
+        Ok(self
+            .memory
+            .regions()
+            .filter(|region| {
+                u64::from(region.range.start().0) < end && region.range.end() > u64::from(output.0)
+            })
+            .collect())
+    }
+
+    pub(crate) fn begin_shell_folder(
+        &mut self,
+        output: GuestAddress,
+    ) -> Result<RuntimeHostRequest, RuntimeStateError> {
+        let regions = self.shell_folder_output_regions(output)?;
+        let plan = self
+            .scheduler
+            .checked_host_request("browser.opfs-ensure-directory".to_owned())?;
+        let request = self.scheduler.publish_host_request(plan);
+        self.pending_shell_folders
+            .insert(request.request_id, (output, regions));
+        Ok(request)
+    }
+
+    pub(crate) fn validate_shell_folder_output(
+        &self,
+        request_id: u64,
+        output: GuestAddress,
+    ) -> Result<(), RuntimeStateError> {
+        let pending = self
+            .pending_shell_folders
+            .get(&request_id)
+            .ok_or_else(|| RuntimeStateError::new("special folder has no pending output"))?;
+        if pending.0 != output || pending.1 != self.shell_folder_output_regions(output)? {
+            return Err(RuntimeStateError::new(
+                "special folder output mapping changed while provisioning",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn begin_host_request(
         &mut self,
         service: impl Into<String>,
@@ -9446,7 +11460,9 @@ impl Runtime {
         let service = service.into();
         if matches!(
             service.as_str(),
-            RUNTIME_WAITABLE_TIMER_PACING_SERVICE | RUNTIME_MESSAGE_BOX_SERVICE
+            RUNTIME_WAITABLE_TIMER_PACING_SERVICE
+                | RUNTIME_MESSAGE_BOX_SERVICE
+                | "browser.opfs-ensure-directory"
         ) {
             return Err(RuntimeStateError::new(
                 "timer pacing requests must be created with their authoritative wait registration",
@@ -9461,6 +11477,15 @@ impl Runtime {
         request_id: u64,
     ) -> Result<RuntimeHostCompletion, RuntimeStateError> {
         let plan = self.scheduler.validate_host_completion(request_id)?;
+        if plan.service == "browser.opfs-ensure-directory" {
+            let output = self
+                .pending_shell_folders
+                .get(&request_id)
+                .ok_or_else(|| RuntimeStateError::new("special folder has no pending output"))?
+                .0;
+            self.validate_shell_folder_output(request_id, output)?;
+            self.pending_shell_folders.remove(&request_id);
+        }
         if matches!(
             plan.service.as_str(),
             RUNTIME_WAITABLE_TIMER_PACING_SERVICE
@@ -9472,6 +11497,20 @@ impl Runtime {
             ));
         }
         Ok(self.scheduler.commit_host_completion(plan))
+    }
+
+    pub(crate) fn validate_owned_host_request(
+        &self,
+        request_id: u64,
+        service: &str,
+    ) -> Result<(), RuntimeStateError> {
+        let completion = self.scheduler.validate_host_completion(request_id)?;
+        if completion.thread_id != self.current_thread_id() || completion.service != service {
+            return Err(RuntimeStateError::new(
+                "host completion does not own the selected thread and service",
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn complete_media_host_with<T>(
@@ -9526,12 +11565,15 @@ impl Runtime {
         self.messages.is_empty(thread_id)?;
 
         self.messages.clear(thread_id);
+        self.user32.release_thread_input(thread_id);
         self.files.cancel_reads(&source_read_cancellation);
         self.pending_opfs_opens
             .retain(|request_id, _| !host_request_ids.contains(request_id));
         self.pending_opfs_writes
             .retain(|request_id, _| !host_request_ids.contains(request_id));
         self.pending_message_boxes
+            .retain(|request_id, _| !host_request_ids.contains(request_id));
+        self.pending_shell_folders
             .retain(|request_id, _| !host_request_ids.contains(request_id));
         self.scheduler
             .cancel_host_requests(thread_id, &host_request_ids);
@@ -9563,6 +11605,22 @@ impl Runtime {
         }
         let thread_id = self.current_thread_id();
         let exit_code = self.validate_thread_exit_completion(thread_id)?;
+        let tls_addresses = self.image_tls.thread_allocation_ids(thread_id);
+        self.address_space_allocator
+            .validate_releases(&tls_addresses)?;
+        let teb = if tls_addresses.is_empty() {
+            None
+        } else {
+            Some(self.current_thread_teb_address()?)
+        };
+        let mut transaction = self.memory.begin_transaction();
+        self.image_tls
+            .release_thread_memory(&mut transaction, thread_id)?;
+        if let Some(teb) = teb {
+            transaction
+                .write(GuestAddress(teb.0 + 0x2c), &0_u32.to_le_bytes())
+                .map_err(RuntimeStateError::from_memory)?;
+        }
         let (object_id, wait_state) =
             self.objects
                 .wait_state_mut_for_identity(&RuntimeObjectKey::Thread {
@@ -9576,7 +11634,11 @@ impl Runtime {
             usize::MAX,
             self.process.timer_time_100ns(),
         )?;
+        transaction.commit_transaction();
         *wait_state = RuntimeWaitState::Signaled { exit_code };
+        self.image_tls.retire_thread(thread_id);
+        self.address_space_allocator
+            .remove_validated_allocations(tls_addresses);
         self.publish_thread_exit_completion(thread_id, exit_code);
         Ok(())
     }
@@ -9603,10 +11665,11 @@ impl Runtime {
                 .wait_state_mut_for_identity(&RuntimeObjectKey::Thread {
                     thread_id: thread_id.0,
                 })?;
-        let address_releases = vec![
+        let mut address_releases = vec![
             stack.address_allocation_id,
             environment.address_allocation_id,
         ];
+        address_releases.extend(self.image_tls.thread_allocation_ids(thread_id));
         self.address_space_allocator
             .validate_releases(&address_releases)?;
 
@@ -9623,6 +11686,8 @@ impl Runtime {
         transaction
             .destroy_owner(environment.memory_owner)
             .map_err(RuntimeStateError::from_memory)?;
+        self.image_tls
+            .release_thread_memory(&mut transaction, thread_id)?;
         self.scheduler.wake_object_waiters(
             &self.threads,
             object_id,
@@ -9636,6 +11701,8 @@ impl Runtime {
         self.publish_thread_exit_completion(thread_id, exit_code);
         self.address_space_allocator
             .remove_validated_allocations(address_releases);
+        self.image_tls.retire_thread(thread_id);
+        crate::winmm::retire_timer_thread(self, thread_id)?;
         Ok(())
     }
 
@@ -9712,6 +11779,31 @@ fn validate_graphics_device_context_target(
         ));
     }
     Ok(())
+}
+
+fn registered_initial_thread_stack(
+    thread_id: RuntimeThreadId,
+    stack: &InitialThreadStack,
+    address_allocation_id: ProcessAddressAllocationId,
+) -> RuntimeThreadStack {
+    RuntimeThreadStack {
+        thread_id,
+        address_allocation_id,
+        memory_owner: stack.owner,
+        reserved_range: stack.stack_range,
+        committed_range: stack.committed_range,
+        initial_commit_bytes: stack.committed_range.byte_length(),
+        guard_page: stack.guard_page,
+        stack_top: GuestAddress(
+            stack
+                .initial_esp
+                .0
+                .checked_add(4)
+                .expect("validated initial stack top"),
+        ),
+        initial_stack_pointer: stack.initial_esp,
+        return_sentinel: stack.entry_return_address,
+    }
 }
 
 fn validate_initial_thread_stack(stack: &InitialThreadStack) -> Result<(), RuntimeStateError> {
@@ -9826,6 +11918,9 @@ mod task_memory_tests;
 mod tests {
     use super::*;
     include!("../d3d9_texture_discard_tests.rs");
+    include!("../d3d9_device_creation_tests.rs");
+    include!("../dinput_keyboard_tests.rs");
+    include!("../dsound_legacy_tests.rs");
     include!("../d3d9_resource_capacity_tests.rs");
     use crate::com::{COM_S_OK, ComCallTrap, ComDispatchOutcome};
     use crate::d3d9::{
@@ -12539,6 +14634,287 @@ mod tests {
         assert!(runtime.ime_windows().is_empty());
     }
 
+    #[test]
+    fn d3d8_copy_mode_surface_3d_draw_and_incremental_present_semantics() {
+        let mut runtime = d3d9_fixture_runtime(d3d9_fixture_memory());
+        let window = seed_created_d3d9_window(&mut runtime);
+        let root_installed = runtime
+            .install_com_object(crate::d3d8::root_spec())
+            .expect("install D3D8 root");
+        acknowledge_d3d9_fixture_memory(&mut runtime.memory);
+        let root_ptr = root_installed
+            .interfaces
+            .iter()
+            .find(|(iid, _)| *iid == crate::d3d8::D3D8_IID)
+            .unwrap()
+            .1;
+        let root_iface = runtime
+            .com_interface_for_pointer(root_ptr)
+            .unwrap()
+            .unwrap()
+            .clone();
+
+        let stack = GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x200);
+        let ret = GuestAddress(0x0042_0e60);
+        let pp_addr = GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x400);
+        let out_addr = GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x500);
+        let scratch_addr = GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x600);
+
+        let call_com = |runtime: &mut Runtime,
+                        iface: &RuntimeComInterfaceRecord,
+                        slot: u16,
+                        args: &[u32]|
+         -> crate::com::ComCallCompletion {
+            let mut words = vec![ret.0, iface.guest_pointer.0];
+            words.extend_from_slice(args);
+            write_d3d9_fixture_words(&mut runtime.memory, stack, &words);
+            acknowledge_d3d9_fixture_memory(&mut runtime.memory);
+            let outcome = runtime.dispatch_com_call(crate::com::ComCallTrap {
+                endpoint_address: iface.methods[&slot].endpoint,
+                stack_pointer: stack,
+                return_address: ret,
+                call_site: ret,
+            });
+            acknowledge_d3d9_fixture_memory(&mut runtime.memory);
+            match outcome {
+                crate::com::ComDispatchOutcome::Completed(done) => done,
+                other => panic!("unexpected COM outcome for slot {slot}: {other:?}"),
+            }
+        };
+
+        // Reject unsupported presentation flags without publishing a device.
+        let mut pp_words = [800_u32, 600, 22, 1, 0, 3, window.handle, 1, 1, 80, 2, 0, 0];
+        write_d3d9_fixture_words(&mut runtime.memory, pp_addr, &pp_words);
+        acknowledge_d3d9_fixture_memory(&mut runtime.memory);
+        let rejected = call_com(
+            &mut runtime,
+            &root_iface,
+            15,
+            &[0, 1, window.handle, 0x20, pp_addr.0, out_addr.0],
+        );
+        assert_eq!(rejected.eax, crate::d3d9::D3D9_D3DERR_NOTAVAILABLE.bits());
+        assert!(runtime.graphics.devices().is_empty());
+
+        // Succeed with Flags == 0 (Copy swap effect, D16 depth buffer).
+        pp_words[10] = 0;
+        write_d3d9_fixture_words(&mut runtime.memory, pp_addr, &pp_words);
+        acknowledge_d3d9_fixture_memory(&mut runtime.memory);
+        let created = call_com(
+            &mut runtime,
+            &root_iface,
+            15,
+            &[0, 1, window.handle, 0x20, pp_addr.0, out_addr.0],
+        );
+        assert_eq!(created.eax, 0);
+        let dev_ptr = GuestAddress(u32::from_le_bytes(
+            runtime
+                .memory
+                .read(out_addr, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        ));
+        let dev_iface = runtime
+            .com_interface_for_pointer(dev_ptr)
+            .unwrap()
+            .unwrap()
+            .clone();
+
+        // GetAvailableTextureMem (slot 4), ResourceManagerDiscardBytes (slot 5), non-lockable BackBuffer.
+        assert!(call_com(&mut runtime, &dev_iface, 4, &[]).eax > 0);
+        assert_eq!(call_com(&mut runtime, &dev_iface, 5, &[0]).eax, 0);
+        assert_eq!(
+            call_com(&mut runtime, &dev_iface, 16, &[0, 0, out_addr.0]).eax,
+            0
+        );
+        let bb_ptr = GuestAddress(u32::from_le_bytes(
+            runtime
+                .memory
+                .read(out_addr, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        ));
+        let bb_iface = runtime
+            .com_interface_for_pointer(bb_ptr)
+            .unwrap()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            call_com(&mut runtime, &bb_iface, 9, &[scratch_addr.0, 0, 0]).eax,
+            crate::d3d9::D3D9_D3DERR_INVALIDCALL.bits()
+        );
+
+        // CreateImageSurface(800, 600, 25 /* A1R5G5B5 */) + GetDesc + LockRect + CopyRects -> full replace.
+        assert_eq!(
+            call_com(&mut runtime, &dev_iface, 27, &[800, 600, 25, out_addr.0]).eax,
+            0
+        );
+        let surf_ptr = GuestAddress(u32::from_le_bytes(
+            runtime
+                .memory
+                .read(out_addr, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        ));
+        let surf_iface = runtime
+            .com_interface_for_pointer(surf_ptr)
+            .unwrap()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            call_com(&mut runtime, &surf_iface, 8, &[scratch_addr.0]).eax,
+            0
+        );
+        let desc_bytes = runtime.memory.read(scratch_addr, 32).unwrap();
+        assert_eq!(u32::from_le_bytes(desc_bytes[0..4].try_into().unwrap()), 25);
+        assert_eq!(
+            u32::from_le_bytes(desc_bytes[16..20].try_into().unwrap()),
+            800 * 600 * 2
+        );
+        assert_eq!(
+            call_com(&mut runtime, &surf_iface, 9, &[scratch_addr.0, 0, 0]).eax,
+            0
+        );
+        let locked = runtime.memory.read(scratch_addr, 8).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(locked[0..4].try_into().unwrap()),
+            800 * 2
+        );
+        let bits_ptr = GuestAddress(u32::from_le_bytes(locked[4..8].try_into().unwrap()));
+        runtime.memory.write(bits_ptr, &[0xff, 0xff]).unwrap();
+        acknowledge_d3d9_fixture_memory(&mut runtime.memory);
+        assert_eq!(call_com(&mut runtime, &surf_iface, 10, &[]).eax, 0);
+        assert_eq!(
+            call_com(
+                &mut runtime,
+                &dev_iface,
+                28,
+                &[surf_ptr.0, 0, 0, bb_ptr.0, 0]
+            )
+            .eax,
+            0
+        );
+        let p0 = call_com(&mut runtime, &dev_iface, 15, &[0, 0, 0, 0]);
+        assert_eq!(p0.eax, 0);
+        let dev_id = p0.presented_device.expect("presented device");
+        let (_, _, frame0) = runtime.presented_graphics_frame(dev_id).unwrap();
+        assert!(!frame0.preserve_previous);
+        assert_eq!(
+            &frame0.draw_submissions[0].texture_data[0..4],
+            &[255, 255, 255, 255]
+        );
+
+        // Frame 1: 3D XYZ|TEX1 vertex buffer draw + TFACTOR + additive blend + W-fog + trailing depth clear.
+        assert_eq!(
+            call_com(&mut runtime, &dev_iface, 23, &[80, 0, 0x102, 1, out_addr.0]).eax,
+            0
+        );
+        let vb_ptr = GuestAddress(u32::from_le_bytes(
+            runtime
+                .memory
+                .read(out_addr, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        ));
+        let vb_iface = runtime
+            .com_interface_for_pointer(vb_ptr)
+            .unwrap()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            call_com(&mut runtime, &vb_iface, 11, &[0, 0, scratch_addr.0, 0]).eax,
+            0
+        );
+        let vb_data_ptr = GuestAddress(u32::from_le_bytes(
+            runtime
+                .memory
+                .read(scratch_addr, 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        ));
+        let mut vb_verts = Vec::with_capacity(80);
+        for (vx, vy, vz, u, v) in [
+            (-0.5_f32, 0.5_f32, 0.5_f32, 0.0_f32, 0.0_f32),
+            (0.5, 0.5, 0.5, 1.0, 0.0),
+            (-0.5, -0.5, 0.5, 0.0, 1.0),
+            (0.5, -0.5, 0.5, 1.0, 1.0),
+        ] {
+            for f in [vx, vy, vz, u, v] {
+                vb_verts.extend_from_slice(&f.to_le_bytes());
+            }
+        }
+        runtime.memory.write(vb_data_ptr, &vb_verts).unwrap();
+        acknowledge_d3d9_fixture_memory(&mut runtime.memory);
+        assert_eq!(call_com(&mut runtime, &vb_iface, 12, &[]).eax, 0);
+
+        let mut ident = [0_u32; 16];
+        for idx in [0, 5, 10, 15] {
+            ident[idx] = 1.0_f32.to_bits();
+        }
+        write_d3d9_fixture_words(&mut runtime.memory, scratch_addr, &ident);
+        acknowledge_d3d9_fixture_memory(&mut runtime.memory);
+        for kind in [2_u32, 3, 256] {
+            assert_eq!(
+                call_com(&mut runtime, &dev_iface, 37, &[kind, scratch_addr.0]).eax,
+                0
+            );
+        }
+        for (state, val) in [
+            (22_u32, 1_u32),
+            (137, 0),
+            (27, 1),
+            (19, 5),
+            (20, 2),
+            (28, 1),
+            (35, 3),
+            (34, 0xff10_2030),
+            (36, 0.5_f32.to_bits()),
+            (37, 2.0_f32.to_bits()),
+            (60, 0x8040_2010),
+        ] {
+            assert_eq!(call_com(&mut runtime, &dev_iface, 50, &[state, val]).eax, 0);
+        }
+        for (kind, val) in [(1_u32, 2_u32), (2, 3), (4, 2), (5, 3)] {
+            assert_eq!(
+                call_com(&mut runtime, &dev_iface, 63, &[0, kind, val]).eax,
+                0
+            );
+        }
+        assert_eq!(call_com(&mut runtime, &dev_iface, 76, &[0x102]).eax, 0);
+        assert_eq!(
+            call_com(&mut runtime, &dev_iface, 83, &[0, vb_ptr.0, 20]).eax,
+            0
+        );
+        assert_eq!(call_com(&mut runtime, &dev_iface, 34, &[]).eax, 0);
+        assert_eq!(call_com(&mut runtime, &dev_iface, 70, &[5, 0, 2]).eax, 0);
+        assert_eq!(call_com(&mut runtime, &dev_iface, 35, &[]).eax, 0);
+        // Present must replay a depth clear issued after EndScene.
+        assert_eq!(
+            call_com(
+                &mut runtime,
+                &dev_iface,
+                36,
+                &[0, 0, 2, 0, 1.0_f32.to_bits(), 0]
+            )
+            .eax,
+            0
+        );
+        let p1 = call_com(&mut runtime, &dev_iface, 15, &[0, 0, 0, 0]);
+        assert_eq!(p1.eax, 0);
+        let (_, _, frame1) = runtime.presented_graphics_frame(dev_id).unwrap();
+        assert!(frame1.preserve_previous);
+        assert_eq!(frame1.draw_submissions.len(), 1);
+        assert_eq!(frame1.depth_clears.len(), 1);
+        assert_eq!(frame1.depth_clears[0].before_draw, 1);
+        let frag = frame1.draw_submissions[0].fragment.as_ref().unwrap();
+        assert!(frag.additive_blend);
+        assert!(frag.fog.is_some());
+    }
+
     fn d3d9_fixture_runtime(memory: GuestMemory) -> Runtime {
         let mut runtime = Runtime::new(
             RuntimeBootstrap {
@@ -12595,9 +14971,11 @@ mod tests {
         let class = runtime
             .user32
             .register_window_class(RuntimeWindowClassRegistration {
+                unicode: false,
                 module: module.clone(),
                 style: 0x28,
                 window_procedure: RuntimeWindowProcedure {
+                    runtime_default: false,
                     module_id: module.module_id,
                     address: GuestAddress(0x1009_2550),
                     rva: Rva(0x0009_2550),

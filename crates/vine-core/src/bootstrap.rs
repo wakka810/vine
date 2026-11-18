@@ -4,7 +4,7 @@ use crate::memory::{
     MemoryOwnerKind, MemoryRegionKind, PageProtection,
 };
 
-const INITIAL_THREAD_STACK_TOP: GuestAddress = GuestAddress(0x0070_0000);
+pub(crate) const INITIAL_THREAD_STACK_TOP: GuestAddress = GuestAddress(0x0070_0000);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitialThreadStack {
@@ -22,7 +22,22 @@ pub fn install_initial_thread_stack(
     reserve_size: u64,
     commit_size: u64,
 ) -> Result<InitialThreadStack, GuestMemoryError> {
-    let stack_top = INITIAL_THREAD_STACK_TOP;
+    install_initial_thread_stack_at(
+        memory,
+        entry_return,
+        reserve_size,
+        commit_size,
+        INITIAL_THREAD_STACK_TOP,
+    )
+}
+
+pub(crate) fn install_initial_thread_stack_at(
+    memory: &mut GuestMemory,
+    entry_return: &ProcessEntryReturnSentinel,
+    reserve_size: u64,
+    commit_size: u64,
+    stack_top: GuestAddress,
+) -> Result<InitialThreadStack, GuestMemoryError> {
     if !memory.owner_is_sealed(entry_return.owner)? {
         return Err(GuestMemoryError::runtime_defect(
             "initial stack requires a sealed process-entry return sentinel",

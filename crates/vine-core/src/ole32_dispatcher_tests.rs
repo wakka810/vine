@@ -46,6 +46,13 @@ impl CoInitializeFixture {
         memory
             .write_initialization(owner, IAT_ADDRESS, &ENDPOINT_ADDRESS.0.to_le_bytes())
             .expect("initialize CoInitialize IAT");
+        memory
+            .write_initialization(
+                owner,
+                GuestAddress(IAT_ADDRESS.0 + 4),
+                &(ENDPOINT_ADDRESS.0 + 0x10).to_le_bytes(),
+            )
+            .expect("initialize CoUninitialize IAT");
         for (index, reserved) in [0_u32, 0, 1].into_iter().enumerate() {
             write_words(
                 &mut memory,
@@ -216,6 +223,90 @@ fn co_initialize_rejects_nonnull_reserved_before_mutation() {
         vine_core::SchedulerThreadState::Runnable
     );
     assert_eq!(fixture.runtime.memory.stats(), memory_before);
+}
+
+#[test]
+fn co_uninitialize_counts_down_then_closes_apartment_and_preserves_last_error() {
+    let mut fixture = CoInitializeFixture::new();
+    let mut uninit_endpoint = fixture.endpoint.clone();
+    uninit_endpoint.id = ImportThunkId(302);
+    uninit_endpoint.address = GuestAddress(ENDPOINT_ADDRESS.0 + 0x10);
+    uninit_endpoint.iat_address = Some(GuestAddress(IAT_ADDRESS.0 + 4));
+    uninit_endpoint.symbol = ApiSymbol::Name {
+        name: "CoUninitialize".to_owned(),
+    };
+    assert_eq!(ole32_argument_words(&uninit_endpoint), Some(0));
+    fixture.dispatcher =
+        ApiDispatcher::from_endpoints([fixture.endpoint.clone(), uninit_endpoint.clone()])
+            .expect("Ole32 dispatcher with CoUninitialize");
+
+    assert!(matches!(
+        fixture.dispatch(STACK_POINTER),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert!(matches!(
+        fixture.dispatch(STACK_POINTER + 0x20),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert_eq!(
+        fixture
+            .runtime
+            .current_com_apartment()
+            .unwrap()
+            .unwrap()
+            .initialization_count,
+        2
+    );
+
+    let call_uninit = |fixture: &mut CoInitializeFixture| {
+        fixture.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: uninit_endpoint.id,
+                endpoint_address: uninit_endpoint.address,
+                stack_pointer: GuestAddress(STACK_POINTER),
+                return_address: RETURN_ADDRESS,
+            },
+            &mut fixture.runtime,
+            None,
+            |frame, runtime, _cpu| dispatch_ole32_api(frame, runtime),
+        )
+    };
+
+    let first_uninit = match call_uninit(&mut fixture) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected CoUninitialize completion, got {other:?}"),
+    };
+    assert_eq!(first_uninit.eax, None);
+    assert_eq!(first_uninit.stack_pointer, GuestAddress(STACK_POINTER + 4));
+    assert_eq!(
+        fixture
+            .runtime
+            .current_com_apartment()
+            .unwrap()
+            .unwrap()
+            .initialization_count,
+        1
+    );
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        INITIAL_LAST_ERROR
+    );
+
+    assert!(matches!(
+        call_uninit(&mut fixture),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert!(fixture.runtime.current_com_apartment().unwrap().is_none());
+
+    assert!(matches!(
+        call_uninit(&mut fixture),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert!(fixture.runtime.current_com_apartment().unwrap().is_none());
+    assert_eq!(
+        fixture.runtime.current_last_error().unwrap(),
+        INITIAL_LAST_ERROR
+    );
 }
 
 fn initialized_memory() -> (GuestMemory, MemoryOwnerId) {

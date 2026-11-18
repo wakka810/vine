@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::memory::GuestAddress;
 
@@ -27,6 +27,8 @@ pub struct RuntimeStartupInfo {
 pub struct RuntimeCommandLine {
     pub ansi_buffer_address: GuestAddress,
     pub ansi_byte_length_with_nul: u32,
+    pub wide_buffer_address: GuestAddress,
+    pub wide_byte_length_with_nul: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,10 +57,12 @@ pub struct RuntimeProcessEnvironment {
 pub enum RuntimeProcessLifecycleState {
     Bootstrapping,
     Running,
+    Exited { exit_code: u32 },
 }
 
 #[derive(Debug)]
 pub struct RuntimeProcessState {
+    pub(super) exit_owner: Option<super::RuntimeThreadId>,
     id: RuntimeProcessId,
     lifecycle: RuntimeProcessLifecycleState,
     clock: RuntimeClock,
@@ -69,6 +73,10 @@ pub struct RuntimeProcessState {
     unhandled_exception_filter: Option<GuestAddress>,
     heap_termination_on_corruption: bool,
     standard_handles: BTreeSet<u32>,
+    standard_handle_overrides: BTreeMap<u32, u32>,
+    pub(super) environment_copies:
+        BTreeMap<GuestAddress, (bool, super::heaps::RuntimeHeapAllocation)>,
+    pub(super) environment_heap_authority: Option<(u32, super::heaps::RuntimeHeapAllocation)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,6 +156,17 @@ impl RuntimeProcessDirectories {
         self.current_directory_a = self.process_image_directory_a.clone();
         Ok(())
     }
+
+    pub(super) fn set_resolved_directory(
+        &mut self,
+        resolved_bytes_with_nul: &[u8],
+    ) -> Result<(), RuntimeStateError> {
+        let normalized = normalize_absolute_directory_path(resolved_bytes_with_nul)?;
+        self.current_directory_a = RuntimeCurrentDirectoryA {
+            bytes_with_nul: normalized.bytes_with_nul,
+        };
+        Ok(())
+    }
 }
 
 impl RuntimeProcessState {
@@ -161,6 +180,7 @@ impl RuntimeProcessState {
         Self {
             id,
             lifecycle: RuntimeProcessLifecycleState::Bootstrapping,
+            exit_owner: None,
             clock: RuntimeClock::new(clock).expect("validated runtime clock bootstrap"),
             startup_info,
             image_path_a,
@@ -169,6 +189,9 @@ impl RuntimeProcessState {
             unhandled_exception_filter: None,
             heap_termination_on_corruption: false,
             standard_handles: BTreeSet::new(),
+            standard_handle_overrides: BTreeMap::new(),
+            environment_copies: BTreeMap::new(),
+            environment_heap_authority: None,
         }
     }
 
@@ -259,7 +282,6 @@ impl RuntimeProcessState {
         self.environment.as_ref()
     }
 
-    #[cfg(test)]
     pub fn unhandled_exception_filter(&self) -> Option<GuestAddress> {
         self.unhandled_exception_filter
     }
@@ -280,6 +302,10 @@ impl RuntimeProcessState {
 
     pub(super) const fn is_running(&self) -> bool {
         matches!(self.lifecycle, RuntimeProcessLifecycleState::Running)
+    }
+
+    pub(super) fn terminate(&mut self, exit_code: u32) {
+        self.lifecycle = RuntimeProcessLifecycleState::Exited { exit_code };
     }
 
     pub(super) fn start(&mut self) -> Result<(), RuntimeStateError> {
@@ -332,6 +358,19 @@ impl RuntimeProcessState {
         self.directories.set_process_image_directory(requested)
     }
 
+    pub(super) fn set_resolved_current_directory_a(
+        &mut self,
+        resolved_bytes_with_nul: &[u8],
+    ) -> Result<(), RuntimeStateError> {
+        if !self.is_running() {
+            return Err(RuntimeStateError::new(
+                "current-directory replacement requires a running process",
+            ));
+        }
+        self.directories
+            .set_resolved_directory(resolved_bytes_with_nul)
+    }
+
     pub(super) fn install_environment(&mut self, environment: RuntimeProcessEnvironment) {
         self.environment = Some(environment);
     }
@@ -358,6 +397,7 @@ impl RuntimeProcessState {
             })
     }
 
+    #[cfg(test)]
     pub(super) fn acquire_environment_strings_w(
         &mut self,
     ) -> Result<GuestAddress, RuntimeStateError> {
@@ -371,6 +411,7 @@ impl RuntimeProcessState {
         Ok(environment.copy_buffer_address)
     }
 
+    #[cfg(test)]
     pub(super) fn free_environment_strings_w(
         &mut self,
         buffer_address: GuestAddress,
@@ -390,7 +431,7 @@ impl RuntimeProcessState {
         Ok(())
     }
 
-    fn environment_strings_mut(
+    pub(super) fn environment_strings_mut(
         &mut self,
     ) -> Result<&mut RuntimeEnvironmentStrings, RuntimeStateError> {
         self.environment
@@ -412,6 +453,9 @@ impl RuntimeProcessState {
                 "standard handle lookup requires a running process",
             ));
         }
+        if let Some(handle) = self.standard_handle_overrides.get(&selector) {
+            return Ok(*handle);
+        }
         let handle = match selector {
             RUNTIME_STANDARD_INPUT_SELECTOR => RUNTIME_STANDARD_INPUT_HANDLE,
             RUNTIME_STANDARD_OUTPUT_SELECTOR => RUNTIME_STANDARD_OUTPUT_HANDLE,
@@ -420,6 +464,19 @@ impl RuntimeProcessState {
         };
         self.standard_handles.insert(selector);
         Ok(handle)
+    }
+
+    pub(super) fn set_standard_handle(&mut self, selector: u32, handle: u32) -> bool {
+        if !matches!(
+            selector,
+            RUNTIME_STANDARD_INPUT_SELECTOR
+                | RUNTIME_STANDARD_OUTPUT_SELECTOR
+                | RUNTIME_STANDARD_ERROR_SELECTOR
+        ) {
+            return false;
+        }
+        self.standard_handle_overrides.insert(selector, handle);
+        true
     }
 
     pub(super) fn standard_file_type(&self, handle: u32) -> Option<u32> {
@@ -790,6 +847,8 @@ mod tests {
             command_line: RuntimeCommandLine {
                 ansi_buffer_address: GuestAddress(0x7ffd_d200),
                 ansi_byte_length_with_nul: 3,
+                wide_buffer_address: GuestAddress(0x7ffd_d000),
+                wide_byte_length_with_nul: 6,
             },
             environment_strings: RuntimeEnvironmentStrings {
                 authority_buffer_address: GuestAddress(0x7ffd_d300),

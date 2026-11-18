@@ -15,7 +15,7 @@ import { browseSourceDirectory, inspectSourcePath, listSourceDirectory, openSour
 import { openWritableTree } from "./writable-tree.js";
 
 type GameCompletion = CpuResume & {
-  executionBoundary?: "yield-current-thread" | "block-current-thread" | "terminate-current-thread";
+  executionBoundary?: "yield-current-thread" | "block-current-thread" | "terminate-current-thread" | "terminate-process";
 };
 type BrowserHostCompletion =
   | { kind: "host-complete"; threadId: number; completion: GameCompletion }
@@ -37,6 +37,7 @@ type MediaRequest = {
     { kind: "writable-file"; relativePath: string } | null;
 };
 type GameDispatch =
+  | { kind: "source-library"; relativePathA: number[] }
   | { kind: "source-lookup"; objectId: number; relativePathA: number[] }
   | { kind: "source-search"; relativeDirectoryA: number[] }
   | { kind: "audio-request"; requestId: string; threadId: number }
@@ -62,6 +63,7 @@ const worker = self as DedicatedWorkerGlobalScope;
 const inputEvents: Array<{ type: "keyboard-input"; input: RuntimeKeyboardInputEvent } |
   { type: "pointer-input"; input: RuntimePointerInputEvent }> = [];
 let inputOverflow = false;
+let inputEventReady: (() => void) | null = null;
 let launched = false;
 let pendingAudio: { requestId: string; resolve: (accepted: boolean) => void } | null = null;
 const pendingMediaAudio = new Map<string, (accepted: boolean) => void>();
@@ -80,6 +82,7 @@ type StopContext = {
   threadId: number | null; threadIdSource: "runtime" | "execution-adapter" | "unknown";
   instructionPointer: number | null; eax: number | null; lastError: number | null;
   module: string | null; symbol: string | null;
+  stackPointer?: number | null; stackWords?: number[];
 };
 const recentEvents: RecentEvent[] = [];
 let readStopContext: (() => StopContext) | null = null;
@@ -106,8 +109,10 @@ function reportGameError(error: unknown): void {
     `  ${event.event}: tid=${decimal(event.threadId)}, eip=${hex(event.instructionPointer)}` +
     (event.detail === null ? "" : `, ${event.detail}`) +
     (event.eax === null ? "" : `, eax=${hex(event.eax)}`)).join("\n");
+  const stack = context.stackPointer == null ? "" :
+    `, ESP=${hex(context.stackPointer)}, stack=[${(context.stackWords ?? []).map(hex).join(",")}]`;
   worker.postMessage({ type: "game-error",
-    detail: `${original}\nStopped: thread=${decimal(context.threadId)} (${context.threadIdSource}), EIP=${hex(context.instructionPointer)}, EAX=${hex(context.eax)}, module=${context.module ?? "unknown"}, symbol=${context.symbol ?? "unknown"}, LastError=${decimal(context.lastError)}\nRecent events:\n${recent}`,
+    detail: `${original}\nStopped: thread=${decimal(context.threadId)} (${context.threadIdSource}), EIP=${hex(context.instructionPointer)}, EAX=${hex(context.eax)}, module=${context.module ?? "unknown"}, symbol=${context.symbol ?? "unknown"}, LastError=${decimal(context.lastError)}${stack}\nRecent events:\n${recent}`,
   });
 }
 
@@ -191,6 +196,7 @@ worker.addEventListener("message", (event: MessageEvent<LaunchRequest |
     if (!launched) return;
     if (inputEvents.length >= 256) inputOverflow = true;
     else inputEvents.push(event.data);
+    inputEventReady?.(); inputEventReady = null;
     return;
   }
   if (event.data.type !== "launch-executable") return;
@@ -279,6 +285,23 @@ async function launch(request: LaunchRequest): Promise<void> {
     pending.push(...registered.guestImports);
   }
   const prepared = bridge.prepareExecutable(executable, path);
+  if (typeof bridge.registerSourceDirectoryListing === "function") {
+    for (const segments of request.segments.length > 0 ? [[], request.segments] : [[]]) {
+      try {
+        const entries = (await browseSourceDirectory(request.root, segments)).map(entry => ({
+          name: entry.name,
+          kind: entry.kind === "directory" ? "directory" as const : "file" as const,
+        }));
+        bridge.registerSourceDirectoryListing({ pathSegments: [...segments], entries });
+      } catch {
+        // Bounded enumeration failures fall back to on-demand source path inspection.
+      }
+    }
+  }
+  if (typeof writable.listEntries === "function" && typeof bridge.registerOpfsSnapshot === "function") {
+    const snapshot = await writable.listEntries();
+    if (snapshot !== null) bridge.registerOpfsSnapshot(snapshot);
+  }
   const readRuntimeStopContext = (instructionPointer: number | null, eax: number | null,
     executionThreadId: number | null = null): StopContext => {
     let native: RuntimeStopContext | null = null;
@@ -322,12 +345,22 @@ async function launch(request: LaunchRequest): Promise<void> {
   let currentThreadId = prepared.metadata.runtime.threadId;
   readStopContext = () => {
     let instructionPointer: number | null = null, eax: number | null = null;
+    let stackPointer: number | null = null;
+    const stackWords: number[] = [];
     try {
       const context = engine.saveCpuContext();
       instructionPointer = diagnosticWord(context.instructionPointer);
       eax = diagnosticWord(context.eax);
+      stackPointer = diagnosticWord(context.esp);
+      if (stackPointer !== null) for (let index = 0; index < 4; index++) {
+        const address = stackPointer + index * 4;
+        if (address > 0xffff_fffc) break;
+        const word = diagnosticWord(engine.readGuestU32(address));
+        if (word === null) break;
+        stackWords.push(word);
+      }
     } catch { /* An uninitialized or failed CPU may have no readable context. */ }
-    return readRuntimeStopContext(instructionPointer, eax, currentThreadId);
+    return { ...readRuntimeStopContext(instructionPointer, eax, currentThreadId), stackPointer, stackWords };
   };
   let currentSnapshotRevision = bridge.storeCpuSnapshot(currentThreadId, 0n, engine.saveCpuContext().snapshot);
   const parkCurrentCpu = () => {
@@ -694,7 +727,7 @@ async function launch(request: LaunchRequest): Promise<void> {
       engine.acknowledgeWriteback?.(generation);
     }
     recordRecentEvent("host-completion", delay.threadId, null, delay.service);
-    if (delay.service === "browser.audio-delay" || delay.service === "browser.object-wait") {
+    if (delay.service === "browser.audio-delay" || delay.service === "browser.object-wait" || delay.service === "browser.message-wait") {
       bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
     }
     const completed = bridge.completeHost<BrowserHostCompletion>(delay.requestId, delay.acknowledgement);
@@ -704,7 +737,7 @@ async function launch(request: LaunchRequest): Promise<void> {
     if (completed.metadata.kind === "host-retry") {
       const retry = completed.metadata;
       if ((delay.service !== "browser.timer-delay" && delay.service !== "browser.audio-delay" &&
-          delay.service !== "browser.object-wait") ||
+          delay.service !== "browser.object-wait" && delay.service !== "browser.message-wait") ||
           retry.service !== delay.service ||
           retry.requestId !== delay.requestId.toString() || !Array.isArray(retry.arguments) ||
           "completion" in retry ||
@@ -728,16 +761,32 @@ async function launch(request: LaunchRequest): Promise<void> {
       engine.applyCpuResume(completed.metadata.completion);
     } else {
       const parked = bridge.loadCpuSnapshot(delay.threadId);
-      const active = engine.saveCpuContext();
-      try {
-        engine.restoreCpuContext(parked);
-        engine.applyCpuResume(completed.metadata.completion);
-        bridge.storeCpuSnapshot(delay.threadId, parked.revision, engine.saveCpuContext().snapshot);
-      } finally {
-        engine.restoreCpuContext(active);
+      if (engine.resumeParkedCpuSnapshot) {
+        bridge.storeCpuSnapshot(
+          delay.threadId,
+          parked.revision,
+          engine.resumeParkedCpuSnapshot(parked.snapshot, completed.metadata.completion),
+        );
+      } else {
+        const active = engine.saveCpuContext();
+        try {
+          engine.restoreCpuContext(parked);
+          engine.applyCpuResume(completed.metadata.completion);
+          bridge.storeCpuSnapshot(delay.threadId, parked.revision, engine.saveCpuContext().snapshot);
+        } finally {
+          engine.restoreCpuContext(active);
+        }
       }
     }
     return true;
+  };
+  const ingestQueuedInput = () => {
+    if (inputOverflow) throw new Error("Browser input event queue overflowed");
+    while (inputEvents.length > 0) {
+      const event = inputEvents.shift()!;
+      if (event.type === "keyboard-input") bridge.ingestKeyboardEvent(event.input);
+      else bridge.ingestPointerEvent(event.input);
+    }
   };
   const schedule = async () => {
     while (true) {
@@ -748,16 +797,37 @@ async function launch(request: LaunchRequest): Promise<void> {
       if (media === false) continue;
       if (completeReadyBrowserWork()) continue;
       observeAudioEnds();
-      const result = bridge.scheduleNextThread<{ kind: string; threadId?: number; audioEndPending?: boolean }>();
+      bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
+      ingestQueuedInput();
+      const result = bridge.scheduleNextThread<{
+        kind: string; threadId?: number; audioEndPending?: boolean;
+        messageWaitPending?: boolean; messageWaitDelayMs?: number | null;
+      }>();
       if (result.metadata.kind === "scheduler-idle") {
-        if (pendingBrowserCompletions.length === 0 && mediaTasks.size === 0 && result.metadata.audioEndPending !== true) {
+        if (pendingBrowserCompletions.length === 0 && mediaTasks.size === 0 &&
+            result.metadata.audioEndPending !== true && result.metadata.messageWaitPending !== true) {
           throw new Error("All guest threads are idle; no browser work can wake them");
         }
-        // Only actual browser completions can make an idle Rust thread runnable.
+        // Rust owns message waits and window-timer deadlines. Chrome only waits
+        // for input or that deadline, then lets Rust decide which thread wakes.
         const audioReady = new Promise<void>(resolve => { audioEventReady = resolve; });
-        await Promise.race([audioReady, ...pendingBrowserCompletions.map(delay => delay.promise),
-          ...[...mediaTasks.values()].map(task => task.promise)]);
-        audioEventReady = null;
+        const inputReady = new Promise<void>(resolve => { inputEventReady = resolve; });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const waits = [audioReady, inputReady, ...pendingBrowserCompletions.map(delay => delay.promise),
+          ...[...mediaTasks.values()].map(task => task.promise)];
+        const delay = result.metadata.messageWaitDelayMs;
+        if (delay !== undefined && delay !== null) {
+          if (!Number.isSafeInteger(delay) || delay < 0 || delay > 0x7fff_ffff) {
+            throw new Error("Rust returned an invalid message wait deadline");
+          }
+          waits.push(new Promise<void>(resolve => { timer = setTimeout(resolve, delay); }));
+        }
+        try { await Promise.race(waits); }
+        finally {
+          if (timer !== undefined) clearTimeout(timer);
+          audioEventReady = null;
+          inputEventReady = null;
+        }
         continue;
       }
       if (result.metadata.kind !== "thread-scheduled" || result.metadata.threadId === undefined) {
@@ -818,14 +888,9 @@ async function launch(request: LaunchRequest): Promise<void> {
         await schedule();
         continue;
       }
-      if (inputOverflow) throw new Error("Browser input event queue overflowed");
-      while (inputEvents.length > 0) {
-        const event = inputEvents.shift()!;
-        if (event.type === "keyboard-input") bridge.ingestKeyboardEvent(event.input);
-        else {
-          bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
-          bridge.ingestPointerEvent(event.input);
-        }
+      if (inputEvents.length > 0 || inputOverflow) {
+        bridge.synchronizeForwardClock(instructions, performance.now() - startedAt);
+        ingestQueuedInput();
       }
       engine.setRuntimeClock?.(instructions, performance.now() - startedAt);
       const slice = engine.executeBudget(131072);
@@ -897,10 +962,17 @@ async function launch(request: LaunchRequest): Promise<void> {
             | { kind: "dll-attach-callback"; target: number; stackPointer: number }
             | { kind: "dll-attach-complete" }
             | GameDispatch
-          >(prepared.metadata.callbackSentinel, slice.context.eax >>> 0);
+          >(prepared.metadata.callbackSentinel, slice.context.eax >>> 0, slice.context.esp);
           if (output.metadata.kind === "guest-callback" || output.metadata.kind === "com-complete" ||
               output.metadata.kind === "media-request" || output.metadata.kind === "media-data") {
             if (!handleMediaOutput(output as BridgeOutput<GameDispatch>)) await schedule();
+          } else if (output.metadata.kind === "callback-complete" &&
+                     output.metadata.completion.executionBoundary === "terminate-process") {
+            const code = output.metadata.completion.eax;
+            if (code === null || !Number.isInteger(code) || code < 0 || code > 0xffff_ffff) throw new Error("Invalid process exit code");
+            applyDelta(output, "process exit");
+            worker.postMessage({ type: "game-exit", exitCode: code, detail: `Guest exited with code ${code}` });
+            return;
           } else if (output.metadata.kind === "callback-complete" &&
                      output.metadata.completion.executionBoundary === undefined) {
             applyDelta(output, "callback return");
@@ -958,8 +1030,24 @@ async function launch(request: LaunchRequest): Promise<void> {
           recordRecentEvent("completion", "threadId" in lookup ? lookup.threadId ?? currentThreadId : currentThreadId,
             slice.context.instructionPointer, lookup.kind,
             "completion" in lookup ? lookup.completion.eax : null);
-          if (lookup.kind !== "source-lookup" && lookup.kind !== "source-search") break;
-          if (lookup.kind === "source-lookup") {
+          if (lookup.kind !== "source-lookup" && lookup.kind !== "source-search" && lookup.kind !== "source-library") break;
+          if (lookup.kind === "source-library") {
+            if (!Array.isArray(lookup.relativePathA)) throw new Error("Invalid DLL source path");
+            const verified = await inspectSourcePath(request.root, lookup.relativePathA);
+            if (verified?.kind === "file") recordRecentEvent("completion", currentThreadId,
+              slice.context.instructionPointer, `source-library ${verified.pathSegments.join("/")}`);
+            let bytes: Uint8Array | null = null;
+            if (verified?.kind === "file") {
+              if (verified.byteLength > 16 * 1024 * 1024) throw new Error("DLL exceeds the bridge input limit");
+              bytes = new Uint8Array(verified.byteLength);
+              for (let offset = 0; offset < bytes.length; offset += 2 * 1024 * 1024) {
+                const chunk = await readSourceRange(request.root, verified.pathSegments, verified.byteLength,
+                  verified.lastModified, offset, Math.min(2 * 1024 * 1024, bytes.length - offset), verified.sourceVersion);
+                bytes.set(chunk, offset);
+              }
+            }
+            applyDelta(bridge.completeSourceLibrary(bytes), "DLL mapping");
+          } else if (lookup.kind === "source-lookup") {
             if (!Array.isArray(lookup.relativePathA) || !Number.isInteger(lookup.objectId)) {
               throw new Error("Rust returned an invalid source lookup");
             }
@@ -1048,18 +1136,20 @@ async function launch(request: LaunchRequest): Promise<void> {
             await schedule();
             continue;
           }
-          if (host.service === "browser.opfs-write") {
+          if (host.service === "browser.opfs-write" || host.service === "browser.opfs-truncate") {
+            const truncate = host.service === "browser.opfs-truncate";
             const [low, high, transferred] = host.arguments;
             const offset = BigInt(low!) | (BigInt(high!) << 32n);
             if (typeof host.relativePath !== "string" || host.arguments.length !== 3 ||
                 output.control.length !== 0 || !Number.isInteger(low) || !Number.isInteger(high) ||
-                !Number.isInteger(transferred) || transferred! < 1 || transferred! > 1024 * 1024 ||
+                !Number.isInteger(transferred) || (truncate ? transferred !== 0 : transferred! < 1) || transferred! > 1024 * 1024 ||
                 output.payload.length !== transferred || offset > 0xffff_ffffn) {
               throw new Error("Invalid OPFS write request");
             }
             let observation = 0;
             try {
-              await writable.writeExisting(host.relativePath, output.payload, Number(offset));
+              if (truncate) await writable.truncateExisting(host.relativePath, Number(offset));
+              else await writable.writeExisting(host.relativePath, output.payload, Number(offset));
             } catch (error) {
               if (!(error instanceof DOMException)) throw error;
               switch (error.name) {
@@ -1086,7 +1176,7 @@ async function launch(request: LaunchRequest): Promise<void> {
           if (host.service === "browser.opfs-open") {
             const [disposition, sourceMissing, sourceParents] = host.arguments;
             if (typeof host.relativePath !== "string" || host.arguments.length !== 3 ||
-                ![2, 3, 4].includes(disposition!) || ![2, 3].includes(sourceMissing!) ||
+                ![2, 3, 4].includes(disposition!) || ![0, 2, 3].includes(sourceMissing!) ||
                 !Number.isInteger(sourceParents) || sourceParents! < 0 || sourceParents! > 128 ||
                 sourceParents! > host.relativePath.split("/").length - 1) {
               throw new Error("Invalid OPFS file open request");
@@ -1102,7 +1192,7 @@ async function launch(request: LaunchRequest): Promise<void> {
                   byteLength = existing.byteLength;
                 } else {
                   const parent = host.relativePath.split("/").slice(0, -1).join("/");
-                  observation = parent && (await writable.stat(parent))?.kind !== "directory" ? 3 : 2;
+                  observation = sourceMissing === 0 ? 7 : parent && (await writable.stat(parent))?.kind !== "directory" ? 3 : 2;
                 }
               } else if (disposition === 4 && existing?.kind === "file") {
                 observation = 1;
@@ -1197,7 +1287,7 @@ async function launch(request: LaunchRequest): Promise<void> {
             engine.applyCpuResume(completed.metadata.completion);
             continue;
           }
-          if (host.service === "browser.opfs-create-directory") {
+          if (host.service === "browser.opfs-create-directory" || host.service === "browser.opfs-ensure-directory") {
             const sourceParents = host.arguments[0];
             if (typeof host.relativePath !== "string" || host.arguments.length !== 1 ||
                 typeof sourceParents !== "number" || !Number.isInteger(sourceParents) ||
@@ -1207,7 +1297,7 @@ async function launch(request: LaunchRequest): Promise<void> {
             }
             let observation = 0;
             try {
-              if (await writable.stat(host.relativePath) !== null) observation = 1;
+              if (host.service === "browser.opfs-create-directory" && await writable.stat(host.relativePath) !== null) observation = 1;
               else await writable.createDirectory(host.relativePath, sourceParents);
             } catch (error) {
               if (!(error instanceof DOMException)) throw error;
@@ -1247,7 +1337,7 @@ async function launch(request: LaunchRequest): Promise<void> {
             continue;
           }
           if (host.service === "browser.timer-delay" || host.service === "browser.sleep" ||
-              host.service === "browser.audio-delay" || host.service === "browser.object-wait") {
+              host.service === "browser.audio-delay" || host.service === "browser.object-wait" || host.service === "browser.message-wait") {
             const wait = host.service === "browser.timer-delay";
             const audio = host.service === "browser.audio-delay";
             const milliseconds = browserDelayMilliseconds(host.service, host.arguments);
@@ -1257,7 +1347,7 @@ async function launch(request: LaunchRequest): Promise<void> {
             const delay = {
               requestId: BigInt(host.requestId), threadId: currentThreadId,
               service: host.service,
-              acknowledgement: wait || audio || host.service === "browser.object-wait" ? 1 : 0, done: false,
+              acknowledgement: wait || audio || host.service === "browser.object-wait" || host.service === "browser.message-wait" ? 1 : 0, done: false,
               promise: Promise.resolve(),
             };
             armBrowserDelay(delay, milliseconds);
@@ -1269,18 +1359,20 @@ async function launch(request: LaunchRequest): Promise<void> {
               host.arguments.length !== 5) {
             throw new Error(`Unsupported browser work requested by ${label}`);
           }
-          const [sourceId, objectId, low, high, requested] = host.arguments;
+          let readHost = host;
+          for (;;) {
+          const [sourceId, objectId, low, high, requested] = readHost.arguments;
           const offset = BigInt(low!) | (BigInt(high!) << 32n);
           let bytes: Uint8Array;
           let win32Error = 0;
-          if (host.service === "browser.opfs-read") {
+          if (readHost.service === "browser.opfs-read") {
             if (sourceId !== 0 || !Number.isInteger(objectId) || objectId! < 1 ||
-                typeof host.relativePath !== "string" ||
-                offset > 0xffff_ffffn || requested! <= 0 || requested! > 2 * 1024 * 1024) {
+                typeof readHost.relativePath !== "string" ||
+                offset > 0xffff_ffffn || requested! <= 0 || requested! > 16 * 1024 * 1024 - 28) {
               throw new Error("Invalid Rust OPFS read request");
             }
             try {
-              const result = await writable.read(host.relativePath, Number(offset), requested!);
+              const result = await writable.read(readHost.relativePath!, Number(offset), requested!);
               if (result === null) {
                 bytes = new Uint8Array();
                 win32Error = 2;
@@ -1294,7 +1386,7 @@ async function launch(request: LaunchRequest): Promise<void> {
           } else {
             const source = sourceFiles.get(objectId!);
             if (sourceId !== 1 || source === undefined ||
-                offset > 0xffff_ffffn || requested! <= 0 || requested! > 2 * 1024 * 1024) {
+                offset > 0xffff_ffffn || requested! <= 0 || requested! > 16 * 1024 * 1024 - 28) {
               throw new Error("Invalid Rust source read request");
             }
             bytes = await readSourceRange(request.root, source.pathSegments,
@@ -1306,7 +1398,17 @@ async function launch(request: LaunchRequest): Promise<void> {
             .forEach((word, index) => view.setUint32(index * 4, word, true));
           const completed = bridge.completeSourceRead<{
             kind: string; threadId: number; completion: GameCompletion;
-          }>(BigInt(host.requestId), control, bytes);
+            requestId?: string; service?: string; arguments?: number[];
+          }>(BigInt(readHost.requestId), control, bytes);
+          if (completed.metadata.kind === "host-retry") {
+            if (readHost.service !== "storage.source-read" || completed.metadata.threadId !== currentThreadId ||
+                completed.metadata.requestId !== readHost.requestId || completed.metadata.service !== readHost.service ||
+                completed.metadata.arguments?.length !== 5 || completed.control.length || completed.payload.length) {
+              throw new Error("Invalid MMIO source read continuation");
+            }
+            readHost = { ...readHost, arguments: completed.metadata.arguments };
+            continue;
+          }
           if (completed.metadata.kind !== "host-complete" ||
               completed.metadata.threadId !== currentThreadId ||
               completed.metadata.completion.executionBoundary !== undefined) {
@@ -1314,6 +1416,8 @@ async function launch(request: LaunchRequest): Promise<void> {
           }
           applyDelta(completed, host.service === "browser.opfs-read" ? "OPFS read" : "source read");
           engine.applyCpuResume(completed.metadata.completion);
+          break;
+          }
           continue;
         }
         if (output.metadata.kind === "guest-callback") {
@@ -1323,7 +1427,7 @@ async function launch(request: LaunchRequest): Promise<void> {
         if (output.metadata.kind !== "api-complete") throw new Error(`Unexpected API completion for ${label}`);
         const boundary = output.metadata.completion.executionBoundary;
         if (boundary !== undefined && boundary !== "yield-current-thread" &&
-            boundary !== "block-current-thread" && boundary !== "terminate-current-thread") {
+            boundary !== "block-current-thread" && boundary !== "terminate-current-thread" && boundary !== "terminate-process") {
           throw new Error(`Imported function ${label} requested an unimplemented scheduler boundary`);
         }
         if (boundary === "block-current-thread" &&
@@ -1331,6 +1435,12 @@ async function launch(request: LaunchRequest): Promise<void> {
           throw new Error(`Imported function ${label} selected its blocked guest thread`);
         }
         applyDelta(output, label);
+        if (boundary === "terminate-process") {
+          const code = output.metadata.completion.eax;
+          if (code === null || !Number.isInteger(code) || code < 0 || code > 0xffff_ffff || output.metadata.threadSelection !== undefined) throw new Error(`Invalid process exit for ${label}`);
+          worker.postMessage({ type: "game-exit", exitCode: code, detail: `Guest exited with code ${code}` });
+          return;
+        }
         if (boundary === "terminate-current-thread") {
           const eax = output.metadata.completion.eax;
           if (eax === null || !Number.isInteger(eax) || eax < 0 || eax > 0xffff_ffff ||

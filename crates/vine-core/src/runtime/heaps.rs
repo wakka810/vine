@@ -14,7 +14,9 @@ pub const RUNTIME_PRIVATE_HEAP_BACKING_LIMIT: u16 = 36;
 pub const RUNTIME_PRIVATE_HEAP_MAX_ORDINARY_SEGMENTS: usize =
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT as usize;
 pub const RUNTIME_PRIVATE_HEAP_ALIGNMENT: u32 = 8;
-pub const RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS: usize = 65_536;
+// Bound process-wide allocation metadata independently of committed guest RAM.
+// Archive indexes and script strings can exceed 64K small blocks in one heap.
+pub const RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS: usize = 1_048_576;
 
 const LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX: u32 = 0x6801_0000;
 #[derive(Debug)]
@@ -23,6 +25,8 @@ pub struct RuntimeHeap {
     pub initial_size: u32,
     pub maximum_size: u32,
     pub live_allocations: u32,
+    pub serialized: bool,
+    pub low_fragmentation: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -86,6 +90,7 @@ pub(super) struct RuntimeHeaps {
     large_backings: BTreeMap<u32, RuntimeLargeHeapAllocationBacking>,
     next_allocation_ids: BTreeMap<u32, RuntimeHeapAllocationId>,
     next_private_heap_slot: u16,
+    process_heap: Option<u32>,
     task_heap: Option<u32>,
 }
 
@@ -98,12 +103,93 @@ impl Default for RuntimeHeaps {
             large_backings: BTreeMap::new(),
             next_allocation_ids: BTreeMap::new(),
             next_private_heap_slot: 1,
+            process_heap: None,
             task_heap: None,
         }
     }
 }
 
 impl RuntimeHeaps {
+    pub(super) fn largest_committed_free_block(
+        &self,
+        handle: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.heap(handle)?;
+        let mut largest = 0;
+        for backing in self
+            .backing(handle)
+            .into_iter()
+            .chain(self.extension_backings(handle).map(|(_, backing)| backing))
+        {
+            let tail = backing
+                .committed_bytes
+                .checked_sub(backing.high_water_mark)
+                .ok_or_else(|| {
+                    RuntimeStateError::new("heap high water mark exceeds committed storage")
+                })?;
+            largest = largest.max(tail);
+            for (&offset, &length) in &backing.free_blocks {
+                let end = offset
+                    .checked_add(length)
+                    .ok_or_else(|| RuntimeStateError::new("free heap block overflowed"))?;
+                if end > backing.committed_bytes {
+                    return Err(RuntimeStateError::new(
+                        "free heap block exceeds committed storage",
+                    ));
+                }
+                let length = if end == backing.high_water_mark {
+                    length + tail
+                } else {
+                    length
+                };
+                largest = largest.max(length);
+            }
+        }
+        // Adjacent spans are already coalesced by every successful HeapFree.
+        Ok(largest)
+    }
+
+    pub(super) fn configure_serialization(
+        &mut self,
+        handle: u32,
+        serialized: bool,
+    ) -> Result<(), RuntimeStateError> {
+        self.heaps
+            .get_mut(&handle)
+            .ok_or_else(|| RuntimeStateError::new("heap serialization requires a live heap"))?
+            .serialized = serialized;
+        Ok(())
+    }
+
+    pub(super) fn enable_low_fragmentation(
+        &mut self,
+        handle: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        let heap = self
+            .heaps
+            .get_mut(&handle)
+            .ok_or_else(|| RuntimeStateError::new("heap compatibility requires a live heap"))?;
+        if !heap.serialized || heap.maximum_size != 0 {
+            return Ok(false);
+        }
+        heap.low_fragmentation = true;
+        Ok(true)
+    }
+
+    pub(super) fn process_heap(
+        &mut self,
+        objects: &mut RuntimeObjectTable,
+    ) -> Result<u32, RuntimeStateError> {
+        if let Some(handle) = self.process_heap {
+            return Ok(handle);
+        }
+        let handle = self.create_private(objects, 0, 0)?;
+        if handle != 0 {
+            self.process_heap = Some(handle);
+        }
+        Ok(handle)
+    }
+
     #[cfg(test)]
     pub(super) fn task_heap_handle(&self) -> Option<u32> {
         self.task_heap
@@ -134,7 +220,7 @@ impl RuntimeHeaps {
             } else {
                 slot + 1
             };
-            if self.heaps.contains_key(&handle) || self.extension_slot_claimed(slot) {
+            if self.slot_claimed(slot) {
                 slot = next_slot;
                 continue;
             }
@@ -143,6 +229,8 @@ impl RuntimeHeaps {
                 initial_size: 0,
                 maximum_size: 0,
                 live_allocations: 0,
+                serialized: true,
+                low_fragmentation: false,
             };
             self.validate_creation(&heap)?;
             // This internal heap has no published Win32 object or handle. Its
@@ -282,16 +370,24 @@ impl RuntimeHeaps {
             } else {
                 candidate_slot + 1
             };
-            let handle = LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | u32::from(candidate_slot);
-            if self.heaps.contains_key(&handle) || self.extension_slot_claimed(candidate_slot) {
+            if self.slot_claimed(candidate_slot) {
                 candidate_slot = next_slot;
                 continue;
             }
+            let Some(handle) = objects
+                .available_handle_in_slot(super::RuntimeObjectKind::PrivateHeap, candidate_slot)?
+            else {
+                candidate_slot = next_slot;
+                continue;
+            };
+            let handle = handle.0;
             let heap = RuntimeHeap {
                 handle,
                 initial_size,
                 maximum_size,
                 live_allocations: 0,
+                serialized: true,
+                low_fragmentation: false,
             };
             let handle = self.create(objects, heap)?;
             self.next_private_heap_slot = next_slot;
@@ -349,8 +445,68 @@ impl RuntimeHeaps {
     }
 
     fn slot_claimed(&self, slot: u16) -> bool {
-        let handle = LOGICAL_PRIVATE_HEAP_HANDLE_PREFIX | u32::from(slot);
-        self.heaps.contains_key(&handle) || self.extension_slot_claimed(slot)
+        self.heaps
+            .keys()
+            .any(|handle| RuntimeHandle(*handle).slot() == slot)
+            || self.extension_slot_claimed(slot)
+    }
+
+    pub(super) fn destroy_private(
+        &mut self,
+        memory: &mut GuestMemory,
+        allocator: &mut ProcessAddressSpaceAllocator,
+        objects: &mut RuntimeObjectTable,
+        handle: u32,
+    ) -> Result<bool, RuntimeStateError> {
+        let heap = self.heap(handle)?;
+        if self.process_heap == Some(handle) || self.task_heap == Some(handle) {
+            return Ok(false);
+        }
+        self.validate_allocation_mutation_state(heap)?;
+        let next_id = self.next_allocation_id(handle)?;
+        let mut regions = Vec::new();
+        let mut releases = Vec::new();
+        for (slot, backing) in self
+            .backing(handle)
+            .map(|backing| (RuntimeHandle(handle).slot(), backing))
+            .into_iter()
+            .chain(self.extension_backings(handle))
+        {
+            validate_runtime_heap_backing_mutation_state(heap, backing, next_id)?;
+            validate_heap_backing_address_allocation(allocator, slot, backing)?;
+            regions.push((backing.memory_owner, backing.range.start()));
+        }
+        for (_, backing) in self.large_backings_for_handle(handle) {
+            validate_large_heap_backing(heap, backing, next_id)?;
+            validate_large_heap_backing_address_allocation(allocator, backing)?;
+            regions.push((backing.memory_owner, backing.range.start()));
+            releases.push(backing.address_allocation_id);
+        }
+        allocator.validate_releases(&releases)?;
+        let mut retired_objects = objects.clone();
+        retired_objects.retire_private_heap(RuntimeHandle(handle))?;
+        let mut transaction = memory.begin_transaction();
+        for (owner, base) in regions {
+            transaction
+                .release_region(owner, base)
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction
+                .destroy_owner(owner)
+                .map_err(RuntimeStateError::from_memory)?;
+        }
+        self.heaps.remove(&handle);
+        self.backings.remove(&handle);
+        self.extension_backings.remove(&handle);
+        self.large_backings
+            .retain(|_, backing| backing.handle != handle);
+        self.next_allocation_ids.remove(&handle);
+        self.next_private_heap_slot = 1;
+        // Ordinary arena reservations remain available for another heap; the
+        // mappings and owners are gone. Large reservations are process allocations.
+        allocator.remove_validated_allocations(releases);
+        *objects = retired_objects;
+        transaction.commit_transaction();
+        Ok(true)
     }
 
     fn available_extension_slot(&self) -> Option<u16> {
@@ -474,14 +630,27 @@ impl RuntimeHeaps {
         } else {
             Vec::new()
         };
-        if heap.live_allocations as usize >= RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS
+        let live_allocations: usize = self
+            .heaps
+            .values()
+            .map(|heap| heap.live_allocations as usize)
+            .sum();
+        if (replacement.is_none() && live_allocations >= RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS)
             || next_allocation_id.0.checked_add(1).is_none()
         {
             return Ok(None);
         }
+        // LFH is an allocation policy, not a different memory owner. Bucket
+        // small requests so nearby sizes reuse the same coalescing free spans;
+        // HeapSize and realloc copying still use the requested byte length.
+        let alignment = if heap.low_fragmentation && byte_length <= 16_384 {
+            (byte_length.next_power_of_two() / 32).max(RUNTIME_PRIVATE_HEAP_ALIGNMENT)
+        } else {
+            RUNTIME_PRIVATE_HEAP_ALIGNMENT
+        };
         let Some(reserved_byte_length) = byte_length
-            .checked_add(RUNTIME_PRIVATE_HEAP_ALIGNMENT - 1)
-            .map(|rounded| rounded & !(RUNTIME_PRIVATE_HEAP_ALIGNMENT - 1))
+            .checked_add(alignment - 1)
+            .map(|rounded| rounded & !(alignment - 1))
         else {
             return Ok(None);
         };
@@ -1587,6 +1756,8 @@ mod tests {
                             initial_size: 0,
                             maximum_size: 0,
                             live_allocations: 0,
+                            serialized: true,
+                            low_fragmentation: false,
                         }
                     )
                     .is_err()

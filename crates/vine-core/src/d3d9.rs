@@ -9,7 +9,8 @@ use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     RuntimeComClass, RuntimeComIid, RuntimeGraphicsBlendFactor, RuntimeGraphicsBlendOperation,
     RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsFlexibleVertexFormat,
-    RuntimeGraphicsRenderStateUpdate, RuntimeGraphicsSamplerStateUpdate,
+    RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStateUpdate,
+    RuntimeGraphicsSamplerStateUpdate, RuntimeGraphicsTextureAddress,
     RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureFilter,
     RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
     RuntimeGraphicsTextureStageStateUpdate, RuntimeGraphicsTextureUsage,
@@ -47,6 +48,10 @@ pub const D3D9_D3DBLEND_SRCALPHA: u32 = 5;
 pub const D3D9_D3DBLEND_INVSRCALPHA: u32 = 6;
 pub const D3D9_D3DBLENDOP_ADD: u32 = 1;
 pub const D3D9_D3DCULL_NONE: u32 = 1;
+pub const D3D9_D3DSAMP_ADDRESSU: u32 = 1;
+pub const D3D9_D3DSAMP_ADDRESSV: u32 = 2;
+pub const D3D9_D3DTADDRESS_CLAMP: u32 = 3;
+pub const D3D9_D3DTEXF_POINT: u32 = 1;
 pub const D3D9_D3DSAMP_MAGFILTER: u32 = 5;
 pub const D3D9_D3DSAMP_MINFILTER: u32 = 6;
 pub const D3D9_D3DTEXF_LINEAR: u32 = 2;
@@ -56,15 +61,19 @@ pub const D3D9_D3DTSS_COLORARG2: u32 = 3;
 pub const D3D9_D3DTSS_ALPHAOP: u32 = 4;
 pub const D3D9_D3DTSS_ALPHAARG1: u32 = 5;
 pub const D3D9_D3DTSS_ALPHAARG2: u32 = 6;
+pub const D3D9_D3DTOP_DISABLE: u32 = 1;
 pub const D3D9_D3DTOP_MODULATE: u32 = 4;
 pub const D3D9_D3DTOP_SELECTARG1: u32 = 2;
 pub const D3D9_D3DTA_DIFFUSE: u32 = 0;
 pub const D3D9_D3DTA_TEXTURE: u32 = 2;
 pub const D3D9_D3DENUM_WHQL_LEVEL: u32 = 0x0000_0002;
 pub const D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED: u32 = 0x0000_0044;
+pub const D3D9_CREATE_SOFTWARE_VERTEX_PROCESSING_MULTITHREADED: u32 = 0x0000_0024;
+pub const D3D9_PRESENT_INTERVAL_IMMEDIATE: u32 = 0x8000_0000;
 pub const D3D9_D3DFMT_UNKNOWN: u32 = 0;
 pub const D3D9_D3DMULTISAMPLE_NONE: u32 = 0;
-pub const D3D9_D3DSWAPEFFECT_DISCARD: u32 = 3;
+pub const D3D9_D3DSWAPEFFECT_DISCARD: u32 = 1;
+pub const D3D9_D3DSWAPEFFECT_COPY: u32 = 3;
 pub const D3D9_D3DPOOL_DEFAULT: u32 = 0;
 pub const D3D9_D3DPOOL_MANAGED: u32 = 1;
 pub const D3D9_D3DPOOL_SYSTEMMEM: u32 = 2;
@@ -139,7 +148,7 @@ impl D3d9PresentParameters {
     }
 
     fn resolved_prefix(self, width: u32, height: u32, format: u32) -> Vec<u8> {
-        [width, height, format]
+        [width, height, format, self.back_buffer_count.max(1)]
             .into_iter()
             .flat_map(u32::to_le_bytes)
             .collect()
@@ -292,6 +301,8 @@ pub(crate) fn dispatch_d3d9_com(call: ComFrontendCall<'_>) -> ComDispatchOutcome
                 call.complete(COM_S_OK.bits())
             }
             23 => dispatch_create_texture(call),
+            7 => dispatch_device_caps(call),
+            47 => dispatch_set_viewport(call),
             26 => dispatch_create_vertex_buffer(call),
             57 => set_render_state(call),
             43 => dispatch_clear(call),
@@ -303,6 +314,7 @@ pub(crate) fn dispatch_d3d9_com(call: ComFrontendCall<'_>) -> ComDispatchOutcome
             89 => dispatch_set_fvf(call),
             100 => dispatch_set_stream_source(call),
             81 => dispatch_draw_primitive(call),
+            83 => dispatch_draw_primitive_up(call),
             69 => dispatch_set_sampler_state(call),
             67 => dispatch_set_texture_stage_state(call),
             19 => dispatch_raster_status(call),
@@ -457,15 +469,7 @@ pub(crate) fn dispatch_d3d9_com(call: ComFrontendCall<'_>) -> ComDispatchOutcome
             if call.runtime.primary_monitor().is_none() {
                 return call.fault("D3D9 has no configured display monitor");
             }
-            let bytes = D3d9DeviceCaps {
-                device_type: D3D9_D3DDEVTYPE_HAL,
-                adapter_ordinal: 0,
-                caps: D3D9_D3DCAPS_READ_SCANLINE,
-                caps2: D3D9_D3DCAPS2_DYNAMICTEXTURES,
-                pixel_shader_version: D3D9_D3DPS_VERSION_3_0,
-                number_of_adapters_in_group: 1,
-            }
-            .to_x86_bytes();
+            let bytes = virtual_device_caps().to_x86_bytes();
             let output = GuestAddress(*output);
             complete_d3d9_write(call, output, bytes)
         }
@@ -503,7 +507,7 @@ pub(crate) fn dispatch_d3d9_com(call: ComFrontendCall<'_>) -> ComDispatchOutcome
     }
 }
 
-fn dispatch_begin_scene(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn dispatch_begin_scene(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     if !call.frame().explicit_arguments.is_empty() {
         return call.fault("IDirect3DDevice9::BeginScene takes no arguments");
     }
@@ -515,7 +519,7 @@ fn dispatch_begin_scene(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     }
 }
 
-fn dispatch_end_scene(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn dispatch_end_scene(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     if !call.frame().explicit_arguments.is_empty() {
         return call.fault("IDirect3DDevice9::EndScene takes no arguments");
     }
@@ -527,7 +531,7 @@ fn dispatch_end_scene(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     }
 }
 
-fn dispatch_present(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn dispatch_present(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let [
         source_rect,
         destination_rect,
@@ -537,10 +541,38 @@ fn dispatch_present(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     else {
         return call.fault("Present requires four arguments");
     };
-    if *source_rect != 0 || *destination_rect != 0 || *destination_window != 0 || *dirty_region != 0
-    {
-        return call.fault("Partial or redirected presentation is not implemented");
+    let (source_rect, destination_rect, destination_window, dirty_region) = (
+        *source_rect,
+        *destination_rect,
+        *destination_window,
+        *dirty_region,
+    );
+    if dirty_region != 0 {
+        return call.fault("Present dirty regions are not implemented");
     }
+    let read_rect = |address: u32| -> Result<Option<RuntimeRect>, crate::memory::GuestMemoryError> {
+        if address == 0 {
+            return Ok(None);
+        }
+        let bytes = call.runtime.memory().read(GuestAddress(address), 16)?;
+        let word = |offset: usize| {
+            i32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("RECT field"))
+        };
+        Ok(Some(RuntimeRect {
+            left: word(0),
+            top: word(4),
+            right: word(8),
+            bottom: word(12),
+        }))
+    };
+    let source = match read_rect(source_rect) {
+        Ok(value) => value,
+        Err(error) => return call.memory_fault(error),
+    };
+    let destination = match read_rect(destination_rect) {
+        Ok(value) => value,
+        Err(error) => return call.memory_fault(error),
+    };
     let device_com_object_id = call.frame().object_id;
     let device = match call
         .runtime
@@ -552,11 +584,22 @@ fn dispatch_present(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let device_id = device.id;
     let mut texture_bytes = 0u64;
     let mut fill_count = 0usize;
+    let mut seen_snapshots = std::collections::BTreeSet::new();
     for draw in &device.back_buffer.draw_submissions {
         if draw.texture_width > 4096 || draw.texture_height > 4096 {
             return call.fault("Presentation exceeds the bounded texture dimensions");
         }
-        texture_bytes += u64::from(draw.texture_width) * u64::from(draw.texture_height) * 4;
+        let shared_snapshot = !draw.texture_data.is_empty()
+            && draw.texture_fills.is_empty()
+            && !seen_snapshots.insert((
+                std::sync::Arc::as_ptr(&draw.texture_data) as usize,
+                draw.texture_width,
+                draw.texture_height,
+                draw.texture_alpha,
+            ));
+        if !shared_snapshot {
+            texture_bytes += u64::from(draw.texture_width) * u64::from(draw.texture_height) * 4;
+        }
         fill_count += draw.texture_fills.len();
         if texture_bytes > 16 * 1024 * 1024 || fill_count > 16384 {
             return call.fault("Presentation exceeds the bounded texture upload budget");
@@ -565,7 +608,12 @@ fn dispatch_present(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     if device.presentation.width > 4096 || device.presentation.height > 4096 {
         return call.fault("Presentation exceeds the bounded browser surface");
     }
-    match call.runtime.present_graphics(device_com_object_id) {
+    match call.runtime.present_graphics(
+        device_com_object_id,
+        source,
+        destination,
+        destination_window,
+    ) {
         Ok(true) => {
             let ComDispatchOutcome::Completed(mut completion) = call.complete(COM_S_OK.bits())
             else {
@@ -579,7 +627,7 @@ fn dispatch_present(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     }
 }
 
-fn dispatch_clear(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn dispatch_clear(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let [
         rect_count,
         rects_pointer,
@@ -675,7 +723,11 @@ fn dispatch_create_device(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     {
         return call.complete(D3D9_D3DERR_INVALIDCALL.bits());
     }
-    if behavior != D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED {
+    if !matches!(
+        behavior,
+        D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED
+            | D3D9_CREATE_SOFTWARE_VERTEX_PROCESSING_MULTITHREADED
+    ) {
         return call.complete(D3D9_D3DERR_NOTAVAILABLE.bits());
     }
     let present_address = GuestAddress(present_pointer);
@@ -694,7 +746,7 @@ fn dispatch_create_device(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
             D3D9_D3DPRESENT_PARAMETERS_BYTE_LENGTH as usize,
             MemoryAccess::Read,
         ),
-        (present_address, 12, MemoryAccess::Write),
+        (present_address, 16, MemoryAccess::Write),
         (output_address, 4, MemoryAccess::Write),
     ] {
         if let Err(error) = call.runtime.memory.validate_access(address, size, access) {
@@ -724,25 +776,37 @@ fn dispatch_create_device(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     if client.client_width == 0 || client.client_height == 0 {
         return call.complete(D3D9_D3DERR_INVALIDCALL.bits());
     }
-    if (present.back_buffer_width != 0 && present.back_buffer_width != client.client_width)
-        || (present.back_buffer_height != 0 && present.back_buffer_height != client.client_height)
-        || !matches!(
-            present.back_buffer_format,
-            D3D9_D3DFMT_UNKNOWN | D3D9_D3DFMT_X8R8G8B8
-        )
-        || !matches!(present.back_buffer_count, 0 | 1)
+    if !matches!(
+        present.back_buffer_format,
+        D3D9_D3DFMT_UNKNOWN | D3D9_D3DFMT_X8R8G8B8
+    ) || !matches!(present.back_buffer_count, 0 | 1)
         || present.multi_sample_type != D3D9_D3DMULTISAMPLE_NONE
         || present.multi_sample_quality != 0
-        || present.swap_effect != D3D9_D3DSWAPEFFECT_DISCARD
+        || !matches!(
+            present.swap_effect,
+            D3D9_D3DSWAPEFFECT_DISCARD | D3D9_D3DSWAPEFFECT_COPY
+        )
         || present.windowed != 1
         || present.enable_auto_depth_stencil != 0
         || present.flags != 0
         || present.full_screen_refresh_rate_in_hz != 0
-        || present.presentation_interval != 0
+        || !matches!(
+            present.presentation_interval,
+            0 | D3D9_PRESENT_INTERVAL_IMMEDIATE
+        )
     {
         return call.complete(D3D9_D3DERR_NOTAVAILABLE.bits());
     }
-    let graphics = match call.runtime.validate_graphics_device_creation(focus_window) {
+    let graphics = match call.runtime.validate_graphics_device_creation(
+        focus_window,
+        present.back_buffer_width,
+        present.back_buffer_height,
+        if present.swap_effect == D3D9_D3DSWAPEFFECT_COPY {
+            RuntimeGraphicsPresentMode::Copy
+        } else {
+            RuntimeGraphicsPresentMode::Discard
+        },
+    ) {
         Ok(Some(request)) => request,
         Ok(None) => return call.complete(D3D9_D3DERR_INVALIDCALL.bits()),
         Err(error) => return call.runtime_fault(error),
@@ -775,6 +839,80 @@ fn dispatch_create_device(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     call.runtime
         .insert_graphics_device(graphics, installed.object_id);
     call.complete(COM_S_OK.bits())
+}
+
+fn virtual_device_caps() -> D3d9DeviceCaps {
+    D3d9DeviceCaps {
+        device_type: D3D9_D3DDEVTYPE_HAL,
+        adapter_ordinal: 0,
+        caps: D3D9_D3DCAPS_READ_SCANLINE,
+        caps2: D3D9_D3DCAPS2_DYNAMICTEXTURES,
+        pixel_shader_version: D3D9_D3DPS_VERSION_3_0,
+        number_of_adapters_in_group: 1,
+    }
+}
+
+fn dispatch_device_caps(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+    let [output] = call.frame().explicit_arguments.as_slice() else {
+        return call.fault("IDirect3DDevice9::GetDeviceCaps requires one argument");
+    };
+    if *output == 0 {
+        return call.complete(D3D9_D3DERR_INVALIDCALL.bits());
+    }
+    let output = GuestAddress(*output);
+    if let Err(error) = call
+        .runtime
+        .graphics_device_by_com_object(call.frame().object_id)
+    {
+        return call.runtime_fault(error);
+    }
+    complete_d3d9_write(call, output, virtual_device_caps().to_x86_bytes())
+}
+
+pub(crate) fn dispatch_set_viewport(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+    let [input] = call.frame().explicit_arguments.as_slice() else {
+        return call.fault("SetViewport requires one argument");
+    };
+    if *input == 0 {
+        return call.complete(D3D9_D3DERR_INVALIDCALL.bits());
+    }
+    let bytes = match call.runtime.memory.read(GuestAddress(*input), 24) {
+        Ok(bytes) => bytes,
+        Err(error) => return call.memory_fault(error),
+    };
+    let words: Vec<u32> = bytes
+        .chunks_exact(4)
+        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .collect();
+    let device = match call
+        .runtime
+        .graphics_device_by_com_object(call.frame().object_id)
+    {
+        Ok(device) => device,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let (min_z, max_z) = (f32::from_bits(words[4]), f32::from_bits(words[5]));
+    if words[2] == 0
+        || words[3] == 0
+        || words[0]
+            .checked_add(words[2])
+            .is_none_or(|right| right > device.presentation.width)
+        || words[1]
+            .checked_add(words[3])
+            .is_none_or(|bottom| bottom > device.presentation.height)
+        || !(0.0..=1.0).contains(&min_z)
+        || !(0.0..=1.0).contains(&max_z)
+        || min_z > max_z
+    {
+        return call.complete(D3D9_D3DERR_INVALIDCALL.bits());
+    }
+    match call
+        .runtime
+        .set_graphics_viewport(call.frame().object_id, words.try_into().unwrap())
+    {
+        Ok(()) => call.complete(COM_S_OK.bits()),
+        Err(error) => call.runtime_fault(error),
+    }
 }
 
 fn dispatch_create_texture(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
@@ -923,7 +1061,7 @@ fn create_vertex_buffer(
     call.complete(COM_S_OK.bits())
 }
 
-fn set_render_state(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn set_render_state(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let [state, value] = call.frame().explicit_arguments.as_slice() else {
         return call.fault("SetRenderState requires two arguments");
     };
@@ -934,8 +1072,8 @@ fn set_render_state(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
         }
         (D3D9_D3DRS_ZENABLE, 0) => RuntimeGraphicsRenderStateUpdate::DepthTestEnabled(false),
         (D3D9_D3DRS_LIGHTING, 0) => RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
-        (D3D9_D3DRS_ALPHABLENDENABLE, 1) => {
-            RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(true)
+        (D3D9_D3DRS_ALPHABLENDENABLE, value @ 0..=1) => {
+            RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(value != 0)
         }
         (D3D9_D3DRS_SRCBLEND, D3D9_D3DBLEND_SRCALPHA) => {
             RuntimeGraphicsRenderStateUpdate::SourceBlendFactor(
@@ -998,18 +1136,20 @@ fn dispatch_set_stream_source(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     }
 }
 
-fn dispatch_set_fvf(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn dispatch_set_fvf(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let [format] = call.frame().explicit_arguments.as_slice() else {
         return call.fault("SetFVF requires one format word");
     };
-    if *format != (D3D9_D3DFVF_XYZRHW | D3D9_D3DFVF_DIFFUSE | D3D9_D3DFVF_TEX1) {
-        return call.complete(D3D9_D3DERR_NOTAVAILABLE.bits());
-    }
+    let format = match *format {
+        0x104 => RuntimeGraphicsFlexibleVertexFormat::XyzRhwTexture1,
+        0x144 => RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1,
+        _ => return call.complete(D3D9_D3DERR_NOTAVAILABLE.bits()),
+    };
     let device_com_object_id = call.frame().object_id;
-    match call.runtime.update_graphics_flexible_vertex_format(
-        device_com_object_id,
-        RuntimeGraphicsFlexibleVertexFormat::XyzRhwDiffuseTexture1,
-    ) {
+    match call
+        .runtime
+        .update_graphics_flexible_vertex_format(device_com_object_id, format)
+    {
         Ok(()) => call.complete(COM_S_OK.bits()),
         Err(error) => call.runtime_fault(error),
     }
@@ -1062,22 +1202,31 @@ fn dispatch_set_sampler_state(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let [sampler, state, value] = call.frame().explicit_arguments.as_slice() else {
         return call.fault("SetSamplerState requires sampler, state, and value");
     };
-    let update = match (*sampler, *state, *value) {
-        (0, D3D9_D3DSAMP_MINFILTER, D3D9_D3DTEXF_LINEAR) => {
-            RuntimeGraphicsSamplerStateUpdate::MinFilter {
+    let filter = match *value {
+        D3D9_D3DTEXF_POINT => Some(RuntimeGraphicsTextureFilter::Point),
+        D3D9_D3DTEXF_LINEAR => Some(RuntimeGraphicsTextureFilter::Linear),
+        _ => None,
+    };
+    let update = match (*sampler, *state, *value, filter) {
+        (0, D3D9_D3DSAMP_MINFILTER, _, Some(filter)) => {
+            RuntimeGraphicsSamplerStateUpdate::MinFilter { sampler: 0, filter }
+        }
+        (0, D3D9_D3DSAMP_MAGFILTER, _, Some(filter)) => {
+            RuntimeGraphicsSamplerStateUpdate::MagFilter { sampler: 0, filter }
+        }
+        (0, D3D9_D3DSAMP_ADDRESSU, D3D9_D3DTADDRESS_CLAMP, _) => {
+            RuntimeGraphicsSamplerStateUpdate::AddressU {
                 sampler: 0,
-                filter: RuntimeGraphicsTextureFilter::Linear,
+                address: RuntimeGraphicsTextureAddress::Clamp,
             }
         }
-        (0, D3D9_D3DSAMP_MAGFILTER, D3D9_D3DTEXF_LINEAR) => {
-            RuntimeGraphicsSamplerStateUpdate::MagFilter {
+        (0, D3D9_D3DSAMP_ADDRESSV, D3D9_D3DTADDRESS_CLAMP, _) => {
+            RuntimeGraphicsSamplerStateUpdate::AddressV {
                 sampler: 0,
-                filter: RuntimeGraphicsTextureFilter::Linear,
+                address: RuntimeGraphicsTextureAddress::Clamp,
             }
         }
-        _ => {
-            return call.complete(D3D9_D3DERR_NOTAVAILABLE.bits());
-        }
+        _ => return call.complete(D3D9_D3DERR_NOTAVAILABLE.bits()),
     };
     let device_com_object_id = call.frame().object_id;
     if let Err(error) = call
@@ -1097,6 +1246,18 @@ fn dispatch_set_texture_stage_state(call: ComFrontendCall<'_>) -> ComDispatchOut
         return call.complete(D3D9_D3DERR_NOTAVAILABLE.bits());
     }
     let update = match (*state, *value) {
+        (D3D9_D3DTSS_COLOROP, D3D9_D3DTOP_SELECTARG1) => {
+            RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
+                stage: 0,
+                operation: RuntimeGraphicsTextureOperation::SelectArgumentOne,
+            }
+        }
+        (D3D9_D3DTSS_ALPHAOP, D3D9_D3DTOP_DISABLE) => {
+            RuntimeGraphicsTextureStageStateUpdate::AlphaOperation {
+                stage: 0,
+                operation: RuntimeGraphicsTextureOperation::Disable,
+            }
+        }
         (D3D9_D3DTSS_COLOROP, D3D9_D3DTOP_MODULATE) => {
             RuntimeGraphicsTextureStageStateUpdate::ColorOperation {
                 stage: 0,
@@ -1167,6 +1328,27 @@ fn dispatch_draw_primitive(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     }
 }
 
+pub(crate) fn dispatch_draw_primitive_up(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+    let [primitive_type, primitive_count, vertices, stride] =
+        call.frame().explicit_arguments.as_slice()
+    else {
+        return call.fault("DrawPrimitiveUP requires topology, count, vertices, and stride");
+    };
+    if *primitive_type != D3D9_D3DPT_TRIANGLESTRIP || *primitive_count != 2 {
+        return call.fault("DrawPrimitiveUP topology or primitive count is not implemented");
+    }
+    let (count, vertices, stride) = (*primitive_count, GuestAddress(*vertices), *stride);
+    let device = call.frame().object_id;
+    match call
+        .runtime
+        .submit_graphics_draw_up(device, count, vertices, stride)
+    {
+        Ok(true) => call.complete(COM_S_OK.bits()),
+        Ok(false) => call.complete(D3D9_D3DERR_INVALIDCALL.bits()),
+        Err(error) => call.runtime_fault(error),
+    }
+}
+
 fn dispatch_vertex_buffer_lock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let [offset, length, output, flags] = call.frame().explicit_arguments.as_slice() else {
         return call.fault("Lock requires four arguments");
@@ -1200,7 +1382,7 @@ fn vertex_buffer_lock(
     }
 }
 
-fn vertex_buffer_unlock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn vertex_buffer_unlock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let object_id = call.frame().object_id;
     match call.runtime.unlock_graphics_vertex_buffer(object_id) {
         Ok(true) => call.complete(COM_S_OK.bits()),
@@ -1209,7 +1391,7 @@ fn vertex_buffer_unlock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     }
 }
 
-fn dispatch_texture_lock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn dispatch_texture_lock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     let [level, output, rect, flags] = call.frame().explicit_arguments.as_slice() else {
         return call.fault("LockRect requires four arguments");
     };
@@ -1227,8 +1409,8 @@ fn dispatch_texture_lock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     {
         return call.complete(D3D9_D3DERR_INVALIDCALL.bits());
     }
-    if flags & (READONLY | NOSYSLOCK) != 0 {
-        return call.fault("LockRect READONLY and NOSYSLOCK flags are not implemented");
+    if flags & NOSYSLOCK != 0 {
+        return call.fault("LockRect NOSYSLOCK is not implemented");
     }
     let texture = match call
         .runtime
@@ -1281,7 +1463,7 @@ fn dispatch_texture_lock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     }
 }
 
-fn dispatch_texture_unlock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+pub(crate) fn dispatch_texture_unlock(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     if call.frame().explicit_arguments.as_slice() != [0] {
         return call.complete(D3D9_D3DERR_INVALIDCALL.bits());
     }
@@ -1723,12 +1905,12 @@ pub(crate) fn direct3ddevice9_object_spec() -> ComObjectSpec {
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
             3 | 41 | 42 => ComMethodSpec::frontend(*name, 0),
-            17 | 100 => ComMethodSpec::frontend(*name, 4),
+            17 | 83 | 100 => ComMethodSpec::frontend(*name, 4),
             19 | 31 | 57 | 65 => ComMethodSpec::frontend(*name, 2),
             23 => ComMethodSpec::frontend(*name, 8),
             26 | 43 => ComMethodSpec::frontend(*name, 6),
             67 | 69 | 81 => ComMethodSpec::frontend(*name, 3),
-            89 => ComMethodSpec::frontend(*name, 1),
+            7 | 47 | 89 => ComMethodSpec::frontend(*name, 1),
             _ => ComMethodSpec::unsupported(*name),
         })
         .collect();

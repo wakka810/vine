@@ -23,6 +23,532 @@ const BYTES_READ_ADDRESS: u32 = 0x2000_2f00;
 const FIRST_FILE_HANDLE: u32 = 0x4601_0001;
 
 #[test]
+fn pending_opfs_write_excludes_all_handles_to_the_same_windows_path() {
+    let (mut memory, owner) = initialized_memory();
+    memory.seal_owner(owner).unwrap();
+    acknowledge_initial_reflection(&mut memory);
+    let mut runtime = controlled_runtime(memory);
+    runtime.register_source_snapshot(source_manifest()).unwrap();
+    let mut handles = Vec::new();
+    for path in [
+        b"fixtures\\storage\\save.dat\0".as_slice(),
+        b"FIXTURES\\STORAGE\\SAVE.DAT\0",
+        b"fixtures\\storage\\other.dat\0",
+    ] {
+        let request = runtime
+            .begin_opfs_file_open(path, 0xc0000000, 3, 4, 0x80, false)
+            .unwrap()
+            .unwrap();
+        let (handle, ..) = runtime
+            .preflight_opfs_file_open_completion(request.request_id, &request.payload)
+            .unwrap();
+        runtime.commit_opfs_file_open(request.request_id, Some(16), false);
+        handles.push(handle);
+    }
+    let original: Vec<_> = handles
+        .iter()
+        .map(|h| runtime.source_file_for_handle(*h).unwrap().clone())
+        .collect();
+    let request = runtime
+        .begin_opfs_write(handles[0], GuestAddress(BYTES_READ_ADDRESS), 4)
+        .unwrap()
+        .unwrap();
+    assert!(runtime.opfs_write_pending(handles[0]).unwrap());
+    assert!(runtime.opfs_write_pending(handles[1]).unwrap());
+    assert!(!runtime.opfs_write_pending(handles[2]).unwrap());
+    assert_eq!(
+        runtime
+            .preflight_opfs_write_completion(request.request_id, 4)
+            .unwrap(),
+        (GuestAddress(BYTES_READ_ADDRESS), 4)
+    );
+    runtime.commit_opfs_write(request.request_id, false);
+    for (handle, expected) in handles.iter().zip(original) {
+        assert_eq!(runtime.source_file_for_handle(*handle).unwrap(), &expected);
+        assert!(!runtime.opfs_write_pending(*handle).unwrap());
+    }
+}
+
+#[test]
+fn file_times_validate_every_optional_output_before_any_write() {
+    let ep = endpoint(80, "GetFileTime");
+    let dispatcher = ApiDispatcher::from_endpoints([ep.clone()]).unwrap();
+    let (mut memory, owner) = initialized_memory();
+    memory.seal_owner(owner).unwrap();
+    acknowledge_initial_reflection(&mut memory);
+    let mut runtime = controlled_runtime(memory);
+    runtime.register_source_snapshot(source_manifest()).unwrap();
+    let handle = runtime
+        .open_file_a(
+            b"fixtures\\storage\\source-read-v1.dat\0",
+            0x80000000,
+            1,
+            3,
+            0x80,
+        )
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let invoke = |runtime: &mut Runtime, args: [u32; 4]| {
+        runtime
+            .memory
+            .write(
+                MEMORY_BASE,
+                &[vec![0x10001000], args.to_vec()]
+                    .concat()
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        acknowledge_pending_delta(&mut runtime.memory);
+        let result = dispatch(&dispatcher, &ep, MEMORY_BASE.0, runtime);
+        if runtime.memory.has_pending_delta() {
+            acknowledge_pending_delta(&mut runtime.memory);
+        }
+        result
+    };
+    runtime
+        .memory
+        .write(GuestAddress(BUFFER_ADDRESS), &[0xa5; 24])
+        .unwrap();
+    runtime.set_current_last_error(77).unwrap();
+    assert!(matches!(
+        invoke(
+            &mut runtime,
+            [handle.0, BUFFER_ADDRESS, BUFFER_ADDRESS + 8, 0xfffffff0]
+        ),
+        DispatchOutcome::Fault(_)
+    ));
+    assert_eq!(
+        runtime
+            .memory
+            .read(GuestAddress(BUFFER_ADDRESS), 24)
+            .unwrap(),
+        [0xa5; 24]
+    );
+    assert_eq!(
+        expect_immediate(invoke(&mut runtime, [handle.0, 0, 0, BUFFER_ADDRESS + 16])).eax,
+        Some(1)
+    );
+    assert_eq!(
+        runtime
+            .memory
+            .read(GuestAddress(BUFFER_ADDRESS), 16)
+            .unwrap(),
+        [0xa5; 16]
+    );
+    assert_eq!(
+        runtime
+            .memory
+            .read(GuestAddress(BUFFER_ADDRESS + 16), 8)
+            .unwrap(),
+        [0; 8]
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), 77);
+    assert_eq!(
+        expect_immediate(invoke(&mut runtime, [handle.0, 0, 0, 0])).eax,
+        Some(1)
+    );
+    assert_eq!(
+        expect_immediate(invoke(&mut runtime, [0xdeadbeef, 0, 0, 0])).eax,
+        Some(0)
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), 6);
+}
+
+#[test]
+fn wide_file_search_preserves_names_and_cursor_on_output_failure() {
+    let endpoints = [
+        endpoint(40, "FindFirstFileW"),
+        endpoint(41, "FindNextFileW"),
+        endpoint(42, "FindClose"),
+    ];
+    let dispatcher = ApiDispatcher::from_endpoints(endpoints.clone()).unwrap();
+    let (mut memory, owner) = initialized_memory();
+    let pattern = "画像\\*.*";
+    write_initialization(
+        &mut memory,
+        owner,
+        GuestAddress(PATH_ADDRESS),
+        &pattern
+            .encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    write_initialization(
+        &mut memory,
+        owner,
+        GuestAddress(BUFFER_ADDRESS),
+        &[0xa5; 600],
+    );
+    memory.seal_owner(owner).unwrap();
+    acknowledge_initial_reflection(&mut memory);
+    let mut runtime = controlled_runtime(memory);
+    let cp932 = |text: &str| encoding_rs::SHIFT_JIS.encode(text).0.into_owned();
+    runtime
+        .register_source_snapshot(RuntimeSourceSnapshotManifest {
+            mount: RuntimeSourceMountManifest {
+                source_id: 1,
+                root_path_a: b"C:\\Vine\0".to_vec(),
+            },
+            files: [(1, "画像\\a日本.dat", 2), (2, "画像\\b日本.dat", 7)]
+                .into_iter()
+                .map(|(object_id, path, byte_length)| RuntimeSourceFileManifest {
+                    object_id,
+                    relative_path_a: cp932(path),
+                    byte_length,
+                })
+                .collect(),
+        })
+        .unwrap();
+    runtime.set_current_last_error(77).unwrap();
+    let invoke = |runtime: &mut Runtime, index: usize, argument: u32, output: u32| {
+        runtime
+            .memory
+            .write(
+                MEMORY_BASE,
+                &[0x1000_1000, argument, output]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        acknowledge_pending_delta(&mut runtime.memory);
+        dispatch(&dispatcher, &endpoints[index], MEMORY_BASE.0, runtime)
+    };
+    assert!(matches!(
+        invoke(&mut runtime, 0, PATH_ADDRESS, MEMORY_BASE.0 + 0x2f00),
+        DispatchOutcome::Fault(_)
+    ));
+    assert!(
+        runtime
+            .file_search_for_handle(RuntimeHandle(0x5301_0001))
+            .is_err()
+    );
+    assert_eq!(
+        runtime
+            .prepare_api_source_lookup(&endpoints[0], MEMORY_BASE)
+            .unwrap(),
+        Some(crate::ApiSourceLookup::Search {
+            pattern: [cp932(pattern), vec![0]].concat(),
+            parent: cp932("画像")
+        })
+    );
+    let first = expect_immediate(invoke(&mut runtime, 0, PATH_ADDRESS, BUFFER_ADDRESS));
+    let handle = first.eax.unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let record = runtime
+        .memory
+        .read(GuestAddress(BUFFER_ADDRESS), 600)
+        .unwrap();
+    let word = |offset| u32::from_le_bytes(record[offset..offset + 4].try_into().unwrap());
+    assert_eq!(word(0), 0x20);
+    assert_eq!(word(28), 0);
+    assert_eq!(word(32), 2);
+    let name = "a日本.dat"
+        .encode_utf16()
+        .chain([0])
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    assert_eq!(&record[44..44 + name.len()], name);
+    assert!(record[44 + name.len()..592].iter().all(|byte| *byte == 0));
+    assert_eq!(&record[592..], &[0xa5; 8]);
+    assert_eq!(runtime.current_last_error().unwrap(), 77);
+    assert!(matches!(
+        invoke(&mut runtime, 1, handle, MEMORY_BASE.0 + 0x2f00),
+        DispatchOutcome::Fault(_)
+    ));
+    assert_eq!(
+        runtime
+            .file_search_for_handle(RuntimeHandle(handle))
+            .unwrap()
+            .next_index,
+        1
+    );
+    assert_eq!(
+        expect_immediate(invoke(&mut runtime, 1, handle, BUFFER_ADDRESS)).eax,
+        Some(1)
+    );
+    acknowledge_pending_delta(&mut runtime.memory);
+    let name = "b日本.dat"
+        .encode_utf16()
+        .chain([0])
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        runtime
+            .memory
+            .read(GuestAddress(BUFFER_ADDRESS + 44), name.len())
+            .unwrap(),
+        name
+    );
+    assert_eq!(
+        expect_immediate(invoke(&mut runtime, 1, handle, BUFFER_ADDRESS)).eax,
+        Some(0)
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), 18);
+    assert_eq!(
+        expect_immediate(invoke(&mut runtime, 2, handle, 0)).eax,
+        Some(1)
+    );
+    assert_eq!(
+        expect_immediate(invoke(&mut runtime, 1, handle, BUFFER_ADDRESS)).eax,
+        Some(0)
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), 6);
+}
+
+#[test]
+fn wide_file_queries_share_source_discovery_and_complete_opfs_results() {
+    for (name, path, observation, expected, error) in [
+        (
+            "PathFileExistsW",
+            "fixtures\\storage\\source-read-v1.dat",
+            None,
+            1,
+            77,
+        ),
+        ("PathIsDirectoryW", "fixtures\\storage", None, 0x10, 77),
+        (
+            "PathIsDirectoryW",
+            "fixtures\\storage\\source-read-v1.dat",
+            None,
+            0,
+            77,
+        ),
+        ("PathFileExistsW", "missing.dat", Some(3), 0, 2),
+        ("PathFileExistsW", "saved.dat", Some(1), 1, 77),
+        ("PathIsDirectoryW", "save-directory", Some(2), 0x10, 77),
+        ("GetFileAttributesW", "saved.dat", Some(1), 0x20, 77),
+    ] {
+        let mut endpoint = endpoint(31, name);
+        if name.starts_with("Path") {
+            endpoint.module = "shlwapi.dll".to_owned();
+        }
+        let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+        let (memory, _) = initialized_memory();
+        let mut runtime = controlled_runtime(memory);
+        runtime.register_source_snapshot(source_manifest()).unwrap();
+        runtime.set_current_last_error(77).unwrap();
+        let path_bytes: Vec<_> = path
+            .encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        runtime
+            .memory
+            .write(GuestAddress(PATH_ADDRESS), &path_bytes)
+            .unwrap();
+        runtime
+            .memory
+            .write(
+                MEMORY_BASE,
+                &[0x10001000_u32, PATH_ADDRESS]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        acknowledge_initial_reflection(&mut runtime.memory);
+        let lookup = runtime
+            .prepare_api_source_lookup(&endpoint, MEMORY_BASE)
+            .unwrap();
+        assert_eq!(lookup.is_some(), observation.is_some());
+        assert_eq!(runtime.current_last_error().unwrap(), 77);
+        let result = dispatcher.dispatch_owned(
+            crate::ApiOwnedTrap {
+                endpoint_id: endpoint.id,
+                endpoint_address: endpoint.address,
+                stack_pointer: MEMORY_BASE,
+                return_address: GuestAddress(0x10001000),
+            },
+            &mut runtime,
+            None,
+            |frame, runtime, cpu| {
+                if frame.endpoint.module == "shlwapi.dll" {
+                    crate::shlwapi::dispatch_shlwapi_api(frame, runtime)
+                } else {
+                    dispatch_kernel32_api(frame, runtime, cpu)
+                }
+            },
+        );
+        let result = if let Some(observation) = observation {
+            let call = expect_deferred(result);
+            let operation = OpfsFileOperation::attributes(&call).unwrap();
+            let result = complete_opfs_file_operation(operation, observation, 77).unwrap();
+            runtime
+                .complete_host_request(call.request.request_id)
+                .unwrap();
+            expect_immediate(dispatcher.complete_deferred(
+                &call,
+                HostCompletion {
+                    request_id: call.request.request_id,
+                    result,
+                },
+                &mut runtime,
+            ))
+        } else {
+            expect_immediate(result)
+        };
+        assert_eq!(result.eax, Some(expected), "{name}: {path}");
+        assert_eq!(runtime.current_last_error().unwrap(), error);
+    }
+}
+
+#[test]
+fn set_current_directory_a_resolves_source_and_opfs_subdirectories_and_parent_navigation() {
+    let chdir = endpoint(32, "SetCurrentDirectoryA");
+    let dispatcher = ApiDispatcher::from_endpoints([chdir.clone()]).unwrap();
+    let (memory, _) = initialized_memory();
+    let mut runtime = controlled_runtime(memory);
+    runtime.register_source_snapshot(source_manifest()).unwrap();
+    runtime.set_current_last_error(77).unwrap();
+    acknowledge_initial_reflection(&mut runtime.memory);
+
+    let run_chdir = |runtime: &mut Runtime, path: &[u8], opfs_obs: Option<u32>| -> u32 {
+        runtime
+            .memory
+            .write(GuestAddress(PATH_ADDRESS), path)
+            .unwrap();
+        runtime
+            .memory
+            .write(
+                MEMORY_BASE,
+                &[0x1000_1000_u32, PATH_ADDRESS]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        acknowledge_pending_delta(&mut runtime.memory);
+        let result = dispatcher.dispatch_owned(
+            crate::ApiOwnedTrap {
+                endpoint_id: chdir.id,
+                endpoint_address: chdir.address,
+                stack_pointer: MEMORY_BASE,
+                return_address: GuestAddress(0x1000_1000),
+            },
+            runtime,
+            None,
+            dispatch_kernel32_api,
+        );
+        if let Some(obs) = opfs_obs {
+            let call = expect_deferred(result);
+            let preserved = runtime.current_last_error().unwrap();
+            let op = OpfsFileOperation::attributes(&call).unwrap();
+            let immediate = complete_opfs_file_operation(op, obs, preserved).unwrap();
+            runtime
+                .complete_host_request(call.request.request_id)
+                .unwrap();
+            let done = expect_immediate(dispatcher.complete_deferred(
+                &call,
+                HostCompletion {
+                    request_id: call.request.request_id,
+                    result: immediate,
+                },
+                runtime,
+            ));
+            runtime
+                .commit_pending_current_directory(call.request.request_id, done.eax == Some(1))
+                .unwrap();
+            done.eax.unwrap()
+        } else {
+            expect_immediate(result).eax.unwrap()
+        }
+    };
+
+    // Regular file rejected with ERROR_DIRECTORY (267), preserving current directory.
+    assert_eq!(
+        run_chdir(
+            &mut runtime,
+            b"fixtures\\storage\\source-read-v1.dat\0",
+            None
+        ),
+        0
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), 267);
+    assert_eq!(runtime.current_directory_a().bytes_with_nul, b"C:\\Vine\0");
+
+    // OPFS-created subdirectory (`./replay`) succeeds when OPFS stat observes a directory (2).
+    runtime.set_current_last_error(99).unwrap();
+    assert_eq!(run_chdir(&mut runtime, b"./replay\0", Some(2)), 1);
+    assert_eq!(runtime.current_last_error().unwrap(), 99);
+    assert_eq!(
+        runtime.current_directory_a().bytes_with_nul,
+        b"C:\\Vine\\replay\0"
+    );
+
+    // Relative parent (`../`) resolves back to source root synchronously.
+    assert_eq!(run_chdir(&mut runtime, b"../\0", None), 1);
+    assert_eq!(runtime.current_directory_a().bytes_with_nul, b"C:\\Vine\0");
+
+    // Source subdirectory (`./fixtures/storage`) succeeds synchronously.
+    assert_eq!(run_chdir(&mut runtime, b"./fixtures/storage\0", None), 1);
+    assert_eq!(
+        runtime.current_directory_a().bytes_with_nul,
+        b"C:\\Vine\\fixtures\\storage\0"
+    );
+}
+
+#[test]
+fn wide_source_lookup_rejects_lossy_paths_without_publishing_state() {
+    let (memory, _) = initialized_memory();
+    let mut runtime = controlled_runtime(memory);
+    runtime.register_source_snapshot(source_manifest()).unwrap();
+    let endpoint = endpoint(1, "CreateFileW");
+    runtime
+        .memory
+        .write(
+            MEMORY_BASE,
+            &[0x10001000_u32, PATH_ADDRESS, 0x80000000, 1, 0, 3, 0x80, 0]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    for (index, path) in ["fixtures\\storage\\日本.dat", "fixtures\\storage\\🙂.dat"]
+        .into_iter()
+        .enumerate()
+    {
+        runtime
+            .memory
+            .write(
+                GuestAddress(PATH_ADDRESS),
+                &path
+                    .encode_utf16()
+                    .chain([0])
+                    .flat_map(u16::to_le_bytes)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        if index == 0 {
+            acknowledge_initial_reflection(&mut runtime.memory);
+        } else {
+            acknowledge_pending_delta(&mut runtime.memory);
+        }
+        let before = runtime.memory.stats();
+        let lookup = runtime.prepare_api_source_lookup(&endpoint, MEMORY_BASE);
+        if path.contains('🙂') {
+            assert!(lookup.is_err());
+        } else {
+            let (encoded, _, errors) = encoding_rs::SHIFT_JIS.encode(path);
+            assert!(!errors);
+            assert_eq!(
+                lookup.unwrap(),
+                Some(crate::ApiSourceLookup::File {
+                    object_id: 2,
+                    relative_path_a: encoded.to_vec()
+                })
+            );
+        }
+        assert_eq!(runtime.memory.stats(), before);
+        assert_eq!(runtime.source_snapshot().unwrap().files.len(), 1);
+    }
+}
+
+#[test]
 fn core_source_query_decodes_guest_abi_without_publishing_windows_state() {
     let (memory, _) = initialized_memory();
     let mut runtime = controlled_runtime(memory);
@@ -884,6 +1410,23 @@ fn opfs_open_publishes_a_file_handle_only_after_durable_host_success() {
         .flat_map(u32::to_le_bytes)
         .collect::<Vec<_>>(),
     );
+    for (offset, count) in [(0x180, BYTES_READ_ADDRESS + 16), (0x1c0, 0x3000_0000)] {
+        write_initialization(
+            &mut memory,
+            owner,
+            GuestAddress(MEMORY_BASE.0 + offset),
+            &[0x1000_1000_u32, FIRST_FILE_HANDLE, 0, 0, count, 0]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+    }
+    write_initialization(
+        &mut memory,
+        owner,
+        GuestAddress(BYTES_READ_ADDRESS + 16),
+        &u32::MAX.to_le_bytes(),
+    );
     memory.seal_owner(owner).unwrap();
     acknowledge_initial_reflection(&mut memory);
     let mut runtime = controlled_runtime(memory);
@@ -969,6 +1512,41 @@ fn opfs_open_publishes_a_file_handle_only_after_durable_host_success() {
     let call = expect_deferred(run(0, MEMORY_BASE.0, &mut runtime));
     let created = complete_kernel32_opfs_open(&dispatcher, &call, 0, 0, &mut runtime);
     assert_eq!(expect_immediate(created).eax, Some(FIRST_FILE_HANDLE));
+    let file_before_zero = runtime
+        .source_file_for_handle(RuntimeHandle(FIRST_FILE_HANDLE))
+        .unwrap()
+        .clone();
+    let scheduler_before_zero = runtime.scheduler_state().unwrap();
+    let error_before_zero = runtime.current_last_error().unwrap();
+    assert!(matches!(
+        run(2, MEMORY_BASE.0 + 0x1c0, &mut runtime),
+        DispatchOutcome::Fault(_)
+    ));
+    assert_eq!(
+        expect_immediate(run(2, MEMORY_BASE.0 + 0x180, &mut runtime)).eax,
+        Some(1)
+    );
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert_eq!(
+        runtime
+            .memory
+            .read(GuestAddress(BYTES_READ_ADDRESS + 16), 4)
+            .unwrap(),
+        [0; 4]
+    );
+    assert_eq!(
+        runtime
+            .source_file_for_handle(RuntimeHandle(FIRST_FILE_HANDLE))
+            .unwrap(),
+        &file_before_zero
+    );
+    assert_eq!(runtime.scheduler_state().unwrap(), scheduler_before_zero);
+    assert_eq!(runtime.current_last_error().unwrap(), error_before_zero);
+    assert!(
+        !runtime
+            .opfs_write_pending(RuntimeHandle(FIRST_FILE_HANDLE))
+            .unwrap()
+    );
     let query_memory = runtime.memory.stats();
     let query_last_error = runtime.current_last_error().unwrap();
     assert_eq!(
@@ -1130,6 +1708,228 @@ fn opfs_open_publishes_a_file_handle_only_after_durable_host_success() {
         );
         assert_eq!(file.byte_length, 94);
     }
+}
+
+#[test]
+fn source_file_shadows_keep_source_metadata_and_publish_only_completed_opfs_opens() {
+    let endpoints = [
+        endpoint(41, "CreateFileA"),
+        endpoint(42, "CloseHandle"),
+        endpoint(43, "SetEndOfFile"),
+    ];
+    let dispatcher = ApiDispatcher::from_endpoints(endpoints.clone()).unwrap();
+    let (mut memory, owner) = initialized_memory();
+    write_initialization(
+        &mut memory,
+        owner,
+        GuestAddress(PATH_ADDRESS),
+        b"fixtures\\storage\\source-read-v1.dat\0",
+    );
+    for (offset, access, disposition) in [(0, 0x8000_0000u32, 3), (0x40, 0x4000_0000, 2)] {
+        let words = [
+            0x1000_1000,
+            PATH_ADDRESS,
+            access,
+            3,
+            0,
+            disposition,
+            0x80,
+            0,
+        ];
+        write_initialization(
+            &mut memory,
+            owner,
+            GuestAddress(MEMORY_BASE.0 + offset),
+            &words
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+    }
+    memory.seal_owner(owner).unwrap();
+    acknowledge_initial_reflection(&mut memory);
+    let mut runtime = controlled_runtime(memory);
+    runtime.register_source_snapshot(source_manifest()).unwrap();
+    let call = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[0],
+        MEMORY_BASE.0,
+        &mut runtime,
+    ));
+    assert_eq!(call.request.payload[1], 0);
+    assert_eq!(runtime.file_type(FIRST_FILE_HANDLE).unwrap(), None);
+    assert_eq!(
+        expect_immediate(complete_kernel32_opfs_open(
+            &dispatcher,
+            &call,
+            7,
+            0,
+            &mut runtime
+        ))
+        .eax,
+        Some(FIRST_FILE_HANDLE)
+    );
+    let source = runtime
+        .source_file_for_handle(RuntimeHandle(FIRST_FILE_HANDLE))
+        .unwrap();
+    assert!(matches!(
+        source.backing,
+        crate::runtime::RuntimeFileBacking::ImmutableSource { .. }
+    ));
+    runtime
+        .close_handle(RuntimeHandle(FIRST_FILE_HANDLE))
+        .unwrap();
+    let failed = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[0],
+        MEMORY_BASE.0 + 0x40,
+        &mut runtime,
+    ));
+    assert_eq!(
+        expect_immediate(complete_kernel32_opfs_open(
+            &dispatcher,
+            &failed,
+            5,
+            0,
+            &mut runtime
+        ))
+        .eax,
+        Some(u32::MAX)
+    );
+    assert_eq!(runtime.source_snapshot().unwrap().files[&1].byte_length, 94);
+    let write = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[0],
+        MEMORY_BASE.0 + 0x40,
+        &mut runtime,
+    ));
+    let handle = expect_immediate(complete_kernel32_opfs_open(
+        &dispatcher,
+        &write,
+        0,
+        0,
+        &mut runtime,
+    ))
+    .eax
+    .unwrap();
+    assert_eq!(runtime.current_last_error().unwrap(), 183);
+    assert_eq!(
+        runtime
+            .source_file_byte_length(RuntimeHandle(handle))
+            .unwrap(),
+        0
+    );
+    assert_eq!(runtime.source_snapshot().unwrap().files[&1].byte_length, 94);
+    runtime
+        .seek_source_file(RuntimeHandle(handle), 3, 0, None)
+        .unwrap()
+        .unwrap();
+    runtime
+        .memory
+        .write(
+            GuestAddress(MEMORY_BASE.0 + 0x80),
+            &[0x1000_1000, handle]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let truncate = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[2],
+        MEMORY_BASE.0 + 0x80,
+        &mut runtime,
+    ));
+    assert_eq!(truncate.request.service, "browser.opfs-truncate");
+    assert_eq!(
+        runtime
+            .source_file_byte_length(RuntimeHandle(handle))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        expect_immediate(complete_kernel32_opfs_write(
+            &dispatcher,
+            &truncate,
+            3,
+            &mut runtime
+        ))
+        .eax,
+        Some(0)
+    );
+    assert_eq!(
+        runtime
+            .source_file_byte_length(RuntimeHandle(handle))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        runtime
+            .source_file_for_handle(RuntimeHandle(handle))
+            .unwrap()
+            .cursor,
+        3
+    );
+    let truncate = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[2],
+        MEMORY_BASE.0 + 0x80,
+        &mut runtime,
+    ));
+    assert_eq!(
+        expect_immediate(complete_kernel32_opfs_write(
+            &dispatcher,
+            &truncate,
+            0,
+            &mut runtime
+        ))
+        .eax,
+        Some(1)
+    );
+    assert_eq!(
+        runtime
+            .source_file_byte_length(RuntimeHandle(handle))
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        runtime
+            .source_file_for_handle(RuntimeHandle(handle))
+            .unwrap()
+            .cursor,
+        3
+    );
+    runtime.close_handle(RuntimeHandle(handle)).unwrap();
+    let read = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoints[0],
+        MEMORY_BASE.0,
+        &mut runtime,
+    ));
+    let handle = expect_immediate(complete_kernel32_opfs_open(
+        &dispatcher,
+        &read,
+        1,
+        3,
+        &mut runtime,
+    ))
+    .eax
+    .unwrap();
+    assert_eq!(
+        runtime
+            .source_file_byte_length(RuntimeHandle(handle))
+            .unwrap(),
+        3
+    );
+    assert!(matches!(
+        runtime
+            .source_file_for_handle(RuntimeHandle(handle))
+            .unwrap()
+            .backing,
+        crate::runtime::RuntimeFileBacking::Opfs { byte_length: 3 }
+    ));
+    assert_eq!(runtime.source_snapshot().unwrap().files[&1].byte_length, 94);
 }
 
 #[test]
@@ -1635,8 +2435,19 @@ fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {
         .expect("register controlled source snapshot");
 
     let create = dispatch(&dispatcher, &endpoints[0], frames[0].0, &mut runtime);
-    let create = expect_immediate(create);
+    let create = expect_deferred(create);
+    let create = expect_immediate(complete_kernel32_opfs_open(
+        &dispatcher,
+        &create,
+        7,
+        0,
+        &mut runtime,
+    ));
     assert_eq!(create.eax, Some(FIRST_FILE_HANDLE));
+    assert!(matches!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(_))
+    ));
     assert_eq!(runtime.current_last_error().unwrap(), 0x1234);
     let handle = RuntimeHandle(FIRST_FILE_HANDLE);
     let file_before_share_failure = runtime.source_file_for_handle(handle).unwrap().clone();
@@ -1744,7 +2555,9 @@ fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {
     );
     assert_eq!(
         runtime.scheduler_state().expect("waiting scheduler"),
-        SchedulerThreadState::WaitingHost { request_id: 1 }
+        SchedulerThreadState::WaitingHost {
+            request_id: first_call.request.request_id
+        }
     );
 
     let file_before_wrong = runtime.source_file_for_handle(handle).unwrap().clone();
@@ -1758,7 +2571,7 @@ fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {
         &dispatcher,
         &first_call,
         RuntimeSourceReadHostResponse {
-            request_id: 1,
+            request_id: first_call.request.request_id,
             source_id: 1,
             object_id: 99,
             offset: 0,
@@ -1812,7 +2625,7 @@ fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {
         &dispatcher,
         &first_call,
         RuntimeSourceReadHostResponse {
-            request_id: 1,
+            request_id: first_call.request.request_id,
             source_id: 1,
             object_id: 1,
             offset: 0,
@@ -1865,7 +2678,7 @@ fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {
         &dispatcher,
         &first_call,
         RuntimeSourceReadHostResponse {
-            request_id: 1,
+            request_id: first_call.request.request_id,
             source_id: 1,
             object_id: 1,
             offset: 0,
@@ -1906,7 +2719,7 @@ fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {
         &dispatcher,
         &first_call,
         RuntimeSourceReadHostResponse {
-            request_id: 1,
+            request_id: first_call.request.request_id,
             source_id: 1,
             object_id: 1,
             offset: 0,
@@ -2004,7 +2817,7 @@ fn source_file_api_slice_opens_reads_seeks_and_closes_atomically() {
         &dispatcher,
         &second_call,
         RuntimeSourceReadHostResponse {
-            request_id: 2,
+            request_id: second_call.request.request_id,
             source_id: 1,
             object_id: 1,
             offset: 5,
@@ -2270,6 +3083,176 @@ fn zero_length_read_file_writes_only_the_count_without_browser_work() {
             .read(GuestAddress(BYTES_READ_ADDRESS), 4)
             .unwrap(),
         [0; 4]
+    );
+}
+
+#[test]
+fn multi_megabyte_read_file_publishes_bytes_count_and_cursor_together() {
+    let endpoint = endpoint(78, "ReadFile");
+    let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    let control_range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Runtime, MEMORY_BASE, 0x3000)
+        .unwrap();
+    memory
+        .commit(
+            owner,
+            control_range,
+            PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+        .unwrap();
+    let size = 14 * 1024 * 1024_u32;
+    let buffer = GuestAddress(0x2100_0000);
+    let buffer_owner = memory.create_owner(MemoryOwnerKind::Runtime).unwrap();
+    let range = memory
+        .reserve_fixed(
+            buffer_owner,
+            MemoryRegionKind::Runtime,
+            buffer,
+            u64::from(size),
+        )
+        .unwrap();
+    memory
+        .commit(
+            buffer_owner,
+            range,
+            PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+        .unwrap();
+    memory.seal_owner(buffer_owner).unwrap();
+    write_initialization(
+        &mut memory,
+        owner,
+        MEMORY_BASE,
+        &[
+            0x10000010_u32,
+            FIRST_FILE_HANDLE,
+            buffer.0,
+            size,
+            BYTES_READ_ADDRESS,
+            0,
+        ]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>(),
+    );
+    memory.seal_owner(owner).unwrap();
+    acknowledge_initial_reflection(&mut memory);
+    let mut runtime = controlled_runtime(memory);
+    let mut manifest = source_manifest();
+    manifest.files[0].byte_length = u64::from(size);
+    runtime.register_source_snapshot(manifest).unwrap();
+    let handle = runtime
+        .open_file_a(
+            b"fixtures\\storage\\source-read-v1.dat\0",
+            0x80000000,
+            1,
+            3,
+            0x08000020,
+        )
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let call = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoint,
+        MEMORY_BASE.0,
+        &mut runtime,
+    ));
+    assert_eq!(decode_words(&call.request.payload), [1, 1, 0, 0, size]);
+    assert_eq!(runtime.source_file_for_handle(handle).unwrap().cursor, 0);
+    let response = || RuntimeSourceReadHostResponse {
+        request_id: call.request.request_id,
+        source_id: 1,
+        object_id: 1,
+        offset: 0,
+        requested_bytes: size,
+        transferred_bytes: size,
+        win32_error: 0,
+        bytes: vec![0x5a; size as usize],
+    };
+    let last_page = GuestRange::new(GuestAddress(buffer.0 + size - 4096), 4096).unwrap();
+    runtime
+        .memory
+        .protect(
+            buffer_owner,
+            last_page,
+            PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert!(matches!(
+        complete_kernel32_source_read(&dispatcher, &call, response(), &mut runtime),
+        DispatchOutcome::Fault(_)
+    ));
+    assert_eq!(runtime.source_file_for_handle(handle).unwrap().cursor, 0);
+    assert!(
+        runtime
+            .memory
+            .read(buffer, size as usize)
+            .unwrap()
+            .iter()
+            .all(|byte| *byte == 0)
+    );
+    assert_eq!(
+        runtime
+            .memory
+            .read(GuestAddress(BYTES_READ_ADDRESS), 4)
+            .unwrap(),
+        [0; 4]
+    );
+    runtime
+        .memory
+        .protect(
+            buffer_owner,
+            last_page,
+            PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+        .unwrap();
+    acknowledge_pending_delta(&mut runtime.memory);
+    let completed = expect_immediate(complete_kernel32_source_read(
+        &dispatcher,
+        &call,
+        response(),
+        &mut runtime,
+    ));
+    assert_eq!(completed.eax, Some(1));
+    acknowledge_pending_delta(&mut runtime.memory);
+    assert_eq!(
+        runtime.source_file_for_handle(handle).unwrap().cursor,
+        u64::from(size)
+    );
+    assert_eq!(
+        runtime
+            .memory
+            .read(GuestAddress(BYTES_READ_ADDRESS), 4)
+            .unwrap(),
+        size.to_le_bytes()
+    );
+    assert!(
+        runtime
+            .memory
+            .read(buffer, size as usize)
+            .unwrap()
+            .iter()
+            .all(|byte| *byte == 0x5a)
     );
 }
 
@@ -2612,4 +3595,235 @@ fn decode_words(bytes: &[u8]) -> Vec<u32> {
         .chunks_exact(4)
         .map(|word| u32::from_le_bytes(word.try_into().expect("x86 word")))
         .collect()
+}
+
+#[test]
+fn source_directory_listing_and_missing_cache_short_circuit_absent_probes_safely() {
+    let mut runtime = controlled_runtime(GuestMemory::new(MemoryLimits::default()).unwrap());
+    runtime.register_source_snapshot(source_manifest()).unwrap();
+    runtime
+        .register_source_directory_listing(
+            &[],
+            &[
+                ("fixtures".to_owned(), false),
+                ("Asset.dat".to_owned(), true),
+                ("Dup.dat".to_owned(), true),
+                ("dup.dat".to_owned(), true),
+            ],
+        )
+        .unwrap();
+
+    assert_eq!(
+        runtime
+            .source_lookup_relative_path(b"missing.arc\0")
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        runtime
+            .source_lookup_relative_path(b"SaveData\\slot01.sav\0")
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        runtime
+            .source_lookup_relative_path(b"Asset.dat\\nested\0")
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        runtime.source_lookup_relative_path(b"asset.dat\0").unwrap(),
+        Some(b"asset.dat".to_vec())
+    );
+    assert_eq!(
+        runtime.source_lookup_relative_path(b"DUP.DAT\0").unwrap(),
+        Some(b"DUP.DAT".to_vec())
+    );
+
+    assert_eq!(
+        runtime
+            .source_lookup_relative_path(b"fixtures\\storage\\absent.dat\0")
+            .unwrap(),
+        Some(b"fixtures\\storage\\absent.dat".to_vec())
+    );
+    runtime
+        .register_missing_source_path(b"fixtures\\storage\\absent.dat")
+        .unwrap();
+    assert_eq!(
+        runtime
+            .source_lookup_relative_path(b"FIXTURES\\STORAGE\\ABSENT.DAT\0")
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn opfs_index_fast_path_skips_unshadowed_read_probes_while_preserving_shadowing_and_mutations() {
+    let create_endpoint = endpoint(41, "CreateFileA");
+    let attr_endpoint = endpoint(42, "GetFileAttributesA");
+    let close_endpoint = endpoint(43, "CloseHandle");
+    let dispatcher = ApiDispatcher::from_endpoints([
+        create_endpoint.clone(),
+        attr_endpoint.clone(),
+        close_endpoint.clone(),
+    ])
+    .unwrap();
+
+    let (mut memory, owner) = initialized_memory();
+    let p_missing_file = GuestAddress(PATH_ADDRESS);
+    let p_missing_dir = GuestAddress(PATH_ADDRESS + 0x80);
+    let p_saves_dir = GuestAddress(PATH_ADDRESS + 0x100);
+    let p_source_file = GuestAddress(PATH_ADDRESS + 0x180);
+    write_initialization(
+        &mut memory,
+        owner,
+        p_missing_file,
+        b"fixtures\\storage\\missing.dat\0",
+    );
+    write_initialization(&mut memory, owner, p_missing_dir, b"missing\\file.dat\0");
+    write_initialization(&mut memory, owner, p_saves_dir, b"SAVES\0");
+    write_initialization(
+        &mut memory,
+        owner,
+        p_source_file,
+        b"fixtures\\storage\\source-read-v1.dat\0",
+    );
+    memory.seal_owner(owner).unwrap();
+    acknowledge_initial_reflection(&mut memory);
+
+    let mut runtime = controlled_runtime(memory);
+    runtime.register_source_snapshot(source_manifest()).unwrap();
+    runtime
+        .register_opfs_snapshot(&["saves/slot1.dat".to_owned()], &["saves".to_owned()])
+        .unwrap();
+
+    let stack = MEMORY_BASE;
+    let write_stack = |runtime: &mut Runtime, words: &[u32]| {
+        let bytes: Vec<u8> = words.iter().copied().flat_map(u32::to_le_bytes).collect();
+        runtime.memory.write(stack, &bytes).unwrap();
+        acknowledge_pending_delta(&mut runtime.memory);
+    };
+    let invoke = |endpoint: &ApiEndpointIdentity, return_address: u32, runtime: &mut Runtime| {
+        dispatcher.dispatch_owned(
+            crate::ApiOwnedTrap {
+                endpoint_id: endpoint.id,
+                endpoint_address: endpoint.address,
+                stack_pointer: stack,
+                return_address: GuestAddress(return_address),
+            },
+            runtime,
+            None,
+            dispatch_kernel32_api,
+        )
+    };
+
+    write_stack(&mut runtime, &[0x1000_2001, p_missing_file.0]);
+    runtime.set_current_last_error(77).unwrap();
+    match invoke(&attr_endpoint, 0x1000_2001, &mut runtime) {
+        DispatchOutcome::Immediate(done) => assert_eq!(done.eax, Some(u32::MAX)),
+        other => panic!("expected synchronous missing attribute result, got {other:?}"),
+    }
+    assert_eq!(runtime.current_last_error().unwrap(), 2);
+
+    write_stack(&mut runtime, &[0x1000_2002, p_missing_dir.0]);
+    runtime.set_current_last_error(77).unwrap();
+    match invoke(&attr_endpoint, 0x1000_2002, &mut runtime) {
+        DispatchOutcome::Immediate(done) => assert_eq!(done.eax, Some(u32::MAX)),
+        other => panic!("expected synchronous missing parent result, got {other:?}"),
+    }
+    assert_eq!(runtime.current_last_error().unwrap(), 3);
+
+    write_stack(&mut runtime, &[0x1000_2003, p_saves_dir.0]);
+    runtime.set_current_last_error(77).unwrap();
+    match invoke(&attr_endpoint, 0x1000_2003, &mut runtime) {
+        DispatchOutcome::Deferred(call) => {
+            assert_eq!(call.request.service, "browser.opfs-stat");
+            let request_id = call.request.request_id;
+            runtime.complete_host_request(request_id).unwrap();
+            let done = expect_immediate(dispatcher.complete_deferred(
+                &call,
+                HostCompletion {
+                    request_id,
+                    result: ApiImmediate::new(Some(0x10)).with_last_error(77),
+                },
+                &mut runtime,
+            ));
+            assert_eq!(done.eax, Some(0x10));
+            runtime.pop_scheduler_event();
+            runtime.pop_scheduler_event();
+        }
+        other => {
+            panic!("expected indexed OPFS directory to query browser.opfs-stat, got {other:?}")
+        }
+    }
+
+    // Unshadowed source read opens immediately without browser.opfs-open.
+    write_stack(
+        &mut runtime,
+        &[0x1000_2004, p_source_file.0, 0x8000_0000, 1, 0, 3, 0x80, 0],
+    );
+    runtime.set_current_last_error(77).unwrap();
+    let handle = match invoke(&create_endpoint, 0x1000_2004, &mut runtime) {
+        DispatchOutcome::Immediate(done) => done.eax.unwrap(),
+        other => panic!("expected synchronous unshadowed source open, got {other:?}"),
+    };
+    assert_ne!(handle, u32::MAX);
+    assert_eq!(runtime.current_last_error().unwrap(), 77);
+    write_stack(&mut runtime, &[0x1000_2005, handle]);
+    let _ = invoke(&close_endpoint, 0x1000_2005, &mut runtime);
+
+    // Creating a writable shadow copy in OPFS updates the index so subsequent
+    // read opens route through browser.opfs-open instead of stale source bytes.
+    write_stack(
+        &mut runtime,
+        &[0x1000_2006, p_source_file.0, 0x4000_0000, 0, 0, 2, 0x80, 0],
+    );
+    let write_handle = match invoke(&create_endpoint, 0x1000_2006, &mut runtime) {
+        DispatchOutcome::Deferred(call) => {
+            assert_eq!(call.request.service, "browser.opfs-open");
+            runtime.pop_scheduler_event();
+            let done =
+                match crate::complete_kernel32_opfs_open(&dispatcher, &call, 0, 0, &mut runtime) {
+                    DispatchOutcome::Immediate(done) => done.eax.unwrap(),
+                    other => panic!("unexpected opfs create completion: {other:?}"),
+                };
+            runtime.pop_scheduler_event();
+            done
+        }
+        other => panic!("expected writable create to defer to browser.opfs-open, got {other:?}"),
+    };
+    write_stack(&mut runtime, &[0x1000_2007, write_handle]);
+    let _ = invoke(&close_endpoint, 0x1000_2007, &mut runtime);
+
+    write_stack(
+        &mut runtime,
+        &[0x1000_2008, p_source_file.0, 0x8000_0000, 1, 0, 3, 0x80, 0],
+    );
+    match invoke(&create_endpoint, 0x1000_2008, &mut runtime) {
+        DispatchOutcome::Deferred(call) => {
+            assert_eq!(call.request.service, "browser.opfs-open");
+            runtime.pop_scheduler_event();
+            let shadow_handle =
+                match crate::complete_kernel32_opfs_open(&dispatcher, &call, 1, 0, &mut runtime) {
+                    DispatchOutcome::Immediate(done) => done.eax.unwrap(),
+                    other => panic!("unexpected shadowed opfs open completion: {other:?}"),
+                };
+            runtime.pop_scheduler_event();
+            write_stack(&mut runtime, &[0x1000_2009, shadow_handle]);
+            let _ = invoke(&close_endpoint, 0x1000_2009, &mut runtime);
+        }
+        other => panic!("shadowed source file must defer to browser.opfs-open, got {other:?}"),
+    }
+
+    runtime.record_opfs_file_deleted("fixtures/storage/source-read-v1.dat");
+    write_stack(
+        &mut runtime,
+        &[0x1000_200a, p_source_file.0, 0x8000_0000, 1, 0, 3, 0x80, 0],
+    );
+    match invoke(&create_endpoint, 0x1000_200a, &mut runtime) {
+        DispatchOutcome::Immediate(done) => assert_ne!(done.eax.unwrap(), u32::MAX),
+        other => {
+            panic!("deleted OPFS shadow should allow synchronous source open again, got {other:?}")
+        }
+    }
 }

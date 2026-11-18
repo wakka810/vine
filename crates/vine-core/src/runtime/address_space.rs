@@ -61,6 +61,7 @@ pub enum ProcessAddressAllocationPurpose {
     GuestImage,
     ThreadStack,
     ThreadEnvironment,
+    ImageTls,
     ProcessEnvironment,
     ComEndpoint,
     GraphicsResourceArena,
@@ -69,6 +70,7 @@ pub enum ProcessAddressAllocationPurpose {
     AudioResourceArena,
     AudioResource,
     MediaResource,
+    MultimediaTimer,
     VirtualMemory,
     MappedFile,
 }
@@ -479,6 +481,22 @@ impl ProcessAddressSpaceAllocator {
 
     pub(crate) fn records(&self) -> impl ExactSizeIterator<Item = &ProcessAddressAllocationRecord> {
         self.allocations.values()
+    }
+
+    pub(super) fn set_validated_virtual_executable(
+        &mut self,
+        id: ProcessAddressAllocationId,
+        executable: bool,
+    ) {
+        let allocation = self
+            .allocations
+            .get_mut(&id)
+            .expect("validated virtual allocation");
+        debug_assert_eq!(
+            allocation.purpose,
+            ProcessAddressAllocationPurpose::VirtualMemory
+        );
+        allocation.executable = executable;
     }
 
     fn reserve_fixed(

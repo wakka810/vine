@@ -122,6 +122,7 @@ interface V86Exports {
   vine_reset_execute_permissions(): void;
   vine_set_memory_size(bytes: number): number;
   vine_set_page_executable(pageAddress: number, executable: number): number;
+  vine_invalidate_tlb_range(base: number, byteLength: number): number;
 }
 
 interface MirrorMapping {
@@ -839,9 +840,28 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   applyCpuResume(completion: CpuResume): void {
-    const state = this.saveState().words;
-    this.#applyCpuResumeToState(state, completion);
-    this.#restoreState(state);
+    const state = this.#liveStateWords();
+    if (
+      state[stateWord.magic] === 0x5649_4e45 &&
+      state[stateWord.wordCount] === state.byteLength / Uint32Array.BYTES_PER_ELEMENT
+    ) {
+      this.applyStoppedCpuResume(completion);
+      return;
+    }
+    const saved = this.saveState().words;
+    this.#applyCpuResumeToState(saved, completion);
+    this.#restoreState(saved);
+  }
+
+  resumeParkedCpuSnapshot(snapshot: { backend: string; abiVersion: number; words: Uint32Array }, completion: CpuResume): { backend: "v86"; abiVersion: 1; words: Uint32Array } {
+    invariant(
+      snapshot.backend === "v86" && snapshot.abiVersion === 1 &&
+        snapshot.words instanceof Uint32Array && snapshot.words.byteLength === 612,
+      "execution CPU context ABI mismatch",
+    );
+    const words = Uint32Array.from(snapshot.words);
+    this.#applyCpuResumeToState(words, completion);
+    return { backend: "v86", abiVersion: 1, words };
   }
 
   applyStoppedCpuResume(completion: CpuResume): void {
@@ -883,12 +903,20 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   enterGuestCallback(target: number, stackPointer: number): void {
-    const state = this.saveState().words;
-    state[stateWord.esp] = stackPointer >>> 0;
-    state[stateWord.instructionPointer] = target >>> 0;
-    state[stateWord.previousInstructionPointer] = target >>> 0;
-    state[stateWord.inHalt] = 0;
-    this.#restoreState(state);
+    const state = this.#liveStateWords();
+    if (
+      state[stateWord.magic] === 0x5649_4e45 &&
+      state[stateWord.wordCount] === state.byteLength / Uint32Array.BYTES_PER_ELEMENT
+    ) {
+      this.applyStoppedCpuResume({ eax: null, stackPointer, instructionPointer: target });
+      return;
+    }
+    const saved = this.saveState().words;
+    saved[stateWord.esp] = stackPointer >>> 0;
+    saved[stateWord.instructionPointer] = target >>> 0;
+    saved[stateWord.previousInstructionPointer] = target >>> 0;
+    saved[stateWord.inHalt] = 0;
+    this.#restoreState(saved);
   }
 
   readGuestU32(address: number): number {
@@ -1150,6 +1178,54 @@ export class V86Mirror implements ExecutionEngine {
       });
       return this.#capacityRequirement(this.#mappings.size, this.#pageTables.size);
     }
+    if (delta.mappingOperations.length === 1 && only.operation === "commit") {
+      let hasOverlap = false;
+      let containedInOwner = false;
+      for (const reservation of this.#reservations.values()) {
+        if (rangesOverlap(reservation.range, only.range)) {
+          hasOverlap = true;
+          if (
+            reservation.owner === only.owner &&
+            reservation.addressAllocationId === only.addressAllocationId &&
+            rangeContains(reservation.range, only.range)
+          ) {
+            containedInOwner = true;
+            break;
+          }
+        }
+      }
+      invariant(!hasOverlap || containedInOwner, "commit operation is outside its mirror reservation");
+      const end = rangeEnd(only.range);
+      let addedPages = 0;
+      let newDirectories = 0;
+      let lastNewDirectory = -1;
+      const seenNewDirectories = end - only.range.base > (1 << 22) ? new Set<number>() : null;
+      for (let address = only.range.base; address < end; address += memoryPageSize) {
+        invariant(!this.#mappings.has(address), "commit operation targets a committed mirror page");
+        addedPages += 1;
+        const directoryIndex = address >>> 22;
+        if (!this.#directoryMappingCounts.has(directoryIndex)) {
+          if (seenNewDirectories !== null) {
+            seenNewDirectories.add(directoryIndex);
+          } else if (directoryIndex !== lastNewDirectory) {
+            lastNewDirectory = directoryIndex;
+            newDirectories += 1;
+          }
+        }
+      }
+      if (seenNewDirectories !== null) newDirectories = seenNewDirectories.size;
+      const planned: PlannedMapping = {
+        ...(only.addressAllocationId === undefined ? {} : { addressAllocationId: only.addressAllocationId }),
+        owner: only.owner,
+        protection: only.protection,
+      };
+      this.#preflightDeltaPagesWithLookup(delta.pages, address =>
+        address >= only.range.base && address < end ? planned : this.#mappings.get(address));
+      return this.#capacityRequirement(
+        this.#mappings.size + addedPages,
+        this.#directoryMappingCounts.size + newDirectories,
+      );
+    }
     const mappingChanges = new Map<number, PlannedMapping | null>();
     const plannedMapping = (address: number): PlannedMapping | undefined => {
       if (mappingChanges.has(address)) {
@@ -1409,6 +1485,19 @@ export class V86Mirror implements ExecutionEngine {
     // protection and lifetime change already retires its physical dependencies;
     // expanding that scope to all generated code loses unrelated hot functions.
     if (delta.cacheEffects.flushTlb || delta.cacheEffects.invalidateInstructionFetch) {
+      if (
+        delta.pages.length === 0 &&
+        typeof this.#wasm.vine_invalidate_tlb_range === "function"
+      ) {
+        for (const operation of delta.mappingOperations) {
+          if (operation.operation === "reserve") continue;
+          invariant(
+            this.#wasm.vine_invalidate_tlb_range(operation.range.base, operation.range.byteLength) === 0,
+            "v86 rejected range TLB invalidation",
+          );
+        }
+        return;
+      }
       this.#wasm.full_clear_tlb();
     }
   }
@@ -1542,7 +1631,10 @@ export class V86Mirror implements ExecutionEngine {
       this.#shared || protection.write || dirty === 0,
       "mirror write protection changed while the CPU page was still dirty",
     );
-    this.#wasm.jit_dirty_cache(mapping.physicalBase, mapping.physicalBase + memoryPageSize);
+    const hadExecute = mapping.protection.execute;
+    if (!this.#shared || hadExecute || protection.execute) {
+      this.#wasm.jit_dirty_cache(mapping.physicalBase, mapping.physicalBase + memoryPageSize);
+    }
     this.#physicalView.setUint32(
       mapping.pteAddress,
       mapping.physicalBase |
@@ -1553,10 +1645,12 @@ export class V86Mirror implements ExecutionEngine {
       true,
     );
     mapping.protection = { ...protection };
-    invariant(
-      this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
-      "v86 rejected protected execute permission",
-    );
+    if (hadExecute !== protection.execute) {
+      invariant(
+        this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
+        "v86 rejected protected execute permission",
+      );
+    }
   }
 
   #unmapPage(address: number): void {

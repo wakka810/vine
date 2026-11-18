@@ -129,8 +129,8 @@ pub enum RuntimeWaitState {
     Signaled { exit_code: u32 },
 }
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct RuntimeObjectRecord {
     pub id: RuntimeObjectId,
     pub key: RuntimeObjectKey,
@@ -152,6 +152,7 @@ pub struct RuntimeHandleEntry {
     pub handle: RuntimeHandle,
     pub object_id: RuntimeObjectId,
     pub kind: RuntimeObjectKind,
+    pub inheritable: bool,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RuntimeHandleSlot {
@@ -171,8 +172,8 @@ impl RuntimeHandleSlot {
     }
 }
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub(super) struct RuntimeObjectRegistrationPlan {
     expected_next_object_id: u64,
     next_object_id: u64,
@@ -188,8 +189,8 @@ impl RuntimeObjectRegistrationPlan {
     }
 }
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(Clone, PartialEq, Eq))]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub(super) struct RuntimeObjectTable {
     objects: BTreeMap<RuntimeObjectId, RuntimeObjectRecord>,
     handles: BTreeMap<u32, RuntimeHandleEntry>,
@@ -250,6 +251,7 @@ impl RuntimeObjectTable {
                 handle,
                 object_id: id,
                 kind,
+                inheritable: false,
             },
             slot_key,
             expected_slot: self.slots.get(&slot_key).copied(),
@@ -305,6 +307,7 @@ impl RuntimeObjectTable {
                 handle,
                 object_id: id,
                 kind,
+                inheritable: false,
             },
         );
         self.slots.insert(
@@ -347,6 +350,40 @@ impl RuntimeObjectTable {
             self.identity_index.remove(&key);
             self.objects.remove(&entry.object_id);
         }
+        Ok(())
+    }
+
+    pub(super) fn retire_module(&mut self, handle: RuntimeHandle) -> Result<(), RuntimeStateError> {
+        self.retire_unique_owned_object(handle, RuntimeObjectKind::Module)
+    }
+
+    pub(super) fn retire_private_heap(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<(), RuntimeStateError> {
+        self.retire_unique_owned_object(handle, RuntimeObjectKind::PrivateHeap)
+    }
+
+    fn retire_unique_owned_object(
+        &mut self,
+        handle: RuntimeHandle,
+        kind: RuntimeObjectKind,
+    ) -> Result<(), RuntimeStateError> {
+        let record = self.object_for_handle(handle, kind)?;
+        if record.open_handles != 1 {
+            return Err(RuntimeStateError::new(
+                "owned object must have exactly one logical handle",
+            ));
+        }
+        let id = record.id;
+        let key = record.key.clone();
+        self.slots
+            .get_mut(&runtime_handle_slot_key(kind, handle.slot()))
+            .expect("live owned object slot")
+            .close();
+        self.handles.remove(&handle.0);
+        self.objects.remove(&id);
+        self.identity_index.remove(&key);
         Ok(())
     }
 
@@ -500,6 +537,7 @@ impl RuntimeObjectTable {
                 handle,
                 object_id,
                 kind,
+                inheritable: false,
             },
         );
         self.objects
@@ -507,6 +545,13 @@ impl RuntimeObjectTable {
             .expect("validated handle object remains live")
             .open_handles = next_count;
         Ok(handle)
+    }
+
+    pub(super) fn set_new_handle_inheritable(&mut self, handle: RuntimeHandle, inheritable: bool) {
+        self.handles
+            .get_mut(&handle.0)
+            .expect("newly published live handle")
+            .inheritable = inheritable;
     }
 
     #[cfg(test)]
@@ -728,7 +773,7 @@ impl RuntimeObjectTable {
         }
     }
 
-    fn next_available_handle(
+    pub(super) fn next_available_handle(
         &self,
         kind: RuntimeObjectKind,
     ) -> Result<RuntimeHandle, RuntimeStateError> {
@@ -742,15 +787,24 @@ impl RuntimeObjectTable {
         kind: RuntimeObjectKind,
     ) -> Result<Option<RuntimeHandle>, RuntimeStateError> {
         for slot in 1..=u16::MAX {
-            let slot_key = runtime_handle_slot_key(kind, slot);
-            let generation = match self.slots.get(&slot_key) {
-                Some(state) if !state.live && !state.retired => state.generation,
-                Some(_) => continue,
-                None => 1,
-            };
-            return RuntimeHandle::from_parts(kind, generation, slot).map(Some);
+            if let Some(handle) = self.available_handle_in_slot(kind, slot)? {
+                return Ok(Some(handle));
+            }
         }
         Ok(None)
+    }
+
+    pub(super) fn available_handle_in_slot(
+        &self,
+        kind: RuntimeObjectKind,
+        slot: u16,
+    ) -> Result<Option<RuntimeHandle>, RuntimeStateError> {
+        let generation = match self.slots.get(&runtime_handle_slot_key(kind, slot)) {
+            Some(state) if !state.live && !state.retired => state.generation,
+            Some(_) => return Ok(None),
+            None => 1,
+        };
+        RuntimeHandle::from_parts(kind, generation, slot).map(Some)
     }
 
     fn preflight_exact_handle(

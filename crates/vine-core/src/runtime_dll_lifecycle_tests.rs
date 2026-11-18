@@ -24,6 +24,596 @@ const CODEC_BASE: u32 = 0x1000_0000;
 const ENGINE_BASE: u32 = 0x1100_0000;
 const MAIN_BASE: u32 = 0x1200_0000;
 
+fn tls_codec_bytes() -> Vec<u8> {
+    let mut bytes = fs::read(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.work/toolchain-spike/lifecycle_codec.dll"),
+    )
+    .unwrap();
+    let word =
+        |bytes: &[u8], offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+    let pe = word(&bytes, 0x3c) as usize;
+    let optional = pe + 24;
+    let base = word(&bytes, optional + 28);
+    let section_table = optional + 224;
+    let put = |bytes: &mut [u8], offset, value: u32| {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes())
+    };
+    put(&mut bytes, section_table + 40 + 8, 0x200); // .rdata includes TLS metadata.
+    put(&mut bytes, section_table + 80 + 8, 0x40); // Writable TLS index.
+    put(&mut bytes, optional + 96 + 9 * 8, 0x2100);
+    put(&mut bytes, optional + 96 + 9 * 8 + 4, 24);
+    for (offset, value) in [
+        base + 0x2180,
+        base + 0x2188,
+        base + 0x3010,
+        base + 0x2120,
+        8,
+        0x00e0_0000,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        put(&mut bytes, 0x700 + offset * 4, value);
+    }
+    put(&mut bytes, 0x780, base + 0x1234);
+    put(&mut bytes, 0x784, 0x8000_0000);
+    // A relocated pointer inside the TLS template must be copied after relocation.
+    put(&mut bytes, optional + 96 + 5 * 8 + 4, 36);
+    put(&mut bytes, section_table + 120 + 8, 36);
+    put(&mut bytes, 0x818, 0x2000);
+    put(&mut bytes, 0x81c, 12);
+    bytes[0x820..0x824].copy_from_slice(&[0x80, 0x31, 0, 0]);
+    bytes
+}
+
+#[test]
+fn pe_tls_validates_metadata_and_rejects_unimplemented_callbacks() {
+    let bytes = tls_codec_bytes();
+    let parse = |bytes| {
+        let snapshot = ModuleSnapshot::from_bytes(bytes, &Pe32Limits::default()).unwrap();
+        build_pe32_load_plan(&snapshot, Pe32Limits::default())
+    };
+    let plan = parse(bytes.clone()).unwrap();
+    let tls = plan.tls.unwrap();
+    assert_eq!(tls.template_size, 8);
+    assert_eq!(tls.zero_fill, 8);
+    assert_eq!(tls.alignment, 8192);
+    for (offset, value) in [
+        (0x704, 0x1000_0000_u32),
+        (0x708, 0x1000_1000),
+        (0x710, u32::MAX),
+        (0x714, 0x00f0_0000),
+        (0x720, 0x1000_1000),
+    ] {
+        let mut malformed = bytes.clone();
+        malformed[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        assert!(
+            parse(malformed).is_err(),
+            "invalid TLS field at {offset:#x}"
+        );
+    }
+}
+
+#[test]
+fn image_tls_copies_relocated_templates_for_existing_and_new_threads_and_releases_them() {
+    use crate::runtime::RuntimeCreateThreadRequest;
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let (main_loader, main_image) =
+        materialize_fixture(&mut memory, "bootstrap-params.exe", 0x0040_0000);
+    let mut runtime = controlled_runtime(memory);
+    runtime
+        .register_main_module(runtime_module(MAIN_HANDLE, "bootstrap-params.exe", false))
+        .unwrap();
+    let catalog = RuntimeExportCatalog::new(Vec::new()).unwrap();
+    runtime
+        .bind_guest_module_imports(MAIN_HANDLE, &main_loader, &main_image, &catalog)
+        .unwrap();
+    runtime
+        .register_module_image(MAIN_HANDLE, &main_loader, &main_image)
+        .unwrap();
+    runtime.mark_module_ready(MAIN_HANDLE).unwrap();
+    install_fixture_thread_stack(&mut runtime);
+    let env = runtime.install_process_environment("tls.exe").unwrap();
+    runtime.start_initial_thread().unwrap();
+    expect_completion(
+        runtime
+            .begin_dll_process_attach(CALLBACK_RETURN_ARENA_BASE)
+            .unwrap(),
+    );
+    acknowledge_pending_memory(&mut runtime.memory);
+    let initial_id = runtime.current_thread_id();
+    let new_thread = |runtime: &mut Runtime| {
+        runtime
+            .create_guest_thread(RuntimeCreateThreadRequest {
+                stack_reserve_bytes: 0x10000,
+                stack_commit_bytes: 0x1000,
+                entry_point: main_image.entry_point_address,
+                parameter: 0,
+                thread_id_output: None,
+                initial_suspend_count: 0,
+            })
+            .unwrap()
+            .unwrap()
+            .0
+    };
+    let existing = new_thread(&mut runtime);
+    acknowledge_pending_memory(&mut runtime.memory);
+    let snapshot = ModuleSnapshot::from_bytes(tls_codec_bytes(), &Pe32Limits::default()).unwrap();
+    let loader = build_pe32_load_plan(&snapshot, Pe32Limits::default()).unwrap();
+    let load = |runtime: &mut Runtime| {
+        runtime
+            .load_dynamic_library(
+                &snapshot,
+                &loader,
+                "tls.dll",
+                GuestAddress(0x1500_0000),
+                &catalog,
+                &[],
+            )
+            .unwrap()
+            .requester_handle
+    };
+    let teb_region = runtime
+        .memory
+        .regions()
+        .into_iter()
+        .find(|region| region.range.start() == env.teb_address)
+        .unwrap();
+    runtime
+        .memory
+        .protect(
+            teb_region.owner,
+            teb_region.range,
+            crate::PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    let before_memory = runtime.memory.stats();
+    let before_addresses = runtime.process_address_space_allocator().clone();
+    assert!(
+        runtime
+            .load_dynamic_library(
+                &snapshot,
+                &loader,
+                "tls.dll",
+                GuestAddress(0x1500_0000),
+                &catalog,
+                &[]
+            )
+            .is_err()
+    );
+    assert_eq!(runtime.memory.stats(), before_memory);
+    assert_eq!(runtime.process_address_space_allocator(), &before_addresses);
+    assert!(runtime.module_by_name("tls.dll").unwrap().is_none());
+    runtime
+        .memory
+        .protect(
+            teb_region.owner,
+            teb_region.range,
+            crate::PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+        .unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    let first = load(&mut runtime);
+    acknowledge_pending_memory(&mut runtime.memory);
+    let word = |runtime: &Runtime, address| {
+        u32::from_le_bytes(
+            runtime
+                .memory
+                .read(GuestAddress(address), 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+    };
+    let vector = word(&runtime, env.teb_address.0 + 0x2c);
+    let failed_block = word(&runtime, vector);
+    runtime.finish_dynamic_library(first, false).unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    assert_eq!(word(&runtime, vector), 0);
+    assert!(runtime.memory.read(GuestAddress(failed_block), 1).is_err());
+    let second = load(&mut runtime);
+    runtime.finish_dynamic_library(second, true).unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    assert_eq!(word(&runtime, 0x1500_3010), 0);
+    let initial_block = word(&runtime, vector);
+    runtime
+        .memory
+        .write(GuestAddress(initial_block), &0xdead_beef_u32.to_le_bytes())
+        .unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    let created = new_thread(&mut runtime);
+    acknowledge_pending_memory(&mut runtime.memory);
+    let mut blocks = std::collections::BTreeSet::from([initial_block]);
+    for id in [existing, created] {
+        let teb = runtime
+            .thread_state(id)
+            .unwrap()
+            .environment
+            .as_ref()
+            .unwrap()
+            .teb_address;
+        let thread_vector = word(&runtime, teb.0 + 0x2c);
+        let block = word(&runtime, thread_vector);
+        assert!(blocks.insert(block));
+        assert_eq!(block % 8192, 0);
+        assert_eq!(word(&runtime, block), 0x1500_1234);
+        assert_eq!(word(&runtime, block + 4), 0x8000_0000);
+        assert_eq!(
+            runtime.memory.read(GuestAddress(block + 8), 8).unwrap(),
+            [0; 8]
+        );
+        runtime.select_thread(id).unwrap();
+        runtime.request_current_thread_exit(0).unwrap();
+        runtime.complete_current_guest_thread_exit().unwrap();
+        acknowledge_pending_memory(&mut runtime.memory);
+        assert!(runtime.memory.read(GuestAddress(block), 1).is_err());
+        assert!(runtime.memory.read(GuestAddress(thread_vector), 1).is_err());
+        runtime.select_thread(initial_id).unwrap();
+    }
+    assert_eq!(word(&runtime, initial_block), 0xdead_beef);
+    free_fixture_library(&mut runtime, 0x1500_0000, true);
+    acknowledge_pending_memory(&mut runtime.memory);
+    assert_eq!(word(&runtime, vector), 0);
+    assert!(runtime.memory.read(GuestAddress(initial_block), 1).is_err());
+    assert!(runtime.module_by_name("tls.dll").unwrap().is_none());
+    runtime.request_current_thread_exit(0).unwrap();
+    runtime.complete_current_thread_exit().unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    assert!(runtime.memory.read(GuestAddress(initial_block), 1).is_err());
+    assert_eq!(word(&runtime, env.teb_address.0 + 0x2c), 0);
+}
+
+#[test]
+fn image_tls_registered_before_process_environment_initializes_the_first_thread() {
+    let snapshot = ModuleSnapshot::from_bytes(tls_codec_bytes(), &Pe32Limits::default()).unwrap();
+    let loader = build_pe32_load_plan(&snapshot, Pe32Limits::default()).unwrap();
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let image =
+        materialize_pe32_image(&mut memory, &snapshot, &loader, GuestAddress(CODEC_BASE)).unwrap();
+    let mut runtime = controlled_runtime(memory);
+    load_module(&mut runtime, CODEC_HANDLE, "tls.dll", false);
+    runtime
+        .bind_guest_module_imports(
+            CODEC_HANDLE,
+            &loader,
+            &image,
+            &RuntimeExportCatalog::new(Vec::new()).unwrap(),
+        )
+        .unwrap();
+    runtime
+        .register_module_image(CODEC_HANDLE, &loader, &image)
+        .unwrap();
+    let env = runtime.install_process_environment("tls.exe").unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    let word = |address| {
+        u32::from_le_bytes(
+            runtime
+                .memory
+                .read(GuestAddress(address), 4)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        )
+    };
+    let vector = word(env.teb_address.0 + 0x2c);
+    let block = word(vector);
+    assert_eq!(word(CODEC_BASE + 0x3010), 0);
+    assert_eq!(word(block), CODEC_BASE + 0x1234);
+    assert_eq!(
+        runtime.memory.read(GuestAddress(block + 8), 8).unwrap(),
+        [0; 8]
+    );
+}
+
+#[test]
+fn dynamic_library_load_is_atomic_and_failed_attach_can_be_retried() {
+    let mut memory = fixture_memory();
+    let (main_loader, main_image) =
+        materialize_fixture(&mut memory, "bootstrap-params.exe", 0x0040_0000);
+    let mut runtime = controlled_runtime(memory);
+    runtime
+        .register_main_module(runtime_module(MAIN_HANDLE, "bootstrap-params.exe", false))
+        .unwrap();
+    let catalog = RuntimeExportCatalog::new(Vec::new()).unwrap();
+    runtime
+        .bind_guest_module_imports(MAIN_HANDLE, &main_loader, &main_image, &catalog)
+        .unwrap();
+    runtime
+        .register_module_image(MAIN_HANDLE, &main_loader, &main_image)
+        .unwrap();
+    runtime.mark_module_ready(MAIN_HANDLE).unwrap();
+    install_fixture_thread_stack(&mut runtime);
+    runtime.start_initial_thread().unwrap();
+    expect_completion(
+        runtime
+            .begin_dll_process_attach(CALLBACK_RETURN_ARENA_BASE)
+            .unwrap(),
+    );
+    acknowledge_pending_memory(&mut runtime.memory);
+    let initial_main = runtime
+        .module_graph()
+        .module_by_handle(MAIN_HANDLE)
+        .unwrap()
+        .clone();
+    let read = |name: &str| {
+        let bytes = fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../.work/toolchain-spike")
+                .join(name),
+        )
+        .unwrap();
+        let snapshot = ModuleSnapshot::from_bytes(bytes, &Pe32Limits::default()).unwrap();
+        let loader = build_pe32_load_plan(&snapshot, Pe32Limits::default()).unwrap();
+        (snapshot, loader)
+    };
+    let (engine, engine_loader) = read("lifecycle_engine.dll");
+    let before = runtime.memory.stats();
+    // Missing guest dependencies cannot leave the requested image or module handle behind.
+    assert!(
+        runtime
+            .load_dynamic_library(
+                &engine,
+                &engine_loader,
+                "lifecycle_engine.dll",
+                GuestAddress(ENGINE_BASE),
+                &catalog,
+                &[]
+            )
+            .is_err()
+    );
+    assert_eq!(runtime.memory.stats(), before);
+    assert!(
+        runtime
+            .module_by_name("lifecycle_engine.dll")
+            .unwrap()
+            .is_none()
+    );
+    let (codec, codec_loader) = read("lifecycle_codec.dll");
+    let first = runtime
+        .load_dynamic_library(
+            &codec,
+            &codec_loader,
+            "C:\\Vine\\plugin\\lifecycle_codec.dll",
+            GuestAddress(CODEC_BASE),
+            &catalog,
+            &[],
+        )
+        .unwrap();
+    let request = runtime
+        .dynamic_library_callback(first.requester_handle, CALLBACK_RETURN_ARENA_BASE)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        request.arguments,
+        vec![
+            crate::api::GuestCallbackArgument::U32(CODEC_BASE),
+            crate::api::GuestCallbackArgument::U32(DLL_PROCESS_ATTACH),
+            crate::api::GuestCallbackArgument::U32(0)
+        ]
+    );
+    assert!(
+        runtime
+            .finish_dynamic_library(first.requester_handle + 1, true)
+            .is_err()
+    );
+    assert_eq!(
+        runtime
+            .finish_dynamic_library(first.requester_handle, false)
+            .unwrap(),
+        0
+    );
+    assert!(
+        runtime
+            .module_by_name("lifecycle_codec.dll")
+            .unwrap()
+            .is_none()
+    );
+    assert!(runtime.memory.read(GuestAddress(CODEC_BASE), 1).is_err());
+    let second = runtime
+        .load_dynamic_library(
+            &codec,
+            &codec_loader,
+            "lifecycle_codec.dll",
+            GuestAddress(CODEC_BASE),
+            &catalog,
+            &[],
+        )
+        .unwrap();
+    assert_ne!(first.requester_handle, second.requester_handle);
+    assert_eq!(
+        runtime
+            .finish_dynamic_library(second.requester_handle, true)
+            .unwrap(),
+        CODEC_BASE
+    );
+    let loaded = runtime
+        .module_graph()
+        .module_by_handle(second.requester_handle)
+        .unwrap();
+    assert!(matches!(
+        loaded.state,
+        RuntimeModuleLoadState::ProcessAttached { .. }
+    ));
+    assert_eq!(loaded.reference_count(), 1);
+    assert_eq!(
+        runtime
+            .module_graph()
+            .module_by_handle(MAIN_HANDLE)
+            .unwrap(),
+        &initial_main
+    );
+    let engine = runtime
+        .load_dynamic_library(
+            &engine,
+            &engine_loader,
+            "lifecycle_engine.dll",
+            GuestAddress(ENGINE_BASE),
+            &catalog,
+            &[],
+        )
+        .unwrap();
+    assert_eq!(
+        runtime
+            .finish_dynamic_library(engine.requester_handle, true)
+            .unwrap(),
+        ENGINE_BASE
+    );
+    assert_eq!(
+        runtime
+            .module_graph()
+            .module_by_handle(second.requester_handle)
+            .unwrap()
+            .reference_count(),
+        2
+    );
+    free_fixture_library(&mut runtime, ENGINE_BASE, true);
+    assert!(
+        runtime
+            .module_by_name("lifecycle_engine.dll")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        runtime
+            .module_graph()
+            .module_by_handle(second.requester_handle)
+            .unwrap()
+            .reference_count(),
+        1
+    );
+    // A second load keeps the image live until the last release.
+    runtime
+        .add_current_thread_module_reference(second.requester_handle)
+        .unwrap();
+    free_fixture_library(&mut runtime, CODEC_BASE, false);
+    acknowledge_pending_memory(&mut runtime.memory);
+    assert!(runtime.memory.read(GuestAddress(CODEC_BASE), 1).is_ok());
+    free_fixture_library(&mut runtime, CODEC_BASE, true);
+    assert!(
+        runtime
+            .module_by_name("lifecycle_codec.dll")
+            .unwrap()
+            .is_none()
+    );
+    let reloaded = runtime
+        .load_dynamic_library(
+            &codec,
+            &codec_loader,
+            "lifecycle_codec.dll",
+            GuestAddress(CODEC_BASE),
+            &catalog,
+            &[],
+        )
+        .unwrap();
+    assert_ne!(reloaded.requester_handle, second.requester_handle);
+    runtime
+        .finish_dynamic_library(reloaded.requester_handle, true)
+        .unwrap();
+}
+
+fn free_fixture_library(runtime: &mut Runtime, base: u32, detach: bool) {
+    use crate::api::{
+        ApiDispatcher, ApiOwnedTrap, DispatchOutcome, GuestCallbackArgument, GuestCallbackReturn,
+    };
+    let export =
+        crate::dll::runtime_export_endpoint(0, RuntimeExport::named("kernel32.dll", "FreeLibrary"))
+            .unwrap();
+    let endpoint = ApiEndpointIdentity::from_runtime_system_export(&export);
+    let dispatcher = ApiDispatcher::from_endpoints([endpoint.clone()]).unwrap();
+    if detach {
+        let handle = runtime
+            .module_image_by_load_base(GuestAddress(base))
+            .unwrap()
+            .unwrap()
+            .handle;
+        let before = runtime.module_graph().clone();
+        let invalid_frame = crate::api::ApiCallFrame {
+            endpoint: endpoint.clone(),
+            stack_pointer: GuestAddress(0),
+            return_address: GuestAddress(0x0040_1000),
+            arguments: vec![base],
+        };
+        assert!(
+            runtime
+                .free_library(handle, &invalid_frame, CALLBACK_RETURN_ARENA_BASE)
+                .is_err()
+        );
+        assert_eq!(runtime.module_graph(), &before);
+    }
+    let stack = runtime.thread_stack(runtime.current_thread_id()).unwrap();
+    let pointer = GuestAddress(stack.initial_stack_pointer.0 - 16);
+    let return_address = GuestAddress(0x0040_1000);
+    runtime
+        .memory
+        .write(
+            pointer,
+            &[return_address.0.to_le_bytes(), base.to_le_bytes()].concat(),
+        )
+        .unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    let outcome = runtime.dispatch_api_call(
+        &dispatcher,
+        ApiOwnedTrap {
+            endpoint_id: endpoint.id,
+            endpoint_address: endpoint.address,
+            stack_pointer: pointer,
+            return_address,
+        },
+        CALLBACK_RETURN_ARENA_BASE,
+        None,
+    );
+    if !detach {
+        let DispatchOutcome::Immediate(completion) = outcome else {
+            panic!("{outcome:?}")
+        };
+        assert_eq!(completion.eax, Some(1));
+        return;
+    }
+    let DispatchOutcome::GuestCallback(call) = outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(
+        call.request.arguments,
+        vec![
+            GuestCallbackArgument::U32(base),
+            GuestCallbackArgument::U32(0),
+            GuestCallbackArgument::U32(0)
+        ]
+    );
+    let handle = runtime
+        .module_image_by_load_base(GuestAddress(base))
+        .unwrap()
+        .unwrap()
+        .handle;
+    assert!(runtime.add_current_thread_module_reference(handle).is_err());
+    assert!(runtime.finish_library_release(handle + 1).is_err());
+    runtime.begin_guest_callback(call).unwrap();
+    acknowledge_pending_memory(&mut runtime.memory);
+    assert!(runtime.memory.fetch(GuestAddress(base + 0x1000), 1).is_ok());
+    // DllMain's return value is ignored for DLL_PROCESS_DETACH.
+    let GuestCallbackReturn::Completed(completion) = runtime
+        .complete_guest_callback(&dispatcher, CALLBACK_RETURN_ARENA_BASE, 0)
+        .unwrap()
+    else {
+        panic!("detach did not complete")
+    };
+    assert_eq!(completion.eax, Some(1));
+    assert_eq!(completion.instruction_pointer, return_address);
+    acknowledge_pending_memory(&mut runtime.memory);
+    assert!(runtime.memory.read(GuestAddress(base), 1).is_err());
+    assert!(runtime.module_option(handle).unwrap().is_none());
+}
+
 #[test]
 fn callback_free_dll_detach_preserves_a_waiting_thread_until_process_exit() {
     let mut memory = fixture_memory();
@@ -905,7 +1495,7 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
 
 fn fixture_memory() -> GuestMemory {
     GuestMemory::new(MemoryLimits {
-        max_physical_pages: 20,
+        max_physical_pages: 40,
         max_regions: 8,
         max_owners: 8,
         ..MemoryLimits::default()

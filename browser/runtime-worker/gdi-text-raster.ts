@@ -78,6 +78,7 @@ function decodeGlyph(request: TextRasterRequest): string {
 }
 
 export function rasterizeGdiText(arguments_: readonly number[]): Uint8Array {
+  if (arguments_[0] === 0x32545854) return rasterizePositionedText(arguments_);
   const request = decodeRequest(arguments_);
   const glyph = decodeGlyph(request);
   const height = Math.abs(request.dibHeight);
@@ -113,4 +114,35 @@ export function rasterizeGdiText(arguments_: readonly number[]): Uint8Array {
     }
   }
   return pixels;
+}
+
+function rasterizePositionedText(words: readonly number[]): Uint8Array {
+  invariant(words.length >= 14 && words.every(word => Number.isInteger(word) && word >= 0 && word <= 0xffffffff), "Invalid positioned GDI raster request");
+  const [width, height, fontHeight, weight, italic, underline, strikeout, faceLength, count] = words.slice(1, 10) as number[];
+  invariant(width! > 0 && width! <= 32768 && height! > 0 && height! <= 32768 && width! * height! <= maximumPixelBytes && fontHeight! > 0 && fontHeight! <= 4096 && weight! <= 1000 && italic! <= 1 && underline! <= 1 && strikeout! <= 1 && faceLength! <= 32 && count! <= 8192 && words.length === 14 + faceLength! + count! * 5, "Positioned GDI raster exceeds its bounds");
+  const faceUnits = words.slice(14, 14 + faceLength!);
+  invariant(faceUnits.every(unit => unit <= 0xffff), "Invalid GDI font face");
+  const face = String.fromCharCode(...faceUnits);
+  const canvas = new OffscreenCanvas(width!, height!);
+  const context = canvas.getContext("2d", {alpha: false, willReadFrequently: true});
+  invariant(context !== null, "Chrome did not provide a text canvas");
+  context.fillStyle = "black"; context.fillRect(0, 0, width!, height!);
+  context.beginPath(); context.rect(signed(words[10]!), signed(words[11]!), Math.max(0, signed(words[12]!) - signed(words[10]!)), Math.max(0, signed(words[13]!) - signed(words[11]!))); context.clip();
+  context.fillStyle = "white"; context.textBaseline = "top";
+  context.font = `${italic ? "italic " : ""}${weight || 400} ${fontHeight}px ${JSON.stringify(face || "MS Gothic")}, monospace`;
+  for (let index = 14 + faceLength!; index < words.length; index += 5) {
+    const scalar = words[index]!;
+    const x = signed(words[index + 1]!); const y = signed(words[index + 2]!); const advance = words[index + 3]!;
+    invariant(scalar <= 0x10ffff && !(scalar >= 0xd800 && scalar <= 0xdfff) && advance > 0 && advance <= 8192 && words[index + 4]! <= 1, "Invalid positioned GDI glyph");
+    const glyph = String.fromCodePoint(scalar);
+    const measured = context.measureText(glyph).width;
+    invariant(Number.isFinite(measured) && measured >= 0, "Chrome could not measure a GDI glyph");
+    if (measured > 0) {context.save(); context.translate(x, y); context.scale(advance / measured, 1); context.fillText(glyph, 0, 0); context.restore();}
+    if (underline || words[index + 4]) context.fillRect(x, y + fontHeight! - 1, advance, 1);
+    if (strikeout) context.fillRect(x, y + Math.floor(fontHeight! / 2), advance, 1);
+  }
+  const rgba = context.getImageData(0, 0, width!, height!).data;
+  const result = new Uint8Array(width! * height!);
+  for (let index = 0; index < result.length; index += 1) result[index] = rgba[index * 4]!;
+  return result;
 }

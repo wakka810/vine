@@ -11,7 +11,10 @@ pub const RUNTIME_SOURCE_READ_SERVICE: &str = "storage.source-read";
 pub const RUNTIME_SOURCE_READ_REQUEST_BYTES: usize = 20;
 pub const RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES: usize = 28;
 pub const RUNTIME_SOURCE_FILE_LIMIT: usize = 4096;
-pub const RUNTIME_SOURCE_READ_MAX_BYTES: u32 = 2 * 1024 * 1024;
+// A synchronous ReadFile may span several browser source chunks. The complete
+// response, including its control header, must fit the 16 MiB Wasm input cap.
+pub const RUNTIME_SOURCE_READ_MAX_BYTES: u32 =
+    16 * 1024 * 1024 - RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES as u32;
 pub const RUNTIME_OPFS_READ_SERVICE: &str = "browser.opfs-read";
 pub const RUNTIME_WRITABLE_FILE_MAX_IO_BYTES: u32 = 1024 * 1024;
 
@@ -34,6 +37,13 @@ pub struct RuntimeSourceFileManifest {
     pub byte_length: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceDirectoryChildKind {
+    RegularFile,
+    Directory,
+    Ambiguous,
+}
+
 #[derive(Debug)]
 pub(crate) struct RuntimeSourceSnapshot {
     pub source_id: u32,
@@ -41,6 +51,8 @@ pub(crate) struct RuntimeSourceSnapshot {
     path_index: BTreeMap<Vec<u8>, u32>,
     // Case-folded lookup key -> original normalized spelling for FindFirstFileA.
     directories: BTreeMap<Vec<u8>, Vec<u8>>,
+    enumerated_directories: BTreeMap<Vec<u8>, BTreeMap<Vec<u8>, SourceDirectoryChildKind>>,
+    missing_paths: BTreeSet<Vec<u8>>,
     root_identity: Vec<u8>,
 }
 
@@ -70,16 +82,32 @@ pub struct RuntimeFileSearchEntry {
 }
 
 impl RuntimeFileSearchEntry {
-    pub(super) fn encode_find_data_a(&self) -> Result<Vec<u8>, RuntimeStateError> {
-        if self.file_name_a.is_empty()
-            || self.file_name_a.len() >= 260
-            || self.file_name_a.contains(&0)
-        {
+    pub(super) fn encode_find_data(&self, unicode: bool) -> Result<Vec<u8>, RuntimeStateError> {
+        if self.file_name_a.is_empty() || self.file_name_a.contains(&0) {
             return Err(RuntimeStateError::new(
-                "file search result name does not fit WIN32_FIND_DATAA.cFileName",
+                "file search result name must be nonempty and NUL-free",
             ));
         }
-        let mut bytes = vec![0; 320];
+        let name = if unicode {
+            let decoded = SHIFT_JIS
+                .decode_without_bom_handling_and_without_replacement(&self.file_name_a)
+                .ok_or_else(|| {
+                    RuntimeStateError::new("file search result is not valid Windows-932")
+                })?;
+            decoded
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>()
+        } else {
+            self.file_name_a.clone()
+        };
+        let capacity = if unicode { 520 } else { 260 };
+        if name.len() >= capacity {
+            return Err(RuntimeStateError::new(
+                "file search result name does not fit WIN32_FIND_DATA.cFileName",
+            ));
+        }
+        let mut bytes = vec![0; if unicode { 592 } else { 320 }];
         let attributes: u32 = match self.kind {
             RuntimeFileSearchEntryKind::RegularFile => 0x20,
             RuntimeFileSearchEntryKind::Directory => 0x30,
@@ -87,7 +115,7 @@ impl RuntimeFileSearchEntry {
         bytes[0..4].copy_from_slice(&attributes.to_le_bytes());
         bytes[28..32].copy_from_slice(&((self.byte_length >> 32) as u32).to_le_bytes());
         bytes[32..36].copy_from_slice(&(self.byte_length as u32).to_le_bytes());
-        bytes[44..44 + self.file_name_a.len()].copy_from_slice(&self.file_name_a);
+        bytes[44..44 + name.len()].copy_from_slice(&name);
         Ok(bytes)
     }
 }
@@ -232,6 +260,9 @@ pub(super) struct RuntimeFiles {
     open_files: BTreeMap<RuntimeSourceFileId, RuntimeSourceFile>,
     pending_reads: BTreeMap<u64, RuntimePendingSourceRead>,
     searches: BTreeMap<RuntimeFileSearchId, RuntimeFileSearch>,
+    opfs_index_active: bool,
+    opfs_files: BTreeSet<String>,
+    opfs_directories: BTreeSet<String>,
     next_file_id: u64,
     next_search_id: u64,
 }
@@ -243,6 +274,9 @@ impl Default for RuntimeFiles {
             open_files: BTreeMap::new(),
             pending_reads: BTreeMap::new(),
             searches: BTreeMap::new(),
+            opfs_index_active: false,
+            opfs_files: BTreeSet::new(),
+            opfs_directories: BTreeSet::new(),
             next_file_id: 1,
             next_search_id: 1,
         }
@@ -299,6 +333,61 @@ impl RuntimeSourceReadCompletionPlan {
 }
 
 impl RuntimeFiles {
+    pub(super) fn same_path(
+        &self,
+        left: &[u8],
+        right: &[u8],
+        current: &[u8],
+    ) -> Result<bool, RuntimeStateError> {
+        Ok(resolve_path(left, current)?.identity == resolve_path(right, current)?.identity)
+    }
+
+    pub(super) fn source_root_path(&self) -> Result<Vec<u8>, RuntimeStateError> {
+        let mut root = self
+            .snapshot
+            .as_ref()
+            .ok_or_else(|| RuntimeStateError::new("source mount is missing"))?
+            .root_identity
+            .clone();
+        root[0] = root[0].to_ascii_uppercase();
+        root.push(0);
+        Ok(root)
+    }
+
+    pub(super) fn full_path(
+        &self,
+        requested: &[u8],
+        current: &[u8],
+    ) -> Result<Vec<u8>, RuntimeStateError> {
+        let body = nul_terminated_body(requested)?;
+        if body.is_empty() || body.starts_with(b"\\\\") || body.starts_with(b"//") {
+            return Err(RuntimeStateError::new(
+                "full path requires a nonempty local DOS path",
+            ));
+        }
+        let resolved = if is_separator(body[0]) {
+            let current = normalize_absolute_path(current)?;
+            let mut path = current.bytes_with_nul[..2].to_vec();
+            path.extend_from_slice(requested);
+            normalize_absolute_path(&path)?
+        } else if body.len() >= 2 && body[1] == b':' && !is_absolute(body) {
+            let current = normalize_absolute_path(current)?;
+            let base = if body[0].eq_ignore_ascii_case(&current.bytes_with_nul[0]) {
+                current.bytes_with_nul
+            } else {
+                vec![body[0], b':', b'\\', 0]
+            };
+            if body.len() == 2 {
+                normalize_absolute_path(&base)?
+            } else {
+                resolve_path(&requested[2..], &base)?
+            }
+        } else {
+            resolve_path(requested, current)?
+        };
+        Ok(resolved.bytes_with_nul)
+    }
+
     pub(super) fn snapshot(&self) -> Option<&RuntimeSourceSnapshot> {
         self.snapshot.as_ref()
     }
@@ -581,10 +670,32 @@ impl RuntimeFiles {
             files,
             path_index,
             directories: BTreeMap::new(),
+            enumerated_directories: BTreeMap::new(),
+            missing_paths: BTreeSet::new(),
             root_identity: root.identity,
         };
         self.snapshot = Some(next);
         Ok(())
+    }
+
+    pub(super) fn source_library_relative_path(
+        &self,
+        requested: &[u8],
+        current: &[u8],
+    ) -> Result<Vec<u8>, RuntimeStateError> {
+        let normalized = resolve_path(requested, current)?;
+        let snapshot = self
+            .snapshot
+            .as_ref()
+            .ok_or_else(|| RuntimeStateError::new("library load requires a selected directory"))?;
+        relative_to_mount(&normalized.identity, &snapshot.root_identity)?;
+        let relative = normalized
+            .bytes_with_nul
+            .get(snapshot.root_identity.len() + 1..normalized.bytes_with_nul.len() - 1)
+            .ok_or_else(|| {
+                RuntimeStateError::new("library path is outside the selected directory")
+            })?;
+        normalize_relative_path(relative)
     }
 
     pub(super) fn source_lookup_relative_path(
@@ -598,9 +709,34 @@ impl RuntimeFiles {
             .as_ref()
             .ok_or_else(|| RuntimeStateError::new("source lookup requires a selected directory"))?;
         let relative = relative_to_mount(&normalized.identity, &snapshot.root_identity)?;
-        if snapshot.path_index.contains_key(relative) || self.registered_directory_exists(relative)
+        if snapshot.path_index.contains_key(relative)
+            || self.registered_directory_exists(relative)
+            || snapshot.missing_paths.contains(relative)
         {
             return Ok(None);
+        }
+        if !snapshot.enumerated_directories.is_empty()
+            && let Ok(components) = normalize_components(relative, false)
+        {
+            let mut parent_id = Vec::new();
+            for (index, component) in components.iter().enumerate() {
+                let comp_id = windows_932_ascii_fold(component);
+                if let Some(children) = snapshot.enumerated_directories.get(&parent_id) {
+                    match children.get(&comp_id).copied() {
+                        None => return Ok(None),
+                        Some(SourceDirectoryChildKind::RegularFile)
+                            if index + 1 < components.len() =>
+                        {
+                            return Ok(None);
+                        }
+                        Some(_) => {}
+                    }
+                }
+                if !parent_id.is_empty() {
+                    parent_id.push(b'\\');
+                }
+                parent_id.extend_from_slice(&comp_id);
+            }
         }
         let relative_start = snapshot.root_identity.len() + 1;
         let relative_bytes = normalized
@@ -660,12 +796,22 @@ impl RuntimeFiles {
         requested: &[u8],
         current_directory: &[u8],
     ) -> Result<(String, u8), u32> {
+        self.opfs_open_path(requested, current_directory, false)
+    }
+
+    fn opfs_open_path(
+        &self,
+        requested: &[u8],
+        current_directory: &[u8],
+        allow_source_file: bool,
+    ) -> Result<(String, u8), u32> {
         let relative_path = self.opfs_relative_path(requested, current_directory)?;
         let normalized = resolve_path(requested, current_directory).map_err(|_| 123_u32)?;
         let snapshot = self.snapshot.as_ref().ok_or(3_u32)?;
         let relative =
             relative_to_mount(&normalized.identity, &snapshot.root_identity).map_err(|_| 3_u32)?;
-        if snapshot.path_index.contains_key(relative) || self.registered_directory_exists(relative)
+        if (!allow_source_file && snapshot.path_index.contains_key(relative))
+            || self.registered_directory_exists(relative)
         {
             return Err(183);
         }
@@ -926,6 +1072,7 @@ impl RuntimeFiles {
         if snapshot.directories.contains_key(&identity) {
             return Ok(());
         }
+        snapshot.missing_paths.remove(&identity);
         snapshot.directories.insert(identity, normalized);
         Ok(())
     }
@@ -958,7 +1105,8 @@ impl RuntimeFiles {
             ));
         }
 
-        snapshot.path_index.insert(identity, file.object_id);
+        snapshot.path_index.insert(identity.clone(), file.object_id);
+        snapshot.missing_paths.remove(&identity);
         snapshot.files.insert(
             file.object_id,
             RuntimeSourceFileDescriptor {
@@ -967,6 +1115,191 @@ impl RuntimeFiles {
             },
         );
         Ok(())
+    }
+
+    pub(super) fn register_missing_source_path(
+        &mut self,
+        relative_path_a: &[u8],
+    ) -> Result<(), RuntimeStateError> {
+        let normalized = normalize_relative_path(relative_path_a)?;
+        let identity = windows_932_ascii_fold(&normalized);
+        let Some(snapshot) = self.snapshot.as_mut() else {
+            return Ok(());
+        };
+        if !snapshot.path_index.contains_key(&identity)
+            && !snapshot.directories.contains_key(&identity)
+            && snapshot.missing_paths.len() < RUNTIME_SOURCE_FILE_LIMIT
+        {
+            snapshot.missing_paths.insert(identity);
+        }
+        Ok(())
+    }
+
+    pub(super) fn register_source_directory_listing(
+        &mut self,
+        actual_segments: &[String],
+        names: &[(String, bool)],
+    ) -> Result<(), RuntimeStateError> {
+        if names.len() > RUNTIME_SOURCE_FILE_LIMIT || actual_segments.len() > 256 {
+            return Ok(());
+        }
+        let snapshot = self.snapshot.as_mut().ok_or_else(|| {
+            RuntimeStateError::new("source directory listing requires a selected directory")
+        })?;
+        if snapshot.enumerated_directories.len() >= 256 {
+            return Ok(());
+        }
+        let mut parent = Vec::new();
+        for segment in actual_segments {
+            let (encoded, _, had_errors) = SHIFT_JIS.encode(segment);
+            if had_errors || validate_component(&encoded).is_err() {
+                return Ok(());
+            }
+            if !parent.is_empty() {
+                parent.push(b'\\');
+            }
+            parent.extend_from_slice(&encoded);
+        }
+        let parent_id = windows_932_ascii_fold(&parent);
+        let mut children = BTreeMap::new();
+        for (name, is_file) in names {
+            let (encoded, _, had_errors) = SHIFT_JIS.encode(name);
+            if had_errors || validate_component(&encoded).is_err() {
+                continue;
+            }
+            let comp_id = windows_932_ascii_fold(&encoded);
+            let kind = if *is_file {
+                SourceDirectoryChildKind::RegularFile
+            } else {
+                SourceDirectoryChildKind::Directory
+            };
+            children
+                .entry(comp_id)
+                .and_modify(|existing| *existing = SourceDirectoryChildKind::Ambiguous)
+                .or_insert(kind);
+        }
+        snapshot.enumerated_directories.insert(parent_id, children);
+        Ok(())
+    }
+
+    pub(super) fn register_opfs_snapshot(
+        &mut self,
+        files: &[String],
+        directories: &[String],
+    ) -> Result<(), RuntimeStateError> {
+        if files.len() > RUNTIME_SOURCE_FILE_LIMIT || directories.len() > RUNTIME_SOURCE_FILE_LIMIT
+        {
+            self.opfs_index_active = false;
+            return Ok(());
+        }
+        let mut opfs_files = BTreeSet::new();
+        let mut opfs_directories = BTreeSet::new();
+        let insert_ancestors = |path: &str, dirs: &mut BTreeSet<String>| {
+            let mut prefix = String::new();
+            let parts: Vec<&str> = path.split('/').collect();
+            for part in parts.iter().take(parts.len().saturating_sub(1)) {
+                if !prefix.is_empty() {
+                    prefix.push('/');
+                }
+                prefix.push_str(&part.to_ascii_lowercase());
+                dirs.insert(prefix.clone());
+            }
+        };
+        for dir in directories {
+            let folded = dir.replace('\\', "/").to_ascii_lowercase();
+            if folded.is_empty() {
+                continue;
+            }
+            insert_ancestors(&folded, &mut opfs_directories);
+            if !opfs_directories.insert(folded) {
+                // Duplicate/colliding spelling in OPFS: let browser WritableTree reject on access.
+                self.opfs_index_active = false;
+                return Ok(());
+            }
+        }
+        for file in files {
+            let folded = file.replace('\\', "/").to_ascii_lowercase();
+            if folded.is_empty() || opfs_directories.contains(&folded) {
+                self.opfs_index_active = false;
+                return Ok(());
+            }
+            insert_ancestors(&folded, &mut opfs_directories);
+            if !opfs_files.insert(folded) {
+                self.opfs_index_active = false;
+                return Ok(());
+            }
+        }
+        self.opfs_files = opfs_files;
+        self.opfs_directories = opfs_directories;
+        self.opfs_index_active = true;
+        Ok(())
+    }
+
+    pub(super) fn record_opfs_file_created(&mut self, relative_path: &str) {
+        if !self.opfs_index_active {
+            return;
+        }
+        let folded = relative_path.replace('\\', "/").to_ascii_lowercase();
+        let parts: Vec<&str> = folded.split('/').collect();
+        let mut prefix = String::new();
+        for part in parts.iter().take(parts.len().saturating_sub(1)) {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(part);
+            self.opfs_directories.insert(prefix.clone());
+        }
+        self.opfs_files.insert(folded);
+    }
+
+    pub(super) fn record_opfs_file_deleted(&mut self, relative_path: &str) {
+        if !self.opfs_index_active {
+            return;
+        }
+        let folded = relative_path.replace('\\', "/").to_ascii_lowercase();
+        self.opfs_files.remove(&folded);
+    }
+
+    pub(super) fn record_opfs_directory_created(&mut self, relative_path: &str) {
+        if !self.opfs_index_active {
+            return;
+        }
+        let folded = relative_path.replace('\\', "/").to_ascii_lowercase();
+        let parts: Vec<&str> = folded.split('/').collect();
+        let mut prefix = String::new();
+        for part in parts {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(part);
+            self.opfs_directories.insert(prefix.clone());
+        }
+    }
+
+    pub(super) fn opfs_unshadowed_observation(&self, relative_path: &str) -> Option<u32> {
+        if !self.opfs_index_active {
+            return None;
+        }
+        let folded = relative_path.replace('\\', "/").to_ascii_lowercase();
+        if self.opfs_files.contains(&folded) || self.opfs_directories.contains(&folded) {
+            return None;
+        }
+        let parent = folded.rsplit_once('/').map_or("", |(parent, _)| parent);
+        Some(
+            if parent.is_empty() || self.opfs_directories.contains(parent) {
+                3
+            } else {
+                4
+            },
+        )
+    }
+
+    pub(super) fn opfs_is_known_directory(&self, relative_path: &str) -> bool {
+        if !self.opfs_index_active {
+            return false;
+        }
+        let folded = relative_path.replace('\\', "/").to_ascii_lowercase();
+        self.opfs_directories.contains(&folded)
     }
 
     pub(super) fn prepare_open_with_disposition(
@@ -1049,12 +1382,13 @@ impl RuntimeFiles {
         flags_and_attributes: u32,
     ) -> Result<(RuntimeSourceFileOpen, String, u8, u8), u32> {
         let (relative_path, source_parents) = self
-            .opfs_create_directory_path(requested_path, current_directory)
+            .opfs_open_path(requested_path, current_directory, true)
             .map_err(|error| if error == 183 { 5 } else { error })?;
         let source_missing = match self.resolve_path_kind(requested_path, current_directory) {
             Ok(RuntimePathResolution::MissingFile) => 2,
             Ok(RuntimePathResolution::MissingPath) => 3,
-            Ok(RuntimePathResolution::RegularFile | RuntimePathResolution::Directory) => 5,
+            Ok(RuntimePathResolution::RegularFile) => 0,
+            Ok(RuntimePathResolution::Directory) => 5,
             Err(_) => return Err(5),
         };
         if source_missing == 5 {
@@ -1064,9 +1398,8 @@ impl RuntimeFiles {
         let snapshot = self.snapshot.as_ref().ok_or(3_u32)?;
         let relative =
             relative_to_mount(&normalized.identity, &snapshot.root_identity).map_err(|_| 3_u32)?;
-        if snapshot.path_index.contains_key(relative) || self.registered_directory_exists(relative)
-        {
-            return Err(5); // The selected source is immutable.
+        if self.registered_directory_exists(relative) {
+            return Err(5);
         }
         if self.open_files.len() >= RUNTIME_SOURCE_FILE_LIMIT {
             return Err(4);
@@ -1205,9 +1538,21 @@ impl RuntimeFiles {
         debug_assert_eq!(file.cursor, cursor);
         let end = cursor + u64::from(transferred);
         file.cursor = end;
-        file.backing = RuntimeFileBacking::Opfs {
-            byte_length: byte_length.max(end),
-        };
+        let length = byte_length.max(end);
+        self.finish_opfs_truncate(id, length);
+    }
+
+    pub(super) fn finish_opfs_truncate(&mut self, id: RuntimeSourceFileId, length: u64) {
+        let path = windows_932_ascii_fold(&self.open_files[&id].normalized_path_a);
+        for file in self.open_files.values_mut() {
+            if matches!(file.backing, RuntimeFileBacking::Opfs { .. })
+                && windows_932_ascii_fold(&file.normalized_path_a) == path
+            {
+                file.backing = RuntimeFileBacking::Opfs {
+                    byte_length: length,
+                };
+            }
+        }
     }
 
     pub(super) fn file_read_service(
@@ -1979,7 +2324,7 @@ mod tests {
             kind: RuntimeFileSearchEntryKind::RegularFile,
             byte_length: 0x1234_5678_9abc_def0,
         };
-        let bytes = entry.encode_find_data_a().unwrap();
+        let bytes = entry.encode_find_data(false).unwrap();
         assert_eq!(bytes.len(), 320);
         assert_eq!(&bytes[..4], &0x20_u32.to_le_bytes());
         assert_eq!(&bytes[4..28], &[0; 24]);
@@ -1990,12 +2335,12 @@ mod tests {
         assert_eq!(&bytes[303..], &[0; 17]);
         entry.kind = RuntimeFileSearchEntryKind::Directory;
         assert_eq!(
-            &entry.encode_find_data_a().unwrap()[..4],
+            &entry.encode_find_data(false).unwrap()[..4],
             &0x30_u32.to_le_bytes()
         );
         for name in [Vec::new(), vec![b'a'; 260], b"bad\0name".to_vec()] {
             entry.file_name_a = name;
-            assert!(entry.encode_find_data_a().is_err());
+            assert!(entry.encode_find_data(false).is_err());
         }
     }
 
@@ -2394,12 +2739,12 @@ mod tests {
     fn opfs_file_open_preflights_source_sharing_and_handle_before_publication() {
         let mut files = RuntimeFiles::default();
         files.register_snapshot(manifest()).unwrap();
-        assert_eq!(
-            files
-                .prepare_opfs_open(b"Data\\ARC.gdb\0", b"C:\\Vine\0", 0x4000_0000, 0, 0x20)
-                .unwrap_err(),
-            5
-        );
+        let (shadow, relative, source, parents) = files
+            .prepare_opfs_open(b"Data\\ARC.gdb\0", b"C:\\Vine\0", 0x4000_0000, 0, 0x20)
+            .unwrap();
+        assert_eq!((relative.as_str(), source, parents), ("Data/ARC.gdb", 0, 1));
+        files.preflight_opfs_open(&shadow, b"C:\\Vine\0").unwrap();
+        assert_eq!(files.snapshot().unwrap().files[&11].byte_length, 9);
         assert_eq!(
             files
                 .prepare_opfs_open(

@@ -11,6 +11,56 @@ const QS_POSTMESSAGE: u16 = 0x0008;
 const QS_TIMER: u16 = 0x0010;
 const QS_ALLPOSTMESSAGE: u16 = 0x0100;
 
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct RuntimeMessageFilter {
+    pub window: u32,
+    pub minimum: u32,
+    pub maximum: u32,
+}
+
+impl RuntimeMessageFilter {
+    pub(crate) fn includes_message(self, message: u32) -> bool {
+        (self.minimum == 0 && self.maximum == 0)
+            || (self.minimum <= message && message <= self.maximum)
+    }
+
+    fn queue_status_mask(self) -> u16 {
+        if self.minimum == 0 && self.maximum == 0 {
+            return u16::MAX;
+        }
+        // Every PeekMessage checks posted messages; input categories are only
+        // observed when their message ranges are requested. HWND does not alter
+        // these per-thread notification bits.
+        let intersects = |first, last| {
+            self.minimum <= self.maximum && self.minimum <= last && first <= self.maximum
+        };
+        let mut mask = QS_POSTMESSAGE | QS_ALLPOSTMESSAGE;
+        if intersects(0x0100, 0x0109) {
+            mask |= QS_KEY;
+        }
+        if self.includes_message(0x0200) {
+            mask |= QS_MOUSEMOVE;
+        }
+        if intersects(0x0201, 0x020e) {
+            mask |= QS_MOUSEBUTTON;
+        }
+        if self.includes_message(0x0113) {
+            mask |= QS_TIMER;
+        }
+        mask
+    }
+
+    pub(crate) fn matches_window(self, hwnd: u32) -> bool {
+        // The currently supported window model contains only top-level windows.
+        self.window == 0 || self.window == hwnd || (self.window == u32::MAX && hwnd == 0)
+    }
+
+    pub(crate) fn matches(self, hwnd: u32, message: u32) -> bool {
+        message == 0x0012 // WM_QUIT bypasses both the HWND and message-range filters.
+            || (self.matches_window(hwnd) && self.includes_message(message))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeThreadMessage {
     pub target_thread_id: RuntimeThreadId,
@@ -130,9 +180,9 @@ impl RuntimeMessages {
                 "runtime thread message queue reached its controlled capacity",
             ));
         }
-        if wake_target && !queue.messages.is_empty() {
+        if wake_target && queue.new_status != 0 {
             return Err(RuntimeStateError::new(
-                "message-waiting thread must have an empty queue",
+                "message-waiting thread must have observed its previous queue status",
             ));
         }
         Ok(RuntimeThreadMessage {
@@ -184,10 +234,23 @@ impl RuntimeMessages {
         thread_id: RuntimeThreadId,
         flags: u32,
     ) -> Result<u32, RuntimeStateError> {
+        let result = self.peek_queue_status(thread_id, flags)?;
+        self.queues
+            .get_mut(&thread_id)
+            .expect("live message queue")
+            .new_status &= !(flags as u16);
+        Ok(result)
+    }
+
+    pub(super) fn peek_queue_status(
+        &self,
+        thread_id: RuntimeThreadId,
+        flags: u32,
+    ) -> Result<u32, RuntimeStateError> {
         if flags & !RUNTIME_QUEUE_STATUS_VALID_FLAGS != 0 {
             return Err(RuntimeStateError::new("invalid message queue status flags"));
         }
-        let queue = self.queues.get_mut(&thread_id).ok_or_else(|| {
+        let queue = self.queues.get(&thread_id).ok_or_else(|| {
             RuntimeStateError::new("live runtime thread has no message subsystem queue")
         })?;
         let current = queue
@@ -197,17 +260,29 @@ impl RuntimeMessages {
         let selected = flags as u16;
         let result = (u32::from(current & selected) << 16)
             | u32::from(queue.new_status & current & selected);
-        queue.new_status &= !selected;
         Ok(result)
     }
 
     pub(super) fn observe_unfiltered(&mut self, thread_id: RuntimeThreadId) {
+        self.observe_filtered(thread_id, RuntimeMessageFilter::default());
+    }
+
+    pub(super) fn observe_filtered(
+        &mut self,
+        thread_id: RuntimeThreadId,
+        filter: RuntimeMessageFilter,
+    ) {
         self.queues
             .get_mut(&thread_id)
             .expect("message receive owner was checked")
-            .new_status = 0;
+            .new_status &= !filter.queue_status_mask();
     }
 
+    pub(super) fn has_new(&self, thread_id: RuntimeThreadId) -> Result<bool, RuntimeStateError> {
+        Ok(self.queue(thread_id)?.new_status != 0)
+    }
+
+    #[cfg(test)]
     pub(super) fn front(
         &self,
         thread_id: RuntimeThreadId,
@@ -219,14 +294,33 @@ impl RuntimeMessages {
             .map(|entry| entry.message))
     }
 
+    pub(super) fn find(
+        &self,
+        thread_id: RuntimeThreadId,
+        filter: RuntimeMessageFilter,
+    ) -> Result<Option<(usize, RuntimeThreadMessage)>, RuntimeStateError> {
+        Ok(self
+            .queue(thread_id)?
+            .messages
+            .iter()
+            .enumerate()
+            .find(|(_, entry)| filter.matches(entry.message.hwnd, entry.message.message))
+            .map(|(index, entry)| (index, entry.message)))
+    }
+
+    #[cfg(test)]
     pub(super) fn pop(&mut self, thread_id: RuntimeThreadId) {
+        self.remove_at(thread_id, 0);
+    }
+
+    pub(super) fn remove_at(&mut self, thread_id: RuntimeThreadId, index: usize) {
         let queue = self
             .queues
             .get_mut(&thread_id)
             .expect("message receive owner was checked");
         let message = queue
             .messages
-            .pop_front()
+            .remove(index)
             .expect("message was checked before receive")
             .message;
         if matches!(message.message, 0x0100 | 0x0101 | 0x0104 | 0x0105) && message.w_param <= 0xff {
@@ -263,6 +357,17 @@ impl RuntimeMessages {
             if matches!(key, 0x10..=0x12) {
                 let left = 0xa0 + (key - 0x10) * 2;
                 queue.keyboard[key] = (queue.keyboard[left] | queue.keyboard[left + 1]) & 0x80;
+            }
+        } else if matches!(message.message, 0x0200..=0x020e) {
+            // Mouse messages carry the logical button state at generation time.
+            for (key, mask) in [
+                (0x01, 1),
+                (0x02, 2),
+                (0x04, 0x10),
+                (0x05, 0x20),
+                (0x06, 0x40),
+            ] {
+                queue.keyboard[key] = if message.w_param & mask != 0 { 0x80 } else { 0 };
             }
         }
     }
@@ -301,6 +406,34 @@ impl RuntimeMessages {
 
     pub(super) fn is_empty(&self, thread_id: RuntimeThreadId) -> Result<bool, RuntimeStateError> {
         Ok(self.queue(thread_id)?.messages.is_empty())
+    }
+
+    pub(super) fn key_state(
+        &self,
+        thread_id: RuntimeThreadId,
+        key: u8,
+    ) -> Result<i16, RuntimeStateError> {
+        let state = self.queue(thread_id)?.keyboard[usize::from(key)];
+        Ok(((u16::from(state & 0x80) << 8) | u16::from(state & 1)) as i16)
+    }
+
+    pub(super) fn keyboard_state(
+        &self,
+        thread: RuntimeThreadId,
+    ) -> Result<[u8; 256], RuntimeStateError> {
+        Ok(self.queue(thread)?.keyboard)
+    }
+
+    pub(super) fn set_keyboard_state(
+        &mut self,
+        thread: RuntimeThreadId,
+        state: [u8; 256],
+    ) -> Result<(), RuntimeStateError> {
+        self.queues
+            .get_mut(&thread)
+            .ok_or_else(|| RuntimeStateError::new("thread has no message queue"))?
+            .keyboard = state.map(|key| key & 0x81);
+        Ok(())
     }
 
     pub(super) fn keyboard_character(

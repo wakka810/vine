@@ -2379,6 +2379,103 @@ fn assert_primary_record(scratch: &[u8]) {
     );
 }
 
+#[test]
+fn bitmapv4_16bpp_bitfields_dib_and_general_shift_jis_font_render_text_out_a() {
+    let mut fixture = FontFixture::new();
+    let memory_dc = match fixture.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(done) => done.eax.expect("memory DC"),
+        other => panic!("CreateCompatibleDC stopped: {other:?}"),
+    };
+    // General upright Windows-932 font with default width=0 and ANTIALIASED_QUALITY (4).
+    let mut ms_mincho = b"\x82\x6c\x82\x72\x20\x96\xbe\x92\xa9\0".to_vec();
+    ms_mincho.resize(32, 0);
+    fixture.install_face_name(&ms_mincho);
+    let font_args = [28_u32, 0, 0, 0, 700, 0, 0, 0, 0x80, 0, 0, 4, 0x11];
+    fixture.configure_create_font(font_args, FACE_NAME_ADDRESS);
+    let font = match fixture.dispatch_create_font() {
+        DispatchOutcome::Immediate(done) => done.eax.expect("font handle"),
+        other => panic!("CreateFontA stopped: {other:?}"),
+    };
+    assert_ne!(font, 0);
+
+    // 108-byte BITMAPV4HEADER with 16bpp BI_BITFIELDS (0x7c00 / 0x03e0 / 0x001f).
+    let mut v4 = vec![0_u8; 108];
+    v4[0..4].copy_from_slice(&108_u32.to_le_bytes());
+    v4[4..8].copy_from_slice(&16_i32.to_le_bytes());
+    v4[8..12].copy_from_slice(&(-16_i32).to_le_bytes());
+    v4[12..14].copy_from_slice(&1_u16.to_le_bytes());
+    v4[14..16].copy_from_slice(&16_u16.to_le_bytes());
+    v4[16..20].copy_from_slice(&3_u32.to_le_bytes()); // BI_BITFIELDS
+    v4[40..44].copy_from_slice(&0x7c00_u32.to_le_bytes());
+    v4[44..48].copy_from_slice(&0x03e0_u32.to_le_bytes());
+    v4[48..52].copy_from_slice(&0x001f_u32.to_le_bytes());
+    fixture
+        .runtime
+        .memory
+        .write(BITMAP_INFO_ADDRESS, &v4)
+        .unwrap();
+    fixture.acknowledge_pending_delta();
+    let dib = match fixture.dispatch_create_dib_section(
+        memory_dc,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(done) => done.eax.expect("DIB handle"),
+        other => panic!("CreateDIBSection BITMAPV4HEADER stopped: {other:?}"),
+    };
+    assert_ne!(dib, 0);
+    fixture.acknowledge_pending_delta();
+    let bits_addr = GuestAddress(read_u32(
+        &fixture.runtime.memory.read(BITS_OUTPUT_ADDRESS, 4).unwrap(),
+        0,
+    ));
+
+    assert!(matches!(
+        fixture.dispatch_select_object(memory_dc, dib),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert!(matches!(
+        fixture.dispatch_select_object(memory_dc, font),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert_eq!(
+        fixture
+            .runtime
+            .set_gdi_text_attribute(memory_dc, 0, 0x00ff_ffff)
+            .unwrap(),
+        Some(0)
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .set_gdi_text_attribute(memory_dc, 2, 1)
+            .unwrap(),
+        Some(2)
+    );
+    fixture
+        .runtime
+        .memory
+        .write(TEXT_OUT_BYTES_ADDRESS, b"A")
+        .unwrap();
+    fixture.acknowledge_pending_delta();
+
+    let deferred = match fixture.dispatch_text_out(memory_dc, TEXT_OUT_BYTES_ADDRESS, 1) {
+        DispatchOutcome::Deferred(call) => call,
+        other => panic!("16bpp TextOutA did not defer TXT2 request: {other:?}"),
+    };
+    assert_eq!(read_u32(&deferred.request.payload, 0), 0x3254_5854); // "TXT2"
+
+    let mut coverage = vec![0_u8; 16 * 16];
+    coverage[3 * 16 + 2] = 255;
+    let (done, host) = fixture.complete_text_raster(&deferred, coverage);
+    assert!(matches!(done, DispatchOutcome::Immediate(ref c) if c.eax == Some(1)));
+    assert!(host.is_some());
+    fixture.acknowledge_pending_delta();
+    let out = fixture.runtime.memory.read(bits_addr, 16 * 32).unwrap();
+    let word = u16::from_le_bytes([out[3 * 32 + 4], out[3 * 32 + 5]]);
+    assert_eq!(word, 0x7fff);
+}
+
 fn read_i32(bytes: &[u8], offset: usize) -> i32 {
     i32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("i32 bytes"))
 }

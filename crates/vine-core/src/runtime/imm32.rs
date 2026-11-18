@@ -14,6 +14,9 @@ pub struct RuntimeImeContext {
     pub id: RuntimeImeContextId,
     pub handle: u32,
     pub owner_thread_id: RuntimeThreadId,
+    pub open: bool,
+    pub conversion_mode: u32,
+    pub sentence_mode: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,11 +106,24 @@ impl RuntimeImm32 {
                     id: context_id,
                     handle: context_handle,
                     owner_thread_id: target.owner_thread_id,
+                    open: false,
+                    conversion_mode: 0x19,
+                    sentence_mode: 8,
                 },
             );
         }
         self.associations.insert(target.window_id, association);
         Ok(())
+    }
+
+    pub(super) fn get_context(
+        &mut self,
+        target: RuntimeImeAppWindowTarget,
+    ) -> Result<u32, RuntimeStateError> {
+        self.ensure_window(target)?;
+        Ok(self.associations[&target.window_id]
+            .context
+            .map_or(0, |context| context.handle))
     }
 
     pub(super) fn associate_context(

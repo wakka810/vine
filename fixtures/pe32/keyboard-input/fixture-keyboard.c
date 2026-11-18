@@ -24,6 +24,7 @@ __declspec(dllimport) U32 __stdcall SendMessageA(void *, U32, U32, U32);
 __declspec(dllimport) int __stdcall SetWindowPos(void *, void *, long, long, U32, U32, U32);
 __declspec(dllimport) void * __stdcall SetFocus(void *);
 __declspec(dllimport) int __stdcall PeekMessageA(Message *, void *, U32, U32, U32);
+__declspec(dllimport) int __stdcall WaitMessage(void);
 __declspec(dllimport) int __stdcall TranslateMessage(const Message *);
 __declspec(dllimport) long __stdcall DispatchMessageA(const Message *);
 __declspec(dllimport) short __stdcall GetAsyncKeyState(int);
@@ -114,6 +115,7 @@ int __cdecl fixture_entry(void) {
     Message message;
     if (!PeekMessageA(&message, 0, 0, 0, 1)) {
       if (received == 3 && characters == 2) { drained = 1; break; }
+      if (!WaitMessage()) return 33;
       continue;
     }
     if (message.message == 0x0100 || message.message == 0x0101) {
