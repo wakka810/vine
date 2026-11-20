@@ -2180,7 +2180,8 @@ impl RuntimeGraphics {
             })?;
         self.validate_device_association(device_com_object_id, device_id)?;
         let device = self.device(device_id)?;
-        let extent = extent.unwrap_or((device.presentation.width, device.presentation.height));
+        let back_buffer_extent = (device.presentation.width, device.presentation.height);
+        let extent = extent.unwrap_or(back_buffer_extent);
         if extent.0 == 0
             || extent.1 == 0
             || extent.0 > device.presentation.width
@@ -2202,7 +2203,7 @@ impl RuntimeGraphics {
             .devices
             .get_mut(&device_id)
             .expect("validated device identity");
-        device.presented_frame = Some(match device.presentation.present_mode {
+        let mut presented = match device.presentation.present_mode {
             RuntimeGraphicsPresentMode::Discard => std::mem::take(&mut device.back_buffer),
             RuntimeGraphicsPresentMode::Copy if device.d3d8.is_some() => {
                 let presented = std::mem::take(&mut device.back_buffer);
@@ -2210,7 +2211,13 @@ impl RuntimeGraphics {
                 presented
             }
             RuntimeGraphicsPresentMode::Copy => device.back_buffer.clone(),
-        });
+        };
+        if extent != back_buffer_extent {
+            // Viewports are captured in back-buffer coordinates. An unscaled
+            // upper-left Present crop constrains the copy sent to the renderer.
+            crop_presented_frame(&mut presented, extent);
+        }
+        device.presented_frame = Some(presented);
         device.presented_extent = Some(extent);
 
         Ok(true)
@@ -4513,6 +4520,33 @@ fn draw_screen_bounds(draw: &RuntimeGraphicsDrawSubmission) -> Option<RuntimeRec
     intersect_rects(rect, draw.clip_rect)
 }
 
+fn crop_presented_frame(frame: &mut RuntimeGraphicsBackBuffer, extent: (u32, u32)) {
+    let bounds = RuntimeRect {
+        left: 0,
+        top: 0,
+        right: extent.0 as i32,
+        bottom: extent.1 as i32,
+    };
+    let mut removed_prefix = Vec::with_capacity(frame.draw_submissions.len() + 1);
+    removed_prefix.push(0);
+    let mut removed = 0;
+    frame.draw_submissions.retain_mut(|draw| {
+        // A draw without an explicit scissor is already clipped by the surface.
+        let visible = if let Some(clip) = draw.clip_rect {
+            draw.clip_rect = intersect_rects(bounds, Some(clip));
+            draw.clip_rect.is_some()
+        } else {
+            true
+        };
+        removed += usize::from(!visible);
+        removed_prefix.push(removed);
+        visible
+    });
+    if removed != 0 {
+        reindex_back_buffer_clears(frame, &removed_prefix);
+    }
+}
+
 fn prune_occluded_draws(back_buffer: &mut RuntimeGraphicsBackBuffer, opaque_rect: RuntimeRect) {
     if opaque_rect.right <= opaque_rect.left || opaque_rect.bottom <= opaque_rect.top {
         return;
@@ -6411,6 +6445,7 @@ mod tests {
             assert_eq!(&input[16..], &canonical[20..]);
         }
         graphics.end_scene(object).unwrap();
+        let original = graphics.device(device_id).unwrap().back_buffer.clone();
         assert!(graphics.present(object, Some((400, 300))).unwrap());
         let captured = graphics
             .device(device_id)
@@ -6418,10 +6453,24 @@ mod tests {
             .presented_frame
             .clone()
             .unwrap();
-        assert_eq!(graphics.device(device_id).unwrap().back_buffer, captured);
+        assert_eq!(
+            captured.draw_submissions[0].clip_rect,
+            Some(RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 400,
+                bottom: 300,
+            })
+        );
+        assert_eq!(graphics.device(device_id).unwrap().back_buffer, original);
         assert_eq!(
             graphics.device(device_id).unwrap().presented_extent,
             Some((400, 300))
+        );
+        assert!(graphics.present(object, None).unwrap());
+        assert_eq!(
+            graphics.device(device_id).unwrap().presented_frame.as_ref(),
+            Some(&original)
         );
         assert!(graphics.present(object, Some((400, 300))).unwrap());
         let before = graphics.clone();
@@ -6472,6 +6521,49 @@ mod tests {
                 .as_ref()
                 .unwrap(),
             &captured
+        );
+    }
+
+    #[test]
+    fn cropped_presentation_preserves_clear_order_when_draws_are_hidden() {
+        let (mut graphics, device, _, _, _) = prepared_draw_graphics();
+        graphics
+            .submit_draw(RuntimeComObjectId(7), 0, 2, &draw_memory(&[0x5a; 112]))
+            .unwrap();
+        let mut frame = graphics.device(device).unwrap().back_buffer.clone();
+        let mut hidden = frame.draw_submissions[0].clone();
+        hidden.clip_rect = Some(RuntimeRect {
+            left: 400,
+            top: 0,
+            right: 800,
+            bottom: 600,
+        });
+        frame.draw_submissions.insert(0, hidden.clone());
+        frame.draw_submissions.push(hidden);
+        frame.clear_color = Some(0xff12_3456);
+        frame.color_clear_before_draw = 1;
+        frame.depth_clears = vec![
+            RuntimeGraphicsDepthClear {
+                before_draw: 1,
+                depth: 0,
+            },
+            RuntimeGraphicsDepthClear {
+                before_draw: 3,
+                depth: 1.0_f32.to_bits(),
+            },
+        ];
+
+        crop_presented_frame(&mut frame, (400, 300));
+
+        assert_eq!(frame.draw_submissions.len(), 1);
+        assert_eq!(frame.color_clear_before_draw, 0);
+        assert_eq!(
+            frame
+                .depth_clears
+                .iter()
+                .map(|clear| clear.before_draw)
+                .collect::<Vec<_>>(),
+            [0, 1]
         );
     }
 
