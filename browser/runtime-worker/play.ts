@@ -3,7 +3,7 @@ import { chooseSourceDirectory, ensureSourceReadPermission } from "../storage/so
 import { BrowserAudio } from "./browser-audio.js";
 import { BrowserMessageBox } from "./browser-message-box.js";
 import { browseSourceDirectory } from "./source-explorer.js";
-import { focusSourceEvent, keyboardSourceEvent } from "./keyboard-input.js";
+import { BrowserKeyboardSource, virtualKeyForKeyboardCode } from "./keyboard-input.js";
 import type { MessageBoxPresentation, RuntimeKeyboardInputEvent, RuntimePointerInputEvent } from "./protocol.js";
 import type { InspectExecutableMessage, InspectedExecutableMessage } from "./inspect-worker.js";
 
@@ -26,25 +26,32 @@ let gameInputReady = false;
 let gameAudio: BrowserAudio | null = null;
 let gameMessageBox: BrowserMessageBox | null = null;
 let inputSequence = 0;
+const keyboardSource = new BrowserKeyboardSource();
+let resetPointerSource: (() => void) | null = null;
 
 function sendKeyboardInput(input: RuntimeKeyboardInputEvent): void {
   gameWorker?.postMessage({ type: "keyboard-input", input });
 }
 
+function sendInputFocus(focused: boolean): void {
+  if (!focused) resetPointerSource?.();
+  sendKeyboardInput(keyboardSource.focusEvent(++inputSequence, focused));
+}
+
 window.addEventListener("focus", () => {
-  if (gameInputReady && gameWorker !== null && gameMessageBox === null) sendKeyboardInput(focusSourceEvent(++inputSequence, true));
+  if (gameInputReady && gameWorker !== null && gameMessageBox === null) sendInputFocus(true);
 });
 window.addEventListener("blur", () => {
-  if (gameInputReady && gameWorker !== null) sendKeyboardInput(focusSourceEvent(++inputSequence, false));
+  if (gameInputReady && gameWorker !== null) sendInputFocus(false);
 });
 for (const kind of ["key-down", "key-up"] as const) {
   window.addEventListener(kind === "key-down" ? "keydown" : "keyup", (event) => {
     if (!gameInputReady || gameWorker === null || gameMessageBox !== null || !document.hasFocus()) return;
-    const input = keyboardSourceEvent(inputSequence + 1, kind, event.code, event.repeat);
+    const input = keyboardSource.keyEvent(inputSequence + 1, kind, event.code);
+    if (input !== null || virtualKeyForKeyboardCode(event.code) !== null) event.preventDefault();
     if (input === null) return;
     inputSequence += 1;
     sendKeyboardInput(input);
-    event.preventDefault();
   });
 }
 type Selection = { root: SourceDirectory; segments: string[]; name: string; sha256: string; storageFingerprint: string };
@@ -144,22 +151,17 @@ launchButton.addEventListener("click", async () => {
         const requestId = message.requestId;
         // The Chrome dialog takes input focus from the game resource. Rust
         // releases its held state before any dialog keyboard events are consumed.
-        sendKeyboardInput(focusSourceEvent(++inputSequence, false));
-        if (capturedPointer !== null && canvas.hasPointerCapture(capturedPointer)) {
-          canvas.releasePointerCapture(capturedPointer);
-        }
-        capturedPointer = null;
-        heldButtons.clear();
+        sendInputFocus(false);
         gameMessageBox = new BrowserMessageBox(message.presentation, result => {
           gameMessageBox = null;
           if (gameWorker === running) {
             canvas.focus({ preventScroll: true });
-            sendKeyboardInput(focusSourceEvent(++inputSequence, document.hasFocus()));
+            sendInputFocus(document.hasFocus());
             running.postMessage({ type: "message-box-result", requestId, result });
           }
         });
       } catch (error) {
-        if (gameMessageBox === null) sendKeyboardInput(focusSourceEvent(++inputSequence, document.hasFocus()));
+        if (gameMessageBox === null) sendInputFocus(document.hasFocus());
         running.postMessage({ type: "message-box-failed", detail: error instanceof Error ? error.message : String(error) });
         showError(error);
       }
@@ -215,9 +217,21 @@ launchButton.addEventListener("click", async () => {
   canvas.height = 1;
   canvas.setAttribute("aria-label", "Game surface");
   canvas.tabIndex = 0;
-  let capturedPointer: number | null = null;
-  const heldButtons = new Set<"primary" | "secondary">();
-  const pointerPosition = (event: PointerEvent, clamp: boolean): { x: number; y: number } | null => {
+  let activePointer: number | null = null;
+  let heldButtons = 0;
+  type Position = { x: number; y: number };
+  let lastPointerPosition: Position | null = null;
+  const canSendPointer = () => gameInputReady && gameWorker === running &&
+    gameMessageBox === null && document.hasFocus();
+  const resetPointer = () => {
+    const pointer = activePointer;
+    activePointer = null;
+    heldButtons = 0;
+    lastPointerPosition = null;
+    if (pointer !== null && canvas.hasPointerCapture(pointer)) canvas.releasePointerCapture(pointer);
+  };
+  resetPointerSource = resetPointer;
+  const pointerPosition = (event: PointerEvent, clamp: boolean): Position | null => {
     const bounds = canvas.getBoundingClientRect();
     if (bounds.width <= 1 || bounds.height <= 1 ||
         !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY) ||
@@ -228,58 +242,57 @@ launchButton.addEventListener("click", async () => {
       y: Math.max(0, Math.min(65535, Math.floor((event.clientY - bounds.top) * 65536 / bounds.height))),
     };
   };
-  const sendPointer = (event: PointerEvent, kind: RuntimePointerInputEvent["kind"]): void => {
-    if (!gameInputReady || gameWorker !== running || gameMessageBox !== null || !event.isPrimary || !document.hasFocus()) return;
-    const button = kind === "move" ? "none" : event.button === 0 ? "primary" :
-      event.button === 2 ? "secondary" : null;
-    const position = pointerPosition(event, capturedPointer === event.pointerId);
-    if (button === null || position === null) return;
-    gameWorker.postMessage({ type: "pointer-input", input: {
+  const sendPointer = (kind: RuntimePointerInputEvent["kind"], button: RuntimePointerInputEvent["button"], position: Position) => {
+    running.postMessage({ type: "pointer-input", input: {
       sequence: String(++inputSequence), kind, button, ...position,
     } satisfies RuntimePointerInputEvent });
-    if (kind !== "move") event.preventDefault();
   };
-  canvas.addEventListener("pointermove", event => sendPointer(event, "move"));
-  canvas.addEventListener("pointerleave", event => {
-    if (!gameInputReady || gameWorker !== running || !event.isPrimary) return;
-    gameWorker.postMessage({ type: "pointer-input", input: {
-      sequence: String(++inputSequence), kind: "leave", button: "none", x: 0, y: 0,
-    } satisfies RuntimePointerInputEvent });
-  });
-  canvas.addEventListener("pointerdown", event => {
-    if (!gameInputReady || gameWorker !== running || gameMessageBox !== null || !event.isPrimary || (event.button !== 0 && event.button !== 2)) return;
-    canvas.focus({ preventScroll: true });
-    const button = event.button === 0 ? "primary" : "secondary";
-    if (pointerPosition(event, false) === null) return;
-    sendPointer(event, "down");
-    heldButtons.add(button);
-    if (event.isTrusted && capturedPointer === null) {
-      canvas.setPointerCapture(event.pointerId);
-      capturedPointer = event.pointerId;
+  const buttonMasks = [[1, "primary"], [2, "secondary"]] as const;
+  const updateButtons = (next: number, position: Position) => {
+    if (next === heldButtons) return;
+    for (const [mask, button] of buttonMasks) {
+      if (heldButtons & mask & ~next) sendPointer("up", button, position);
     }
-  });
-  canvas.addEventListener("pointerup", event => {
-    sendPointer(event, "up");
-    if (event.button === 0) heldButtons.delete("primary");
-    if (event.button === 2) heldButtons.delete("secondary");
-    if (capturedPointer === event.pointerId && heldButtons.size === 0) {
-      canvas.releasePointerCapture(event.pointerId);
-      capturedPointer = null;
+    for (const [mask, button] of buttonMasks) {
+      if (next & mask & ~heldButtons) sendPointer("down", button, position);
     }
-  });
-  canvas.addEventListener("pointercancel", event => {
-    if (capturedPointer !== event.pointerId) return;
-    const position = pointerPosition(event, true);
-    if (gameInputReady && position !== null && gameWorker === running && document.hasFocus()) {
-      for (const button of heldButtons) {
-        gameWorker.postMessage({ type: "pointer-input", input: {
-          sequence: String(++inputSequence), kind: "up", button, ...position,
-        } satisfies RuntimePointerInputEvent });
+    heldButtons = next;
+  };
+  for (const type of ["pointerdown", "pointermove", "pointerup"] as const) {
+    canvas.addEventListener(type, event => {
+      if (!canSendPointer() || !event.isPrimary ||
+          (activePointer !== null && activePointer !== event.pointerId)) return;
+      const position = pointerPosition(event, activePointer !== null) ??
+        (activePointer !== null && type === "pointerup" ? lastPointerPosition : null);
+      if (position === null) return;
+      const buttons = event.buttons & 3;
+      const pressedMask = event.button === 0 ? 1 : event.button === 2 ? 2 : 0;
+      if (activePointer === null && type !== "pointerup" && (buttons & pressedMask) !== 0) {
+        canvas.focus({ preventScroll: true });
+        activePointer = event.pointerId;
+        if (event.isTrusted) canvas.setPointerCapture(event.pointerId);
       }
-    }
-    capturedPointer = null;
-    heldButtons.clear();
+      // A mouse chord changes buttons on pointermove. Pointerup arrives only
+      // when the last button is released, so event.button alone loses edges.
+      if (activePointer !== null) {
+        lastPointerPosition = position;
+        updateButtons(buttons, position);
+        if (event.buttons === 0) resetPointer();
+        if (type !== "pointermove") event.preventDefault();
+      }
+      if (type === "pointermove") sendPointer("move", "none", position);
+    });
+  }
+  canvas.addEventListener("pointerleave", event => {
+    if (canSendPointer() && event.isPrimary) sendPointer("leave", "none", { x: 0, y: 0 });
   });
+  const cancelPointer = (event: PointerEvent) => {
+    if (activePointer !== event.pointerId) return;
+    if (canSendPointer() && lastPointerPosition !== null) updateButtons(0, lastPointerPosition);
+    resetPointer();
+  };
+  canvas.addEventListener("pointercancel", cancelPointer);
+  canvas.addEventListener("lostpointercapture", cancelPointer);
   canvas.addEventListener("contextmenu", event => event.preventDefault());
   document.querySelector("#surface")!.replaceChildren(canvas);
   const offscreen = canvas.transferControlToOffscreen();
@@ -295,7 +308,7 @@ launchButton.addEventListener("click", async () => {
     if (gameWorker === running) { showError(error); stopGame(); }
     return;
   }
-  sendKeyboardInput(focusSourceEvent(++inputSequence, document.hasFocus()));
+  sendInputFocus(document.hasFocus());
 });
 back.addEventListener("click", () => {
   if (segments.length > 0) {
@@ -362,6 +375,9 @@ async function render(): Promise<void> {
 
 function stopGame(): void {
   gameInputReady = false;
+  keyboardSource.reset();
+  resetPointerSource?.();
+  resetPointerSource = null;
   gameMessageBox?.close();
   gameMessageBox = null;
   gameAudio?.close();

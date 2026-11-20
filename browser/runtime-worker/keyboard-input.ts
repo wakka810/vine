@@ -72,32 +72,43 @@ export function virtualKeyForKeyboardCode(code: string): number | null {
   return null;
 }
 
-export function keyboardSourceEvent(
-  sequence: number,
-  kind: Extract<RuntimeKeyboardSourceEventKind, "key-down" | "key-up">,
-  code: string,
-  repeat: boolean,
-): RuntimeKeyboardInputEvent | null {
-  const virtualKey = virtualKeyForKeyboardCode(code);
-  if (virtualKey === null) {
-    return null;
-  }
-  return {
-    sequence: String(sequence),
-    kind,
-    virtualKey,
-    repeat: kind === "key-down" && repeat,
-  };
-}
+// Chrome's repeat flag describes a physical key. The wire event describes
+// the virtual key, which can have several physical sources (e.g. Enter).
+export class BrowserKeyboardSource {
+  readonly #heldCodes = new Map<string, number>();
 
-export function focusSourceEvent(
-  sequence: number,
-  focused: boolean,
-): RuntimeKeyboardInputEvent {
-  return {
-    sequence: String(sequence),
-    kind: focused ? "focus-gained" : "focus-lost",
-    virtualKey: null,
-    repeat: false,
-  };
+  keyEvent(
+    sequence: number,
+    kind: Extract<RuntimeKeyboardSourceEventKind, "key-down" | "key-up">,
+    code: string,
+  ): RuntimeKeyboardInputEvent | null {
+    const virtualKey = virtualKeyForKeyboardCode(code);
+    if (virtualKey === null) return null;
+    if (kind === "key-up" && !this.#heldCodes.delete(code)) return null;
+
+    let held = false;
+    for (const key of this.#heldCodes.values()) {
+      if (key === virtualKey) {
+        held = true;
+        break;
+      }
+    }
+    if (kind === "key-up" && held) return null;
+    if (kind === "key-down") this.#heldCodes.set(code, virtualKey);
+    return { sequence: String(sequence), kind, virtualKey, repeat: kind === "key-down" && held };
+  }
+
+  focusEvent(sequence: number, focused: boolean): RuntimeKeyboardInputEvent {
+    if (!focused) this.reset();
+    return {
+      sequence: String(sequence),
+      kind: focused ? "focus-gained" : "focus-lost",
+      virtualKey: null,
+      repeat: false,
+    };
+  }
+
+  reset(): void {
+    this.#heldCodes.clear();
+  }
 }

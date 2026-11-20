@@ -16,6 +16,26 @@ const { decodeReflection, decodeHostDelta, encodeCpuWritebackControl } = await i
   `data:text/javascript;base64,${Buffer.from(transport.outputFiles[0].contents).toString("base64")}`
 );
 
+const keyboardBundle = await build({
+  entryPoints: ["browser/runtime-worker/keyboard-input.ts"],
+  bundle: true, write: false, platform: "node", format: "esm",
+});
+const { BrowserKeyboardSource } = await import(
+  `data:text/javascript;base64,${Buffer.from(keyboardBundle.outputFiles[0].contents).toString("base64")}`
+);
+const keyboard = new BrowserKeyboardSource();
+assert.equal(keyboard.keyEvent(1, "key-down", "Enter").repeat, false);
+assert.equal(keyboard.keyEvent(2, "key-down", "NumpadEnter").repeat, true);
+assert.equal(keyboard.keyEvent(3, "key-up", "Enter"), null, "the other physical Enter remains held");
+assert.deepEqual(keyboard.keyEvent(3, "key-up", "NumpadEnter"), {
+  sequence: "3", kind: "key-up", virtualKey: 0x0d, repeat: false,
+});
+assert.equal(keyboard.keyEvent(4, "key-down", "KeyA").repeat, false);
+keyboard.focusEvent(5, false);
+keyboard.focusEvent(6, true);
+assert.equal(keyboard.keyEvent(7, "key-up", "KeyA"), null, "focus loss released the physical key");
+assert.equal(keyboard.keyEvent(7, "key-down", "KeyA").repeat, false);
+
 for (const [magic, headerBytes, decode] of [
   ["VINEREFL", 36, decodeReflection],
   ["VINEDELT", 52, decodeHostDelta],

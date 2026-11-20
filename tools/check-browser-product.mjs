@@ -286,8 +286,24 @@ if (serve) {
                 // Guest window setup and its preliminary Win32 checks are complete.
                 // A slow first compilation must not create additional key input.
                 sent = true;
+                const canvas = document.querySelector('#game-surface');
+                // This fixture has a guest window but does not present a frame.
+                canvas.style.width = '200px';
+                canvas.style.height = '100px';
+                const bounds = canvas.getBoundingClientRect();
+                const at = {clientX: bounds.left + 50, clientY: bounds.top + 50,
+                  pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true};
+                const mouse = (type, button, buttons) => canvas.dispatchEvent(new PointerEvent(type, {...at, button, buttons}));
+                mouse('pointerdown', 0, 1);
+                // Chrome reports additional button presses and nonfinal releases as pointermove.
+                mouse('pointermove', 2, 3);
+                mouse('pointermove', 0, 2);
+                mouse('pointerup', 2, 0);
+                mouse('pointerdown', 0, 1);
+                mouse('pointerup', 0, 0);
                 window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyA', key:'a', repeat:false, bubbles:true}));
-                window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyA', key:'a', repeat:true, bubbles:true}));
+                // The guest sees the prior down state even when Chrome's repeat flag is false.
+                window.dispatchEvent(new KeyboardEvent('keydown', {code:'KeyA', key:'a', repeat:false, bubbles:true}));
                 window.dispatchEvent(new KeyboardEvent('keyup', {code:'KeyA', key:'a', repeat:false, bubbles:true}));
               }
             }
@@ -495,7 +511,7 @@ if (serve) {
         const at = {clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2,
           pointerId: 1, isPrimary: true, button: 0, bubbles: true};
         pointerCanvas.dispatchEvent(new PointerEvent('pointermove', at));
-        pointerCanvas.dispatchEvent(new PointerEvent('pointerdown', at));
+        pointerCanvas.dispatchEvent(new PointerEvent('pointerdown', {...at, buttons:1}));
         await new Promise(resolve => setTimeout(resolve, 20));
         pointerCanvas.dispatchEvent(new PointerEvent('pointerup', at));
         await wait(() => document.querySelector('#status').textContent.includes('Guest exited with code 0'), 'guest pointer message and window callback');
@@ -772,7 +788,7 @@ if (serve) {
     if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description ?? JSON.stringify(result.exceptionDetails));
     assert.match(result.result.value.fingerprint, /^[0-9a-f]{64}$/u);
     if (keyboardOnly) {
-      console.log("Chrome PE32 keyboard down/repeat/up and translated characters reached the guest window procedure");
+      console.log("Chrome PE32 keyboard and mouse button transitions reached the guest queue");
     } else if (schedulerOnly) {
       console.log("Chrome PE32 timer waits and all-idle thread join/event wake passed");
     } else {
