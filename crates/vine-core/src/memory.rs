@@ -1879,15 +1879,41 @@ impl GuestMemory {
         self.require_owner(owner)?;
         require_page_aligned(range)?;
         let address_allocation_id = self.require_region_contains(owner, range)?;
-        let pages: Vec<u32> = virtual_pages(range)?.collect();
-        self.require_committed_owner(owner, &pages)?;
+        let first_page = (u64::from(range.start.0) / GUEST_PAGE_SIZE) as u32;
+        let last_page = ((range.end() - 1) / GUEST_PAGE_SIZE) as u32;
+        let mut expected_page = first_page;
+        let mut touches_executable = protection.execute;
+        for (&virtual_page, page) in self.pages.range(first_page..=last_page) {
+            if virtual_page != expected_page {
+                return Err(GuestMemoryError::conflict(format!(
+                    "guest page {:#010x} is not committed",
+                    u64::from(expected_page) * GUEST_PAGE_SIZE
+                )));
+            }
+            if page.owner != owner {
+                return Err(GuestMemoryError::conflict(format!(
+                    "guest page {:#010x} is owned by {:?}, not {:?}",
+                    u64::from(virtual_page) * GUEST_PAGE_SIZE,
+                    page.owner,
+                    owner
+                )));
+            }
+            touches_executable |= page.protection.execute;
+            expected_page += 1;
+        }
+        if expected_page <= last_page {
+            return Err(GuestMemoryError::conflict(format!(
+                "guest page {:#010x} is not committed",
+                u64::from(expected_page) * GUEST_PAGE_SIZE
+            )));
+        }
         self.ensure_generation_available()?;
-        let touches_executable = protection.execute || self.pages_touch_executable(&pages);
-        for virtual_page in pages {
-            self.journal_page_before(virtual_page);
-            let page = self.pages.get_mut(&virtual_page).ok_or_else(|| {
-                GuestMemoryError::runtime_defect("protect preflight succeeded but page disappeared")
-            })?;
+        if self.transaction.is_some() {
+            for virtual_page in first_page..=last_page {
+                self.journal_page_before(virtual_page);
+            }
+        }
+        for (_, page) in self.pages.range_mut(first_page..=last_page) {
             page.protection = protection;
         }
         self.record_change(
@@ -2441,6 +2467,29 @@ impl GuestMemory {
         self.read_range_without_synchronization(address, byte_length, MemoryAccess::Read)
     }
 
+    pub fn read_into(
+        &self,
+        address: GuestAddress,
+        dest: &mut [u8],
+    ) -> Result<(), GuestMemoryError> {
+        self.ensure_synchronized()?;
+        let range = self.check_access_bounds(address, dest.len())?;
+        if (u64::from(address.0) / GUEST_PAGE_SIZE) != (range.end() - 1) / GUEST_PAGE_SIZE {
+            self.visit_read_chunks(range, MemoryAccess::Read, |_| {})?;
+        }
+        let mut written = 0;
+        self.visit_read_chunks(range, MemoryAccess::Read, |bytes| {
+            dest[written..written + bytes.len()].copy_from_slice(bytes);
+            written += bytes.len();
+        })
+    }
+
+    pub fn read_u32(&self, address: GuestAddress) -> Result<u32, GuestMemoryError> {
+        let mut bytes = [0_u8; 4];
+        self.read_into(address, &mut bytes)?;
+        Ok(u32::from_le_bytes(bytes))
+    }
+
     pub(crate) fn read_owned(
         &self,
         address: GuestAddress,
@@ -2450,6 +2499,17 @@ impl GuestMemory {
         let range = GuestRange::new(address, byte_length as u64)?;
         self.require_region_contains(owner, range)?;
         self.read(address, byte_length)
+    }
+
+    pub(crate) fn read_owned_into(
+        &self,
+        address: GuestAddress,
+        dest: &mut [u8],
+        owner: MemoryOwnerId,
+    ) -> Result<(), GuestMemoryError> {
+        let range = GuestRange::new(address, dest.len() as u64)?;
+        self.require_region_contains(owner, range)?;
+        self.read_into(address, dest)
     }
 
     /// Internal owner preparation may inspect authoritative bytes after its
@@ -3198,13 +3258,14 @@ impl GuestMemory {
         Ok(())
     }
 
-    fn read_range_without_synchronization(
+    fn visit_read_chunks(
         &self,
-        address: GuestAddress,
-        byte_length: usize,
+        range: GuestRange,
         access: MemoryAccess,
-    ) -> Result<Vec<u8>, GuestMemoryError> {
-        let range = self.check_access_bounds(address, byte_length)?;
+        mut visit: impl FnMut(&[u8]),
+    ) -> Result<(), GuestMemoryError> {
+        let address = range.start();
+        let byte_length = range.byte_length() as usize;
         let first_page = (u64::from(address.0) / GUEST_PAGE_SIZE) as u32;
         let last_page = ((range.end() - 1) / GUEST_PAGE_SIZE) as u32;
         let first_offset = (address.0 as usize) & (GUEST_PAGE_SIZE_USIZE - 1);
@@ -3218,9 +3279,10 @@ impl GuestMemory {
             };
             self.check_page_access(page, address, access)?;
             let bytes = self.frames.bytes(page.frame)?;
-            return Ok(bytes[first_offset..first_offset + byte_length].to_vec());
+            visit(&bytes[first_offset..first_offset + byte_length]);
+            return Ok(());
         }
-        let mut output = Vec::with_capacity(byte_length);
+        let mut written = 0;
         let mut expected_page = first_page;
         for (&virtual_page, page) in self.pages.range(first_page..=last_page) {
             if virtual_page != expected_page {
@@ -3247,9 +3309,10 @@ impl GuestMemory {
             } else {
                 0
             };
-            let remaining = byte_length - output.len();
+            let remaining = byte_length - written;
             let take = (GUEST_PAGE_SIZE_USIZE - start).min(remaining);
-            output.extend_from_slice(&bytes[start..start + take]);
+            visit(&bytes[start..start + take]);
+            written += take;
             expected_page += 1;
         }
         if expected_page <= last_page {
@@ -3264,6 +3327,23 @@ impl GuestMemory {
                 MemoryFaultReason::Unmapped,
             )));
         }
+        Ok(())
+    }
+
+    fn read_range_without_synchronization(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+        access: MemoryAccess,
+    ) -> Result<Vec<u8>, GuestMemoryError> {
+        let range = self.check_access_bounds(address, byte_length)?;
+        let mut output = Vec::new();
+        self.visit_read_chunks(range, access, |bytes| {
+            if output.is_empty() {
+                output.reserve_exact(byte_length);
+            }
+            output.extend_from_slice(bytes);
+        })?;
         Ok(output)
     }
 

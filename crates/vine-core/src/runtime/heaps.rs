@@ -1175,10 +1175,14 @@ impl RuntimeHeaps {
                 Some(id)
             }
         };
-        let mut transaction = memory.begin_transaction();
-        self.free_allocation_memory(&mut transaction, allocation, storage)?;
+        if release.is_some() {
+            let mut transaction = memory.begin_transaction();
+            self.free_allocation_memory(&mut transaction, allocation, storage)?;
+            transaction.commit_transaction();
+        } else {
+            self.free_allocation_memory(memory, allocation, storage)?;
+        }
         self.remove_allocation(handle, allocation, storage);
-        transaction.commit_transaction();
         if let Some(id) = release {
             allocator.remove_validated_allocations(vec![id]);
         }

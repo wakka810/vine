@@ -2090,12 +2090,9 @@ fn validate_bound_iat(
     let iat_address = endpoint.iat_address.ok_or_else(|| {
         ApiFault::new("an import endpoint has no IAT binding address").with_endpoint(endpoint)
     })?;
-    let bytes = memory
-        .read(iat_address, 4)
+    let value = memory
+        .read_u32(iat_address)
         .map_err(|error| ApiFault::from_memory(error, endpoint))?;
-    let value = u32::from_le_bytes(bytes.try_into().map_err(|_| {
-        ApiFault::new("checked IAT entry did not contain one x86 pointer").with_endpoint(endpoint)
-    })?);
     if value != endpoint.address.0 {
         return Err(
             ApiFault::new("IAT entry no longer points at the owned API endpoint")
@@ -2111,10 +2108,20 @@ fn decode_call_frame(
     argument_words: u8,
     trap: ApiOwnedTrap,
 ) -> Result<ApiCallFrame, ApiFault> {
-    let frame_bytes = (u32::from(argument_words) + 1) * 4;
-    let bytes = memory
-        .read(trap.stack_pointer, frame_bytes as usize)
-        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let frame_bytes = (u32::from(argument_words) + 1) as usize * 4;
+    let mut stack_buf = [0_u8; 64];
+    let heap_buf;
+    let bytes: &[u8] = if frame_bytes <= stack_buf.len() {
+        memory
+            .read_into(trap.stack_pointer, &mut stack_buf[..frame_bytes])
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        &stack_buf[..frame_bytes]
+    } else {
+        heap_buf = memory
+            .read(trap.stack_pointer, frame_bytes)
+            .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+        &heap_buf
+    };
     let mut words = bytes
         .chunks_exact(4)
         .map(|word| u32::from_le_bytes(word.try_into().expect("x86 stack word")));

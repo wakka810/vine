@@ -2665,35 +2665,52 @@ impl RuntimeGraphics {
         };
         let source_fills = source.content.fills.clone();
         let source_pixel_source = source.content.pixel_source;
+        let source_backing = source.backing;
+        let source_height = source.descriptor.height;
+        let dest_width = destination.descriptor.width;
+        let dest_height = destination.descriptor.height;
+        let dest_format = destination.descriptor.color_format;
         let retained_pixels = if let (Some(memory), Some(pixels)) = (memory, source_pixel_source) {
-            let backing = source.backing.ok_or_else(|| {
+            let backing = source_backing.ok_or_else(|| {
                 RuntimeStateError::new(
                     "logical texture pixel source has no live guest-memory backing",
                 )
             })?;
             let range = GuestRange::new(
                 backing.range.start(),
-                u64::from(backing.row_pitch) * u64::from(source.descriptor.height),
+                u64::from(backing.row_pitch) * u64::from(source_height),
             )
             .map_err(RuntimeStateError::from_memory)?;
-            let raw = memory
-                .read_owned(
-                    range.start(),
-                    range.byte_length() as usize,
-                    backing.memory_owner,
-                )
-                .map_err(RuntimeStateError::from_memory)?;
-            let (expanded, row_pitch) = normalize_texture_snapshot_to_bgra8(
-                raw,
-                destination.descriptor.width,
-                destination.descriptor.height,
-                pixels.row_pitch,
-                destination.descriptor.color_format,
-            );
-            Some(RuntimeGraphicsRetainedTexturePixels {
-                data: Arc::new(expanded),
-                row_pitch,
-            })
+            let byte_length = range.byte_length() as usize;
+            if dest_format.bytes_per_pixel() == 4
+                && let Some(existing) = self
+                    .textures
+                    .get_mut(&destination_texture_id)
+                    .and_then(|dest| dest.content.retained_pixels.as_mut())
+                && existing.data.len() == byte_length
+                && let Some(bytes) = Arc::get_mut(&mut existing.data)
+            {
+                memory
+                    .read_owned_into(range.start(), bytes, backing.memory_owner)
+                    .map_err(RuntimeStateError::from_memory)?;
+                existing.row_pitch = pixels.row_pitch;
+                Some(existing.clone())
+            } else {
+                let raw = memory
+                    .read_owned(range.start(), byte_length, backing.memory_owner)
+                    .map_err(RuntimeStateError::from_memory)?;
+                let (expanded, row_pitch) = normalize_texture_snapshot_to_bgra8(
+                    raw,
+                    dest_width,
+                    dest_height,
+                    pixels.row_pitch,
+                    dest_format,
+                );
+                Some(RuntimeGraphicsRetainedTexturePixels {
+                    data: Arc::new(expanded),
+                    row_pitch,
+                })
+            }
         } else {
             None
         };
@@ -7367,6 +7384,105 @@ mod tests {
             .fill_surface(RuntimeComObjectId(3), rect, 0x0100_0000)
             .unwrap_err();
         assert_eq!(graphics, before_color);
+    }
+
+    #[test]
+    fn texture_update_reuses_unshared_pixels_and_preserves_retained_snapshots() {
+        let mut graphics = RuntimeGraphics::default();
+        let device = graphics
+            .validate_device_creation(request())
+            .unwrap()
+            .unwrap();
+        let device_object = RuntimeComObjectId(1);
+        graphics.insert_device(device, device_object);
+
+        let mut descriptor = texture_descriptor();
+        descriptor.width = 32;
+        descriptor.height = 32;
+        let source_object = RuntimeComObjectId(2);
+        let source = graphics
+            .validate_texture_creation(device_object, descriptor)
+            .unwrap();
+        graphics.insert_texture(source, source_object);
+        descriptor.pool = RuntimeGraphicsTexturePool::Default;
+        let destination_object = RuntimeComObjectId(3);
+        let destination = graphics
+            .validate_texture_creation(device_object, descriptor)
+            .unwrap();
+        let destination_id = graphics.insert_texture(destination, destination_object);
+
+        let base = RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE;
+        let mut memory = draw_memory(&[1; 4096]);
+        let bounds = RuntimeRect {
+            left: 0,
+            top: 0,
+            right: 32,
+            bottom: 32,
+        };
+        let backing = RuntimeGraphicsTextureBacking {
+            address_allocation_id: ProcessAddressAllocationId(41),
+            memory_owner: MemoryOwnerId(23),
+            range: GuestRange::new(base, 4096).unwrap(),
+            row_pitch: 128,
+        };
+        graphics
+            .lock_texture(source_object, 0, bounds, 0, Some(backing))
+            .unwrap()
+            .unwrap();
+        graphics.unlock_texture(source_object).unwrap();
+        assert!(
+            graphics
+                .update_texture_with_memory(
+                    device_object,
+                    source_object,
+                    destination_object,
+                    Some(&memory)
+                )
+                .unwrap()
+        );
+
+        let pixels = |state: &RuntimeGraphics| {
+            state
+                .texture(destination_id)
+                .unwrap()
+                .content
+                .retained_pixels
+                .as_ref()
+                .unwrap()
+                .data
+                .clone()
+        };
+        let initial_allocation = pixels(&graphics).as_ptr();
+        for value in [2, 3] {
+            let captured = (value == 3).then(|| pixels(&graphics));
+            memory.write(base, &[value; 4096]).unwrap();
+            let delta = memory.pending_delta().unwrap();
+            memory.acknowledge_delta(delta.generation).unwrap();
+            graphics
+                .lock_texture(source_object, 0, bounds, 0, None)
+                .unwrap()
+                .unwrap();
+            graphics.unlock_texture(source_object).unwrap();
+            assert!(
+                graphics
+                    .update_texture_with_memory(
+                        device_object,
+                        source_object,
+                        destination_object,
+                        Some(&memory)
+                    )
+                    .unwrap()
+            );
+
+            let current = pixels(&graphics);
+            assert_eq!(current.as_slice(), &[value; 4096]);
+            if let Some(captured) = captured {
+                assert!(!Arc::ptr_eq(&captured, &current));
+                assert_eq!(captured.as_slice(), &[2; 4096]);
+            } else {
+                assert_eq!(current.as_ptr(), initial_allocation);
+            }
+        }
     }
 
     #[test]

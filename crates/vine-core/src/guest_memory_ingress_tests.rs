@@ -276,6 +276,58 @@ fn owns_high_image_pages_and_gates_guest_access() {
     assert_eq!(stats.pending_invalidation, None);
 }
 
+#[test]
+fn borrowed_read_crosses_pages_without_leaving_partial_output() {
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let owner = memory.create_owner(MemoryOwnerKind::Anonymous).unwrap();
+    let base = GuestAddress(0x10000);
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Anonymous, base, 0x2000)
+        .unwrap();
+    let writable = PageProtection {
+        read: true,
+        write: true,
+        execute: false,
+    };
+    memory.commit(owner, range, writable).unwrap();
+    let address = GuestAddress(base.0 + 0xffe);
+    memory.write(address, &[1, 2, 3, 4]).unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+
+    assert_eq!(memory.read_u32(address).unwrap(), 0x04030201);
+    let second = GuestAddress(base.0 + 0x1000);
+    let protection = memory
+        .protect(
+            owner,
+            GuestRange::new(second, 0x1000).unwrap(),
+            PageProtection {
+                read: false,
+                write: false,
+                execute: false,
+            },
+        )
+        .unwrap();
+    let mut output = [0xaa; 4];
+    assert_eq!(
+        memory.read_into(address, &mut output).unwrap_err().class,
+        GuestMemoryErrorClass::SynchronizationRequired
+    );
+    assert_eq!(output, [0xaa; 4]);
+    memory.pending_delta().unwrap();
+    memory.acknowledge_delta(protection.generation).unwrap();
+    assert_fault(
+        memory.read_into(address, &mut output).unwrap_err(),
+        second,
+        MemoryAccess::Read,
+        MemoryFaultReason::ReadDenied,
+        5,
+    );
+    assert_eq!(output, [0xaa; 4]);
+}
+
 fn assert_fault(
     error: GuestMemoryError,
     address: GuestAddress,
