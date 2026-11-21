@@ -404,11 +404,8 @@ int fixture_entry(void) {
     if (((Clear)device_methods[43])(device, 0, 0, 1, 0xff113355UL, 0x3f800000UL, 0) != 0 ||
         ((Clear)device_methods[43])(device, 1, 0, 1, 0xff000000UL, 0x3f800000UL, 0) !=
             (HRESULT)0x8876086cUL) return 79;
-    SetLastError(0x12345678UL);
     if (((Present)device_methods[17])(device, 0, 0, 0, 0) != 0 ||
-        GetLastError() != 0x12345678UL ||
-        ((Present)device_methods[17])(device, 0, 0, 0, 0) != (HRESULT)0x8876086cUL ||
-        GetLastError() != 0x12345678UL) return 86;
+        ((Present)device_methods[17])(device, 0, 0, 0, 0) != 0) return 86;
     void *texture = 0, *surface = 0;
     if (((CreateTexture)device_methods[23])(device, 37, 19, 1, 0, 22, 2, &texture, 0) != 0)
         return 13;
@@ -452,6 +449,7 @@ int fixture_entry(void) {
         ((SetTexture)device_methods[65])(device, 0, 0) != 0) return 81;
     if (((Scene)device_methods[41])(device) != 0 ||
         ((Scene)device_methods[41])(device) != (HRESULT)0x8876086cUL ||
+        ((Present)device_methods[17])(device, 0, 0, 0, 0) != (HRESULT)0x8876086cUL ||
         ((Scene)device_methods[42])(device) != 0 ||
         ((Scene)device_methods[42])(device) != (HRESULT)0x8876086cUL) return 82;
     if (((SetState)device_methods[69])(device, 0, 5, 2) != 0 ||

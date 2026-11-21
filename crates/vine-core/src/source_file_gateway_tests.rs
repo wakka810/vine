@@ -3772,6 +3772,44 @@ fn opfs_index_fast_path_skips_unshadowed_read_probes_while_preserving_shadowing_
     write_stack(&mut runtime, &[0x1000_2005, handle]);
     let _ = invoke(&close_endpoint, 0x1000_2005, &mut runtime);
 
+    for disposition in [3, 4] {
+        let return_address = 0x1000_2010 + disposition;
+        write_stack(
+            &mut runtime,
+            &[
+                return_address,
+                p_source_file.0,
+                0xc000_0000,
+                0,
+                0,
+                disposition,
+                0x80,
+                0,
+            ],
+        );
+        let DispatchOutcome::Deferred(call) =
+            invoke(&create_endpoint, return_address, &mut runtime)
+        else {
+            panic!("preserving opens must check whether OPFS already has a file");
+        };
+        runtime.pop_scheduler_event();
+        assert_eq!(&call.request.payload[..3], &[disposition as u8, 0, 2]);
+        assert!(matches!(
+            crate::complete_kernel32_opfs_open(&dispatcher, &call, 0, 0, &mut runtime),
+            DispatchOutcome::Fault(_)
+        ));
+        let denied = expect_immediate(crate::complete_kernel32_opfs_open(
+            &dispatcher,
+            &call,
+            7,
+            0,
+            &mut runtime,
+        ));
+        runtime.pop_scheduler_event();
+        assert_eq!(denied.eax, Some(u32::MAX));
+        assert_eq!(runtime.current_last_error().unwrap(), 5);
+    }
+
     // Creating a writable shadow copy in OPFS updates the index so subsequent
     // read opens route through browser.opfs-open instead of stale source bytes.
     write_stack(

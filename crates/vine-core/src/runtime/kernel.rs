@@ -1684,11 +1684,6 @@ impl Runtime {
             } else {
                 None
             };
-        if source_missing == 0 && desired_access != 0x8000_0000 && disposition != 2 {
-            return Err(RuntimeStateError::new(
-                "preserving a source file on a writable open requires durable copy-on-write",
-            ));
-        }
         let scheduler = self
             .scheduler
             .checked_host_request("browser.opfs-open".to_owned())?;
@@ -2600,24 +2595,37 @@ impl Runtime {
         byte_length: u32,
     ) -> Result<Result<(), u32>, RuntimeStateError> {
         self.require_virtual_memory_operation_state()?;
-        let Some(decommitted_range) = Self::virtual_memory_page_range(address, byte_length) else {
-            return Ok(Err(487)); // ERROR_INVALID_ADDRESS
-        };
+        let starting_page = Self::virtual_memory_page_range(address, 1)
+            .expect("one guest byte fits within the x86 address space");
         let mut matching_allocation = None;
         for allocation in self.address_space_allocator.records() {
             if allocation.purpose != ProcessAddressAllocationPurpose::VirtualMemory
-                || !allocation.range.contains(decommitted_range)?
+                || !allocation.range.contains(starting_page)?
             {
                 continue;
             }
             if matching_allocation.replace(allocation).is_some() {
                 return Err(RuntimeStateError::new(
-                    "virtual memory decommit range belongs to multiple process allocations",
+                    "virtual memory decommit address belongs to multiple process allocations",
                 ));
             }
         }
         let Some(allocation) = matching_allocation else {
             return Ok(Err(487)); // ERROR_INVALID_ADDRESS
+        };
+        let decommitted_range = if byte_length == 0 {
+            if starting_page.base != allocation.range.base {
+                return Ok(Err(487)); // ERROR_INVALID_ADDRESS
+            }
+            allocation.range
+        } else {
+            let Some(range) = Self::virtual_memory_page_range(address, byte_length) else {
+                return Ok(Err(87)); // ERROR_INVALID_PARAMETER
+            };
+            if !allocation.range.contains(range)? {
+                return Ok(Err(87)); // ERROR_INVALID_PARAMETER
+            }
+            range
         };
         if allocation.classification != ProcessAddressAllocationClassification::VirtualMemory
             || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit

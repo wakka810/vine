@@ -1186,13 +1186,14 @@ async function launch(request: LaunchRequest): Promise<void> {
             try {
               const existing = await writable.stat(host.relativePath);
               if (existing?.kind === "directory") observation = 6;
+              else if (disposition !== 2 && existing === null && sourceMissing === 0) observation = 7;
               else if (disposition === 3) {
                 if (existing?.kind === "file") {
                   observation = 1;
                   byteLength = existing.byteLength;
                 } else {
                   const parent = host.relativePath.split("/").slice(0, -1).join("/");
-                  observation = sourceMissing === 0 ? 7 : parent && (await writable.stat(parent))?.kind !== "directory" ? 3 : 2;
+                  observation = parent && (await writable.stat(parent))?.kind !== "directory" ? 3 : 2;
                 }
               } else if (disposition === 4 && existing?.kind === "file") {
                 observation = 1;

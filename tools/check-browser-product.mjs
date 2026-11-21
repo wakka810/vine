@@ -317,6 +317,8 @@ if (serve) {
         }
         const bad = await (await selected.getFileHandle('bad.exe', {create:true})).createWritable();
         await bad.write(new TextEncoder().encode('invalid PE')); await bad.close();
+        const badDll = await (await selected.getFileHandle('invalid-dependency.dll', {create:true})).createWritable();
+        await badDll.write(new Uint8Array([77, 90])); await badDll.close();
         const folder = await selected.getDirectoryHandle('fixtures', {create:true});
         await folder.getDirectoryHandle('empty', {create:true});
         const storage = await folder.getDirectoryHandle('storage', {create:true});
@@ -326,6 +328,9 @@ if (serve) {
         const writeProbe = await storage.getFileHandle('write-probe.dat', {create:true});
         const probeStream = await writeProbe.createWritable();
         await probeStream.write(asset); await probeStream.close();
+        const shadowSource = await storage.getFileHandle('shadow-save.dat', {create:true});
+        const shadowStream = await shadowSource.createWritable();
+        await shadowStream.write(asset); await shadowStream.close();
         const wildcardSource = await storage.getFileHandle('wildcard-only.dat', {create:true});
         const wildcardStream = await wildcardSource.createWritable();
         await wildcardStream.write(asset); await wildcardStream.close();
@@ -468,6 +473,15 @@ if (serve) {
             document.querySelector('#launch').click();
             await wait(() => document.querySelector('#status').textContent.includes('Guest exited with code 0'), 'guest OPFS directory relaunch');
             const restarted = await openWritableTree(gameFingerprint);
+            if ([...(await restarted.read('fixtures/storage/shadow-save.dat', 0, 3)) ?? []].join() !== '25,128,39' ||
+                await restarted.stat('fixtures/storage/write-probe.dat') !== null) {
+              throw Error('Guest did not retain the OPFS shadow independently of the source-only probe');
+            }
+            const sourceBytes = new Uint8Array(await (await shadowSource.getFile()).arrayBuffer());
+            const original = new Uint8Array(asset);
+            if (sourceBytes.length !== original.length || !sourceBytes.every((byte, index) => byte === original[index])) {
+              throw Error('Guest changed source bytes while opening an OPFS shadow');
+            }
             if ((await restarted.stat('GuestState/Slot01'))?.kind !== 'directory') {
               throw Error('Guest directory was lost during relaunch');
             }
@@ -558,14 +572,6 @@ if (serve) {
         await wait(() => document.querySelector('#status').textContent === 'Guest exited with code 0',
           'message box selected results and concurrent guest Sleep');
         if (document.querySelector('dialog')) throw Error('Message box resource survived completion');
-        // The same LoadLibraryA call must distinguish missing input from a DLL
-        // that exists but cannot yet be executed. Never hide missing loader support
-        // behind ERROR_MOD_NOT_FOUND when the selected source contains the module.
-        const dependency = await (await selected.getFileHandle('missing-dependency.dll', {create:true})).createWritable();
-        await dependency.write(new Uint8Array([77, 90])); await dependency.close();
-        await inspect('source-read.exe', 'existing DLL inspection');
-        document.querySelector('#launch').click();
-        await wait(() => document.querySelector('#status').textContent.includes('guest module loading is not implemented'), 'existing DLL unsupported stop');
         (await button('bad.exe')).click();
         await wait(() => document.querySelector('#status').textContent.includes('Executable rejected'), 'invalid PE stop');
         const after = new Uint8Array(await (await source.getFile()).arrayBuffer());

@@ -202,16 +202,16 @@ int __cdecl fixture_entry(void) {
       if (committed[index] != 0u) return 118;
       committed[index] = (unsigned char)(index + 1u);
     }
-    if (!VirtualFree(reserved, 4097u, 0x4000u) || GetLastError() != 0x789au) return 119;
-    committed = (unsigned char *)VirtualAlloc(reserved, 4096u, 0x1000u, 4u);
+    if (!VirtualFree(reserved + 1u, 4096u, 0x4000u) || GetLastError() != 0x789au) return 119;
+    committed = (unsigned char *)VirtualAlloc(reserved, 8192u, 0x1000u, 4u);
     if (committed != reserved || GetLastError() != 0x789au) return 120;
-    for (index = 0; index < 4096u; index += 1) {
+    for (index = 0; index < 8192u; index += 1) {
       if (committed[index] != 0u) return 121;
     }
     committed[4095] = 42u;
     if (VirtualAlloc(reserved + 7u * 4096u, 4096u, 0x1000u, 4u) != 0 ||
         GetLastError() != 487u || committed[4095] != 42u) return 122;
-    if (VirtualFree(reserved + 1u, 4096u, 0x4000u) ||
+    if (VirtualFree(reserved + 1u, 7u * 4096u, 0x4000u) ||
         GetLastError() != 87u || committed[4095] != 42u) return 123;
   }
 
@@ -229,8 +229,27 @@ int __cdecl fixture_entry(void) {
   // immutable without creating a writable handle or touching the source.
   if (CreateFileA(fixture_write_probe_path, 0x40000000u, 1u, 0, 3u,
                   0x08000020u, 0u) != 0xffffffffu || GetLastError() != 5u) return 39;
+  if (CreateFileA(fixture_write_probe_path, 0x40000000u, 1u, 0, 4u,
+                  0x08000020u, 0u) != 0xffffffffu || GetLastError() != 5u) return 139;
   if (CreateFileA(fixture_write_probe_path, 0x80000000u, 1u, 0, 2u,
                   0x08000020u, 0u) != 0xffffffffu || GetLastError() != 5u) return 40;
+  {
+    const char *shadow_path = "fixtures\\storage\\shadow-save.dat";
+    const unsigned char shadow_bytes[] = {0x19, 0x80, 0x27};
+    file = CreateFileA(shadow_path, 0xc0000000u, 0u, 0, 2u, 0x08000020u, 0u);
+    if (file == 0xffffffffu || GetLastError() != 183u || GetFileSize(file, 0) != 0u)
+      return 140;
+    if (!WriteFile(file, shadow_bytes, sizeof(shadow_bytes), &transferred, 0) ||
+        transferred != sizeof(shadow_bytes) || !CloseHandle(file)) return 141;
+    file = CreateFileA(shadow_path, 0xc0000000u, 0u, 0, 4u, 0x08000020u, 0u);
+    if (file == 0xffffffffu || GetLastError() != 183u || !CloseHandle(file)) return 142;
+    SetLastError(0x3456u);
+    file = CreateFileA(shadow_path, 0xc0000000u, 0u, 0, 3u, 0x08000020u, 0u);
+    if (file == 0xffffffffu || GetLastError() != 0x3456u ||
+        !ReadFile(file, buffer, sizeof(buffer), &transferred, 0) ||
+        transferred != sizeof(shadow_bytes) || !bytes_equal(buffer, shadow_bytes, transferred) ||
+        !CloseHandle(file)) return 143;
+  }
   // Guest-originated OPFS directories survive a fresh worker/runtime launch.
   if (!CreateDirectoryA("GuestState", 0) && GetLastError() != 183u) return 42;
   if (CreateDirectoryA("GUESTSTATE", 0) || GetLastError() != 183u) return 43;
@@ -406,11 +425,9 @@ int __cdecl fixture_entry(void) {
   if (GetFileAttributesA(".") != 0x30u || GetLastError() != 3u) return 24;
   if (GetFileAttributesA("D:\\Vine\\fixtures\\storage\\source-read-v1.dat") != 0xffffffffu ||
       GetLastError() != 3u) return 25;
-  // Neither a write open nor CREATE_ALWAYS may mutate the selected source.
+  // A preserving write open and a read-only CREATE_ALWAYS cannot alter the source.
   if (CreateFileA(fixture_source_path, 0x40000000u, 1u, 0, 3u,
                   0x08000020u, 0u) != 0xffffffffu || GetLastError() != 5u) return 37;
-  if (CreateFileA(fixture_source_path, 0xc0000000u, 0u, 0, 2u,
-                  0x08000020u, 0u) != 0xffffffffu || GetLastError() != 5u) return 91;
   if (CreateFileA(fixture_source_path, 0x80000000u, 1u, 0, 2u,
                   0x08000020u, 0u) != 0xffffffffu || GetLastError() != 5u) return 38;
   file = CreateFileA(fixture_source_path, 0x80000000u, 1u, 0, 3u,
@@ -453,6 +470,10 @@ int __cdecl fixture_entry(void) {
   if (result == 0 &&
       (LoadLibraryA("missing-dependency.dll") != 0 || GetLastError() != 126u)) {
     result = 16;
+  }
+  if (result == 0 &&
+      (LoadLibraryA("invalid-dependency.dll") != 0 || GetLastError() != 193u)) {
+    result = 144;
   }
   return result;
 }

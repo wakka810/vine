@@ -571,6 +571,11 @@ struct PendingSourceSearch {
     selected: Option<Vec<(Vec<u8>, bool)>>,
 }
 
+enum PendingSourceLibrary {
+    Reading(Vec<u8>),
+    InvalidImage(Vec<u8>),
+}
+
 struct BrowserRuntime {
     runtime: Runtime,
     dispatcher: ApiDispatcher,
@@ -581,7 +586,7 @@ struct BrowserRuntime {
     prepared_source_trap: Option<(RuntimeThreadId, GuestAddress, GuestAddress, GuestAddress)>,
     pending_source_lookup: Option<(u32, Vec<u8>)>,
     pending_source_search: Option<PendingSourceSearch>,
-    pending_source_library: Option<Vec<u8>>,
+    pending_source_library: Option<PendingSourceLibrary>,
 }
 
 struct StopContext {
@@ -1032,11 +1037,9 @@ impl BrowserRuntime {
     }
 
     fn complete_source_library(&mut self, bytes: Option<Vec<u8>>) -> Result<Value, String> {
-        let path = self
-            .pending_source_library
-            .as_ref()
-            .ok_or("no pending library read")?
-            .clone();
+        let Some(PendingSourceLibrary::Reading(path)) = &self.pending_source_library else {
+            return Err("no pending library read".to_owned());
+        };
         let (thread, endpoint, stack, return_address) = self
             .prepared_source_trap
             .ok_or("library read lost its guest call")?;
@@ -1061,10 +1064,22 @@ impl BrowserRuntime {
             if bytes.len() > MAX_INPUT_BYTES {
                 return Err("source DLL exceeds the input limit".to_owned());
             }
-            let snapshot =
-                ModuleSnapshot::from_bytes(bytes, &Pe32Limits::default()).map_err(error_string)?;
-            let loader =
-                build_pe32_load_plan(&snapshot, Pe32Limits::default()).map_err(error_string)?;
+            let limits = Pe32Limits::default();
+            let image = ModuleSnapshot::from_bytes(bytes, &limits).and_then(|snapshot| {
+                build_pe32_load_plan(&snapshot, limits).map(|loader| (snapshot, loader))
+            });
+            let (snapshot, loader) = match image {
+                Ok((snapshot, loader))
+                    if loader.image.kind == vine_core::ImageKind::DynamicLibrary =>
+                {
+                    (snapshot, loader)
+                }
+                _ => {
+                    self.pending_source_library =
+                        Some(PendingSourceLibrary::InvalidImage(path.clone()));
+                    return Ok(json!({ "kind": "source-library-complete" }));
+                }
+            };
             let imports = runtime_catalog_for_load_plan(&[&loader])?;
             let mut exports = self
                 .runtime
@@ -1088,7 +1103,7 @@ impl BrowserRuntime {
                 loader.image.size_of_image,
             )?;
             let path = SHIFT_JIS
-                .decode_without_bom_handling_and_without_replacement(&path)
+                .decode_without_bom_handling_and_without_replacement(path)
                 .ok_or("DLL path is not Windows-932")?;
             let requested_name = format!("C:\\Vine\\{path}");
             let systems = loader
@@ -1271,7 +1286,10 @@ impl BrowserRuntime {
         }
         if self.pending_source_lookup.is_some()
             || self.pending_source_search.is_some()
-            || self.pending_source_library.is_some()
+            || matches!(
+                self.pending_source_library,
+                Some(PendingSourceLibrary::Reading(_))
+            )
         {
             return Err("source lookup must finish before guest API dispatch".to_owned());
         }
@@ -1298,7 +1316,8 @@ impl BrowserRuntime {
                 vine_core::ApiSourceLookup::Library { relative_path_a } => {
                     let metadata =
                         json!({ "kind": "source-library", "relativePathA": relative_path_a });
-                    self.pending_source_library = Some(relative_path_a);
+                    self.pending_source_library =
+                        Some(PendingSourceLibrary::Reading(relative_path_a));
                     metadata
                 }
                 vine_core::ApiSourceLookup::Search { pattern, parent } => {
@@ -1344,12 +1363,20 @@ impl BrowserRuntime {
             return_address,
         };
         let callback_sentinel = self.callback_sentinel;
-        let outcome = self.runtime.dispatch_api_call(
-            &self.dispatcher,
-            trap,
-            callback_sentinel,
-            Some(x86_context),
-        );
+        let outcome = match self.pending_source_library.take() {
+            Some(PendingSourceLibrary::InvalidImage(path)) => self
+                .runtime
+                .reject_source_library_image(&self.dispatcher, trap, path),
+            None => self.runtime.dispatch_api_call(
+                &self.dispatcher,
+                trap,
+                callback_sentinel,
+                Some(x86_context),
+            ),
+            Some(PendingSourceLibrary::Reading(_)) => {
+                unreachable!("unfinished read rejected before dispatch")
+            }
+        };
         acknowledge_thread_wakes(&mut self.runtime);
         let result: Result<(DispatchMetadata, Option<MemoryDeltaBuffers>), String> = match outcome {
             DispatchOutcome::Deferred(call) => {
@@ -5783,6 +5810,31 @@ mod tests {
             request["relativePathA"],
             json!(b"plugin\\fixture.dll".to_vec())
         );
+        let before = browser.runtime.memory().stats();
+        browser
+            .complete_source_library(Some(b"MZ".to_vec()))
+            .unwrap();
+        assert_eq!(browser.runtime.memory().stats(), before);
+        assert_eq!(
+            browser.dispatcher.endpoint(endpoint.address),
+            Some(&original_endpoint)
+        );
+        let (DispatchMetadata::ApiCompletion(resume), delta, _) = browser
+            .dispatch(endpoint.address, stack, return_address, 0, context)
+            .unwrap()
+        else {
+            panic!("invalid DLL must return to the guest");
+        };
+        assert_eq!(resume, [return_address.0, stack.0 + 8, 0, 1]);
+        assert_eq!(browser.runtime.current_last_error().unwrap(), 193);
+        assert!(delta.is_none());
+        let (DispatchMetadata::Json(retry), _, _) = browser
+            .dispatch(endpoint.address, stack, return_address, 0, context)
+            .unwrap()
+        else {
+            panic!("a previous invalid image must not prevent a fresh lookup");
+        };
+        assert_eq!(retry, request);
         let mut dll = core_test_support::imported_pe(&[("kernel32.dll", "GetACP")]);
         dll[0x96..0x98].copy_from_slice(&0x2103_u16.to_le_bytes());
         dll[0x98 + 28..0x98 + 32].copy_from_slice(&0x6000_0000_u32.to_le_bytes());

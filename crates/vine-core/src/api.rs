@@ -1577,6 +1577,30 @@ impl Runtime {
         Ok(())
     }
 
+    pub fn reject_source_library_image(
+        &mut self,
+        dispatcher: &ApiDispatcher,
+        trap: ApiOwnedTrap,
+        relative_path_a: Vec<u8>,
+    ) -> DispatchOutcome {
+        if let Err(fault) = self.synchronize_exception_callback_stack(trap.stack_pointer) {
+            return DispatchOutcome::Fault(fault);
+        }
+        dispatcher.dispatch_owned(trap, self, None, |frame, runtime, _| {
+            match runtime.prepare_api_source_lookup(&frame.endpoint, frame.stack_pointer) {
+                Ok(Some(ApiSourceLookup::Library {
+                    relative_path_a: path,
+                })) if path == relative_path_a => {
+                    ApiHandlerResult::Immediate(ApiImmediate::new(Some(0)).with_last_error(193))
+                }
+                Err(fault) => ApiHandlerResult::Fault(fault),
+                _ => ApiHandlerResult::Fault(ApiFault::new(
+                    "source DLL rejection belongs to a changed guest call",
+                )),
+            }
+        })
+    }
+
     pub fn dispatch_api_call(
         &mut self,
         dispatcher: &ApiDispatcher,

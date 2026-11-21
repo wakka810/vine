@@ -1159,11 +1159,8 @@ fn handle_virtual_free_basic(
     }
     if free_type != MEM_DECOMMIT {
         return Err(ApiFault::new(
-            "VirtualFree currently supports nonempty decommit inside a reservation",
+            "VirtualFree requires MEM_DECOMMIT or MEM_RELEASE",
         ));
-    }
-    if address == 0 || size == 0 {
-        return virtual_memory_failure(Some(u32::from(false)), ERROR_INVALID_PARAMETER);
     }
     match runtime.decommit_virtual_memory(GuestAddress(address), size) {
         Ok(Ok(())) => Ok(ApiImmediate::new(Some(u32::from(true)))),
@@ -2809,9 +2806,9 @@ pub fn complete_kernel32_opfs_open(
     if byte_length > 9_007_199_254_740_991
         || (observation != 1 && byte_length != 0)
         || (observation == 1 && disposition == 2 && byte_length != 0)
-        || (observation == 0 && disposition == 3)
+        || (observation == 0 && (disposition == 3 || (disposition == 4 && source_missing == 0)))
         || observation > 7
-        || (observation == 7 && (!has_source_fallback || disposition != 3))
+        || (observation == 7 && (source_missing != 0 || !matches!(disposition, 3 | 4)))
     {
         return DispatchOutcome::Fault(invalid());
     }
@@ -2843,7 +2840,8 @@ pub fn complete_kernel32_opfs_open(
         ),
         4 | 6 => (None, Some(ERROR_ACCESS_DENIED)),
         5 => (None, Some(ERROR_DISK_FULL)),
-        7 => (Some(0), None),
+        7 if has_source_fallback => (Some(0), None),
+        7 => (None, Some(ERROR_ACCESS_DENIED)),
         _ => unreachable!("validated OPFS observation"),
     };
     let mut immediate = ApiImmediate::new(Some(opened.map_or(INVALID_HANDLE_VALUE, |_| handle.0)));
@@ -2859,7 +2857,7 @@ pub fn complete_kernel32_opfs_open(
         runtime,
     );
     if matches!(outcome, DispatchOutcome::Immediate(_)) {
-        runtime.commit_opfs_file_open(request_id, opened, observation == 7);
+        runtime.commit_opfs_file_open(request_id, opened, observation == 7 && has_source_fallback);
     }
     outcome
 }

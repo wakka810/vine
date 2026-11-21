@@ -298,7 +298,7 @@ fn successful_virtual_memory_calls_preserve_last_error_from_prior_windows_failur
     let committed_before_null = fixture.runtime.memory.stats().committed_pages;
     let null_free = fixture.call("VirtualFree", &[0, 4096, MEM_DECOMMIT]);
     assert_eq!(null_free.eax, Some(0));
-    assert_eq!(fixture.runtime.current_last_error().unwrap(), 87);
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), 487);
     assert_eq!(
         fixture.runtime.memory.stats().committed_pages,
         committed_before_null
@@ -363,7 +363,7 @@ fn reserve_commit_decommit_and_recommit_preserve_one_owned_reservation() {
         .unwrap();
     fixture.acknowledge();
 
-    let freed = fixture.call("VirtualFree", &[base, 4097, MEM_DECOMMIT]);
+    let freed = fixture.call("VirtualFree", &[base + 1, 4096, MEM_DECOMMIT]);
     assert_eq!(freed.eax, Some(1));
     assert_eq!(fixture.runtime.current_last_error().unwrap(), LAST_ERROR);
     assert_eq!(freed.stack_pointer, GuestAddress(STACK.0 + 16));
@@ -472,9 +472,26 @@ fn unsupported_protection_and_allocation_flags_do_not_mutate_authority() {
 
 #[test]
 fn decommit_invalid_ranges_fail_without_memory_changes() {
-    for (offset, size, expected_error) in [(0, 0, 87), (7 * 4096, 4096, 487)] {
+    for (offset, size, expected_error) in [
+        (1, 7 * 4096, 87),
+        (0, u32::MAX, 87),
+        (4096 + 1, 0, 487),
+        (7 * 4096, 4096, 487),
+    ] {
         let mut fixture = Fixture::new();
         let base = fixture.reserve();
+        assert_eq!(
+            fixture
+                .call("VirtualAlloc", &[base, 4096, MEM_COMMIT, READ_WRITE])
+                .eax,
+            Some(base)
+        );
+        fixture.acknowledge();
+        fixture
+            .runtime
+            .memory
+            .write(GuestAddress(base), &[42])
+            .unwrap();
         fixture.prepare(&[base + offset, size, MEM_DECOMMIT]);
         let records = fixture.runtime.process_address_space_allocator().clone();
         let stats = fixture.runtime.memory.stats();
@@ -488,6 +505,39 @@ fn decommit_invalid_ranges_fail_without_memory_changes() {
         );
         assert_eq!(fixture.runtime.process_address_space_allocator(), &records);
         assert_eq!(fixture.runtime.memory.stats(), stats);
+        assert_eq!(
+            fixture.runtime.memory.read(GuestAddress(base), 1).unwrap(),
+            [42]
+        );
+    }
+}
+
+#[test]
+fn zero_size_decommit_at_the_first_page_keeps_the_reservation() {
+    for offset in [0, 1] {
+        let mut fixture = Fixture::new();
+        let before = fixture.runtime.memory.stats();
+        let base = fixture.reserve();
+        for page in [base, base + 6 * 4096] {
+            assert_eq!(
+                fixture
+                    .call("VirtualAlloc", &[page, 4096, MEM_COMMIT, READ_WRITE])
+                    .eax,
+                Some(page)
+            );
+            fixture.acknowledge();
+        }
+        assert_eq!(
+            fixture
+                .call("VirtualFree", &[base + offset, 0, MEM_DECOMMIT])
+                .eax,
+            Some(1)
+        );
+        assert_eq!(fixture.runtime.current_last_error().unwrap(), LAST_ERROR);
+        fixture.acknowledge();
+        let after = fixture.runtime.memory.stats();
+        assert_eq!(after.reserved_pages, before.reserved_pages + 7);
+        assert_eq!(after.committed_pages, before.committed_pages);
     }
 }
 
