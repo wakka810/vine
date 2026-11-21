@@ -15,6 +15,7 @@ const prefix = "/__vine_dev_source/";
 const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "vine-readonly-source-")));
 const selected = path.join(temp, "selected");
 const outside = path.join(temp, "outside");
+const serverAssets = path.join(temp, "assets");
 await mkdir(selected);
 await mkdir(outside);
 const original = Buffer.from("original source bytes 日本語", "utf8");
@@ -60,8 +61,10 @@ async function serve(handler) {
 }
 
 async function productServer(arguments_, inspect) {
-  const child = spawn(process.execPath, ["tools/check-browser-product.mjs", "--serve", "--port", "0", ...arguments_], {
+  const child = spawn(process.execPath, ["tools/check-browser-product.mjs", "--serve", "--port", "0",
+    "--assets", serverAssets, ...arguments_], {
     cwd: repository, stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, VINE_EXECUTION_MODE: "strict" },
   });
   let output = "";
   let errors = "";
@@ -99,12 +102,14 @@ try {
   });
   assert.notEqual(noServe.status, 0);
   assert.match(noServe.stderr, /requires --serve/u);
-  const productIndex = path.join(repository, ".work", "browser-runtime", "index.html");
-  let builtIndex;
-  try { builtIndex = await readFile(productIndex, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  const productIndex = path.join(serverAssets, "index.html");
+  const originalIndex = await readFile(path.join(repository, "browser", "runtime-worker", "index.html"), "utf8");
+  await mkdir(serverAssets);
+  await writeFile(productIndex, originalIndex);
+  await writeFile(path.join(serverAssets, "execution-modes.json"), JSON.stringify({ default: "strict", fast: false }));
   await productServer([], async (port) => {
     assert.equal((await request(port, `${prefix}config`)).status, 404);
-    if (builtIndex !== undefined) assert.equal((await request(port, "/")).bytes.toString("utf8"), builtIndex);
+    assert.equal((await request(port, "/")).bytes.toString("utf8"), originalIndex);
   });
   if (process.platform !== "linux") {
     await assert.rejects(createDevSourceHandler(selected), /requires Linux/u);
@@ -291,11 +296,9 @@ try {
       const response = await request(port, `${prefix}config`);
       assert.equal(response.status, 200);
       assert.equal(response.json().id, config.id);
-      if (builtIndex !== undefined) {
-        const html = (await request(port, "/")).bytes.toString("utf8");
-        assert.match(html, /<meta name="vine-dev-source" content="enabled">/u);
-        assert.equal(await readFile(productIndex, "utf8"), builtIndex, "serving a dev marker must not edit browser assets");
-      }
+      const html = (await request(port, "/")).bytes.toString("utf8");
+      assert.match(html, /<meta name="vine-dev-source" content="enabled">/u);
+      assert.equal(await readFile(productIndex, "utf8"), originalIndex, "serving a dev marker must not edit browser assets");
     });
     assert.equal((await readFile(path.join(outside, "private.dat"))).toString(), "outside source");
     assert.equal((await readFile(path.join(selected, "日本語", "asset.dat"))).toString(), "nested source");
